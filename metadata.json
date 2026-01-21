@@ -1,0 +1,8 @@
+{
+  "name": "ParQueen",
+  "description": "The ultimate NYC parking companion. Find street spots via community pings, rent private garages, and decipher complex parking signs with AI.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}
