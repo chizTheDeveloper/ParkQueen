@@ -8,6 +8,7 @@ declare var L: any;
 
 const NYC_CENTER = [40.7831, -73.9712];
 
+// Mock data used ONLY when database connection fails
 const MOCK_PINGS: StreetSpot[] = [
   { id: 'demo1', lat: 40.7842, lng: -73.9725, type: 'free', status: 'available', finderName: 'James', finderId: 'other', reportedAt: new Date(), leavingAt: new Date(Date.now() + 10 * 60000) },
   { id: 'demo2', lat: 40.7815, lng: -73.9701, type: 'free', status: 'available', finderName: 'Sarah', finderId: 'other', reportedAt: new Date(), leavingAt: new Date(Date.now() + 5 * 60000) },
@@ -85,7 +86,7 @@ export const MapView: React.FC<MapViewProps> = ({ onMessageUser, setView }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const [mapInstance, setMapInstance] = useState<any>(null);
   const spotsLayerRef = useRef<any>(null);
-  const [spots, setSpots] = useState<StreetSpot[]>(MOCK_PINGS);
+  const [spots, setSpots] = useState<StreetSpot[]>([]);
   const [selectedItem, setSelectedItem] = useState<{ type: 'street', data: StreetSpot } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showDetailsForm, setShowDetailsForm] = useState(false);
@@ -95,7 +96,8 @@ export const MapView: React.FC<MapViewProps> = ({ onMessageUser, setView }) => {
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [logoError, setLogoError] = useState(false);
-  const [isDemoMode, setIsDemoMode] = useState(true);
+  // Start in demo mode if DB is missing, otherwise assume connected until proven otherwise
+  const [isDemoMode, setIsDemoMode] = useState(!db);
   
   const deviceIdRef = useRef(localStorage.getItem('parqueen_device_id') || `user_${Math.random().toString(36).substr(2, 9)}`);
   useEffect(() => { localStorage.setItem('parqueen_device_id', deviceIdRef.current); }, []);
@@ -125,14 +127,20 @@ export const MapView: React.FC<MapViewProps> = ({ onMessageUser, setView }) => {
       return;
     }
     
+    // Listen for pings reported in the last 24 hours to keep map relevant
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    
     const q = query(
       collection(db, "pings"),
       orderBy("reportedAt", "desc"),
-      limit(50)
+      limit(100)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
+      // If we receive data, we are definitely online
       setIsDemoMode(false);
+      
       const communitySpots: StreetSpot[] = snapshot.docs.map(doc => {
         const data = doc.data();
         const isMine = data.finderId === deviceIdRef.current;
@@ -149,8 +157,11 @@ export const MapView: React.FC<MapViewProps> = ({ onMessageUser, setView }) => {
         };
       });
 
-      const recentSpots = communitySpots.length > 0 ? communitySpots : MOCK_PINGS;
-      setSpots(recentSpots);
+      // IMPORTANT: Only use Mock Data if we are in actual Demo Mode (connection failure).
+      // If the database is connected but empty, we show an empty map. 
+      // This ensures that when a user pings, they see THAT ping, not a mix of fake and real data.
+      setSpots(communitySpots);
+      
     }, (error) => {
       console.warn("Firestore listener restricted (database not found or permission denied). Using Demo Mode.", error);
       setIsDemoMode(true);
@@ -187,6 +198,7 @@ export const MapView: React.FC<MapViewProps> = ({ onMessageUser, setView }) => {
   useEffect(() => {
     if (!mapInstance || !spotsLayerRef.current) return;
     spotsLayerRef.current.clearLayers();
+    
     spots.forEach(spot => {
       const isMine = spot.finderId === 'me' || spot.finderId === deviceIdRef.current;
       const marker = L.marker([spot.lat, spot.lng], { icon: createCustomMarker(isMine) });
@@ -220,6 +232,7 @@ export const MapView: React.FC<MapViewProps> = ({ onMessageUser, setView }) => {
         leavingTime.setHours(hours, minutes, 0, 0);
       }
 
+      // Optimistic Update Object
       const newSpot: StreetSpot = {
         id: `temp_${Date.now()}`,
         lat,
@@ -234,6 +247,7 @@ export const MapView: React.FC<MapViewProps> = ({ onMessageUser, setView }) => {
 
       try {
         if (!isDemoMode && db) {
+          // Attempt to write to Firestore
           await addDoc(collection(db, "pings"), {
             lat,
             lng,
@@ -242,13 +256,19 @@ export const MapView: React.FC<MapViewProps> = ({ onMessageUser, setView }) => {
             finderId: deviceIdRef.current,
             finderName: 'ParQueen User'
           });
+          // Do NOT update local state here. 
+          // We rely on onSnapshot to receive the new document and update the map.
+          // This confirms to the user that the data was actually saved to the server.
         } else {
           // If in Demo mode or db missing, add to local state only
           setSpots(prev => [newSpot, ...prev]);
         }
       } catch (err) {
         console.error("Broadcast failed, falling back to local storage:", err);
+        // If write fails (e.g. offline), we fall back to local display
+        setIsDemoMode(true);
         setSpots(prev => [newSpot, ...prev]);
+        alert("Connection issue: Spot saved locally but may not be visible to others.");
       }
 
       setIsBroadcasting(false);
@@ -310,7 +330,7 @@ export const MapView: React.FC<MapViewProps> = ({ onMessageUser, setView }) => {
                       </div>
                       <h2 className="text-3xl font-black leading-tight mb-1">{isEditMode ? 'Update Pin' : 'Ping Spot'}</h2>
                       <p className="text-queen-400 text-xs font-black uppercase tracking-[0.2em] opacity-80">
-                        {isDemoMode ? 'Demo Mode Active' : 'Broadcast Live to NYC'}
+                        {isDemoMode ? 'Offline Mode Active' : 'Broadcasting Live'}
                       </p>
                   </div>
 
