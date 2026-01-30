@@ -1,5 +1,7 @@
+
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
+import { getAuth, signInAnonymously } from "firebase/auth";
 import { getAnalytics } from "firebase/analytics";
 
 const firebaseConfig = {
@@ -11,35 +13,22 @@ const firebaseConfig = {
   appId: "1:768131391875:web:613c5d2a948862333196b6"
 };
 
-// Initialize Firebase App singleton safely
 const app = (() => {
   try {
     if (typeof window === 'undefined') return null;
     return getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
   } catch (error) {
-    console.warn("Firebase App initialization failed (likely configuration or environment issue).");
+    console.warn("Firebase App initialization failed.");
     return null;
   }
 })();
 
-// Initialize Firestore with a safety wrapper
-export const db = (() => {
-  if (!app) return null;
-  try {
-    return getFirestore(app);
-  } catch (error) {
-    console.warn("Firestore service is not available.");
-    return null;
-  }
-})();
+export const db = app ? getFirestore(app) : null;
+export const analytics = app && typeof window !== 'undefined' ? getAnalytics(app) : null;
 
-// Initialize Analytics with environment and support checks
-export const analytics = (() => {
-  if (!app || typeof window === 'undefined') return null;
-  try {
-    return getAnalytics(app);
-  } catch (error) {
-    // Analytics failure shouldn't crash the app
-    return null;
-  }
-})();
+const auth = app ? getAuth(app) : null;
+if (auth) {
+  signInAnonymously(auth).catch((error) => {
+    console.error("Anonymous sign-in failed", error);
+  });
+}
