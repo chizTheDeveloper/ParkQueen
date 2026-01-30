@@ -2,7 +2,7 @@
 <html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>ParQueen - NYC Parking</title>
     
     <!-- Tailwind CSS -->
@@ -31,27 +31,26 @@
                 700: '#2D2D2D',
               }
             },
-            animation: {
-              'pulse-gentle': 'pulse-gentle 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-            },
-            keyframes: {
-              'pulse-gentle': {
-                '0%, 100%': { opacity: '0.4', transform: 'scale(1)' },
-                '50%': { opacity: '0.1', transform: 'scale(1.2)' },
-              }
-            }
           }
         }
       }
     </script>
     <style>
+      html, body, #root { height: 100%; }
+      .sp-page { min-height: 100dvh; }
+      .sp-overlay { pointer-events: none; }
+      .sp-overlay > * { pointer-events: auto; }
+
       .no-scrollbar::-webkit-scrollbar { display: none; }
       .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
       
       body {
-        transition: background-color 0.3s ease;
         background-color: #121212;
         overscroll-behavior-y: none;
+      }
+
+      .mapboxgl-ctrl-bottom-left, .mapboxgl-ctrl-bottom-right {
+        display: none;
       }
     </style>
     

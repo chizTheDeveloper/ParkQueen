@@ -3,13 +3,12 @@ import { getFirestore } from "firebase/firestore";
 import { getAnalytics } from "firebase/analytics";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBn7DP3Wm1kGoEo7jn-ZAatiXhgtIuJbBs",
-  authDomain: "gen-lang-client-0911917934.firebaseapp.com",
-  projectId: "gen-lang-client-0911917934",
-  storageBucket: "gen-lang-client-0911917934.firebasestorage.app",
-  messagingSenderId: "584580846540",
-  appId: "1:584580846540:web:fb0a7cb5b21cfe066cc369",
-  measurementId: "G-KDEJ3Q03D9"
+  apiKey: "AIzaSyCKSqWVd6JqpcrNUG6hei8Ug1njaIkAI7Y",
+  authDomain: "parkqueen-46475363-ccf36.firebaseapp.com",
+  projectId: "parkqueen-46475363-ccf36",
+  storageBucket: "parkqueen-46475363-ccf36.firebasestorage.app",
+  messagingSenderId: "768131391875",
+  appId: "1:768131391875:web:613c5d2a948862333196b6"
 };
 
 // Initialize Firebase App singleton safely
