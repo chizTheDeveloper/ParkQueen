@@ -104,7 +104,12 @@ const PingModal: React.FC<{ isOpen: boolean; onClose: () => void; onPing: (depar
     );
 };
 
-export const MapView: React.FC<AppView> = () => {
+interface MapViewProps {
+  setView: (view: AppView) => void;
+  onMessageUser: (userId: string, context?: any) => void;
+}
+
+export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
     const mapContainerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
     const spotMarkersRef = useRef<Record<string, { marker: mapboxgl.Marker; timerId: number | undefined }>>({});
@@ -308,7 +313,7 @@ export const MapView: React.FC<AppView> = () => {
                                 onFocus={() => setSearchActive(true)}
                            />
                         </div>
-                        {!searchActive && <div className="flex items-center gap-4 text-gray-400"><List size={22} /><Camera size={22} /><MessageCircle size={22} /><Bell size={22} /></div>}
+                        {!searchActive && <div className="flex items-center gap-4 text-gray-400"><List size={22} className="cursor-pointer" onClick={() => setView(AppView.GARAGE_LIST)} /><Camera size={22} className="cursor-pointer" onClick={() => setView(AppView.AI_ASSISTANT)} /><MessageCircle size={22} className="cursor-pointer" onClick={() => setView(AppView.MESSAGES)} /><Bell size={22} className="cursor-pointer" onClick={() => setView(AppView.NOTIFICATIONS)} /></div>}
                     </div>
                     {searchActive && <button onClick={handleCancelSearch} className="text-white font-semibold px-4 h-14">Cancel</button>}
                 </header>
