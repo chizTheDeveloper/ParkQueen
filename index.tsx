@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import './index.css';
 
 // Polyfill process for browser environment to prevent "process is not defined" errors
 // This is necessary because the Gemini SDK and other libs might reference 'process'

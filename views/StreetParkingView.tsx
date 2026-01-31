@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { StreetSpot, AppView } from '../types';
-import { MapPin, Check, Locate, ChevronUp, ChevronDown, List, Camera, MessageCircle, Bell, Clock, Calendar, X } from 'lucide-react';
+import { MapPin, Check, Locate, ChevronUp, ChevronDown, List, Camera, MessageCircle, Bell, Clock, Calendar, X, Search } from 'lucide-react';
 import { db } from '../firebase';
 import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
 import { collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, Timestamp } from 'firebase/firestore';
@@ -107,7 +107,7 @@ const PingModal: React.FC<{ isOpen: boolean; onClose: () => void; onPing: (depar
 export const MapView: React.FC<AppView> = () => {
     const mapContainerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
-    const spotMarkersRef = useRef<Record<string, mapboxgl.Marker>>({});
+    const spotMarkersRef = useRef<Record<string, { marker: mapboxgl.Marker; timerId: number | undefined }>>({});
     const [selectedItem, setSelectedItem] = useState<StreetSpot | null>(null);
     const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
     const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
@@ -115,6 +115,11 @@ export const MapView: React.FC<AppView> = () => {
     const [isPinging, setIsPinging] = useState(false);
     const [showPingConfirmation, setShowPingConfirmation] = useState(false);
     const [isPingModalOpen, setPingModalOpen] = useState(false);
+    const [searchActive, setSearchActive] = useState(false);
+    const [searchQuery, setSearchQuery] = useState("");
+    const searchInputRef = useRef<HTMLInputElement | null>(null);
+
+    const resizeMap = () => mapRef.current?.resize();
 
     useEffect(() => {
         const auth = getAuth();
@@ -124,11 +129,45 @@ export const MapView: React.FC<AppView> = () => {
     useEffect(() => {
         if (!mapContainerRef.current || mapRef.current) return;
         mapboxgl.accessToken = MAPBOX_TOKEN;
-        const map = new mapboxgl.Map({ container: mapContainerRef.current, style: 'mapbox://styles/mapbox/dark-v11', center: NYC_CENTER, zoom: 14, attributionControl: false });
+        const map = new mapboxgl.Map({ container: mapContainerRef.current, style: 'mapbox://styles/mapbox/dark-v11', center: NYC_CENTER, zoom: 14, attributionControl: false, interactive: true });
         mapRef.current = map;
-        map.on('load', handleLocateMe);
-        return () => { map.remove(); mapRef.current = null; };
+
+        map.on('load', () => {
+            handleLocateMe();
+            resizeMap();
+            setTimeout(resizeMap, 100); // Additional resize after a short delay
+            requestAnimationFrame(() => {
+                const r = mapContainerRef.current?.getBoundingClientRect();
+                console.log("Initial map rect", r?.width, r?.height);
+            });
+        });
+
+        const onResize = () => resizeMap();
+        window.addEventListener("resize", onResize);
+        window.addEventListener("orientationchange", onResize);
+
+        return () => {
+            map.remove();
+            mapRef.current = null;
+            window.removeEventListener("resize", onResize);
+            window.removeEventListener("orientationchange", onResize);
+        };
     }, []);
+
+    useEffect(() => {
+        resizeMap();
+        if (searchActive) {
+            mapRef.current?.dragPan.disable();
+            mapRef.current?.scrollZoom.disable();
+            mapRef.current?.doubleClickZoom.disable();
+            mapRef.current?.touchZoomRotate.disable();
+        } else {
+            mapRef.current?.dragPan.enable();
+            mapRef.current?.scrollZoom.enable();
+            mapRef.current?.doubleClickZoom.enable();
+            mapRef.current?.touchZoomRotate.enable();
+        }
+    }, [searchActive]);
 
     useEffect(() => {
         if (!db || !mapRef.current || !currentUser) return;
@@ -136,42 +175,53 @@ export const MapView: React.FC<AppView> = () => {
         const q = query(collection(db, "spots"), orderBy("reportedAt", "desc"));
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const now = Date.now();
-            const spots = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as any)).filter(s => {
-                const reportedAtMs = s.reportedAt?.toMillis ? s.reportedAt.toMillis() : now;
-                const expiresAtMs = s.expiresAt?.toMillis ? s.expiresAt.toMillis() : reportedAtMs + 60_000;
-                return expiresAtMs > now && reportedAtMs <= now;
-            });
+            const activeSpots = snapshot.docs
+                .map(d => ({ id: d.id, ...d.data() } as any))
+                .filter(s => s.expiresAt?.toMillis() > now);
 
-            const nextIds = new Set(spots.map(s => s.id));
+            const nextIds = new Set(activeSpots.map(s => s.id));
             const markers = spotMarkersRef.current;
 
+            // Remove expired markers
             Object.keys(markers).forEach(id => {
                 if (!nextIds.has(id)) {
-                    markers[id].remove();
+                    markers[id].marker.remove();
+                    if (markers[id].timerId) clearTimeout(markers[id].timerId);
                     delete markers[id];
                 }
             });
 
-            spots.forEach(s => {
+            // Add or update markers
+            activeSpots.forEach(s => {
                 const lngLat: [number, number] = [s.lng, s.lat];
                 if (!markers[s.id]) {
                     const el = createMarkerElement(s.finderId === currentUser.uid);
-                    const m = new mapboxgl.Marker({ element: el, anchor: "center" }).setLngLat(lngLat).addTo(mapRef.current!);
-                    m.getElement().addEventListener('click', (e) => {
+                    const marker = new mapboxgl.Marker({ element: el, anchor: "center" }).setLngLat(lngLat).addTo(mapRef.current!);
+                    marker.getElement().addEventListener('click', (e) => {
                         e.stopPropagation();
                         setSelectedItem(s);
                         mapRef.current?.flyTo({ center: lngLat, zoom: 16 });
                     });
-                    markers[s.id] = m;
+
+                    const msLeft = s.expiresAt.toMillis() - Date.now();
+                    const timerId = setTimeout(() => {
+                        marker.remove();
+                        delete markers[s.id];
+                    }, msLeft);
+
+                    markers[s.id] = { marker, timerId };
                 } else {
-                    const cur = markers[s.id].getLngLat();
-                    if (cur.lng !== s.lng || cur.lat !== s.lat) markers[s.id].setLngLat(lngLat);
+                    const cur = markers[s.id].marker.getLngLat();
+                    if (cur.lng !== s.lng || cur.lat !== s.lat) markers[s.id].marker.setLngLat(lngLat);
                 }
             });
         });
 
         return () => {
-            Object.values(spotMarkersRef.current).forEach(m => m.remove());
+            Object.values(spotMarkersRef.current).forEach(m => {
+                m.marker.remove();
+                if (m.timerId) clearTimeout(m.timerId);
+            });
             spotMarkersRef.current = {};
             unsubscribe();
         };
@@ -201,22 +251,21 @@ export const MapView: React.FC<AppView> = () => {
         navigator.geolocation.getCurrentPosition(async (p) => {
             const newLocation: [number, number] = [p.coords.longitude, p.coords.latitude];
             setUserLocation(newLocation);
+
+            const now = Date.now();
+            const reportedAt = departureTime ? Timestamp.fromDate(departureTime) : Timestamp.fromMillis(now);
+            const expiresAt = Timestamp.fromMillis(reportedAt.toMillis() + 60_000);
             
-            const pingData: any = {
+            const pingData = {
                 lat: newLocation[1],
                 lng: newLocation[0],
                 type: 'free',
                 status: 'available',
                 finderId: currentUser.uid,
                 finderName: 'Anonymous',
+                reportedAt,
+                expiresAt,
             };
-
-            if (departureTime) {
-                pingData.reportedAt = Timestamp.fromDate(departureTime);
-                pingData.expiresAt = Timestamp.fromDate(new Date(departureTime.getTime() + 60_000));
-            } else {
-                pingData.reportedAt = serverTimestamp();
-            }
 
             if (db) {
                 await addDoc(collection(db, "spots"), pingData);
@@ -230,20 +279,38 @@ export const MapView: React.FC<AppView> = () => {
         });
     };
 
+    const handleCancelSearch = () => {
+        setSearchQuery("");
+        setSearchActive(false);
+        searchInputRef.current?.blur();
+    };
+
     return (
-        <div className="sp-page relative bg-black overflow-hidden h-full w-full">
+        <div className="sp-page">
             <PingModal isOpen={isPingModalOpen} onClose={() => setPingModalOpen(false)} onPing={handlePingSpot} />
-            <div ref={mapContainerRef} className="absolute inset-0 z-0" onClick={() => setSelectedItem(null)} />
+            <div ref={mapContainerRef} className="sp-map" onClick={() => setSelectedItem(null)} />
             {showPingConfirmation && (
                 <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 bg-green-500 text-white font-bold py-2 px-4 rounded-lg flex items-center gap-2 shadow-lg"><Check size={20} /><span>spot pinged successfully!</span></div>
             )}
-            <div className="sp-overlay absolute inset-0 z-10 flex flex-col justify-between p-3 pointer-events-none">
-                <header style={{ paddingTop: 'env(safe-area-inset-top)' }} className="pointer-events-auto">
-                    <div className="bg-black/60 backdrop-blur-md rounded-full flex items-center h-14 px-4 shadow-lg border border-white/10">
-                        <img src={`https://i.pravatar.cc/150?u=${currentUser?.uid || 'guest'}`} className="w-9 h-9 rounded-full shrink-0" />
-                        <div className="flex-1 mx-3"><input type="text" placeholder="Search..." className="bg-transparent outline-none text-white w-full" /></div>
-                        <div className="flex items-center gap-4 text-gray-400"><List size={22} /><Camera size={22} /><MessageCircle size={22} /><Bell size={22} /></div>
+            <div className="sp-overlay flex flex-col justify-between p-3">
+                <header style={{ paddingTop: 'env(safe-area-inset-top)' }} className="w-full flex items-start gap-2">
+                    <div className={`flex-1 bg-black/70 backdrop-blur-xl rounded-full flex items-center h-14 px-4 shadow-lg border border-white/10 transition-all duration-300 ease-out ${searchActive ? 'ring-2 ring-blue-500/90' : 'max-w-md'}`}>
+                        {!searchActive && <img src={`https://i.pravatar.cc/150?u=${currentUser?.uid || 'guest'}`} className="w-9 h-9 rounded-full shrink-0 transition-all duration-300" />} 
+                        <div className="flex-1 mx-3 flex items-center gap-2">
+                           <Search size={22} className={`text-gray-400 transition-all duration-300 ${searchActive ? 'text-blue-400' : ''}`} />
+                           <input 
+                                ref={searchInputRef}
+                                type="text" 
+                                placeholder="Search..." 
+                                className="bg-transparent outline-none text-white w-full h-full"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                onFocus={() => setSearchActive(true)}
+                           />
+                        </div>
+                        {!searchActive && <div className="flex items-center gap-4 text-gray-400"><List size={22} /><Camera size={22} /><MessageCircle size={22} /><Bell size={22} /></div>}
                     </div>
+                    {searchActive && <button onClick={handleCancelSearch} className="text-white font-semibold px-4 h-14">Cancel</button>}
                 </header>
                 {!selectedItem && (
                     <footer className="w-full flex justify-center pointer-events-auto" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
