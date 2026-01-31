@@ -1,28 +1,50 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { StreetSpot, AppView } from '../types';
-import { MapPin, Check, Locate, ChevronUp, ChevronDown, List, Camera, MessageCircle, Bell, Clock, Calendar, X, Search } from 'lucide-react';
+import { MapPin, Check, Locate, ChevronUp, ChevronDown, List, Camera, MessageCircle, Bell, Clock, Calendar, X, Search, AlertTriangle, Loader } from 'lucide-react';
 import { db } from '../firebase';
 import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
 import { collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, Timestamp } from 'firebase/firestore';
 import mapboxgl from 'mapbox-gl';
 
-const MAPBOX_TOKEN = 'pk.eyJ1IjoicGFycXVlZW4iLCJhIjoiY21rbGE4eWp3MDJ4ZzNmb3NkcHc1enpxYSJ9.RUGhWSWJR7mS0nSyk2U17w';
+const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 const NYC_CENTER: [number, number] = [-73.9712, 40.7831];
 
-const createMarkerElement = (isMine: boolean) => {
-    const el = document.createElement('div');
-    const color = isMine ? '#3B82F6' : '#6B7280'; // Blue-500 and Gray-500
+const createUserMarkerEl = () => {
+    const el = document.createElement("div");
+    el.style.width = "24px";
+    el.style.height = "24px";
+    el.style.borderRadius = "9999px";
+    el.style.background = "#3b82f6"; // blue
+    el.style.border = "2px solid white";
+    el.style.boxShadow = "0 6px 16px rgba(0,0,0,0.35)";
+    el.style.display = "flex";
+    el.style.alignItems = "center";
+    el.style.justifyContent = "center";
+    
     el.innerHTML = `
-    <div style="width: 36px; height: 36px; position: relative;">
-      <svg viewBox="0 0 24 24" fill="${color}" xmlns="http://www.w3.org/2000/svg" style="width: 100%; height: 100%; filter: drop-shadow(0px 4px 6px rgba(0,0,0,0.3));">
-        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" stroke="#FFF" stroke-width="1"/>
-        <text x="12" y="11" font-size="8" font-family="sans-serif" font-weight="bold" text-anchor="middle" fill="white">P</text>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
+        <path d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5z" />
       </svg>
-    </div>
-  `;
+    `;
     return el;
-};
+  };
+
+  const createPingMarkerEl = () => {
+    const el = document.createElement("div");
+    el.style.width = "22px";
+    el.style.height = "22px";
+    el.style.borderRadius = "9999px";
+    el.style.background = "#60a5fa";
+    el.style.border = "2px solid white";
+    el.style.boxShadow = "0 6px 16px rgba(0,0,0,0.35)";
+    el.style.display = "flex";
+    el.style.alignItems = "center";
+    el.style.justifyContent = "center";
+    el.style.cursor = "pointer";
+    el.innerHTML = `<span style="color:white;font-weight:700;font-size:12px;">P</span>`;
+    return el;
+  };
 
 const TimePicker: React.FC<{ initialTime: Date; onTimeChange: (time: Date) => void; }> = ({ initialTime, onTimeChange }) => {
     const [hour, setHour] = useState(initialTime.getHours() % 12 || 12);
@@ -59,7 +81,7 @@ const TimePicker: React.FC<{ initialTime: Date; onTimeChange: (time: Date) => vo
 
 const PingModal: React.FC<{ isOpen: boolean; onClose: () => void; onPing: (departure: Date | null) => void; }> = ({ isOpen, onClose, onPing }) => {
     const [view, setView] = useState<'main' | 'timePicker'>('main');
-    const [departureTime, setDepartureTime] = useState(new Date(Date.now() + 5 * 60_000)); // Default to 5 mins from now
+    const [departureTime, setDepartureTime] = useState(new Date(Date.now() + 5 * 60_000));
     const [pingType, setPingType] = useState<'now' | 'later'>('now');
 
     const handleSetTime = () => {
@@ -112,19 +134,23 @@ interface MapViewProps {
 export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
     const mapContainerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
-    const spotMarkersRef = useRef<Record<string, { marker: mapboxgl.Marker; timerId: number | undefined }>>({});
+    const spotMarkersRef = useRef<Record<string, mapboxgl.Marker>>({});
     const [selectedItem, setSelectedItem] = useState<StreetSpot | null>(null);
-    const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
     const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [isPinging, setIsPinging] = useState(false);
     const [showPingConfirmation, setShowPingConfirmation] = useState(false);
     const [isPingModalOpen, setPingModalOpen] = useState(false);
-    const [searchActive, setSearchActive] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [mapLoaded, setMapLoaded] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
-    const searchInputRef = useRef<HTMLInputElement | null>(null);
-
-    const resizeMap = () => mapRef.current?.resize();
+    const [searchOpen, setSearchOpen] = useState(false);
+    const [results, setResults] = useState<Array<{id:string; title:string; subtitle:string; center:[number,number]}>>([]);
+    const [loading, setLoading] = useState(false);
+    const [searchError, setSearchError] = useState<string | null>(null);
+    const inputRef = useRef<HTMLInputElement | null>(null);
+    const abortRef = useRef<AbortController | null>(null);
+    const tempMarkerRef = useRef<mapboxgl.Marker | null>(null);
 
     useEffect(() => {
         const auth = getAuth();
@@ -132,144 +158,135 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
     }, []);
 
     useEffect(() => {
-        if (!mapContainerRef.current || mapRef.current) return;
+        if (!MAPBOX_TOKEN) {
+            setError("VITE_MAPBOX_TOKEN is not set.");
+            return;
+        }
         mapboxgl.accessToken = MAPBOX_TOKEN;
-        const map = new mapboxgl.Map({ container: mapContainerRef.current, style: 'mapbox://styles/mapbox/dark-v11', center: NYC_CENTER, zoom: 14, attributionControl: false, interactive: true });
+        if (!mapContainerRef.current || mapRef.current) return;
+        const map = new mapboxgl.Map({ container: mapContainerRef.current, style: 'mapbox://styles/mapbox/dark-v11', center: NYC_CENTER, zoom: 14, attributionControl: false });
         mapRef.current = map;
-
-        map.on('load', () => {
-            handleLocateMe();
-            resizeMap();
-            setTimeout(resizeMap, 100); // Additional resize after a short delay
-            requestAnimationFrame(() => {
-                const r = mapContainerRef.current?.getBoundingClientRect();
-                console.log("Initial map rect", r?.width, r?.height);
-            });
-        });
-
-        const onResize = () => resizeMap();
-        window.addEventListener("resize", onResize);
-        window.addEventListener("orientationchange", onResize);
-
-        return () => {
-            map.remove();
-            mapRef.current = null;
-            window.removeEventListener("resize", onResize);
-            window.removeEventListener("orientationchange", onResize);
-        };
+        map.on('load', () => setMapLoaded(true));
+        return () => { map.remove(); mapRef.current = null; };
     }, []);
 
     useEffect(() => {
-        resizeMap();
-        if (searchActive) {
-            mapRef.current?.dragPan.disable();
-            mapRef.current?.scrollZoom.disable();
-            mapRef.current?.doubleClickZoom.disable();
-            mapRef.current?.touchZoomRotate.disable();
-        } else {
-            mapRef.current?.dragPan.enable();
-            mapRef.current?.scrollZoom.enable();
-            mapRef.current?.doubleClickZoom.enable();
-            mapRef.current?.touchZoomRotate.enable();
-        }
-    }, [searchActive]);
-
-    useEffect(() => {
-        if (!db || !mapRef.current || !currentUser) return;
+        if (!db || !mapLoaded) return;
 
         const q = query(collection(db, "spots"), orderBy("reportedAt", "desc"));
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            const now = Date.now();
-            const activeSpots = snapshot.docs
-                .map(d => ({ id: d.id, ...d.data() } as any))
-                .filter(s => s.expiresAt?.toMillis() > now);
+            const map = mapRef.current;
+            if (!map) return;
 
-            const nextIds = new Set(activeSpots.map(s => s.id));
-            const markers = spotMarkersRef.current;
+            const activeSpots: Record<string, StreetSpot> = {};
 
-            // Remove expired markers
-            Object.keys(markers).forEach(id => {
-                if (!nextIds.has(id)) {
-                    markers[id].marker.remove();
-                    if (markers[id].timerId) clearTimeout(markers[id].timerId);
-                    delete markers[id];
+            snapshot.forEach(doc => {
+                const spot = { id: doc.id, ...doc.data() } as StreetSpot;
+                const expiresAtMs = spot.expiresAt?.toMillis?.() ?? 0;
+                if (expiresAtMs > Date.now()) {
+                    activeSpots[spot.id] = spot;
+                }
+            });
+
+            // Reconciliation
+            const currentMarkerIds = Object.keys(spotMarkersRef.current);
+
+            // Remove old markers
+            currentMarkerIds.forEach(id => {
+                if (!activeSpots[id]) {
+                    spotMarkersRef.current[id].remove();
+                    delete spotMarkersRef.current[id];
                 }
             });
 
             // Add or update markers
-            activeSpots.forEach(s => {
-                const lngLat: [number, number] = [s.lng, s.lat];
-                if (!markers[s.id]) {
-                    const el = createMarkerElement(s.finderId === currentUser.uid);
-                    const marker = new mapboxgl.Marker({ element: el, anchor: "center" }).setLngLat(lngLat).addTo(mapRef.current!);
-                    marker.getElement().addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        setSelectedItem(s);
-                        mapRef.current?.flyTo({ center: lngLat, zoom: 16 });
-                    });
-
-                    const msLeft = s.expiresAt.toMillis() - Date.now();
-                    const timerId = setTimeout(() => {
-                        marker.remove();
-                        delete markers[s.id];
-                    }, msLeft);
-
-                    markers[s.id] = { marker, timerId };
+            Object.values(activeSpots).forEach(spot => {
+                const { id, lat, lng } = spot;
+                if (spotMarkersRef.current[id]) {
+                    spotMarkersRef.current[id].setLngLat([lng, lat]);
                 } else {
-                    const cur = markers[s.id].marker.getLngLat();
-                    if (cur.lng !== s.lng || cur.lat !== s.lat) markers[s.id].marker.setLngLat(lngLat);
+                    const el = createPingMarkerEl();
+                    const marker = new mapboxgl.Marker(el)
+                        .setLngLat([lng, lat])
+                        .addTo(map);
+                    spotMarkersRef.current[id] = marker;
                 }
             });
         });
 
-        return () => {
-            Object.values(spotMarkersRef.current).forEach(m => {
-                m.marker.remove();
-                if (m.timerId) clearTimeout(m.timerId);
-            });
-            spotMarkersRef.current = {};
-            unsubscribe();
-        };
-    }, [currentUser]);
+        return () => unsubscribe();
+    }, [mapLoaded]);
 
     useEffect(() => {
-        if (userMarkerRef.current) userMarkerRef.current.remove();
-        if (mapRef.current && userLocation) {
-            const el = document.createElement('div');
-            el.innerHTML = `<div class="relative flex items-center justify-center"><div class="absolute w-11 h-11 bg-blue-500/20 rounded-full animate-pulse"></div><div class="w-6 h-6 bg-blue-500 rounded-full border-2 border-white shadow-md flex items-center justify-center"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14"/></svg></div></div>`;
-            userMarkerRef.current = new mapboxgl.Marker(el).setLngLat(userLocation).addTo(mapRef.current);
+        if (abortRef.current) abortRef.current.abort();
+        if (searchQuery.length < 2) {
+            setResults([]);
+            setLoading(false);
+            setSearchError(null);
+            return;
         }
-    }, [userLocation]);
+        const controller = new AbortController();
+        abortRef.current = controller;
+        const timeoutId = setTimeout(() => {
+            setLoading(true);
+            setSearchError(null);
+            const query = encodeURIComponent(searchQuery);
+            fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${query}.json?autocomplete=true&limit=5&types=place,locality,address,poi&language=en&access_token=${MAPBOX_TOKEN}`, { signal: controller.signal })
+                .then(res => res.json())
+                .then(data => {
+                    setResults(data.features.map((f: any) => ({ id: f.id, title: f.text, subtitle: f.place_name.replace(`${f.text}, `, ''), center: f.center })));
+                })
+                .catch(err => { if (err.name !== 'AbortError') setSearchError("Failed to fetch suggestions."); })
+                .finally(() => setLoading(false));
+        }, 300);
+        return () => clearTimeout(timeoutId);
+    }, [searchQuery]);
 
-    const handleLocateMe = () => {
-        navigator.geolocation.getCurrentPosition(p => {
-            const newLocation: [number, number] = [p.coords.longitude, p.coords.latitude];
-            setUserLocation(newLocation);
-            mapRef.current?.flyTo({ center: newLocation, zoom: 16 });
-        }, null, { enableHighAccuracy: true });
+    const handleSelect = (r: any) => {
+        setSearchQuery(r.title);
+        setResults([]);
+        setSearchOpen(false);
+        inputRef.current?.blur();
+        const map = mapRef.current;
+        if (!map) return;
+        map.easeTo({ center: r.center, zoom: 15, duration: 1200 });
+        tempMarkerRef.current?.remove();
+        tempMarkerRef.current = new mapboxgl.Marker().setLngLat(r.center).addTo(map);
     };
 
-    const handlePingSpot = (departureTime: Date | null) => {
+    const handleCancelSearch = () => {
+        setSearchQuery("");
+        setResults([]);
+        setSearchOpen(false);
+        setSearchError(null);
+        tempMarkerRef.current?.remove();
+        inputRef.current?.blur();
+    };
+    
+    const handlePingSpot = async (departureTime: Date | null) => {
         if (isPinging || !currentUser) return;
+        const map = mapRef.current;
+        if (!map) {
+            setError("Map not ready to ping spot.");
+            return;
+        }
+
         setIsPinging(true);
         setPingModalOpen(false);
-        navigator.geolocation.getCurrentPosition(async (p) => {
-            const newLocation: [number, number] = [p.coords.longitude, p.coords.latitude];
-            setUserLocation(newLocation);
 
-            const now = Date.now();
-            const reportedAt = departureTime ? Timestamp.fromDate(departureTime) : Timestamp.fromMillis(now);
-            const expiresAt = Timestamp.fromMillis(reportedAt.toMillis() + 60_000);
+        try {
+            const position = await new Promise<GeolocationPosition>((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true }));
+            const { longitude, latitude } = position.coords;
             
             const pingData = {
-                lat: newLocation[1],
-                lng: newLocation[0],
+                lat: latitude,
+                lng: longitude,
                 type: 'free',
                 status: 'available',
                 finderId: currentUser.uid,
-                finderName: 'Anonymous',
-                reportedAt,
-                expiresAt,
+                finderName: currentUser.displayName || 'Anonymous',
+                reportedAt: departureTime ? Timestamp.fromDate(departureTime) : serverTimestamp(),
+                expiresAt: Timestamp.fromMillis((departureTime?.getTime() || Date.now()) + 60_000 * 5),
             };
 
             if (db) {
@@ -277,50 +294,98 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
                 setShowPingConfirmation(true);
                 setTimeout(() => setShowPingConfirmation(false), 4000);
             }
+        } catch (e: any) {
+            setError(`Could not ping spot: ${e.message}`);
+        } finally {
             setIsPinging(false);
-        }, (error) => {
-            console.error("Error pinging spot:", error);
-            setIsPinging(false);
-        });
+        }
     };
 
-    const handleCancelSearch = () => {
-        setSearchQuery("");
-        setSearchActive(false);
-        searchInputRef.current?.blur();
+    const handleLocateMe = () => {
+        const map = mapRef.current;
+        if (!map) return;
+    
+        navigator.geolocation.getCurrentPosition(
+            (p) => {
+                const userLngLat: [number, number] = [p.coords.longitude, p.coords.latitude];
+                map.flyTo({ center: userLngLat, zoom: 16 });
+    
+                if (userMarkerRef.current) {
+                    userMarkerRef.current.setLngLat(userLngLat);
+                } else {
+                    const el = createUserMarkerEl();
+                    userMarkerRef.current = new mapboxgl.Marker(el)
+                        .setLngLat(userLngLat)
+                        .addTo(map);
+                }
+            },
+            () => setError("Could not get your location."),
+            { enableHighAccuracy: true }
+        );
     };
 
     return (
         <div className="sp-page">
             <PingModal isOpen={isPingModalOpen} onClose={() => setPingModalOpen(false)} onPing={handlePingSpot} />
-            <div ref={mapContainerRef} className="sp-map" onClick={() => setSelectedItem(null)} />
-            {showPingConfirmation && (
-                <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 bg-green-500 text-white font-bold py-2 px-4 rounded-lg flex items-center gap-2 shadow-lg"><Check size={20} /><span>spot pinged successfully!</span></div>
+            <div ref={mapContainerRef} className="sp-map" onClick={() => { if(searchOpen) handleCancelSearch(); setSelectedItem(null); }} />
+            
+            {error && (
+                 <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 bg-red-500/80 backdrop-blur-md text-white font-bold py-3 px-6 rounded-lg flex items-center gap-4 shadow-lg">
+                    <AlertTriangle size={20} />
+                    <span>{error}</span>
+                    <button onClick={() => setError(null)} className="p-1 -mr-2"><X size={18} /></button>
+                </div>
             )}
-            <div className="sp-overlay flex flex-col justify-between p-3">
-                <header style={{ paddingTop: 'env(safe-area-inset-top)' }} className="w-full flex items-start gap-2">
-                    <div className={`flex-1 bg-black/70 backdrop-blur-xl rounded-full flex items-center h-14 px-4 shadow-lg border border-white/10 transition-all duration-300 ease-out ${searchActive ? 'ring-2 ring-blue-500/90' : 'max-w-md'}`}>
-                        {!searchActive && <img src={`https://i.pravatar.cc/150?u=${currentUser?.uid || 'guest'}`} className="w-9 h-9 rounded-full shrink-0 transition-all duration-300" />} 
-                        <div className="flex-1 mx-3 flex items-center gap-2">
-                           <Search size={22} className={`text-gray-400 transition-all duration-300 ${searchActive ? 'text-blue-400' : ''}`} />
-                           <input 
-                                ref={searchInputRef}
-                                type="text" 
-                                placeholder="Search..." 
-                                className="bg-transparent outline-none text-white w-full h-full"
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                onFocus={() => setSearchActive(true)}
-                           />
+            {showPingConfirmation && (
+                <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 bg-green-500 text-white font-bold py-2 px-4 rounded-lg flex items-center gap-2 shadow-lg"><Check size={20} /><span>Spot pinged successfully!</span></div>
+            )}
+
+            <div className="sp-overlay flex flex-col justify-between p-3 pointer-events-none">
+                <header style={{ paddingTop: 'env(safe-area-inset-top)' }} className="w-full flex flex-col items-center gap-2 pointer-events-auto">
+                    <div className="w-full flex items-start gap-2 max-w-md">
+                        <div className={`relative flex-1 bg-black/70 backdrop-blur-xl rounded-full flex items-center h-14 px-4 shadow-lg border border-white/10 transition-all duration-300 ease-out ${searchOpen ? 'ring-2 ring-blue-500/90' : ''}`}>
+                            {!searchOpen && <img src={`https://i.pravatar.cc/150?u=${currentUser?.uid || 'guest'}`} className="w-9 h-9 rounded-full shrink-0 transition-all duration-300" />} 
+                            <div className="flex-1 mx-3 flex items-center gap-2">
+                               <Search size={22} className={`text-gray-400 transition-all duration-300 ${searchOpen ? 'text-blue-400' : ''}`} />
+                               <input 
+                                    ref={inputRef}
+                                    type="text" 
+                                    placeholder="Search for a place or address"
+                                    className="bg-transparent outline-none text-white w-full h-full text-base"
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    onFocus={() => setSearchOpen(true)}
+                               />
+                            </div>
+                            {!searchOpen && <div className="flex items-center gap-4 text-gray-400"><List size={22} className="cursor-pointer" onClick={() => setView(AppView.GARAGE_LIST)} /><Camera size={22} className="cursor-pointer" onClick={() => setView(AppView.AI_ASSISTANT)} /><MessageCircle size={22} className="cursor-pointer" onClick={() => setView(AppView.MESSAGES)} /><Bell size={22} className="cursor-pointer" onClick={() => setView(AppView.NOTIFICATIONS)} /></div>}
                         </div>
-                        {!searchActive && <div className="flex items-center gap-4 text-gray-400"><List size={22} className="cursor-pointer" onClick={() => setView(AppView.GARAGE_LIST)} /><Camera size={22} className="cursor-pointer" onClick={() => setView(AppView.AI_ASSISTANT)} /><MessageCircle size={22} className="cursor-pointer" onClick={() => setView(AppView.MESSAGES)} /><Bell size={22} className="cursor-pointer" onClick={() => setView(AppView.NOTIFICATIONS)} /></div>}
+                        {searchOpen && <button onClick={handleCancelSearch} className="text-white font-semibold px-4 h-14 bg-black/50 backdrop-blur-md rounded-full">Cancel</button>}
                     </div>
-                    {searchActive && <button onClick={handleCancelSearch} className="text-white font-semibold px-4 h-14">Cancel</button>}
+                    
+                    {searchOpen && (results.length > 0 || loading || searchError) && (
+                        <div className="w-full max-w-md mt-2 bg-dark-900/80 backdrop-blur-xl rounded-2xl shadow-xl overflow-hidden z-50">
+                            <div className="max-h-[280px] overflow-y-auto">
+                                {loading && <div className="flex justify-center items-center p-4"><Loader className="animate-spin text-gray-400"/></div>}
+                                {searchError && <div className="text-red-400 p-4 text-center">{searchError}</div>}
+                                {results.map(r => (
+                                    <div key={r.id} onClick={() => handleSelect(r)} className="flex items-center gap-4 p-4 cursor-pointer hover:bg-white/10 border-b border-white/5 last:border-b-0">
+                                        <MapPin size={24} className="text-gray-500 shrink-0" />
+                                        <div>
+                                            <h3 className="font-semibold text-white">{r.title}</h3>
+                                            <p className="text-sm text-gray-400">{r.subtitle}</p>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </header>
-                {!selectedItem && (
-                    <footer className="w-full flex justify-center pointer-events-auto" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
+                {!selectedItem && !searchOpen && (
+                     <footer className="w-full flex justify-center pointer-events-auto" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
                         <div className="relative w-full max-w-md">
-                            <button onClick={() => setPingModalOpen(true)} disabled={!currentUser} className="bg-blue-500 text-white rounded-full flex items-center justify-center gap-3 px-8 py-4 font-bold text-base shadow-lg shadow-blue-500/50 absolute bottom-0 left-1/2 -translate-x-1/2 disabled:opacity-50"><MapPin size={20} /><span>PING SPOT</span></button>
+                            <button onClick={() => setPingModalOpen(true)} disabled={!currentUser || isPinging} className="bg-blue-500 text-white rounded-full flex items-center justify-center gap-3 px-8 py-4 font-bold text-base shadow-lg shadow-blue-500/50 absolute bottom-0 left-1/2 -translate-x-1/2 disabled:opacity-50">
+                                {isPinging ? <Loader className="animate-spin" size={20} /> : <MapPin size={20} />}<span>{isPinging ? 'PINGING...' : 'PING SPOT'}</span>
+                            </button>
                             <button onClick={handleLocateMe} className="absolute bottom-0 right-0 bg-black/60 backdrop-blur-md border border-white/20 text-white rounded-full w-14 h-14 flex items-center justify-center shadow-xl"><Locate size={24} /></button>
                         </div>
                     </footer>

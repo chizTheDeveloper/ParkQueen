@@ -24,6 +24,11 @@ html, body, #root {
   z-index: 10;
   pointer-events: none;
   background: transparent;
+  /* Flexbox properties to fix the layout */
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 1rem; /* Adjust as needed */
 }
 
 .sp-overlay > * {
