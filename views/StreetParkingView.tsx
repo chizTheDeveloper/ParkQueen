@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { StreetSpot, AppView } from '../types';
-import { MapPin, Check, Locate, ChevronUp, ChevronDown, List, Camera, MessageCircle, Bell, Clock, Calendar, X, Search } from 'lucide-react';
+import { MapPin, Check, Locate, ChevronUp, ChevronDown, List, Camera, MessageSquare, Bell, Clock, Calendar, X, Search } from 'lucide-react';
 import { db } from '../firebase';
 import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
 import { collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, Timestamp } from 'firebase/firestore';
@@ -104,7 +104,12 @@ const PingModal: React.FC<{ isOpen: boolean; onClose: () => void; onPing: (depar
     );
 };
 
-export const MapView: React.FC<AppView> = () => {
+interface MapViewProps {
+    setView: (view: AppView) => void;
+    onMessageUser: (userId: string, context: string) => void;
+}
+
+export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
     const mapContainerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
     const spotMarkersRef = useRef<Record<string, { marker: mapboxgl.Marker; timerId: number | undefined }>>({});
@@ -310,8 +315,8 @@ export const MapView: React.FC<AppView> = () => {
             {showPingConfirmation && (
                 <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 bg-green-500 text-white font-bold py-2 px-4 rounded-lg flex items-center gap-2 shadow-lg"><Check size={20} /><span>spot pinged successfully!</span></div>
             )}
-            <div className="sp-overlay flex flex-col justify-between p-3">
-                <header style={{ paddingTop: 'env(safe-area-inset-top)' }} className="w-full flex items-start gap-2">
+            <div className="sp-overlay flex flex-col justify-between p-3 pointer-events-none">
+                <header style={{ paddingTop: 'env(safe-area-inset-top)' }} className="w-full flex items-start gap-2 pointer-events-auto">
                     <div className={`relative flex-1 bg-black/70 backdrop-blur-xl rounded-full flex items-center h-14 px-4 shadow-lg border border-white/10 transition-all duration-300 ease-out ${searchOpen ? 'ring-2 ring-blue-500/90' : 'max-w-md'}`}>
                         {!searchOpen && <img src={`https://i.pravatar.cc/150?u=${currentUser?.uid || 'guest'}`} className="w-9 h-9 rounded-full shrink-0 transition-all duration-300" />} 
                         <div className="flex-1 mx-3 flex items-center gap-2">
@@ -326,7 +331,12 @@ export const MapView: React.FC<AppView> = () => {
                                 onFocus={() => setSearchOpen(true)}
                            />
                         </div>
-                        {!searchOpen && <div className="flex items-center gap-4 text-gray-400"><List size={22} /><Camera size={22} /><MessageCircle size={22} /><Bell size={22} /></div>}
+                        {!searchOpen && <div className="flex items-center gap-4 text-gray-400">
+                          <button type="button" aria-label="Listings" onClick={() => setView(AppView.GARAGE_LIST)} className="p-2 text-white/90 hover:text-white"><List size={22} /></button>
+                          <button type="button" aria-label="Scanner" onClick={() => setView(AppView.AI_ASSISTANT)} className="p-2 text-white/90 hover:text-white"><Camera size={22} /></button>
+                          <button type="button" aria-label="Chat" onClick={() => setView(AppView.MESSAGES)} className="p-2 text-white/90 hover:text-white"><MessageSquare size={22} /></button>
+                          <button type="button" aria-label="Notifications" onClick={() => setView(AppView.NOTIFICATIONS)} className="p-2 text-white/90 hover:text-white"><Bell size={22} /></button>
+                        </div>}
                         {searchOpen && (loading || results.length > 0) && (
                           <div className="absolute left-0 right-0 mt-2 top-full z-[9999] bg-black/85 backdrop-blur-xl rounded-2xl max-h-72 overflow-y-auto border border-white/10">
                             {loading && <div className="px-4 py-3 text-white/60">Searching…</div>}
