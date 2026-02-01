@@ -1,7 +1,11 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { StreetSpot, AppView } from '../types';
+<<<<<<< HEAD
 import { MapPin, Check, Locate, ChevronUp, ChevronDown, List, Camera, MessageCircle, Bell, Clock, Calendar, X, Search, AlertTriangle, Loader } from 'lucide-react';
+=======
+import { MapPin, Check, Locate, ChevronUp, ChevronDown, List, Camera, MessageSquare, Bell, Clock, Calendar, X, Search } from 'lucide-react';
+>>>>>>> branch2
 import { db } from '../firebase';
 import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
 import { collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, Timestamp } from 'firebase/firestore';
@@ -127,8 +131,13 @@ const PingModal: React.FC<{ isOpen: boolean; onClose: () => void; onPing: (depar
 };
 
 interface MapViewProps {
+<<<<<<< HEAD
   setView: (view: AppView) => void;
   onMessageUser: (userId: string, context?: any) => void;
+=======
+    setView: (view: AppView) => void;
+    onMessageUser: (userId: string, context: string) => void;
+>>>>>>> branch2
 }
 
 export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
@@ -141,6 +150,7 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
     const [isPinging, setIsPinging] = useState(false);
     const [showPingConfirmation, setShowPingConfirmation] = useState(false);
     const [isPingModalOpen, setPingModalOpen] = useState(false);
+<<<<<<< HEAD
     const [error, setError] = useState<string | null>(null);
     const [mapLoaded, setMapLoaded] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
@@ -151,6 +161,16 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
     const inputRef = useRef<HTMLInputElement | null>(null);
     const abortRef = useRef<AbortController | null>(null);
     const tempMarkerRef = useRef<mapboxgl.Marker | null>(null);
+=======
+    const inputRef = useRef<HTMLInputElement>(null);
+    const [searchQuery, setSearchQuery] = useState("");
+    const [searchOpen, setSearchOpen] = useState(false);
+    const [results, setResults] = useState<any[]>([]);
+    const [loading, setLoading] = useState(false);
+    const abortRef = useRef<AbortController | null>(null);
+
+    const resizeMap = () => mapRef.current?.resize();
+>>>>>>> branch2
 
     useEffect(() => {
         const auth = getAuth();
@@ -158,6 +178,7 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
     }, []);
 
     useEffect(() => {
+<<<<<<< HEAD
         if (!MAPBOX_TOKEN) {
             setError("VITE_MAPBOX_TOKEN is not set.");
             return;
@@ -172,6 +193,68 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
 
     useEffect(() => {
         if (!db || !mapLoaded) return;
+=======
+        if (!mapContainerRef.current || mapRef.current) return;
+        if (!MAPBOX_TOKEN) {
+            console.error("VITE_MAPBOX_TOKEN is not set");
+        } else {
+            mapboxgl.accessToken = MAPBOX_TOKEN;
+        }
+        const map = new mapboxgl.Map({ container: mapContainerRef.current, style: 'mapbox://styles/mapbox/dark-v11', center: NYC_CENTER, zoom: 14, attributionControl: false, interactive: true });
+        mapRef.current = map;
+
+        map.on('load', () => {
+            handleLocateMe();
+            resizeMap();
+        });
+
+        return () => {
+            map.remove();
+            mapRef.current = null;
+        };
+    }, []);
+
+    useEffect(() => {
+      if (!searchOpen || searchQuery.trim().length < 2) {
+        setResults([]);
+        return;
+      }
+
+      const token = import.meta.env.VITE_MAPBOX_TOKEN;
+      if (!token) return;
+
+      const t = setTimeout(async () => {
+        try {
+          abortRef.current?.abort();
+          const controller = new AbortController();
+          abortRef.current = controller;
+
+          setLoading(true);
+
+          const url =
+            `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(searchQuery)}.json` +
+            `?autocomplete=true&limit=6&types=place,locality,address,postcode,poi&language=en&access_token=${token}`;
+
+          const res = await fetch(url, { signal: controller.signal });
+          const data = await res.json();
+
+          setResults(Array.isArray(data.features) ? data.features : []);
+        } catch (e:any) {
+          if (e.name !== "AbortError") console.warn("Geocode failed", e);
+        } finally {
+          setLoading(false);
+        }
+      }, 300);
+
+      return () => {
+        clearTimeout(t);
+        abortRef.current?.abort();
+      };
+    }, [searchQuery, searchOpen]);
+
+    useEffect(() => {
+        if (!db || !mapRef.current || !currentUser) return;
+>>>>>>> branch2
 
         const q = query(collection(db, "spots"), orderBy("reportedAt", "desc"));
         const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -180,6 +263,7 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
 
             const activeSpots: Record<string, StreetSpot> = {};
 
+<<<<<<< HEAD
             snapshot.forEach(doc => {
                 const spot = { id: doc.id, ...doc.data() } as StreetSpot;
                 const expiresAtMs = spot.expiresAt?.toMillis?.() ?? 0;
@@ -204,6 +288,34 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
                 const { id, lat, lng } = spot;
                 if (spotMarkersRef.current[id]) {
                     spotMarkersRef.current[id].setLngLat([lng, lat]);
+=======
+            Object.keys(markers).forEach(id => {
+                if (!nextIds.has(id)) {
+                    markers[id].marker.remove();
+                    if (markers[id].timerId) clearTimeout(markers[id].timerId);
+                    delete markers[id];
+                }
+            });
+
+            activeSpots.forEach(s => {
+                const lngLat: [number, number] = [s.lng, s.lat];
+                if (!markers[s.id]) {
+                    const el = createMarkerElement(s.finderId === currentUser.uid);
+                    const marker = new mapboxgl.Marker({ element: el, anchor: "center" }).setLngLat(lngLat).addTo(mapRef.current!);
+                    marker.getElement().addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        setSelectedItem(s);
+                        mapRef.current?.flyTo({ center: lngLat, zoom: 16 });
+                    });
+
+                    const msLeft = s.expiresAt.toMillis() - Date.now();
+                    const timerId = setTimeout(() => {
+                        marker.remove();
+                        delete markers[s.id];
+                    }, msLeft);
+
+                    markers[s.id] = { marker, timerId };
+>>>>>>> branch2
                 } else {
                     const el = createPingMarkerEl();
                     const marker = new mapboxgl.Marker(el)
@@ -301,6 +413,7 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
         }
     };
 
+<<<<<<< HEAD
     const handleLocateMe = () => {
         const map = mapRef.current;
         if (!map) return;
@@ -322,6 +435,13 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
             () => setError("Could not get your location."),
             { enableHighAccuracy: true }
         );
+=======
+    const handleCancelSearch = () => {
+        setSearchQuery("");
+        setResults([]);
+        setSearchOpen(false);
+        inputRef.current?.blur();
+>>>>>>> branch2
     };
 
     return (
@@ -336,6 +456,7 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
                     <button onClick={() => setError(null)} className="p-1 -mr-2"><X size={18} /></button>
                 </div>
             )}
+<<<<<<< HEAD
             {showPingConfirmation && (
                 <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 bg-green-500 text-white font-bold py-2 px-4 rounded-lg flex items-center gap-2 shadow-lg"><Check size={20} /><span>Spot pinged successfully!</span></div>
             )}
@@ -379,6 +500,59 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
                             </div>
                         </div>
                     )}
+=======
+            <div className="sp-overlay flex flex-col justify-between p-3 pointer-events-none">
+                <header style={{ paddingTop: 'env(safe-area-inset-top)' }} className="w-full flex items-start gap-2 pointer-events-auto">
+                    <div className={`relative flex-1 bg-black/70 backdrop-blur-xl rounded-full flex items-center h-14 px-4 shadow-lg border border-white/10 transition-all duration-300 ease-out ${searchOpen ? 'ring-2 ring-blue-500/90' : 'max-w-md'}`}>
+                        {!searchOpen && <img src={`https://i.pravatar.cc/150?u=${currentUser?.uid || 'guest'}`} className="w-9 h-9 rounded-full shrink-0 transition-all duration-300" />} 
+                        <div className="flex-1 mx-3 flex items-center gap-2">
+                           <Search size={22} className={`text-gray-400 transition-all duration-300 ${searchOpen ? 'text-blue-400' : ''}`} />
+                           <input 
+                                ref={inputRef}
+                                type="text" 
+                                placeholder="Search..." 
+                                className="bg-transparent outline-none text-white w-full h-full"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                onFocus={() => setSearchOpen(true)}
+                           />
+                        </div>
+                        {!searchOpen && <div className="flex items-center gap-4 text-gray-400">
+                          <button type="button" aria-label="Listings" onClick={() => setView(AppView.GARAGE_LIST)} className="p-2 text-white/90 hover:text-white"><List size={22} /></button>
+                          <button type="button" aria-label="Scanner" onClick={() => setView(AppView.AI_ASSISTANT)} className="p-2 text-white/90 hover:text-white"><Camera size={22} /></button>
+                          <button type="button" aria-label="Chat" onClick={() => setView(AppView.MESSAGES)} className="p-2 text-white/90 hover:text-white"><MessageSquare size={22} /></button>
+                          <button type="button" aria-label="Notifications" onClick={() => setView(AppView.NOTIFICATIONS)} className="p-2 text-white/90 hover:text-white"><Bell size={22} /></button>
+                        </div>}
+                        {searchOpen && (loading || results.length > 0) && (
+                          <div className="absolute left-0 right-0 mt-2 top-full z-[9999] bg-black/85 backdrop-blur-xl rounded-2xl max-h-72 overflow-y-auto border border-white/10">
+                            {loading && <div className="px-4 py-3 text-white/60">Searching…</div>}
+
+                            {!loading && results.map((r:any) => (
+                              <button
+                                key={r.id}
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => {
+                                  setSearchQuery(r.place_name);
+                                  setSearchOpen(false);
+                                  setResults([]);
+
+                                  mapRef.current?.easeTo({
+                                    center: r.center, // [lng, lat]
+                                    zoom: 14,
+                                    duration: 800,
+                                  });
+                                }}
+                                className="w-full text-left px-4 py-3 hover:bg-white/10"
+                              >
+                                <div className="text-white font-medium">{r.text}</div>
+                                <div className="text-xs text-white/60">{r.place_name}</div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                    </div>
+                    {searchOpen && <button onClick={handleCancelSearch} className="text-white font-semibold px-4 h-14">Cancel</button>}
+>>>>>>> branch2
                 </header>
                 {!selectedItem && !searchOpen && (
                      <footer className="w-full flex justify-center pointer-events-auto" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
