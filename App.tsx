@@ -6,11 +6,12 @@ import { AssistantView } from './views/AssistantView';
 import { MessagesView } from './views/MessagesView';
 import { ProfileView } from './views/ProfileView';
 import { NotificationsView } from './views/NotificationsView';
+import { SplashView } from './views/SplashView';
 import { AppView } from './types';
 import { ChevronLeft } from 'lucide-react';
 
 export default function App() {
-  const [currentView, setCurrentView] = useState(AppView.MAP);
+  const [currentView, setCurrentView] = useState(AppView.SPLASH);
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('theme') || 'dark';
   });
@@ -36,6 +37,8 @@ export default function App() {
 
   const renderView = () => {
     switch (currentView) {
+      case AppView.SPLASH:
+        return <SplashView setView={setCurrentView} />;
       case AppView.MAP:
         return (
           <MapView 
@@ -80,7 +83,7 @@ export default function App() {
       case AppView.NOTIFICATIONS:
         return <NotificationsView onBack={() => setCurrentView(AppView.MAP)} />;
       default:
-        return <MapView onMessageUser={handleMessageUser} setView={setCurrentView} />;
+        return <SplashView setView={setCurrentView} />;
     }
   };
 

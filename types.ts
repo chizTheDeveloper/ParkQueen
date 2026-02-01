@@ -1,5 +1,6 @@
 
 export enum AppView {
+  SPLASH = "SPLASH",
   MAP = "MAP",
   GARAGE_LIST = "GARAGE_LIST",
   AI_ASSISTANT = "AI_ASSISTANT",
