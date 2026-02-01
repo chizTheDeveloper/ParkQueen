@@ -6,6 +6,7 @@ import { db } from '../firebase';
 import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
 import { collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, Timestamp } from 'firebase/firestore';
 import mapboxgl from 'mapbox-gl';
+import parqueenLogo from '/assets/Parqueen_Logo.png';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 const NYC_CENTER: [number, number] = [-73.9712, 40.7831];
@@ -75,7 +76,7 @@ const PingModal: React.FC<{ isOpen: boolean; onClose: () => void; onPing: (depar
                 {view === 'main' ? (
                     <>
                         <div className="text-center">
-                            <img src="/assets/Parqueen_Logo.png" alt="ParkQueen Logo" className="w-16 h-16 mx-auto mb-4" />
+                            <img src={parqueenLogo} alt="ParkQueen Logo" className="w-16 h-16 mx-auto mb-4" />
                             <h2 className="text-2xl font-bold">Ping spot</h2>
                             <p className="text-sm text-blue-400">BROADCASTING LIVE</p>
                         </div>
@@ -331,8 +332,7 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
                                 onFocus={() => setSearchOpen(true)}
                            />
                         </div>
-                        {!searchOpen && <div className="flex items-center gap-4 text-gray-400">
-                          <button type="button" aria-label="Listings" onClick={() => setView(AppView.GARAGE_LIST)} className="p-2 text-white/90 hover:text-white"><List size={22} /></button>
+                        {!searchOpen && <div className="flex items-center gap-1 text-gray-400">
                           <button type="button" aria-label="Scanner" onClick={() => setView(AppView.AI_ASSISTANT)} className="p-2 text-white/90 hover:text-white"><Camera size={22} /></button>
                           <button type="button" aria-label="Chat" onClick={() => setView(AppView.MESSAGES)} className="p-2 text-white/90 hover:text-white"><MessageSquare size={22} /></button>
                           <button type="button" aria-label="Notifications" onClick={() => setView(AppView.NOTIFICATIONS)} className="p-2 text-white/90 hover:text-white"><Bell size={22} /></button>
@@ -369,9 +369,40 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
                 </header>
                 {!selectedItem && (
                     <footer className="w-full flex justify-center pointer-events-auto" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
-                        <div className="relative w-full max-w-md">
-                            <button onClick={() => setPingModalOpen(true)} disabled={!currentUser} className="bg-blue-500 text-white rounded-full flex items-center justify-center gap-3 px-8 py-4 font-bold text-base shadow-lg shadow-blue-500/50 absolute bottom-0 left-1/2 -translate-x-1/2 disabled:opacity-50"><MapPin size={20} /><span>PING SPOT</span></button>
-                            <button onClick={handleLocateMe} className="absolute bottom-0 right-0 bg-black/60 backdrop-blur-md border border-white/20 text-white rounded-full w-14 h-14 flex items-center justify-center shadow-xl"><Locate size={24} /></button>
+                        <div className="relative w-full max-w-md h-28">
+                        <button
+                        onClick={() => setPingModalOpen(true)}
+                        disabled={!currentUser}
+                        style={{ bottom: "calc(3.5rem + env(safe-area-inset-bottom))" }}
+                        className="
+                            absolute left-1/2 -translate-x-1/2
+                            bg-blue-500 text-white rounded-full
+                            inline-flex items-center justify-center gap-3
+                            px-8 py-4 font-bold text-base
+                            shadow-lg shadow-blue-500/50
+                            whitespace-nowrap
+                            disabled:opacity-50
+                        "
+                        >
+                        <MapPin size={20} className="shrink-0" />
+                        <span className="leading-none">PING SPOT</span>
+                        </button>
+
+                        <button
+                        onClick={handleLocateMe}
+                        style={{ bottom: "calc(3.5rem + env(safe-area-inset-bottom))" }}
+                        className="
+                            absolute right-0
+                            bg-black/60 backdrop-blur-md
+                            border border-white/20
+                            text-white rounded-full
+                            w-14 h-14
+                            flex items-center justify-center
+                            shadow-xl
+                        ">
+                        <Locate size={24} />
+                        </button>
+
                         </div>
                     </footer>
                 )}
