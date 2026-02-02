@@ -19,7 +19,7 @@ export const SplashView: React.FC<SplashViewProps> = ({ setView }) => {
           Login
         </button>
         <button 
-          onClick={() => setView(AppView.MAP)}
+          onClick={() => setView(AppView.CREATE_ACCOUNT)}
           className="w-full px-6 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-lg font-semibold transition-colors"
         >
           Create Account

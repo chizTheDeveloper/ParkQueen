@@ -7,11 +7,15 @@ import { MessagesView } from './views/MessagesView';
 import { ProfileView } from './views/ProfileView';
 import { NotificationsView } from './views/NotificationsView';
 import { SplashView } from './views/SplashView';
+import { CreateAccountView } from './views/CreateAccountView';
+import { OtpView } from './views/OtpView';
 import { AppView } from './types';
 import { ChevronLeft } from 'lucide-react';
+import ErrorBoundary from './ErrorBoundary';
 
 export default function App() {
   const [currentView, setCurrentView] = useState(AppView.SPLASH);
+  const [signupPhone, setSignupPhone] = useState("");
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('theme') || 'dark';
   });
@@ -35,10 +39,19 @@ export default function App() {
     setCurrentView(AppView.MESSAGES);
   };
 
+  const handleCreateAccount = (phone: string) => {
+    setSignupPhone(phone);
+    setCurrentView(AppView.OTP);
+  }
+
   const renderView = () => {
     switch (currentView) {
       case AppView.SPLASH:
         return <SplashView setView={setCurrentView} />;
+      case AppView.CREATE_ACCOUNT:
+        return <CreateAccountView onContinue={handleCreateAccount} />;
+      case AppView.OTP:
+        return <OtpView phone={signupPhone} onBack={() => setCurrentView(AppView.CREATE_ACCOUNT)} />;
       case AppView.MAP:
         return (
           <MapView 
@@ -90,7 +103,9 @@ export default function App() {
   return (
     <div className="h-screen w-screen flex flex-col bg-white dark:bg-dark-900 text-slate-900 dark:text-white font-sans selection:bg-queen-500 selection:text-white transition-colors duration-300">
       <main className="flex-1 overflow-hidden relative">
-        {renderView()}
+        <ErrorBoundary>
+          {renderView()}
+        </ErrorBoundary>
       </main>
     </div>
   );

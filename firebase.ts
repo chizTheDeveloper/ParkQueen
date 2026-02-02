@@ -26,7 +26,7 @@ const app = (() => {
 export const db = app ? getFirestore(app) : null;
 export const analytics = app && typeof window !== 'undefined' ? getAnalytics(app) : null;
 
-const auth = app ? getAuth(app) : null;
+export const auth = app ? getAuth(app) : null;
 if (auth) {
   signInAnonymously(auth).catch((error) => {
     console.error("Anonymous sign-in failed", error);
