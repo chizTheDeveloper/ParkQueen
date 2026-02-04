@@ -8,10 +8,11 @@ import { ProfileView } from './views/ProfileView';
 import { NotificationsView } from './views/NotificationsView';
 import { SplashView } from './views/SplashView';
 import { CreateAccountView } from './views/CreateAccountView';
-import { OtpView } from './views/OtpView';
+import { SetupProfileView } from './views/SetupProfileView';
 import { AppView } from './types';
 import { ChevronLeft } from 'lucide-react';
 import ErrorBoundary from './ErrorBoundary';
+import { saveUser } from './database';
 
 export default function App() {
   const [currentView, setCurrentView] = useState(AppView.SPLASH);
@@ -41,8 +42,13 @@ export default function App() {
 
   const handleCreateAccount = (phone: string) => {
     setSignupPhone(phone);
-    setCurrentView(AppView.OTP);
+    setCurrentView(AppView.SETUP_PROFILE);
   }
+
+  const handleSaveProfile = (profileData: { fullName: string; email: string; dob: string; gender: string }) => {
+    saveUser({ id: signupPhone, ...profileData });
+    setCurrentView(AppView.MAP);
+  };
 
   const renderView = () => {
     switch (currentView) {
@@ -50,8 +56,8 @@ export default function App() {
         return <SplashView setView={setCurrentView} />;
       case AppView.CREATE_ACCOUNT:
         return <CreateAccountView onContinue={handleCreateAccount} />;
-      case AppView.OTP:
-        return <OtpView phone={signupPhone} onBack={() => setCurrentView(AppView.CREATE_ACCOUNT)} />;
+      case AppView.SETUP_PROFILE:
+        return <SetupProfileView phone={signupPhone} onSave={handleSaveProfile} />;
       case AppView.MAP:
         return (
           <MapView 

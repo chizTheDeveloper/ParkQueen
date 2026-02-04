@@ -1,13 +1,13 @@
 export enum AppView {
-    SPLASH = 'splash',
-    CREATE_ACCOUNT = 'create-account',
-    OTP = 'otp',
-    LOGIN = 'login',
-    MAP = 'map',
-    GARAGE_LIST = 'garage-list',
-    HOST_DASHBOARD = 'host-dashboard',
-    AI_ASSISTANT = 'ai-assistant',
-    MESSAGES = 'messages',
-    PROFILE = 'profile',
-    NOTIFICATIONS = 'notifications'
+  SPLASH,
+  CREATE_ACCOUNT,
+  OTP,
+  SETUP_PROFILE, // Add this line
+  MAP,
+  GARAGE_LIST,
+  HOST_DASHBOARD,
+  AI_ASSISTANT,
+  MESSAGES,
+  PROFILE,
+  NOTIFICATIONS
 }
