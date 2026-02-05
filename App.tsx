@@ -8,11 +8,12 @@ import { ProfileView } from './views/ProfileView';
 import { NotificationsView } from './views/NotificationsView';
 import { CreateAccountView } from './views/CreateAccountView';
 import { SetupProfileView } from './views/SetupProfileView';
+import { EditProfileView } from './views/EditProfileView';
 import { LoginView } from './views/LoginView';
 import { AppView } from './types';
 import { ChevronLeft } from 'lucide-react';
 import ErrorBoundary from './ErrorBoundary';
-import { saveUser, loginUser } from './database';
+import { saveUser, loginUser, logoutUser, deleteUser } from './database';
 
 export default function App() {
   const [currentView, setCurrentView] = useState(AppView.LOGIN);
@@ -66,6 +67,28 @@ export default function App() {
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      await logoutUser();
+      setCurrentView(AppView.LOGIN);
+    } catch (error) {
+      console.error("Failed to logout: ", error);
+      alert("Failed to logout.");
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (window.confirm("Are you sure you want to delete your account? This action cannot be undone.")) {
+      try {
+        await deleteUser();
+        setCurrentView(AppView.LOGIN);
+      } catch (error) {
+        console.error("Failed to delete account: ", error);
+        alert("Failed to delete account.");
+      }
+    }
+  };
+
   const renderView = () => {
     switch (currentView) {
       case AppView.LOGIN:
@@ -74,6 +97,8 @@ export default function App() {
         return <CreateAccountView onContinue={handleCreateAccount} />;
       case AppView.SETUP_PROFILE:
         return <SetupProfileView phone={signupPhone} onSave={handleSaveProfile} />;
+      case AppView.EDIT_PROFILE:
+        return <EditProfileView onBack={() => setCurrentView(AppView.PROFILE)} />;
       case AppView.MAP:
         return (
           <MapView 
@@ -114,7 +139,7 @@ export default function App() {
       case AppView.MESSAGES:
         return <MessagesView onBack={() => setCurrentView(AppView.MAP)} />;
       case AppView.PROFILE:
-        return <ProfileView theme={theme} toggleTheme={toggleTheme} onBack={() => setCurrentView(AppView.MAP)} />;
+        return <ProfileView setView={setCurrentView} onBack={() => setCurrentView(AppView.MAP)} onLogout={handleLogout} onDeleteAccount={handleDeleteAccount} theme={theme} toggleTheme={toggleTheme} />;
       case AppView.NOTIFICATIONS:
         return <NotificationsView onBack={() => setCurrentView(AppView.MAP)} />;
       default:

@@ -319,7 +319,11 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
             <div className="sp-overlay flex flex-col justify-between p-3 pointer-events-none">
                 <header style={{ paddingTop: 'env(safe-area-inset-top)' }} className="w-full flex items-start gap-2 pointer-events-auto">
                     <div className={`relative flex-1 bg-black/70 backdrop-blur-xl rounded-full flex items-center h-14 px-4 shadow-lg border border-white/10 transition-all duration-300 ease-out ${searchOpen ? 'ring-2 ring-blue-500/90' : 'max-w-md'}`}>
-                        {!searchOpen && <img src={`https://i.pravatar.cc/150?u=${currentUser?.uid || 'guest'}`} className="w-9 h-9 rounded-full shrink-0 transition-all duration-300" />} 
+                        {!searchOpen && (
+                            <button onClick={() => setView(AppView.PROFILE)} className="shrink-0">
+                                <img src={`https://i.pravatar.cc/150?u=${currentUser?.uid || 'guest'}`} alt="Profile" className="w-9 h-9 rounded-full transition-all duration-300" />
+                            </button>
+                        )} 
                         <div className="flex-1 mx-3 flex items-center gap-2">
                            <Search size={22} className={`text-gray-400 transition-all duration-300 ${searchOpen ? 'text-blue-400' : ''}`} />
                            <input 

@@ -1,6 +1,6 @@
 import { auth, db } from './firebaseConfig';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc } from "firebase/firestore"; 
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, deleteUser as deleteFirebaseUser } from 'firebase/auth';
+import { doc, setDoc, updateDoc, deleteDoc } from "firebase/firestore"; 
 
 interface UserProfile {
   id: string;
@@ -19,17 +19,14 @@ export const saveUser = async (user: UserProfile) => {
   }
 
   try {
-    // Create user with email and password
     const userCredential = await createUserWithEmailAndPassword(auth, user.email, user.password);
     const firebaseUser = userCredential.user;
 
-    // Don't store the password in the database
     const { password, ...profileData } = user;
 
-    // Save the rest of the user's profile to Firestore
     await setDoc(doc(db, "users", firebaseUser.uid), {
         ...profileData,
-        id: firebaseUser.uid // Use the Firebase UID as the document ID
+        id: firebaseUser.uid
     });
 
     console.log("User created and profile saved to Firestore with ID: ", firebaseUser.uid);
@@ -47,6 +44,41 @@ export const loginUser = async (email, password) => {
     return userCredential.user;
   } catch (error) {
     console.error("Error logging in: ", error);
+    throw error;
+  }
+};
+
+export const logoutUser = async () => {
+  try {
+    await signOut(auth);
+  } catch (error) {
+    console.error("Error logging out: ", error);
+    throw error;
+  }
+};
+
+export const updateUser = async (userId: string, data: Partial<UserProfile>) => {
+  try {
+    const userRef = doc(db, 'users', userId);
+    await updateDoc(userRef, data);
+    console.log("User profile updated successfully.");
+  } catch (error) {
+    console.error("Error updating user profile: ", error);
+    throw error;
+  }
+};
+
+export const deleteUser = async () => {
+  const user = auth.currentUser;
+  if (!user) {
+    throw new Error("No user is currently signed in.");
+  }
+
+  try {
+    await deleteDoc(doc(db, "users", user.uid));
+    await deleteFirebaseUser(user);
+  } catch (error) {
+    console.error("Error deleting user: ", error);
     throw error;
   }
 };
