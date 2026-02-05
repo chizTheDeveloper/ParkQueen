@@ -45,9 +45,15 @@ export default function App() {
     setCurrentView(AppView.SETUP_PROFILE);
   }
 
-  const handleSaveProfile = (profileData: { fullName: string; email: string; dob: string; gender: string }) => {
-    saveUser({ id: signupPhone, ...profileData });
-    setCurrentView(AppView.MAP);
+  const handleSaveProfile = async (profileData: { fullName: string; email: string; dob: string; gender: string; avatar: File | null; password: string }) => {
+    const { avatar, ...userData } = profileData;
+    try {
+      await saveUser({ ...userData, id: signupPhone });
+      setCurrentView(AppView.MAP);
+    } catch (error) {
+      console.error("Failed to create account: ", error);
+      alert("Failed to create account. The email might already be in use or your password is too weak.");
+    }
   };
 
   const renderView = () => {
