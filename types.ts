@@ -1,5 +1,6 @@
 export enum AppView {
   SPLASH,
+  LOGIN,
   CREATE_ACCOUNT,
   OTP,
   SETUP_PROFILE, // Add this line

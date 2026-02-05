@@ -1,5 +1,5 @@
 import { auth, db } from './firebaseConfig';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc } from "firebase/firestore"; 
 
 interface UserProfile {
@@ -37,6 +37,16 @@ export const saveUser = async (user: UserProfile) => {
     return firebaseUser;
   } catch (error) {
     console.error("Error creating user or saving profile: ", error);
+    throw error;
+  }
+};
+
+export const loginUser = async (email, password) => {
+  try {
+    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+    return userCredential.user;
+  } catch (error) {
+    console.error("Error logging in: ", error);
     throw error;
   }
 };

@@ -6,16 +6,16 @@ import { AssistantView } from './views/AssistantView';
 import { MessagesView } from './views/MessagesView';
 import { ProfileView } from './views/ProfileView';
 import { NotificationsView } from './views/NotificationsView';
-import { SplashView } from './views/SplashView';
 import { CreateAccountView } from './views/CreateAccountView';
 import { SetupProfileView } from './views/SetupProfileView';
+import { LoginView } from './views/LoginView';
 import { AppView } from './types';
 import { ChevronLeft } from 'lucide-react';
 import ErrorBoundary from './ErrorBoundary';
-import { saveUser } from './database';
+import { saveUser, loginUser } from './database';
 
 export default function App() {
-  const [currentView, setCurrentView] = useState(AppView.SPLASH);
+  const [currentView, setCurrentView] = useState(AppView.LOGIN);
   const [signupPhone, setSignupPhone] = useState("");
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('theme') || 'dark';
@@ -56,10 +56,20 @@ export default function App() {
     }
   };
 
+  const handleLogin = async (email, password) => {
+    try {
+      await loginUser(email, password);
+      setCurrentView(AppView.MAP);
+    } catch (error) {
+      console.error("Failed to login: ", error);
+      alert("Failed to login. Please check your email and password.");
+    }
+  };
+
   const renderView = () => {
     switch (currentView) {
-      case AppView.SPLASH:
-        return <SplashView setView={setCurrentView} />;
+      case AppView.LOGIN:
+        return <LoginView onLogin={handleLogin} onNavigateToCreateAccount={() => setCurrentView(AppView.CREATE_ACCOUNT)} />;
       case AppView.CREATE_ACCOUNT:
         return <CreateAccountView onContinue={handleCreateAccount} />;
       case AppView.SETUP_PROFILE:
@@ -108,7 +118,7 @@ export default function App() {
       case AppView.NOTIFICATIONS:
         return <NotificationsView onBack={() => setCurrentView(AppView.MAP)} />;
       default:
-        return <SplashView setView={setCurrentView} />;
+        return <LoginView onLogin={handleLogin} onNavigateToCreateAccount={() => setCurrentView(AppView.CREATE_ACCOUNT)} />;
     }
   };
 
