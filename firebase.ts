@@ -1,7 +1,7 @@
 
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
-import { getAuth, signInAnonymously } from "firebase/auth";
+import { getAuth, signInAnonymously, setPersistence, browserLocalPersistence } from "firebase/auth";
 import { getAnalytics } from "firebase/analytics";
 
 const firebaseConfig = {
@@ -28,7 +28,12 @@ export const analytics = app && typeof window !== 'undefined' ? getAnalytics(app
 
 export const auth = app ? getAuth(app) : null;
 if (auth) {
-  signInAnonymously(auth).catch((error) => {
-    console.error("Anonymous sign-in failed", error);
-  });
+  setPersistence(auth, browserLocalPersistence)
+    .then(() => {
+      // Existing and future Auth states are persisted in the browser's local storage.
+      console.log("Firebase Auth persistence set to local storage.");
+    })
+    .catch((error) => {
+      console.error("Auth persistence failed", error);
+    });
 }
