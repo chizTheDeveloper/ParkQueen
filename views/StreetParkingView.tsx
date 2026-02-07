@@ -4,7 +4,7 @@ import { StreetSpot, AppView } from '../types';
 import { MapPin, Check, Locate, ChevronUp, ChevronDown, List, Camera, MessageSquare, Bell, Clock, Calendar, X, Search } from 'lucide-react';
 import { db } from '../firebase';
 import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
-import { collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, Timestamp, doc, deleteDoc } from 'firebase/firestore';
 import mapboxgl from 'mapbox-gl';
 import parqueenLogo from '/assets/Parqueen_Logo.png';
 
@@ -121,6 +121,7 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
     const [isPinging, setIsPinging] = useState(false);
     const [showPingConfirmation, setShowPingConfirmation] = useState(false);
     const [isPingModalOpen, setPingModalOpen] = useState(false);
+    const [isEditModalOpen, setEditModalOpen] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
     const [searchQuery, setSearchQuery] = useState("");
     const [searchOpen, setSearchOpen] = useState(false);
@@ -302,6 +303,22 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
         });
     };
 
+    const handleDeletePing = async () => {
+        if (!currentUser || !selectedItem) return;
+        if (currentUser.uid !== selectedItem.finderId) return; // security
+
+        const ok = window.confirm("Delete this ping? This can't be undone.");
+        if (!ok) return;
+
+        try {
+            await deleteDoc(doc(db, "spots", selectedItem.id));
+            setSelectedItem(null);
+            setEditModalOpen(false);
+        } catch (e) {
+            console.error("Error deleting ping:", e);
+        }
+    };
+
     const handleCancelSearch = () => {
         setSearchQuery("");
         setResults([]);
@@ -371,6 +388,33 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
                     </div>
                     {searchOpen && <button onClick={handleCancelSearch} className="text-white font-semibold px-4 h-14">Cancel</button>}
                 </header>
+                {selectedItem && (
+                    <div className="absolute bottom-32 left-1/2 -translate-x-1/2 w-full max-w-sm p-4 pointer-events-auto">
+                        <div className="bg-black/70 backdrop-blur-xl rounded-2xl p-4 border border-white/10">
+                            <div className="text-white text-center">
+                                <h3 className="font-bold">{selectedItem.type}</h3>
+                                <p className="text-sm text-gray-400">Expires in {Math.round((selectedItem.expiresAt.toMillis() - Date.now()) / 60000)} minutes</p>
+                            </div>
+                            {currentUser?.uid === selectedItem.finderId && (
+                                <div className="mt-4 space-y-2">
+                                    <button
+                                    onClick={() => setEditModalOpen(true)}
+                                    className="w-full bg-blue-500 text-white font-bold py-2 rounded-lg"
+                                    >
+                                    Edit Ping
+                                    </button>
+
+                                    <button
+                                    onClick={handleDeletePing}
+                                    className="w-full font-bold py-2 rounded-lg border border-red-500/60 text-red-400 hover:bg-red-500/10"
+                                    >
+                                    Delete Ping
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
                 {!selectedItem && (
                     <footer className="w-full flex justify-center pointer-events-auto" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
                         <div className="relative w-full max-w-md h-28">
