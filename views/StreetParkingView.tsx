@@ -6,7 +6,7 @@ import { db } from '../firebase';
 import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
 import { collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, Timestamp, doc, deleteDoc } from 'firebase/firestore';
 import mapboxgl from 'mapbox-gl';
-import parqueenLogo from '/assets/Parqueen_Logo.png';
+import parqueenLogo from '../assets/Parqueen_Logo.png';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 const NYC_CENTER: [number, number] = [-73.9712, 40.7831];
