@@ -1,7 +1,6 @@
 
 import React, { useState } from 'react';
 import { Mail, Lock } from 'lucide-react';
-import logo from '../assets/Parqueen_Logo.png';
 
 interface LoginViewProps {
   onLogin: (email: string, password: string) => void;
@@ -39,7 +38,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin, onNavigateToCreat
          style={{ backgroundImage: "url('/assets/splash screen.svg')" }}>
       <div className="w-full max-w-sm bg-white/70 backdrop-blur-md rounded-2xl p-8 shadow-lg">
         <div className="flex justify-center mb-6">
-            <img src={logo} alt="Logo" className="h-16" />
+            <img src={'/assets/Parqueen_Logo.png'} alt="Logo" className="h-16" />
         </div>
         <h1 className="text-2xl font-bold text-center text-gray-800">Welcome Back!</h1>
         <p className="text-center text-gray-600 mb-8">Please log in to your account.</p>
