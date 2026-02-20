@@ -35,7 +35,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin, onNavigateToCreat
 
   return (
     <div className="h-full w-full flex flex-col items-center justify-center bg-cover bg-no-repeat bg-center p-4"
-         style={{ backgroundImage: "url('/assets/splash screen.svg')" }}>
+         style={{ backgroundImage: "url('/assets/splash_screen.svg')" }}>
       <div className="w-full max-w-sm bg-white/70 backdrop-blur-md rounded-2xl p-8 shadow-lg">
         <div className="flex justify-center mb-6">
             <img src={'/assets/Parqueen_Logo.png'} alt="Logo" className="h-16" />

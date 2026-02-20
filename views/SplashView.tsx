@@ -9,7 +9,7 @@ export const SplashView: React.FC<SplashViewProps> = ({ setView }) => {
   return (
     <div 
       className="h-full w-full flex flex-col items-center justify-end bg-cover bg-no-repeat bg-center pb-32"
-      style={{ backgroundImage: "url('/assets/splash screen.svg')" }}
+      style={{ backgroundImage: "url('/assets/splash%20screen.svg')" }}
     >
       <div className="flex flex-col gap-4 w-full max-w-xs px-4">
         <button 
