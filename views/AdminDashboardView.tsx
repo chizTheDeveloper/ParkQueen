@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BarChart, Bell, Search, Settings, DollarSign, List, Users, LayoutDashboard, ChevronLeft, ChevronRight, LogOut } from 'lucide-react';
 import { DashboardPage } from './DashboardPage';
 import { UsersPage } from './UsersPage';
@@ -7,6 +6,8 @@ import { ListingsPage } from './ListingsPage';
 import { FinancialsPage } from './FinancialsPage';
 import { ReportsPage } from './ReportsPage';
 import { SettingsPage } from './SettingsPage';
+import { Timestamp, collection, query, where, getCountFromServer, doc, getDoc } from "firebase/firestore";
+import { db } from "../firebase";
 
 const Sidebar = ({ isCollapsed, activePage, setActivePage, onLogout }) => {
   const navItems = [
@@ -50,15 +51,33 @@ const Sidebar = ({ isCollapsed, activePage, setActivePage, onLogout }) => {
   );
 };
 
+async function loadDashboardCounts() {
+  const now = Timestamp.now();
+  const activeQ = query(collection(db, "spots"), where("expiresAt", ">", now));
+  const activeSnap = await getCountFromServer(activeQ);
+  const activeCount = activeSnap.data().count;
+
+  const statsSnap = await getDoc(doc(db, "stats", "global"));
+  const totalSpotsPinged = statsSnap.exists()
+    ? (statsSnap.data().totalSpotsPinged ?? 0)
+    : 0;
+
+  return { activeCount, totalSpotsPinged };
+}
 
 export const AdminDashboardView = ({ onLogout }) => {
   const [isSidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activePage, setActivePage] = useState('Dashboard');
+  const [counts, setCounts] = useState({ activeCount: 0, totalSpotsPinged: 0 });
+
+  useEffect(() => {
+    loadDashboardCounts().then(setCounts);
+  }, []);
 
   const renderPage = () => {
     switch (activePage) {
       case 'Dashboard':
-        return <DashboardPage />;
+        return <DashboardPage counts={counts} />;
       case 'Users':
         return <UsersPage />;
       case 'Listings':
@@ -70,7 +89,7 @@ export const AdminDashboardView = ({ onLogout }) => {
       case 'Settings':
         return <SettingsPage />;
       default:
-        return <DashboardPage />;
+        return <DashboardPage counts={counts} />;
     }
   };
 

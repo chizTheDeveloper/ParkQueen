@@ -17,9 +17,8 @@ const MetricCard = ({ icon, title, value, trend, isWarning }) => (
   </div>
 );
 
-export const DashboardPage = () => {
+export const DashboardPage = ({ counts }) => {
   const [stats, setStats] = useState({
-    activeSpots: 0,
     totalUsers: 0,
     transactionVolume: 0,
     activeDisputes: 0,
@@ -30,21 +29,12 @@ export const DashboardPage = () => {
   useEffect(() => {
     if (!db) return;
 
-    // --- Aggregate Stats ---
-
     const fetchData = async () => {
       try {
-        // Total Users
         const usersCol = collection(db, 'users');
         const userSnapshot = await getCountFromServer(usersCol);
         setStats(prev => ({ ...prev, totalUsers: userSnapshot.data().count }));
 
-        // Active Spots (assuming 'spots' collection holds active ones)
-        const spotsCol = collection(db, 'spots');
-        const spotSnapshot = await getCountFromServer(spotsCol);
-        setStats(prev => ({ ...prev, activeSpots: spotSnapshot.data().count }));
-
-        // Active Disputes
         const disputesQuery = query(collection(db, 'disputes'), where('status', '==', 'open'));
         const disputeSnapshot = await getCountFromServer(disputesQuery);
         setStats(prev => ({ ...prev, activeDisputes: disputeSnapshot.data().count }));
@@ -55,9 +45,6 @@ export const DashboardPage = () => {
 
     fetchData();
     
-    // --- Real-time Subscriptions ---
-
-    // Transaction Volume (Last 30 days)
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     const thirtyDaysAgoTimestamp = Timestamp.fromDate(thirtyDaysAgo);
@@ -74,21 +61,18 @@ export const DashboardPage = () => {
       setStats(prev => ({ ...prev, transactionVolume: totalVolume }));
     }, error => console.error("Error fetching transactions:", error));
 
-    // Recent Registrations
     const recentUsersQuery = query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(5));
     const unsubUsers = onSnapshot(recentUsersQuery, (snapshot) => {
       const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setRecentRegistrations(users);
     }, error => console.error("Error fetching recent users:", error));
 
-    // Flagged Listings
     const flaggedListingsQuery = query(collection(db, 'listings'), where('isFlagged', '==', true), limit(5));
     const unsubListings = onSnapshot(flaggedListingsQuery, (snapshot) => {
       const listings = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setFlaggedListings(listings);
     }, error => console.error("Error fetching flagged listings:", error));
 
-    // Cleanup subscriptions on unmount
     return () => {
       unsubTransactions();
       unsubUsers();
@@ -101,7 +85,8 @@ export const DashboardPage = () => {
       <h1 className="text-3xl font-bold text-gray-800 mb-6">Dashboard Overview</h1>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <MetricCard icon={<Users size={24} className="text-blue-500" />} title="Active Spots" value={stats.activeSpots.toLocaleString()} />
+        <MetricCard icon={<Users size={24} className="text-blue-500" />} title="Active Spots" value={counts.activeCount.toLocaleString()} />
+        <MetricCard icon={<Users size={24} className="text-blue-500" />} title="Total Spots Pinged" value={counts.totalSpotsPinged.toLocaleString()} />
         <MetricCard icon={<Users size={24} className="text-blue-500" />} title="Total Users" value={stats.totalUsers.toLocaleString()} />
         <MetricCard icon={<DollarSign size={24} className="text-blue-500" />} title="Transaction Volume (30d)" value={`$${stats.transactionVolume.toLocaleString()}`} />
         <MetricCard icon={<Bell size={24} className="text-red-500" />} title="Active Disputes" value={stats.activeDisputes.toLocaleString()} isWarning={stats.activeDisputes > 0} />

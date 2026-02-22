@@ -1,70 +1,55 @@
-const { onCall } = require("firebase-functions/v2/https");
-const { getAuth } = require("firebase-admin/auth");
-const { getFirestore } = require("firebase-admin/firestore");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { onDocumentCreated } = require("firebase-functions/v2/firestore");
 const { initializeApp } = require("firebase-admin/app");
+const { getFirestore, Timestamp, FieldValue } = require("firebase-admin/firestore");
 
 initializeApp();
+const db = getFirestore();
 
-exports.migrateUsersToFirestore = onCall(async (request) => {
-  const auth = getAuth();
-  const db = getFirestore();
-  const usersCollection = db.collection('users');
+// 1) Delete expired spots every hour
+exports.cleanupExpiredSpotsHourly = onSchedule(
+  {
+    schedule: "every 1 hours",
+    timeZone: "America/Toronto",
+    region: "us-central1",
+    memory: "256MiB",
+  },
+  async () => {
+    const now = Timestamp.now();
 
-  console.log('Starting user migration...');
+    // batch delete in pages of 500
+    while (true) {
+      const snap = await db
+        .collection("spots")
+        .where("expiresAt", "<=", now)
+        .orderBy("expiresAt", "asc")
+        .limit(500)
+        .get();
 
-  try {
-    let userRecords = [];
-    let pageToken;
+      if (snap.empty) break;
 
-    do {
-      const listUsersResult = await auth.listUsers(1000, pageToken);
-      userRecords = userRecords.concat(listUsersResult.users);
-      pageToken = listUsersResult.pageToken;
-    } while (pageToken);
+      const batch = db.batch();
+      snap.docs.forEach((d) => batch.delete(d.ref));
+      await batch.commit();
 
-    const totalUsers = userRecords.length;
-    console.log(`Found ${totalUsers} users in Firebase Authentication.`);
-
-    if (totalUsers === 0) {
-      return { message: "No users to migrate." };
+      if (snap.size < 500) break;
     }
 
-    let createdCount = 0;
-    let skippedCount = 0;
-
-    const migrationPromises = userRecords.map(async (user) => {
-      const { uid, email, metadata, displayName, photoURL } = user;
-      const userRef = usersCollection.doc(uid);
-      const userDoc = await userRef.get();
-
-      if (userDoc.exists) {
-        console.log(`Skipping existing user: ${email || uid}`);
-        skippedCount++;
-        return;
-      }
-
-      console.log(`Creating profile for user: ${email || uid}`);
-      await userRef.set({
-        id: uid,
-        email: email || null,
-        fullName: displayName || 'N/A',
-        role: 'Renter', // Default role for migrated users
-        status: 'Active',
-        createdAt: metadata.creationTime ? new Date(metadata.creationTime) : new Date(),
-        avatar: photoURL || null,
-      });
-      createdCount++;
-    });
-
-    await Promise.all(migrationPromises);
-
-    const result = `Migration complete. Created: ${createdCount} profiles, Skipped: ${skippedCount} existing profiles.`;
-    console.log(result);
-    return { message: result };
-
-  } catch (error) {
-    console.error("Error during user migration:", error);
-    // Using the new format for throwing errors in v2
-    throw new functions.https.HttpsError('internal', 'An error occurred during migration.', error.message);
+    console.log("✅ cleanupExpiredSpotsHourly finished");
   }
-});
+);
+
+// 2) Increment total spots pinged (all-time) whenever a spot is created
+exports.incrementTotalSpotsPinged = onDocumentCreated(
+  {
+    document: "spots/{spotId}",
+    region: "us-central1",
+  },
+  async () => {
+    const statsRef = db.doc("stats/global");
+    await statsRef.set(
+      { totalSpotsPinged: FieldValue.increment(1) },
+      { merge: true }
+    );
+  }
+);
