@@ -27,9 +27,10 @@ export default function App() {
   });
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
-        if (user.email === 'admin@parqueen.com') {
+        const token = await user.getIdTokenResult();
+        if (token.claims.admin) {
           setCurrentView(AppView.ADMIN_DASHBOARD);
         } else {
           setCurrentView(AppView.MAP);
