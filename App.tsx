@@ -10,17 +10,39 @@ import { CreateAccountView } from './views/CreateAccountView';
 import { SetupProfileView } from './views/SetupProfileView';
 import { EditProfileView } from './views/EditProfileView';
 import { LoginView } from './views/LoginView';
+import { AdminDashboardView } from './views/AdminDashboardView';
 import { AppView } from './types';
 import { ChevronLeft } from 'lucide-react';
 import ErrorBoundary from './ErrorBoundary';
 import { saveUser, loginUser, logoutUser, deleteUser } from './database';
+import { auth } from './firebaseConfig';
+import { onAuthStateChanged } from 'firebase/auth';
 
 export default function App() {
   const [currentView, setCurrentView] = useState(AppView.LOGIN);
   const [signupPhone, setSignupPhone] = useState("");
+  const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('theme') || 'dark';
   });
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        if (user.email === 'admin@parqueen.com') {
+          setCurrentView(AppView.ADMIN_DASHBOARD);
+        } else {
+          setCurrentView(AppView.MAP);
+        }
+      } else {
+        setCurrentView(AppView.LOGIN);
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
 
   useEffect(() => {
     const root = window.document.documentElement;
@@ -50,7 +72,6 @@ export default function App() {
     const { avatar, ...userData } = profileData;
     try {
       await saveUser({ ...userData, id: signupPhone });
-      setCurrentView(AppView.MAP);
     } catch (error) {
       console.error("Failed to create account: ", error);
       alert("Failed to create account. The email might already be in use or your password is too weak.");
@@ -60,7 +81,6 @@ export default function App() {
   const handleLogin = async (email, password) => {
     try {
       await loginUser(email, password);
-      setCurrentView(AppView.MAP);
     } catch (error) {
       console.error("Failed to login: ", error);
       alert("Failed to login. Please check your email and password.");
@@ -70,7 +90,6 @@ export default function App() {
   const handleLogout = async () => {
     try {
       await logoutUser();
-      setCurrentView(AppView.LOGIN);
     } catch (error) {
       console.error("Failed to logout: ", error);
       alert("Failed to logout.");
@@ -81,7 +100,6 @@ export default function App() {
     if (window.confirm("Are you sure you want to delete your account? This action cannot be undone.")) {
       try {
         await deleteUser();
-        setCurrentView(AppView.LOGIN);
       } catch (error) {
         console.error("Failed to delete account: ", error);
         alert("Failed to delete account.");
@@ -90,11 +108,15 @@ export default function App() {
   };
 
   const renderView = () => {
+    if (loading) {
+      return <div>Loading...</div>;
+    }
+
     switch (currentView) {
       case AppView.LOGIN:
         return <LoginView onLogin={handleLogin} onNavigateToCreateAccount={() => setCurrentView(AppView.CREATE_ACCOUNT)} />;
       case AppView.CREATE_ACCOUNT:
-        return <CreateAccountView onContinue={handleCreateAccount} />;
+          return <CreateAccountView onContinue={handleCreateAccount} />;
       case AppView.SETUP_PROFILE:
         return <SetupProfileView phone={signupPhone} onSave={handleSaveProfile} />;
       case AppView.EDIT_PROFILE:
@@ -142,6 +164,8 @@ export default function App() {
         return <ProfileView setView={setCurrentView} onBack={() => setCurrentView(AppView.MAP)} onLogout={handleLogout} onDeleteAccount={handleDeleteAccount} theme={theme} toggleTheme={toggleTheme} />;
       case AppView.NOTIFICATIONS:
         return <NotificationsView onBack={() => setCurrentView(AppView.MAP)} />;
+      case AppView.ADMIN_DASHBOARD:
+        return <AdminDashboardView onLogout={handleLogout} />;
       default:
         return <LoginView onLogin={handleLogin} onNavigateToCreateAccount={() => setCurrentView(AppView.CREATE_ACCOUNT)} />;
     }

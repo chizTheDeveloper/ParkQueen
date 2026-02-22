@@ -11,6 +11,7 @@ export enum AppView {
   MESSAGES = 'messages',
   PROFILE = 'profile',
   NOTIFICATIONS = 'notifications',
+  ADMIN_DASHBOARD = 'admin-dashboard',
 }
 
 export interface StreetSpot {

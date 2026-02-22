@@ -1,0 +1,51 @@
+type User @table {
+  displayName: String!
+  email: String!
+  createdAt: Timestamp!
+  photoUrl: String
+  phoneNumber: String
+  paymentMethodId: String
+}
+
+type StreetSpot @table {
+  user: User
+  latitude: Float!
+  longitude: Float!
+  status: String!
+  createdAt: Timestamp!
+  updatedAt: Timestamp!
+  description: String
+  reportCount: Int
+}
+
+type GarageSpot @table {
+  owner: User!
+  address: String!
+  latitude: Float!
+  longitude: Float!
+  dailyRate: Float!
+  isAvailable: Boolean!
+  createdAt: Timestamp!
+  updatedAt: Timestamp!
+  description: String
+  amenities: String
+}
+
+type Booking @table {
+  user: User!
+  garageSpot: GarageSpot!
+  startTime: Timestamp!
+  endTime: Timestamp!
+  totalPrice: Float!
+  status: String!
+  createdAt: Timestamp!
+  paymentTransactionId: String
+}
+
+type ParkingSign @table {
+  user: User
+  imageUrl: String!
+  createdAt: Timestamp!
+  parsedRulesText: String
+  interpretationStatus: String
+}

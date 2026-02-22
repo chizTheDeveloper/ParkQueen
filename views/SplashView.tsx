@@ -1,5 +1,6 @@
 import React from 'react';
 import { AppView } from '../types';
+import SplashScreen from '../assets/splash_screen.svg';
 
 interface SplashViewProps {
   setView: (view: AppView) => void;
@@ -9,7 +10,7 @@ export const SplashView: React.FC<SplashViewProps> = ({ setView }) => {
   return (
     <div 
       className="h-full w-full flex flex-col items-center justify-end bg-cover bg-no-repeat bg-center pb-32"
-      style={{ backgroundImage: "url('/assets/splash%20screen.svg')" }}
+      style={{ backgroundImage: `url(${SplashScreen})` }}
     >
       <div className="flex flex-col gap-4 w-full max-w-xs px-4">
         <button 

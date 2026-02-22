@@ -1,6 +1,8 @@
 
 import React, { useState } from 'react';
 import { Mail, Lock } from 'lucide-react';
+import ParqueenLogo from '../assets/Parqueen_Logo.png';
+import SplashScreen from '../assets/splash_screen.svg';
 
 interface LoginViewProps {
   onLogin: (email: string, password: string) => void;
@@ -35,10 +37,10 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin, onNavigateToCreat
 
   return (
     <div className="h-full w-full flex flex-col items-center justify-center bg-cover bg-no-repeat bg-center p-4"
-         style={{ backgroundImage: "url('/assets/splash_screen.svg')" }}>
+         style={{ backgroundImage: `url(${SplashScreen})` }}>
       <div className="w-full max-w-sm bg-white/70 backdrop-blur-md rounded-2xl p-8 shadow-lg">
         <div className="flex justify-center mb-6">
-            <img src={'/assets/Parqueen_Logo.png'} alt="Logo" className="h-16" />
+            <img src={ParqueenLogo} alt="Logo" className="h-16" />
         </div>
         <h1 className="text-2xl font-bold text-center text-gray-800">Welcome Back!</h1>
         <p className="text-center text-gray-600 mb-8">Please log in to your account.</p>
