@@ -15,33 +15,64 @@ import { AppView } from './types';
 import { ChevronLeft } from 'lucide-react';
 import ErrorBoundary from './ErrorBoundary';
 import { saveUser, loginUser, logoutUser, deleteUser } from './database';
-import { auth } from './firebaseConfig';
+import { auth, db } from './firebaseConfig';
 import { onAuthStateChanged } from 'firebase/auth';
+import { doc, onSnapshot, getDoc } from "firebase/firestore";
 
 export default function App() {
   const [currentView, setCurrentView] = useState(AppView.LOGIN);
-  const [signupPhone, setSignupPhone] = useState("");
+  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('theme') || 'dark';
   });
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        const token = await user.getIdTokenResult();
-        if (token.claims.admin) {
+    let userProfileUnsubscribe = () => {};
+
+    const authStateUnsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      userProfileUnsubscribe();
+      setLoading(true);
+
+      if (firebaseUser) {
+        const userDocRef = doc(db, 'users', firebaseUser.uid);
+        
+        // Listen for profile data changes
+        userProfileUnsubscribe = onSnapshot(userDocRef, (userDoc) => {
+          if (userDoc.exists()) {
+            setUser({ id: userDoc.id, ...userDoc.data() });
+          } else {
+            setUser({ id: firebaseUser.uid });
+          }
+        });
+
+        // Check for admin claims and route accordingly
+        const token = await firebaseUser.getIdTokenResult();
+        const isAdmin = token.claims.admin === true;
+
+        if (isAdmin) {
           setCurrentView(AppView.ADMIN_DASHBOARD);
         } else {
-          setCurrentView(AppView.MAP);
+          // For non-admins, check if their profile is set up
+          const userDoc = await getDoc(userDocRef);
+          if (userDoc.exists()) {
+            setCurrentView(AppView.MAP);
+          } else {
+            setCurrentView(AppView.SETUP_PROFILE);
+          }
         }
       } else {
+        // No user is logged in
+        setUser(null);
         setCurrentView(AppView.LOGIN);
       }
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      authStateUnsubscribe();
+      userProfileUnsubscribe();
+    };
   }, []);
 
 
@@ -65,17 +96,22 @@ export default function App() {
   };
 
   const handleCreateAccount = (phone: string) => {
-    setSignupPhone(phone);
+    // This logic might need adjustment depending on the auth flow,
+    // but for email/password it's handled by Firebase auth state.
     setCurrentView(AppView.SETUP_PROFILE);
   }
 
-  const handleSaveProfile = async (profileData: { fullName: string; email: string; dob: string; gender: string; avatar: File | null; password: string }) => {
-    const { avatar, ...userData } = profileData;
+  const handleSaveProfile = async (profileData) => {
+    const firebaseUser = auth.currentUser;
+    if (!firebaseUser) {
+      alert("You must be logged in to save a profile.");
+      return;
+    }
     try {
-      await saveUser({ ...userData, id: signupPhone });
+      await saveUser(firebaseUser, profileData.avatar, profileData);
     } catch (error) {
-      console.error("Failed to create account: ", error);
-      alert("Failed to create account. The email might already be in use or your password is too weak.");
+      console.error("Failed to save profile: ", error);
+      alert("Failed to save profile.");
     }
   };
 
@@ -110,21 +146,22 @@ export default function App() {
 
   const renderView = () => {
     if (loading) {
-      return <div>Loading...</div>;
+      return <div className="flex items-center justify-center h-full">Loading...</div>;
     }
 
     switch (currentView) {
       case AppView.LOGIN:
         return <LoginView onLogin={handleLogin} onNavigateToCreateAccount={() => setCurrentView(AppView.CREATE_ACCOUNT)} />;
       case AppView.CREATE_ACCOUNT:
-          return <CreateAccountView onContinue={handleCreateAccount} />;
+        return <CreateAccountView onContinue={handleCreateAccount} />;
       case AppView.SETUP_PROFILE:
-        return <SetupProfileView phone={signupPhone} onSave={handleSaveProfile} />;
+        return <SetupProfileView onSave={handleSaveProfile} />;
       case AppView.EDIT_PROFILE:
-        return <EditProfileView onBack={() => setCurrentView(AppView.PROFILE)} />;
+        return <EditProfileView user={user} onBack={() => setCurrentView(AppView.PROFILE)} />;
       case AppView.MAP:
         return (
           <MapView 
+            user={user}
             onMessageUser={handleMessageUser} 
             setView={setCurrentView}
           />
@@ -162,7 +199,7 @@ export default function App() {
       case AppView.MESSAGES:
         return <MessagesView onBack={() => setCurrentView(AppView.MAP)} />;
       case AppView.PROFILE:
-        return <ProfileView setView={setCurrentView} onBack={() => setCurrentView(AppView.MAP)} onLogout={handleLogout} onDeleteAccount={handleDeleteAccount} theme={theme} toggleTheme={toggleTheme} />;
+        return <ProfileView user={user} setView={setCurrentView} onBack={() => setCurrentView(AppView.MAP)} onLogout={handleLogout} onDeleteAccount={handleDeleteAccount} theme={theme} toggleTheme={toggleTheme} />;
       case AppView.NOTIFICATIONS:
         return <NotificationsView onBack={() => setCurrentView(AppView.MAP)} />;
       case AppView.ADMIN_DASHBOARD:
@@ -172,9 +209,11 @@ export default function App() {
     }
   };
 
+  const isMapView = currentView === AppView.MAP;
+
   return (
     <div className="h-screen w-screen flex flex-col bg-white dark:bg-dark-900 text-slate-900 dark:text-white font-sans selection:bg-queen-500 selection:text-white transition-colors duration-300">
-      <main className="flex-1 overflow-hidden relative">
+      <main className={`flex-1 relative ${isMapView ? 'overflow-hidden' : 'overflow-y-auto'}`}>
         <ErrorBoundary>
           {renderView()}
         </ErrorBoundary>

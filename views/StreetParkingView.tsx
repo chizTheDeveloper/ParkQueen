@@ -3,7 +3,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { StreetSpot, AppView } from '../types';
 import { MapPin, Check, Locate, ChevronUp, ChevronDown, List, Camera, MessageSquare, Bell, Clock, Calendar, X, Search } from 'lucide-react';
 import { db } from '../firebase';
-import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
 import { collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, Timestamp, doc, deleteDoc } from 'firebase/firestore';
 import mapboxgl from 'mapbox-gl';
 import parqueenLogo from '../assets/Parqueen_Logo.png';
@@ -106,18 +105,18 @@ const PingModal: React.FC<{ isOpen: boolean; onClose: () => void; onPing: (depar
 };
 
 interface MapViewProps {
+    user: any;
     setView: (view: AppView) => void;
     onMessageUser: (userId: string, context: string) => void;
 }
 
-export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
+export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }) => {
     const mapContainerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
     const spotMarkersRef = useRef<Record<string, { marker: mapboxgl.Marker; timerId: number | undefined }>>({});
     const [selectedItem, setSelectedItem] = useState<StreetSpot | null>(null);
     const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
     const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
-    const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [isPinging, setIsPinging] = useState(false);
     const [showPingConfirmation, setShowPingConfirmation] = useState(false);
     const [isPingModalOpen, setPingModalOpen] = useState(false);
@@ -130,11 +129,6 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
     const abortRef = useRef<AbortController | null>(null);
 
     const resizeMap = () => mapRef.current?.resize();
-
-    useEffect(() => {
-        const auth = getAuth();
-        onAuthStateChanged(auth, setCurrentUser);
-    }, []);
 
     useEffect(() => {
         if (!mapContainerRef.current || mapRef.current) return;
@@ -196,7 +190,7 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
     }, [searchQuery, searchOpen]);
 
     useEffect(() => {
-        if (!db || !mapRef.current || !currentUser) return;
+        if (!db || !mapRef.current || !user) return;
 
         const q = query(collection(db, "spots"), orderBy("reportedAt", "desc"));
         const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -219,7 +213,7 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
             activeSpots.forEach(s => {
                 const lngLat: [number, number] = [s.lng, s.lat];
                 if (!markers[s.id]) {
-                    const el = createMarkerElement(s.finderId === currentUser.uid);
+                    const el = createMarkerElement(s.finderId === user.id);
                     const marker = new mapboxgl.Marker({ element: el, anchor: "center" }).setLngLat(lngLat).addTo(mapRef.current!);
                     marker.getElement().addEventListener('click', (e) => {
                         e.stopPropagation();
@@ -249,7 +243,7 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
             spotMarkersRef.current = {};
             unsubscribe();
         };
-    }, [currentUser]);
+    }, [user]);
 
     useEffect(() => {
         if (userMarkerRef.current) userMarkerRef.current.remove();
@@ -269,7 +263,7 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
     };
 
     const handlePingSpot = (departureTime: Date | null) => {
-        if (isPinging || !currentUser) return;
+        if (isPinging || !user) return;
         setIsPinging(true);
         setPingModalOpen(false);
         navigator.geolocation.getCurrentPosition(async (p) => {
@@ -285,8 +279,8 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
                 lng: newLocation[0],
                 type: 'free',
                 status: 'available',
-                finderId: currentUser.uid,
-                finderName: 'Anonymous',
+                finderId: user.id,
+                finderName: user.fullName || 'Anonymous',
                 reportedAt,
                 expiresAt,
             };
@@ -304,8 +298,8 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
     };
 
     const handleDeletePing = async () => {
-        if (!currentUser || !selectedItem) return;
-        if (currentUser.uid !== selectedItem.finderId) return; // security
+        if (!user || !selectedItem) return;
+        if (user.id !== selectedItem.finderId) return; // security
 
         const ok = window.confirm("Delete this ping? This can't be undone.");
         if (!ok) return;
@@ -338,7 +332,7 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
                     <div className={`relative flex-1 bg-black/70 backdrop-blur-xl rounded-full flex items-center h-14 px-4 shadow-lg border border-white/10 transition-all duration-300 ease-out ${searchOpen ? 'ring-2 ring-blue-500/90' : 'max-w-md'}`}>
                         {!searchOpen && (
                             <button onClick={() => setView(AppView.PROFILE)} className="shrink-0">
-                                <img src={`https://i.pravatar.cc/150?u=${currentUser?.uid || 'guest'}`} alt="Profile" className="w-9 h-9 rounded-full transition-all duration-300" />
+                                <img src={user?.avatarUrl || `https://i.pravatar.cc/150?u=${user?.id || 'guest'}`} alt="Profile" className="w-9 h-9 rounded-full transition-all duration-300 object-cover" />
                             </button>
                         )} 
                         <div className="flex-1 mx-3 flex items-center gap-2">
@@ -395,7 +389,7 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
                                 <h3 className="font-bold">{selectedItem.type}</h3>
                                 <p className="text-sm text-gray-400">Expires in {Math.round((selectedItem.expiresAt.toMillis() - Date.now()) / 60000)} minutes</p>
                             </div>
-                            {currentUser?.uid === selectedItem.finderId && (
+                            {user?.id === selectedItem.finderId && (
                                 <div className="mt-4 space-y-2">
                                     <button
                                     onClick={() => setEditModalOpen(true)}
@@ -420,7 +414,7 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
                         <div className="relative w-full max-w-md h-28">
                         <button
                         onClick={() => setPingModalOpen(true)}
-                        disabled={!currentUser}
+                        disabled={!user}
                         style={{ bottom: "calc(3.5rem + env(safe-area-inset-bottom))" }}
                         className="
                             absolute left-1/2 -translate-x-1/2

@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import React, { useState, useEffect, useRef } from 'react';
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { ChevronLeft, Edit, FileText, Bell, Shield, Info, LogOut, Trash2 } from 'lucide-react';
+import { ChevronLeft, Edit, FileText, Bell, Shield, Info, LogOut, Trash2, Camera } from 'lucide-react';
 import { AppView } from '../types';
 
 const ProfileButton = ({ icon, label, onClick, isSwitch = false, isDestructive = false }) => (
@@ -29,30 +29,35 @@ const ProfileButton = ({ icon, label, onClick, isSwitch = false, isDestructive =
   </button>
 );
 
-export const ProfileView = ({ onBack, onLogout, onDeleteAccount, setView, theme, toggleTheme }) => {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+export const ProfileView = ({ user, onBack, onLogout, onDeleteAccount, setView, theme, toggleTheme }) => {
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const auth = getAuth();
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-        if (userDoc.exists()) {
-          setUser(userDoc.data());
-        } else {
-          console.log("No such user!");
-        }
-      } else {
-        setUser(null);
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file && user) {
+      setIsUploading(true);
+      const storage = getStorage();
+      const storageRef = ref(storage, `avatars/${user.id}`);
+      try {
+        await uploadBytes(storageRef, file);
+        const avatarUrl = await getDownloadURL(storageRef);
+        await updateDoc(doc(db, 'users', user.id), { avatarUrl });
+      } catch (error) {
+        console.error("Error uploading file:", error);
+        alert("Failed to upload new avatar. Please try again.");
+      } finally {
+        setIsUploading(false);
       }
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
+    }
+  };
+
+  const triggerUpload = () => {
+    fileInputRef.current?.click();
+  };
 
   return (
-    <div className="h-full bg-gray-100 dark:bg-dark-900 font-sans text-gray-800 dark:text-white">
+    <div className="bg-gray-100 dark:bg-dark-900 font-sans text-gray-800 dark:text-white">
       <div className="bg-white dark:bg-dark-800 shadow-sm sticky top-0 z-10">
         <div className="p-4 flex items-center gap-4">
           <button onClick={onBack} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-dark-700">
@@ -63,13 +68,15 @@ export const ProfileView = ({ onBack, onLogout, onDeleteAccount, setView, theme,
       </div>
 
       <div className="p-6">
-        {loading ? (
-          <div className="text-center">Loading...</div>
-        ) : user ? (
+        {user ? (
           <>
             <div className="flex flex-col items-center text-center mb-8">
-              <div className="relative mb-4">
+              <div className="relative mb-4 group">
                 <img src={user.avatarUrl || `https://i.pravatar.cc/150?u=${user.id}`} alt="Profile" className="w-24 h-24 rounded-full border-4 border-blue-200 dark:border-blue-800 object-cover" />
+                <button onClick={triggerUpload} className="absolute inset-0 bg-black/50 flex items-center justify-center text-white opacity-0 group-hover:opacity-100 rounded-full transition-opacity">
+                  {isUploading ? <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div> : <Camera size={32}/>}
+                </button>
+                <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" className="hidden" />
               </div>
               <h2 className="text-2xl font-bold">{user.fullName}</h2>
               <p className="text-gray-500 dark:text-gray-400">{user.email}</p>

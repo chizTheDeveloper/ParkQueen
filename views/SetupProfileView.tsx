@@ -118,7 +118,7 @@ export const SetupProfileView: React.FC<SetupProfileViewProps> = ({ phone, onSav
   };
 
   return (
-    <div className="h-full overflow-y-auto bg-sky-50 flex flex-col items-center p-4 font-sans">
+    <div className="h-full overflow-y-auto bg-sky-50 flex flex-col items-center p-4 pb-24 font-sans">
       <div className="w-full max-w-sm my-auto">
         <h1 className="text-2xl font-bold text-center text-gray-800 mt-8 mb-6">Setup Profile</h1>
 
