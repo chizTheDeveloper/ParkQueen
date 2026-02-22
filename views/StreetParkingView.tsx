@@ -278,7 +278,7 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
 
             const now = Date.now();
             const reportedAt = departureTime ? Timestamp.fromDate(departureTime) : Timestamp.fromMillis(now);
-            const expiresAt = Timestamp.fromMillis(reportedAt.toMillis() + 60_000);
+            const expiresAt = Timestamp.fromMillis(reportedAt.toMillis() + 300_000);
             
             const pingData = {
                 lat: newLocation[1],
@@ -300,7 +300,7 @@ export const MapView: React.FC<MapViewProps> = ({ setView, onMessageUser }) => {
         }, (error) => {
             console.error("Error pinging spot:", error);
             setIsPinging(false);
-        });
+        }, { timeout: 10000 });
     };
 
     const handleDeletePing = async () => {
