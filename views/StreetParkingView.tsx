@@ -3,16 +3,36 @@ import React, { useState, useEffect, useRef } from 'react';
 import { StreetSpot, AppView } from '../types';
 import { MapPin, Check, Locate, ChevronUp, ChevronDown, List, Camera, MessageSquare, Bell, Clock, Calendar, X, Search } from 'lucide-react';
 import { db } from '../firebase';
-import { collection, addDoc, onSnapshot, query, orderBy, serverTimestamp, Timestamp, doc, deleteDoc } from 'firebase/firestore';
+import { collection, addDoc, onSnapshot, query, orderBy, Timestamp, doc, deleteDoc, writeBatch } from 'firebase/firestore';
 import mapboxgl from 'mapbox-gl';
 import parqueenLogo from '../assets/Parqueen_Logo.png';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 const NYC_CENTER: [number, number] = [-73.9712, 40.7831];
 
+const formatTimeLeft = (ms: number): string => {
+    if (ms <= 0) {
+        return "Expired";
+    }
+    const totalMinutes = Math.floor(ms / 60000);
+    if (totalMinutes < 1) {
+        return "< 1 minute";
+    }
+    if (totalMinutes < 60) {
+        return `${totalMinutes} minutes`;
+    }
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (minutes === 0) {
+        return `${hours} hour${hours === 1 ? "" : "s"}`;
+    }
+    return `${hours} hour${hours === 1 ? "" : "s"} and ${minutes} minute${minutes === 1 ? "" : "s"}`;
+};
+
 const createMarkerElement = (isMine: boolean) => {
     const el = document.createElement('div');
-    const color = isMine ? '#3B82F6' : '#6B7280'; // Blue-500 and Gray-500
+    el.style.zIndex = '10';
+    const color = isMine ? '#3B82F6' : '#6B7280';
     el.innerHTML = `
     <div style="width: 36px; height: 36px; position: relative;">
       <svg viewBox="0 0 24 24" fill="${color}" xmlns="http://www.w3.org/2000/svg" style="width: 100%; height: 100%; filter: drop-shadow(0px 4px 6px rgba(0,0,0,0.3));">
@@ -30,7 +50,7 @@ const TimePicker: React.FC<{ initialTime: Date; onTimeChange: (time: Date) => vo
     const [amPm, setAmPm] = useState(initialTime.getHours() >= 12 ? 'PM' : 'AM');
 
     const updateTime = (h: number, m: number, ap: 'AM' | 'PM') => {
-        const newDate = new Date();
+        const newDate = new Date(initialTime);
         let newHour = h;
         if (ap === 'PM' && newHour < 12) newHour += 12;
         if (ap === 'AM' && newHour === 12) newHour = 0;
@@ -57,15 +77,24 @@ const TimePicker: React.FC<{ initialTime: Date; onTimeChange: (time: Date) => vo
     );
 };
 
-const PingModal: React.FC<{ isOpen: boolean; onClose: () => void; onPing: (departure: Date | null) => void; }> = ({ isOpen, onClose, onPing }) => {
+const SpotModal: React.FC<{ isOpen: boolean; onClose: () => void; onSave: (departure: Date | null) => void; spot?: StreetSpot | null; }> = ({ isOpen, onClose, onSave, spot }) => {
     const [view, setView] = useState<'main' | 'timePicker'>('main');
-    const [departureTime, setDepartureTime] = useState(new Date(Date.now() + 5 * 60_000)); // Default to 5 mins from now
+    const [departureTime, setDepartureTime] = useState(new Date());
     const [pingType, setPingType] = useState<'now' | 'later'>('now');
 
+    useEffect(() => {
+        if (isOpen) {
+            const initialDate = spot ? spot.reportedAt.toDate() : new Date(Date.now() + 2 * 60_000);
+            setDepartureTime(initialDate);
+            setPingType(initialDate.getTime() > Date.now() + 60_000 ? 'later' : 'now');
+            setView('main');
+        }
+    }, [spot, isOpen]);
+
     const handleSetTime = () => {
-        onPing(pingType === 'now' ? null : departureTime);
+        onSave(pingType === 'now' ? null : departureTime);
     };
-    
+
     if (!isOpen) return null;
 
     return (
@@ -76,7 +105,7 @@ const PingModal: React.FC<{ isOpen: boolean; onClose: () => void; onPing: (depar
                     <>
                         <div className="text-center">
                             <img src={parqueenLogo} alt="ParkQueen Logo" className="w-16 h-16 mx-auto mb-4" />
-                            <h2 className="text-2xl font-bold">Ping spot</h2>
+                            <h2 className="text-2xl font-bold">{spot ? 'Edit Spot' : 'Ping spot'}</h2>
                             <p className="text-sm text-blue-400">BROADCASTING LIVE</p>
                         </div>
                         <div className="my-8 space-y-4">
@@ -84,12 +113,12 @@ const PingModal: React.FC<{ isOpen: boolean; onClose: () => void; onPing: (depar
                                 <Clock size={24} />
                                 <div><h3 className="font-bold">Leaving Now</h3><p className="text-xs text-gray-300">IMMEDIATE SPOT</p></div>
                             </div>
-                            <div onClick={() => setView('timePicker')} className={`rounded-lg p-4 flex items-center gap-4 cursor-pointer ${pingType === 'later' ? 'bg-blue-500/30 border border-blue-400' : 'bg-gray-700/50 border border-gray-600'}`}>
+                            <div onClick={() => { setPingType('later'); setView('timePicker'); }} className={`rounded-lg p-4 flex items-center gap-4 cursor-pointer ${pingType === 'later' ? 'bg-blue-500/30 border border-blue-400' : 'bg-gray-700/50 border border-gray-600'}`}>
                                 <Calendar size={24} />
                                 <div><h3 className="font-bold">Later Today</h3><p className="text-xs text-gray-300">{pingType === 'later' ? departureTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'SCHEDULED SPOT'}</p></div>
                             </div>
                         </div>
-                        <button onClick={handleSetTime} className="w-full bg-blue-500 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2"><MapPin size={20} /><span>PING</span></button>
+                        <button onClick={handleSetTime} className="w-full bg-blue-500 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2"><MapPin size={20} /><span>{spot ? 'UPDATE' : 'PING'}</span></button>
                     </>
                 ) : (
                     <>
@@ -119,8 +148,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
     const [isPinging, setIsPinging] = useState(false);
     const [showPingConfirmation, setShowPingConfirmation] = useState(false);
-    const [isPingModalOpen, setPingModalOpen] = useState(false);
-    const [isEditModalOpen, setEditModalOpen] = useState(false);
+    const [isSpotModalOpen, setSpotModalOpen] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
     const [searchQuery, setSearchQuery] = useState("");
     const [searchOpen, setSearchOpen] = useState(false);
@@ -141,13 +169,45 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         mapRef.current = map;
 
         map.on('load', () => {
-            handleLocateMe();
             resizeMap();
         });
 
         return () => {
             map.remove();
             mapRef.current = null;
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!navigator.geolocation) {
+            console.warn("Geolocation is not supported by your browser.");
+            return;
+        }
+
+        let isInitialLocation = true;
+
+        const watchId = navigator.geolocation.watchPosition(
+            (position) => {
+                const { longitude, latitude } = position.coords;
+                const newLocation: [number, number] = [longitude, latitude];
+                setUserLocation(newLocation);
+
+                if (isInitialLocation && mapRef.current) {
+                    mapRef.current.flyTo({ center: newLocation, zoom: 16 });
+                    isInitialLocation = false;
+                }
+            },
+            (error) => console.error("Error watching position:", error),
+            {
+                enableHighAccuracy: true,
+                timeout: 30000,
+                maximumAge: 0,
+                distanceFilter: 10
+            }
+        );
+
+        return () => {
+            navigator.geolocation.clearWatch(watchId);
         };
     }, []);
 
@@ -249,57 +309,107 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         if (userMarkerRef.current) userMarkerRef.current.remove();
         if (mapRef.current && userLocation) {
             const el = document.createElement('div');
+            el.style.zIndex = '5'; // Keep user marker below spots
             el.innerHTML = `<div class="relative flex items-center justify-center"><div class="absolute w-11 h-11 bg-blue-500/20 rounded-full animate-pulse"></div><div class="w-6 h-6 bg-blue-500 rounded-full border-2 border-white shadow-md flex items-center justify-center"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14"/></svg></div></div>`;
             userMarkerRef.current = new mapboxgl.Marker(el).setLngLat(userLocation).addTo(mapRef.current);
         }
     }, [userLocation]);
 
     const handleLocateMe = () => {
-        navigator.geolocation.getCurrentPosition(p => {
-            const newLocation: [number, number] = [p.coords.longitude, p.coords.latitude];
-            setUserLocation(newLocation);
-            mapRef.current?.flyTo({ center: newLocation, zoom: 16 });
-        }, null, { enableHighAccuracy: true });
+        if (userLocation && mapRef.current) {
+            mapRef.current.flyTo({ center: userLocation, zoom: 16 });
+        }
     };
 
-    const handlePingSpot = (departureTime: Date | null) => {
+    const handleSaveSpot = async (departureTime: Date | null) => {
         if (isPinging || !user) return;
         setIsPinging(true);
-        setPingModalOpen(false);
-        navigator.geolocation.getCurrentPosition(async (p) => {
-            const newLocation: [number, number] = [p.coords.longitude, p.coords.latitude];
-            setUserLocation(newLocation);
-
-            const now = Date.now();
-            const reportedAt = departureTime ? Timestamp.fromDate(departureTime) : Timestamp.fromMillis(now);
-            const expiresAt = Timestamp.fromMillis(reportedAt.toMillis() + 300_000);
-            
-            const pingData = {
-                lat: newLocation[1],
-                lng: newLocation[0],
-                type: 'free',
-                status: 'available',
-                finderId: user.id,
-                finderName: user.fullName || 'Anonymous',
-                reportedAt,
-                expiresAt,
-            };
-
-            if (db) {
-                await addDoc(collection(db, "spots"), pingData);
-                setShowPingConfirmation(true);
-                setTimeout(() => setShowPingConfirmation(false), 4000);
+        setSpotModalOpen(false);
+    
+        const now = Date.now();
+        const reportedAt = departureTime ? Timestamp.fromDate(departureTime) : Timestamp.fromMillis(now);
+        const expiresAt = Timestamp.fromMillis(reportedAt.toMillis() + 2 * 60 * 1000);
+    
+        const onSaveSuccess = () => {
+            setIsPinging(false);
+            setSelectedItem(null);
+        };
+    
+        const onSaveError = (error: any) => {
+            console.error("Error saving spot:", error);
+            alert("There was an error saving your ping. Please try again.");
+            setIsPinging(false);
+        };
+    
+        if (selectedItem) {
+            // Editing requires deleting the old spot and creating a new one, 
+            // because the backend rules likely make `reportedAt` immutable.
+            // This is done in a batch to ensure atomicity.
+            try {
+                const batch = writeBatch(db);
+                
+                // 1. Delete the old document
+                const oldSpotRef = doc(db, "spots", selectedItem.id);
+                batch.delete(oldSpotRef);
+                
+                // 2. Create a new document with clean data
+                const newSpotRef = doc(collection(db, "spots"));
+                const newSpotData = {
+                    // Carry over only the essential, immutable data
+                    lat: selectedItem.lat,
+                    lng: selectedItem.lng,
+                    type: 'free',
+                    status: 'available',
+                    // Re-assert ownership with the current user
+                    finderId: user.id,
+                    finderName: user.fullName || 'Anonymous',
+                    // Apply the new times
+                    reportedAt,
+                    expiresAt,
+                };
+                batch.set(newSpotRef, newSpotData);
+                
+                await batch.commit();
+                onSaveSuccess();
+            } catch (error) {
+                onSaveError(error);
             }
-            setIsPinging(false);
-        }, (error) => {
-            console.error("Error pinging spot:", error);
-            setIsPinging(false);
-        }, { timeout: 10000 });
+        } else {
+            // Creating a new spot from scratch
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const location: [number, number] = [position.coords.longitude, position.coords.latitude];
+                    const newSpotData = {
+                        lat: location[1],
+                        lng: location[0],
+                        type: 'free',
+                        status: 'available',
+                        finderId: user.id,
+                        finderName: user.fullName || 'Anonymous',
+                        reportedAt,
+                        expiresAt,
+                    };
+                    addDoc(collection(db, "spots"), newSpotData)
+                        .then(() => {
+                            setShowPingConfirmation(true);
+                            setTimeout(() => setShowPingConfirmation(false), 4000);
+                            onSaveSuccess();
+                        })
+                        .catch(onSaveError);
+                },
+                (error) => {
+                    console.error("Error getting position for ping:", error);
+                    alert("Could not get your location. Please ensure location services are enabled.");
+                    setIsPinging(false);
+                },
+                { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 }
+            );
+        }
     };
 
     const handleDeletePing = async () => {
         if (!user || !selectedItem) return;
-        if (user.id !== selectedItem.finderId) return; // security
+        if (user.id !== selectedItem.finderId) return;
 
         const ok = window.confirm("Delete this ping? This can't be undone.");
         if (!ok) return;
@@ -307,7 +417,6 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         try {
             await deleteDoc(doc(db, "spots", selectedItem.id));
             setSelectedItem(null);
-            setEditModalOpen(false);
         } catch (e) {
             console.error("Error deleting ping:", e);
         }
@@ -322,7 +431,15 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
     return (
         <div className="sp-page">
-            <PingModal isOpen={isPingModalOpen} onClose={() => setPingModalOpen(false)} onPing={handlePingSpot} />
+            <SpotModal 
+                isOpen={isSpotModalOpen} 
+                onClose={() => {
+                    setSpotModalOpen(false);
+                    setSelectedItem(null);
+                }} 
+                onSave={handleSaveSpot}
+                spot={selectedItem}
+            />
             <div ref={mapContainerRef} className="sp-map" onClick={() => setSelectedItem(null)} />
             {showPingConfirmation && (
                 <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 bg-green-500 text-white font-bold py-2 px-4 rounded-lg flex items-center gap-2 shadow-lg"><Check size={20} /><span>spot pinged successfully!</span></div>
@@ -366,7 +483,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                   setResults([]);
 
                                   mapRef.current?.easeTo({
-                                    center: r.center, // [lng, lat]
+                                    center: r.center,
                                     zoom: 14,
                                     duration: 800,
                                   });
@@ -382,38 +499,46 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     </div>
                     {searchOpen && <button onClick={handleCancelSearch} className="text-white font-semibold px-4 h-14">Cancel</button>}
                 </header>
-                {selectedItem && (
-                    <div className="absolute bottom-32 left-1/2 -translate-x-1/2 w-full max-w-sm p-4 pointer-events-auto">
-                        <div className="bg-black/70 backdrop-blur-xl rounded-2xl p-4 border border-white/10">
-                            <div className="text-white text-center">
-                                <h3 className="font-bold">{selectedItem.type}</h3>
-                                <p className="text-sm text-gray-400">Expires in {Math.round((selectedItem.expiresAt.toMillis() - Date.now()) / 60000)} minutes</p>
-                            </div>
-                            {user?.id === selectedItem.finderId && (
-                                <div className="mt-4 space-y-2">
-                                    <button
-                                    onClick={() => setEditModalOpen(true)}
-                                    className="w-full bg-blue-500 text-white font-bold py-2 rounded-lg"
-                                    >
-                                    Edit Ping
-                                    </button>
+                {selectedItem && (() => {
+                    const departureDate = selectedItem.reportedAt.toDate();
+                    const isScheduled = selectedItem.reportedAt.toMillis() > Date.now() + 60_000;
+                    const departureText = isScheduled ? departureDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Leaving Now';
+                    const timeLeftMs = selectedItem.expiresAt.toMillis() - Date.now();
 
-                                    <button
-                                    onClick={handleDeletePing}
-                                    className="w-full font-bold py-2 rounded-lg border border-red-500/60 text-red-400 hover:bg-red-500/10"
-                                    >
-                                    Delete Ping
-                                    </button>
+                    return (
+                        <div className="absolute bottom-32 left-1/2 -translate-x-1/2 w-full max-w-sm p-4 pointer-events-auto">
+                            <div className="bg-black/70 backdrop-blur-xl rounded-2xl p-4 border border-white/10">
+                                <div className="text-white text-center">
+                                    <h3 className="font-bold capitalize">{selectedItem.type}</h3>
+                                    <p className="text-sm text-gray-400">Departure: {departureText}</p>
+                                    <p className="text-sm text-gray-400">Expires in {formatTimeLeft(timeLeftMs)}</p>
                                 </div>
-                            )}
+                                {user?.id === selectedItem.finderId && (
+                                    <div className="mt-4 space-y-2">
+                                        <button
+                                        onClick={() => setSpotModalOpen(true)}
+                                        className="w-full bg-blue-500 text-white font-bold py-2 rounded-lg"
+                                        >
+                                        Edit Ping
+                                        </button>
+
+                                        <button
+                                        onClick={handleDeletePing}
+                                        className="w-full font-bold py-2 rounded-lg border border-red-500/60 text-red-400 hover:bg-red-500/10"
+                                        >
+                                        Delete Ping
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
                         </div>
-                    </div>
-                )}
+                    );
+                })()}
                 {!selectedItem && (
                     <footer className="w-full flex justify-center pointer-events-auto" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
                         <div className="relative w-full max-w-md h-28">
                         <button
-                        onClick={() => setPingModalOpen(true)}
+                        onClick={() => setSpotModalOpen(true)}
                         disabled={!user}
                         style={{ bottom: "calc(3.5rem + env(safe-area-inset-bottom))" }}
                         className="

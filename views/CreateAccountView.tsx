@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import splashScreen from '../assets/splash_screen.svg';
 
 interface CreateAccountViewProps {
   onContinue: (phone: string) => void;
@@ -10,7 +11,7 @@ export const CreateAccountView: React.FC<CreateAccountViewProps> = ({ onContinue
   return (
     <div 
       className="h-screen w-full flex flex-col items-center justify-center bg-cover bg-no-repeat bg-center p-4"
-      style={{ backgroundImage: "url('/assets/splash_screen.svg')" }}
+      style={{ backgroundImage: `url(${splashScreen})` }}
     >
       <div className="w-full max-w-md text-center bg-gray-200/[.65] backdrop-blur-md rounded-2xl p-8">
         <h1 className="text-3xl font-black text-dark-900">Create Account</h1>
