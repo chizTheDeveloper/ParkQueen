@@ -85,7 +85,9 @@ export const MessagesView = ({ onBack }) => {
             <button onClick={() => setActiveConversationId(null)} className="text-gray-400 hover:text-white">
               <ChevronLeft size={24} />
             </button>
-            <img src={activeConversation.otherUser.avatar} alt="User" className="w-10 h-10 rounded-full border border-dark-600" />
+            <div className="w-10 h-10 rounded-full border border-dark-600 bg-dark-800 flex items-center justify-center text-gray-500 overflow-hidden shrink-0">
+               <i className="fa-solid fa-user text-xl"></i>
+            </div>
             <div>
               <h3 className="font-bold text-white">{activeConversation.otherUser.name}</h3>
               {activeConversation.relatedSpotTitle && (
@@ -184,7 +186,9 @@ export const MessagesView = ({ onBack }) => {
               className="w-full flex items-center gap-4 py-4 border-b border-dark-800 hover:bg-dark-800/50 transition-colors rounded-xl px-2"
             >
               <div className="relative">
-                <img src={conv.otherUser.avatar} alt={conv.otherUser.name} className="w-12 h-12 rounded-full" />
+                <div className="w-12 h-12 rounded-full border border-dark-600 bg-dark-800 flex items-center justify-center text-gray-500 overflow-hidden shrink-0">
+                   <i className="fa-solid fa-user text-2xl"></i>
+                </div>
                 {conv.unreadCount > 0 && (
                   <div className="absolute -top-1 -right-1 w-5 h-5 bg-queen-500 rounded-full flex items-center justify-center text-[10px] font-bold text-white border-2 border-dark-900">
                     {conv.unreadCount}

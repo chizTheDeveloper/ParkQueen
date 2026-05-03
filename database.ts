@@ -1,6 +1,6 @@
 import { auth, db } from './firebaseConfig';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, deleteUser as deleteFirebaseUser } from 'firebase/auth';
-import { doc, setDoc, updateDoc, deleteDoc } from "firebase/firestore"; 
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, deleteUser as deleteFirebaseUser, sendPasswordResetEmail as firebaseSendPasswordResetEmail, updateProfile } from 'firebase/auth';
+import { doc, setDoc, updateDoc, deleteDoc, serverTimestamp } from "firebase/firestore"; 
 
 interface UserProfile {
   id: string;
@@ -22,11 +22,14 @@ export const saveUser = async (user: UserProfile) => {
     const userCredential = await createUserWithEmailAndPassword(auth, user.email, user.password);
     const firebaseUser = userCredential.user;
 
+    await updateProfile(firebaseUser, { displayName: user.fullName });
+
     const { password, ...profileData } = user;
 
     await setDoc(doc(db, "users", firebaseUser.uid), {
         ...profileData,
-        id: firebaseUser.uid
+        id: firebaseUser.uid,
+        createdAt: serverTimestamp()
     });
 
     console.log("User created and profile saved to Firestore with ID: ", firebaseUser.uid);
@@ -79,6 +82,16 @@ export const deleteUser = async () => {
     await deleteFirebaseUser(user);
   } catch (error) {
     console.error("Error deleting user: ", error);
+    throw error;
+  }
+};
+
+export const sendPasswordResetEmail = async (email: string) => {
+  try {
+    await firebaseSendPasswordResetEmail(auth, email);
+    console.log("Password reset email sent.");
+  } catch (error) {
+    console.error("Error sending password reset email: ", error);
     throw error;
   }
 };

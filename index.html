@@ -1,61 +1,85 @@
 <!DOCTYPE html>
 <html lang="en" class="dark">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <title>ParQueen - NYC Parking</title>
-    
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-      tailwind.config = {
-        darkMode: 'class',
-        theme: {
-          extend: {
-            colors: {
-              queen: {
-                50: '#eff6ff',
-                100: '#dbeafe',
-                200: '#bfdbfe',
-                300: '#93c5fd',
-                400: '#60a5fa',
-                500: '#3b82f6',
-                600: '#2563eb',
-                700: '#1d4ed8',
-                800: '#1e40af',
-                900: '#1e3a8a',
-              },
-              dark: {
-                900: '#121212',
-                800: '#1E1E1E',
-                700: '#2D2D2D',
-              }
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>ParQueen - NYC Parking</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            queen: {
+              50: '#eff6ff',
+              100: '#dbeafe',
+              200: '#bfdbfe',
+              300: '#93c5fd',
+              400: '#60a5fa',
+              500: '#3b82f6',
+              600: '#2563eb',
+              700: '#1d4ed8',
+              800: '#1e40af',
+              900: '#1e3a8a',
             },
-          }
+            dark: {
+              900: '#121212',
+              800: '#1E1E1E',
+              700: '#2D2D2D',
+            }
+          },
         }
       }
-    </script>
-    <style>
-      html, body, #root { height: 100%; }
-      .sp-page { min-height: 100dvh; }
-      .sp-overlay { pointer-events: none; }
-      .sp-overlay > * { pointer-events: auto; }
+    }
+  </script>
+  <style>
+    html,
+    body,
+    #root {
+      height: 100%;
+    }
 
-      .no-scrollbar::-webkit-scrollbar { display: none; }
-      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-      
-      body {
-        background-color: #121212;
-        overscroll-behavior-y: none;
-      }
+    .sp-page {
+      min-height: 100dvh;
+    }
 
-      .mapboxgl-ctrl-bottom-left, .mapboxgl-ctrl-bottom-right {
-        display: none;
-      }
-    </style>
-    
-    <link href="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.css" rel="stylesheet">
-    <script type="importmap">
+    .sp-overlay {
+      pointer-events: none;
+    }
+
+    .sp-overlay>* {
+      pointer-events: auto;
+    }
+
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+
+    body {
+      background-color: #121212;
+      overscroll-behavior-y: none;
+    }
+
+    .mapboxgl-ctrl-bottom-left,
+    .mapboxgl-ctrl-bottom-right {
+      display: none;
+    }
+  </style>
+
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.css" rel="stylesheet">
+  <script type="importmap">
 {
   "imports": {
     "react": "https://esm.sh/react@18.2.0",
@@ -75,9 +99,12 @@
   }
 }
 </script>
-  </head>
-  <body class="bg-dark-900 text-white overflow-hidden">
-    <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
-  </body>
+</head>
+
+<body class="bg-dark-900 text-white overflow-hidden">
+  <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+  <script src="https://cdn.voiceagent.ai/widget.js" data-agent-id="acme-corp-123"></script>
+</body>
+
 </html>

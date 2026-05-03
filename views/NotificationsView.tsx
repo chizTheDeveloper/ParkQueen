@@ -35,8 +35,8 @@ export const NotificationsView = ({ onBack }) => {
             className={`flex items-start gap-4 p-4 border-b border-dark-800 hover:bg-dark-800/50 transition-colors cursor-pointer ${index % 2 === 0 ? 'bg-dark-900' : 'bg-[#151515]'}`}
            >
               {/* Avatar Image */}
-              <div className="w-14 h-14 rounded-2xl overflow-hidden shrink-0 border border-dark-700 shadow-sm">
-                 <img src={item.img} alt="User" className="w-full h-full object-cover" />
+              <div className="w-14 h-14 rounded-2xl overflow-hidden shrink-0 border border-dark-700 shadow-sm bg-dark-800 flex items-center justify-center text-gray-500">
+                 <i className="fa-solid fa-user text-2xl"></i>
               </div>
 
               {/* Content */}

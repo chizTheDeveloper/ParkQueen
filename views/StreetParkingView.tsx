@@ -449,9 +449,15 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     <div className={`relative flex-1 bg-black/70 backdrop-blur-xl rounded-full flex items-center h-14 px-4 shadow-lg border border-white/10 transition-all duration-300 ease-out ${searchOpen ? 'ring-2 ring-blue-500/90' : 'max-w-md'}`}>
                         {!searchOpen && (
                             <button onClick={() => setView(AppView.PROFILE)} className="shrink-0">
-                                <img src={user?.avatarUrl || `https://i.pravatar.cc/150?u=${user?.id || 'guest'}`} alt="Profile" className="w-9 h-9 rounded-full transition-all duration-300 object-cover" />
+                                {user?.avatarUrl ? (
+                                    <img src={user.avatarUrl} alt="Profile" className="w-9 h-9 rounded-full transition-all duration-300 object-cover" />
+                                ) : (
+                                    <div className="w-9 h-9 rounded-full bg-gray-800 flex items-center justify-center text-gray-400 transition-all duration-300">
+                                        <i className="fa-solid fa-user"></i>
+                                    </div>
+                                )}
                             </button>
-                        )} 
+                        )}
                         <div className="flex-1 mx-3 flex items-center gap-2">
                            <Search size={22} className={`text-gray-400 transition-all duration-300 ${searchOpen ? 'text-blue-400' : ''}`} />
                            <input 

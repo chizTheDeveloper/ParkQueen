@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, DollarSign, Bell } from 'lucide-react';
+import { Users, DollarSign, Bell, CheckCircle, ChevronRight } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, onSnapshot, getCountFromServer, where, orderBy, limit, Timestamp } from 'firebase/firestore';
 
@@ -85,10 +85,10 @@ export const DashboardPage = ({ counts }) => {
       <h1 className="text-3xl font-bold text-gray-800 mb-6">Dashboard Overview</h1>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <MetricCard icon={<Users size={24} className="text-blue-500" />} title="Active Spots" value={counts.activeCount.toLocaleString()} />
-        <MetricCard icon={<Users size={24} className="text-blue-500" />} title="Total Spots Pinged" value={counts.totalSpotsPinged.toLocaleString()} />
-        <MetricCard icon={<Users size={24} className="text-blue-500" />} title="Total Users" value={stats.totalUsers.toLocaleString()} />
-        <MetricCard icon={<DollarSign size={24} className="text-blue-500" />} title="Transaction Volume (30d)" value={`$${stats.transactionVolume.toLocaleString()}`} />
+        <MetricCard icon={<Users size={24} className="text-blue-500" />} title="Active Spots" value={counts.activeCount.toLocaleString()} trend="+5% from last week" />
+        <MetricCard icon={<Users size={24} className="text-blue-500" />} title="Total Spots Pinged" value={counts.totalSpotsPinged.toLocaleString()} trend="+12% from last week" />
+        <MetricCard icon={<Users size={24} className="text-blue-500" />} title="Total Users" value={stats.totalUsers.toLocaleString()} trend="+8% from last month" />
+        <MetricCard icon={<DollarSign size={24} className="text-blue-500" />} title="Transaction Volume (30d)" value={`$${stats.transactionVolume.toLocaleString()}`} trend="+3% from last month" />
         <MetricCard icon={<Bell size={24} className="text-red-500" />} title="Active Disputes" value={stats.activeDisputes.toLocaleString()} isWarning={stats.activeDisputes > 0} />
       </div>
 
@@ -122,18 +122,38 @@ export const DashboardPage = ({ counts }) => {
         <div className="bg-white p-6 rounded-xl shadow-md">
           <h2 className="text-xl font-semibold text-gray-800 mb-4">Flagged Listings</h2>
           <div className="space-y-4">
-            {flaggedListings.map((listing) => (
-              <div key={listing.id} className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <img src={listing.thumbnail || 'https://via.placeholder.com/40'} alt="Listing" className="h-10 w-10 rounded-lg object-cover" />
-                  <div>
-                    <p className="font-semibold text-gray-700">{listing.address || 'No Address'}</p>
-                    <p className="text-xs text-gray-500">{listing.reason || 'No reason given'}</p>
-                  </div>
+            {flaggedListings.length === 0 ? (
+                <div className="text-center py-6 text-gray-500 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                    <CheckCircle className="mx-auto mb-2 text-green-500" size={32} />
+                    <p className="font-medium text-gray-600">All clear!</p>
+                    <p className="text-sm">No listings currently flagged for review.</p>
                 </div>
-                <button className="text-sm font-semibold text-blue-600 hover:underline">Review</button>
-              </div>
-            ))}
+            ) : (
+                flaggedListings.map((listing) => (
+                  <div key={listing.id} className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <img src={listing.thumbnail || 'https://via.placeholder.com/40'} alt="Listing" className="h-10 w-10 rounded-lg object-cover" />
+                      <div>
+                        <p className="font-semibold text-gray-700">{listing.address || 'No Address'}</p>
+                        <p className="text-xs text-gray-500">{listing.reason || 'No reason given'}</p>
+                      </div>
+                    </div>
+                    <button className="text-sm font-semibold text-blue-600 hover:underline">Review</button>
+                  </div>
+                ))
+            )}
+          </div>
+          
+          <h2 className="text-xl font-semibold text-gray-800 mt-8 mb-4">Quick Links</h2>
+          <div className="space-y-3">
+             <button className="w-full flex items-center justify-between p-3 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors font-medium">
+               <span>Approve Pending Listings</span>
+               <ChevronRight size={18} />
+             </button>
+             <button className="w-full flex items-center justify-between p-3 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors font-medium">
+               <span>Send System Notification</span>
+               <ChevronRight size={18} />
+             </button>
           </div>
         </div>
       </div>

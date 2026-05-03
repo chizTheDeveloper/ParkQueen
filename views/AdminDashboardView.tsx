@@ -8,6 +8,7 @@ import { ReportsPage } from './ReportsPage';
 import { SettingsPage } from './SettingsPage';
 import { Timestamp, collection, query, where, getCountFromServer, doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase";
+import parqueenLogo from '../assets/Parqueen_Logo.png';
 
 const Sidebar = ({ isCollapsed, activePage, setActivePage, onLogout }) => {
   const navItems = [
@@ -22,7 +23,7 @@ const Sidebar = ({ isCollapsed, activePage, setActivePage, onLogout }) => {
   return (
     <aside className={`bg-white h-full flex flex-col transition-all duration-300 ${isCollapsed ? 'w-20' : 'w-64'}`}>
       <div className={`flex items-center p-4 ${isCollapsed ? 'justify-center' : 'justify-start'}`}>
-        <img src="https://i.imgur.com/AAl1g2t.png" alt="Logo" className="h-10" />
+        <img src={parqueenLogo} alt="Logo" className="h-10" />
         {!isCollapsed && <h1 className="text-xl font-bold text-blue-600 ml-2">ParQueen</h1>}
       </div>
       <nav className="flex-1 mt-8 space-y-2 px-2">
@@ -114,7 +115,9 @@ export const AdminDashboardView = ({ onLogout }) => {
               <Bell size={20} className="text-gray-600" />
             </button>
             <div className="flex items-center gap-2">
-              <img src="https://i.pravatar.cc/40" alt="Admin" className="rounded-full h-8 w-8" />
+              <div className="h-8 w-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 overflow-hidden shrink-0">
+                <i className="fa-solid fa-user text-sm"></i>
+              </div>
               <span className="text-sm font-semibold text-gray-700">Admin</span>
             </div>
           </div>

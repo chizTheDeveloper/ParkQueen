@@ -43,7 +43,13 @@ const UserDetailsModal = ({ user, isOpen, onClose }) => {
       <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-2xl relative">
         <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><X size={24} /></button>
         <div className="flex items-center space-x-4 mb-6">
-            <img src={user.avatar || `https://i.pravatar.cc/64?u=${user.id}`} alt="User Avatar" className="w-16 h-16 rounded-full" />
+            {user.avatar ? (
+              <img src={user.avatar} alt="User Avatar" className="w-16 h-16 rounded-full" />
+            ) : (
+              <div className="w-16 h-16 rounded-full bg-gray-200 flex items-center justify-center text-gray-400">
+                <i className="fa-solid fa-user text-2xl"></i>
+              </div>
+            )}
             <div>
                 <h2 className="text-2xl font-bold text-gray-800">{user.fullName || 'N/A'}</h2>
                 <p className="text-md text-gray-500">{user.email}</p>
@@ -126,6 +132,7 @@ export const UsersPage = () => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [roleFilter, setRoleFilter] = useState('All');
   const [openMenu, setOpenMenu] = useState(null);
   const [isViewModalOpen, setViewModalOpen] = useState(false);
   const [isEditModalOpen, setEditModalOpen] = useState(false);
@@ -144,10 +151,13 @@ export const UsersPage = () => {
     return () => unsubscribe();
   }, []);
 
-  const filteredUsers = users.filter(user => 
-    (user.fullName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (user.email || '').toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredUsers = users.filter(user => {
+    const matchesSearch = (user.fullName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          (user.email || '').toLowerCase().includes(searchTerm.toLowerCase());
+    const userRole = user.role || 'Renter';
+    const matchesRole = roleFilter === 'All' || userRole === roleFilter;
+    return matchesSearch && matchesRole;
+  });
 
   const handleAction = async (action, user) => {
     setOpenMenu(null);
@@ -158,6 +168,10 @@ export const UsersPage = () => {
       const userRef = doc(db, 'users', user.id);
       const newStatus = (user.status || 'Active') === 'Active' ? 'Suspended' : 'Active';
       await updateDoc(userRef, { status: newStatus });
+    } else if (action === 'toggleRole') {
+      const userRef = doc(db, 'users', user.id);
+      const newRole = (user.role || 'Renter') === 'Renter' ? 'Host' : 'Renter';
+      await updateDoc(userRef, { role: newRole });
     }
   };
 
@@ -168,11 +182,24 @@ export const UsersPage = () => {
   };
 
   const renderTableBody = () => {
-    if (loading) return <tr><td colSpan={6} className="text-center p-8">Loading users...</td></tr>;
+    if (loading) return (
+      <>
+        {[1,2,3,4,5].map(i => (
+          <tr key={i} className="border-b border-gray-100 px-4 py-3">
+             <td className="p-4"><div className="h-4 bg-gray-200 rounded animate-pulse w-3/4"></div></td>
+             <td className="p-4"><div className="h-4 bg-gray-200 rounded animate-pulse w-full"></div></td>
+             <td className="p-4"><div className="h-4 bg-gray-200 rounded animate-pulse w-1/2"></div></td>
+             <td className="p-4"><div className="h-4 bg-gray-200 rounded animate-pulse w-2/3"></div></td>
+             <td className="p-4"><div className="h-6 bg-gray-200 rounded-full animate-pulse w-16"></div></td>
+             <td className="p-4"><div className="h-6 w-6 bg-gray-200 rounded-full animate-pulse mx-auto"></div></td>
+          </tr>
+        ))}
+      </>
+    );
     if (filteredUsers.length === 0) return <tr><td colSpan={6} className="text-center p-8">No user profiles found in the database.</td></tr>;
     return filteredUsers.map((user) => (
       <tr key={user.id} className="border-b border-gray-100 hover:bg-gray-50">
-        <td className="p-4 font-medium text-gray-800">{user.fullName || 'N/A'}</td>
+        <td className="p-4 font-medium text-gray-800">{user.fullName || (user.email ? user.email.split('@')[0] : 'Anonymous User')}</td>
         <td className="p-4 text-gray-600">{user.email}</td>
         <td className="p-4 text-gray-600">{user.role || 'Renter'}</td>
         <td className="p-4 text-gray-600">{formatDate(user.createdAt)}</td>
@@ -182,6 +209,7 @@ export const UsersPage = () => {
           {openMenu === user.id && (
             <div className="absolute right-0 mt-2 w-40 bg-white rounded-lg shadow-xl z-10 border border-gray-100">
               <button onClick={() => handleAction('view', user)} className="w-full text-left block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">View Details</button>
+              <button onClick={() => handleAction('toggleRole', user)} className="w-full text-left block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Make {(user.role || 'Renter') === 'Renter' ? 'Host' : 'Renter'}</button>
               <button onClick={() => handleAction('edit', user)} className="w-full text-left block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Edit User</button>
               <button onClick={() => handleAction('suspend', user)} className="w-full text-left block px-4 py-2 text-sm text-red-600 hover:bg-gray-100">{user.status === 'Suspended' ? 'Unsuspend' : 'Suspend'}</button>
             </div>
@@ -198,9 +226,16 @@ export const UsersPage = () => {
       </div>
       <div className="bg-white p-6 rounded-xl shadow-md">
         <div className="flex justify-between items-center mb-4">
-          <div className="relative w-full max-w-xs">
-            <Search size={20} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input type="text" placeholder="Search by name or email..." className="w-full bg-gray-100 rounded-lg pl-10 pr-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+          <div className="flex gap-4 w-full max-w-md">
+            <div className="relative flex-1">
+              <Search size={20} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input type="text" placeholder="Search by name or email..." className="w-full bg-gray-100 rounded-lg pl-10 pr-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+            </div>
+            <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} className="bg-gray-100 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-gray-700 outline-none">
+               <option value="All">All Roles</option>
+               <option value="Renter">Renters</option>
+               <option value="Host">Hosts</option>
+            </select>
           </div>
         </div>
         <div className="overflow-x-auto">

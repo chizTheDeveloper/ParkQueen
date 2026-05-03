@@ -127,7 +127,7 @@ export const SetupProfileView: React.FC<SetupProfileViewProps> = ({ phone, onSav
                 {avatarPreview ? (
                   <img src={avatarPreview} alt="Avatar Preview" className="w-full h-full object-cover" />
                 ) : (
-                  <span className="text-sm text-gray-400">Avatar</span>
+                  <i className="fa-solid fa-user text-4xl text-gray-400"></i>
                 )}
             </div>
             <button onClick={triggerUpload} className="absolute bottom-1 right-1 bg-blue-500 text-white rounded-full p-2.5 shadow-md">
