@@ -1,10 +1,10 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { StreetSpot, AppView } from '../types';
 import { MapPin, Check, Locate, ChevronUp, ChevronDown, List, Camera, MessageSquare, Bell, Clock, Calendar, X, Search } from 'lucide-react';
 import { db } from '../firebase';
-import { collection, addDoc, onSnapshot, query, orderBy, Timestamp, doc, deleteDoc, writeBatch } from 'firebase/firestore';
+import { collection, addDoc, onSnapshot, query, orderBy, Timestamp, doc, deleteDoc, writeBatch, updateDoc, getDocs, where } from 'firebase/firestore';
 import mapboxgl from 'mapbox-gl';
+import * as geofire from 'geofire-common';
 import parqueenLogo from '../assets/Parqueen_Logo.png';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
@@ -29,10 +29,13 @@ const formatTimeLeft = (ms: number): string => {
     return `${hours} hour${hours === 1 ? "" : "s"} and ${minutes} minute${minutes === 1 ? "" : "s"}`;
 };
 
-const createMarkerElement = (isMine: boolean) => {
+const createMarkerElement = (isMine: boolean, status: string = 'available') => {
     const el = document.createElement('div');
     el.style.zIndex = '10';
-    const color = isMine ? '#3B82F6' : '#6B7280';
+    let color = '#3B82F6'; // default blue
+    if (status === 'claimed') {
+        color = '#F59E0B'; // orange for claimed
+    }
     el.innerHTML = `
     <div style="width: 36px; height: 36px; position: relative;">
       <svg viewBox="0 0 24 24" fill="${color}" xmlns="http://www.w3.org/2000/svg" style="width: 100%; height: 100%; filter: drop-shadow(0px 4px 6px rgba(0,0,0,0.3));">
@@ -155,8 +158,131 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const [results, setResults] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
     const abortRef = useRef<AbortController | null>(null);
+    const activeRouteDestinationRef = useRef<[number, number] | null>(null);
 
     const resizeMap = () => mapRef.current?.resize();
+
+    const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
+    const [pendingUpdatesCount, setPendingUpdatesCount] = useState(() => {
+        const stored = localStorage.getItem('pendingUpdatesCount');
+        return stored ? parseInt(stored, 10) : 3;
+    });
+
+    useEffect(() => {
+        if (!user || !db) return;
+        const q = query(
+            collection(db, "chats"),
+            where("participants", "array-contains", user.id)
+        );
+        const unsubscribe = onSnapshot(q, (snap) => {
+            let count = 0;
+            snap.docs.forEach(docSnap => {
+                const data = docSnap.data();
+                const chatId = docSnap.id;
+                
+                let timestampMillis = 0;
+                if (data.lastMessageTimestamp) {
+                    if (typeof data.lastMessageTimestamp.toMillis === 'function') {
+                        timestampMillis = data.lastMessageTimestamp.toMillis();
+                    } else if (typeof data.lastMessageTimestamp.toDate === 'function') {
+                        timestampMillis = data.lastMessageTimestamp.toDate().getTime();
+                    } else {
+                        timestampMillis = new Date(data.lastMessageTimestamp).getTime();
+                    }
+                }
+                
+                const lastReadStr = localStorage.getItem(`lastReadChat_${chatId}`);
+                const lastReadTime = lastReadStr ? parseInt(lastReadStr, 10) : 0;
+                
+                if (timestampMillis > lastReadTime) {
+                    count++;
+                }
+            });
+            setUnreadMessagesCount(count);
+        });
+        return () => unsubscribe();
+    }, [user?.id]);
+
+    const clearRoute = () => {
+        if (!mapRef.current) return;
+        const map = mapRef.current;
+        if (map.getLayer('route')) {
+            map.removeLayer('route');
+        }
+        if (map.getSource('route')) {
+            map.removeSource('route');
+        }
+    };
+
+    const drawRoute = async (start: [number, number], end: [number, number]) => {
+        if (!mapRef.current || !MAPBOX_TOKEN) return;
+        const map = mapRef.current;
+        if (!map.isStyleLoaded()) return;
+
+        try {
+            const response = await fetch(
+                `https://api.mapbox.com/directions/v5/mapbox/driving/${start[0]},${start[1]};${end[0]},${end[1]}?geometries=geojson&access_token=${MAPBOX_TOKEN}`
+            );
+            const data = await response.json();
+            if (!data.routes || data.routes.length === 0) return;
+
+            const route = data.routes[0].geometry;
+
+            if (map.getSource('route')) {
+                const source = map.getSource('route') as mapboxgl.GeoJSONSource;
+                source.setData({
+                    type: 'Feature',
+                    properties: {},
+                    geometry: route
+                });
+            } else {
+                map.addSource('route', {
+                    type: 'geojson',
+                    data: {
+                        type: 'Feature',
+                        properties: {},
+                        geometry: route
+                    }
+                });
+
+                map.addLayer({
+                    id: 'route',
+                    type: 'line',
+                    source: 'route',
+                    layout: {
+                        'line-join': 'round',
+                        'line-cap': 'round'
+                    },
+                    paint: {
+                        'line-color': '#3B82F6',
+                        'line-width': 6,
+                        'line-opacity': 0.85
+                    }
+                });
+            }
+
+            const coordinates = route.coordinates;
+            if (coordinates.length > 0) {
+                const bounds = new mapboxgl.LngLatBounds(coordinates[0], coordinates[0]);
+                for (const coord of coordinates) {
+                    bounds.extend(coord);
+                }
+                map.fitBounds(bounds, {
+                    padding: { top: 80, bottom: 280, left: 50, right: 50 },
+                    duration: 1000
+                });
+            }
+        } catch (error) {
+            console.error("Error drawing route:", error);
+        }
+    };
+
+    useEffect(() => {
+        if (!selectedItem) {
+            activeRouteDestinationRef.current = null;
+            clearRoute();
+        }
+    }, [selectedItem]);
 
     useEffect(() => {
         if (!mapContainerRef.current || mapRef.current) return;
@@ -191,6 +317,21 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 const { longitude, latitude } = position.coords;
                 const newLocation: [number, number] = [longitude, latitude];
                 setUserLocation(newLocation);
+
+                // Update active route if exists
+                if (activeRouteDestinationRef.current) {
+                    drawRoute(newLocation, activeRouteDestinationRef.current);
+                }
+
+                // Update user's lastGeohash
+                try {
+                    const newGeohash = geofire.geohashForLocation([latitude, longitude]);
+                    if (user && db) {
+                        updateDoc(doc(db, 'users', user.id), { lastGeohash: newGeohash }).catch(e => console.warn('Failed to update lastGeohash', e));
+                    }
+                } catch (err) {
+                    console.error("Geohash generation error:", err);
+                }
 
                 if (isInitialLocation && mapRef.current) {
                     mapRef.current.flyTo({ center: newLocation, zoom: 16 });
@@ -252,12 +393,38 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     useEffect(() => {
         if (!db || !mapRef.current || !user) return;
 
-        const q = query(collection(db, "spots"), orderBy("reportedAt", "desc"));
+        const nowTimestamp = Timestamp.now();
+        const q = query(
+            collection(db, "spots"),
+            where("expiresAt", ">", nowTimestamp)
+        );
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const now = Date.now();
             const activeSpots = snapshot.docs
                 .map(d => ({ id: d.id, ...d.data() } as any))
                 .filter(s => s.expiresAt?.toMillis() > now);
+
+            // Compute if there's any new spot added since last viewed
+            const lastViewedStr = localStorage.getItem('lastViewedNotifications');
+            const lastViewedTime = lastViewedStr ? parseInt(lastViewedStr, 10) : 0;
+
+            let newSpotsCount = 0;
+            activeSpots.forEach(s => {
+                const reportedTime = s.reportedAt?.toMillis() || 0;
+                if (reportedTime > lastViewedTime && s.finderId !== user.id) {
+                    newSpotsCount++;
+                }
+            });
+
+            if (newSpotsCount > 0) {
+                setPendingUpdatesCount(newSpotsCount);
+                localStorage.setItem('pendingUpdatesCount', newSpotsCount.toString());
+            } else {
+                const saved = localStorage.getItem('pendingUpdatesCount');
+                if (saved !== null) {
+                    setPendingUpdatesCount(parseInt(saved, 10));
+                }
+            }
 
             const nextIds = new Set(activeSpots.map(s => s.id));
             const markers = spotMarkersRef.current;
@@ -273,7 +440,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             activeSpots.forEach(s => {
                 const lngLat: [number, number] = [s.lng, s.lat];
                 if (!markers[s.id]) {
-                    const el = createMarkerElement(s.finderId === user.id);
+                    const el = createMarkerElement(s.finderId === user.id, s.status);
                     const marker = new mapboxgl.Marker({ element: el, anchor: "center" }).setLngLat(lngLat).addTo(mapRef.current!);
                     marker.getElement().addEventListener('click', (e) => {
                         e.stopPropagation();
@@ -287,10 +454,15 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                         delete markers[s.id];
                     }, msLeft);
 
-                    markers[s.id] = { marker, timerId };
+                    markers[s.id] = { marker, timerId, status: s.status } as any;
                 } else {
                     const cur = markers[s.id].marker.getLngLat();
                     if (cur.lng !== s.lng || cur.lat !== s.lat) markers[s.id].marker.setLngLat(lngLat);
+                    if ((markers[s.id] as any).status !== s.status) {
+                        const newEl = createMarkerElement(s.finderId === user.id, s.status);
+                        markers[s.id].marker.getElement().innerHTML = newEl.innerHTML;
+                        (markers[s.id] as any).status = s.status;
+                    }
                 }
             });
         });
@@ -303,7 +475,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             spotMarkersRef.current = {};
             unsubscribe();
         };
-    }, [user]);
+    }, [user?.id]);
 
     useEffect(() => {
         if (userMarkerRef.current) userMarkerRef.current.remove();
@@ -328,7 +500,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     
         const now = Date.now();
         const reportedAt = departureTime ? Timestamp.fromDate(departureTime) : Timestamp.fromMillis(now);
-        const expiresAt = Timestamp.fromMillis(reportedAt.toMillis() + 2 * 60 * 1000);
+        const expiresAt = Timestamp.fromMillis(reportedAt.toMillis() + 60 * 60 * 1000);
     
         const onSaveSuccess = () => {
             setIsPinging(false);
@@ -376,34 +548,77 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             }
         } else {
             // Creating a new spot from scratch
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    const location: [number, number] = [position.coords.longitude, position.coords.latitude];
-                    const newSpotData = {
-                        lat: location[1],
-                        lng: location[0],
-                        type: 'free',
-                        status: 'available',
-                        finderId: user.id,
-                        finderName: user.fullName || 'Anonymous',
-                        reportedAt,
-                        expiresAt,
-                    };
-                    addDoc(collection(db, "spots"), newSpotData)
-                        .then(() => {
-                            setShowPingConfirmation(true);
-                            setTimeout(() => setShowPingConfirmation(false), 4000);
-                            onSaveSuccess();
-                        })
-                        .catch(onSaveError);
-                },
-                (error) => {
-                    console.error("Error getting position for ping:", error);
-                    alert("Could not get your location. Please ensure location services are enabled.");
+            try {
+                const oneHourAgo = now - 60 * 60 * 1000;
+                const q = query(collection(db, "spots"), where("finderId", "==", user.id));
+                const snap = await getDocs(q);
+                const activeRecentPings = snap.docs.filter(d => {
+                    const data = d.data();
+                    const reportedMillis = data.reportedAt?.toMillis() || 0;
+                    return reportedMillis >= oneHourAgo;
+                });
+
+                if (activeRecentPings.length >= 5) {
+                    alert("You have reached your limit of 5 pings per hour. Please wait before pinging again!");
                     setIsPinging(false);
-                },
-                { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 }
-            );
+                    return;
+                }
+            } catch (error) {
+                console.error("Error checking rate limit:", error);
+            }
+
+            if (userLocation) {
+                const newSpotData = {
+                    lat: userLocation[1],
+                    lng: userLocation[0],
+                    type: 'free',
+                    status: 'available',
+                    finderId: user.id,
+                    finderName: user.fullName || 'Anonymous',
+                    reportedAt,
+                    expiresAt,
+                    geohash: geofire.geohashForLocation([userLocation[1], userLocation[0]])
+                };
+                addDoc(collection(db, "spots"), newSpotData)
+                    .then(() => {
+                        setShowPingConfirmation(true);
+                        setTimeout(() => setShowPingConfirmation(false), 4000);
+                        onSaveSuccess();
+                    })
+                    .catch(onSaveError);
+            } else {
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        const location: [number, number] = [position.coords.longitude, position.coords.latitude];
+                        const geohash = geofire.geohashForLocation([location[1], location[0]]);
+                        
+                        const newSpotData = {
+                            lat: location[1],
+                            lng: location[0],
+                            type: 'free',
+                            status: 'available',
+                            finderId: user.id,
+                            finderName: user.fullName || 'Anonymous',
+                            reportedAt,
+                            expiresAt,
+                            geohash
+                        };
+                        addDoc(collection(db, "spots"), newSpotData)
+                            .then(() => {
+                                setShowPingConfirmation(true);
+                                setTimeout(() => setShowPingConfirmation(false), 4000);
+                                onSaveSuccess();
+                            })
+                            .catch(onSaveError);
+                    },
+                    (error) => {
+                        console.error("Error getting position for ping:", error);
+                        alert("Could not get your location. Please ensure location services are enabled.");
+                        setIsPinging(false);
+                    },
+                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+                );
+            }
         }
     };
 
@@ -420,6 +635,31 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         } catch (e) {
             console.error("Error deleting ping:", e);
         }
+    };
+
+    const handleClaimSpot = async () => {
+        if (!user || !selectedItem) return;
+        try {
+            await updateDoc(doc(db, "spots", selectedItem.id), {
+                status: 'claimed',
+                claimedBy: user.id
+            });
+            setSelectedItem({ ...selectedItem, status: 'claimed', claimedBy: user.id });
+        } catch (e) {
+            console.error("Error claiming spot:", e);
+            alert("Failed to claim spot.");
+        }
+    };
+
+    const handleTrackLocation = () => {
+        if (!selectedItem) return;
+        if (!userLocation) {
+            alert("Waiting for your location to start navigation...");
+            return;
+        }
+        const dest: [number, number] = [selectedItem.lng, selectedItem.lat];
+        activeRouteDestinationRef.current = dest;
+        drawRoute(userLocation, dest);
     };
 
     const handleCancelSearch = () => {
@@ -472,8 +712,33 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                         </div>
                         {!searchOpen && <div className="flex items-center gap-1 text-gray-400">
                           <button type="button" aria-label="Scanner" onClick={() => setView(AppView.AI_ASSISTANT)} className="p-2 text-white/90 hover:text-white"><Camera size={22} /></button>
-                          <button type="button" aria-label="Chat" onClick={() => setView(AppView.MESSAGES)} className="p-2 text-white/90 hover:text-white"><MessageSquare size={22} /></button>
-                          <button type="button" aria-label="Notifications" onClick={() => setView(AppView.NOTIFICATIONS)} className="p-2 text-white/90 hover:text-white"><Bell size={22} /></button>
+                          
+                          <button type="button" aria-label="Chat" onClick={() => setView(AppView.MESSAGES)} className="p-2 text-white/90 hover:text-white relative">
+                            <div className="relative">
+                              <MessageSquare size={22} />
+                              {unreadMessagesCount > 0 && (
+                                <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[9px] font-extrabold rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center shadow-md animate-pulse">
+                                  {unreadMessagesCount}
+                                </span>
+                              )}
+                            </div>
+                          </button>
+                          
+                          <button type="button" aria-label="Notifications" onClick={() => {
+                              localStorage.setItem('lastViewedNotifications', Date.now().toString());
+                              localStorage.setItem('pendingUpdatesCount', '0');
+                              setPendingUpdatesCount(0);
+                              setView(AppView.NOTIFICATIONS);
+                          }} className="p-2 text-white/90 hover:text-white relative">
+                            <div className="relative">
+                              <Bell size={22} />
+                              {pendingUpdatesCount > 0 && (
+                                <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[9px] font-extrabold rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center shadow-md animate-pulse">
+                                  {pendingUpdatesCount}
+                                </span>
+                              )}
+                            </div>
+                          </button>
                         </div>}
                         {searchOpen && (loading || results.length > 0) && (
                           <div className="absolute left-0 right-0 mt-2 top-full z-[9999] bg-black/85 backdrop-blur-xl rounded-2xl max-h-72 overflow-y-auto border border-white/10">
@@ -519,23 +784,62 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     <p className="text-sm text-gray-400">Departure: {departureText}</p>
                                     <p className="text-sm text-gray-400">Expires in {formatTimeLeft(timeLeftMs)}</p>
                                 </div>
-                                {user?.id === selectedItem.finderId && (
-                                    <div className="mt-4 space-y-2">
+                                <div className="mt-4 space-y-2">
+                                    <div className="flex gap-2">
                                         <button
-                                        onClick={() => setSpotModalOpen(true)}
-                                        className="w-full bg-blue-500 text-white font-bold py-2 rounded-lg"
+                                            onClick={handleTrackLocation}
+                                            className="flex-1 bg-blue-500 hover:bg-blue-600 active:scale-95 text-white font-bold py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all duration-200 shadow-md shadow-blue-500/20"
                                         >
-                                        Edit Ping
+                                            <Locate size={18} />
+                                            <span>Track Spot</span>
                                         </button>
-
                                         <button
-                                        onClick={handleDeletePing}
-                                        className="w-full font-bold py-2 rounded-lg border border-red-500/60 text-red-400 hover:bg-red-500/10"
+                                            onClick={() => onMessageUser(selectedItem.finderId, `Spot pinged by ${selectedItem.finderName}`)}
+                                            className="bg-blue-500 hover:bg-blue-600 active:scale-95 text-white font-bold p-2.5 rounded-xl flex items-center justify-center transition-all duration-200 shadow-md shadow-blue-500/20"
+                                            title="Message User"
                                         >
-                                        Delete Ping
+                                            <MessageSquare size={20} />
                                         </button>
                                     </div>
-                                )}
+
+                                    {/* Owner Actions */}
+                                    {user?.id === selectedItem.finderId && (
+                                        <div className="pt-1 space-y-2">
+                                            <button
+                                                onClick={() => setSpotModalOpen(true)}
+                                                className="w-full bg-blue-500 hover:bg-blue-600 active:scale-95 text-white font-bold py-2 rounded-xl transition-all duration-200 shadow-md shadow-blue-500/20"
+                                            >
+                                                Edit Ping
+                                            </button>
+                                            <button
+                                                onClick={handleDeletePing}
+                                                className="w-full font-bold py-2 rounded-xl border border-red-500/60 text-red-400 hover:bg-red-500/10 transition-all duration-200"
+                                            >
+                                                Delete Ping
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {/* Non-owner Unclaimed Action */}
+                                    {user?.id !== selectedItem.finderId && selectedItem.status !== 'claimed' && (
+                                        <button
+                                            onClick={handleClaimSpot}
+                                            className="w-full bg-orange-500 hover:bg-orange-600 active:scale-95 text-white font-bold py-2.5 rounded-xl transition-all duration-200 shadow-md shadow-orange-500/20"
+                                        >
+                                            Claim Spot
+                                        </button>
+                                    )}
+
+                                    {/* Claimed by Me Status */}
+                                    {selectedItem.status === 'claimed' && selectedItem.claimedBy === user?.id && (
+                                        <p className="text-orange-400 font-bold py-1 text-center">You claimed this spot!</p>
+                                    )}
+
+                                    {/* Claimed by Someone Else Status */}
+                                    {selectedItem.status === 'claimed' && selectedItem.claimedBy !== user?.id && user?.id !== selectedItem.finderId && (
+                                        <p className="text-gray-400 font-bold bg-gray-800/50 py-2 rounded-xl text-center">This spot is claimed.</p>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     );

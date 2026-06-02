@@ -11,13 +11,19 @@ import { SetupProfileView } from './views/SetupProfileView';
 import { EditProfileView } from './views/EditProfileView';
 import { LoginView } from './views/LoginView';
 import { AdminDashboardView } from './views/AdminDashboardView';
+import { ActivitiesView } from './views/ActivitiesView';
+import { PrivacyPolicyView } from './views/PrivacyPolicyView';
+import { TermsOfUseView } from './views/TermsOfUseView';
+import { ContactUsView } from './views/ContactUsView';
 import { AppView } from './types';
 import { ChevronLeft } from 'lucide-react';
 import ErrorBoundary from './ErrorBoundary';
 import { saveUser, loginUser, logoutUser, deleteUser } from './database';
 import { auth, db } from './firebaseConfig';
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, onSnapshot, getDoc } from "firebase/firestore";
+import { doc, onSnapshot, getDoc, updateDoc } from "firebase/firestore";
+import { getToken, onMessage } from 'firebase/messaging';
+import { getFCM } from './firebaseConfig';
 
 export default function App() {
   const [currentView, setCurrentView] = useState(AppView.LOGIN);
@@ -26,6 +32,8 @@ export default function App() {
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('theme') || 'dark';
   });
+  const [activeChatContext, setActiveChatContext] = useState<{ userId: string; context: string } | null>(null);
+  const [phone, setPhone] = useState('');
 
   useEffect(() => {
     let userProfileUnsubscribe = () => {};
@@ -36,6 +44,26 @@ export default function App() {
 
       if (firebaseUser) {
         const userDocRef = doc(db, 'users', firebaseUser.uid);
+
+        // FCM Setup
+        getFCM().then(messaging => {
+            if (messaging) {
+                Notification.requestPermission().then(permission => {
+                    if (permission === 'granted') {
+                        getToken(messaging).then(currentToken => {
+                            if (currentToken) {
+                                updateDoc(userDocRef, { fcmToken: currentToken }).catch(e => console.warn('FCM save error', e));
+                            }
+                        }).catch(e => console.warn('FCM getToken error', e));
+                    }
+                });
+
+                onMessage(messaging, (payload) => {
+                    console.log("Foreground message received:", payload);
+                    alert(`👑 ${payload.notification?.title}\n${payload.notification?.body}`);
+                });
+            }
+        });
         
         // Listen for profile data changes
         userProfileUnsubscribe = onSnapshot(userDocRef, (userDoc) => {
@@ -92,26 +120,30 @@ export default function App() {
 
   const handleMessageUser = (userId, context) => {
     console.log(`Starting chat with ${userId} about ${context}`);
+    setActiveChatContext({ userId, context });
     setCurrentView(AppView.MESSAGES);
   };
 
   const handleCreateAccount = (phone: string) => {
-    // This logic might need adjustment depending on the auth flow,
-    // but for email/password it's handled by Firebase auth state.
+    setPhone(phone);
     setCurrentView(AppView.SETUP_PROFILE);
-  }
+  };
 
   const handleSaveProfile = async (profileData) => {
-    const firebaseUser = auth.currentUser;
-    if (!firebaseUser) {
-      alert("You must be logged in to save a profile.");
-      return;
-    }
     try {
-      await saveUser(firebaseUser, profileData.avatar, profileData);
-    } catch (error) {
+      await saveUser({
+        id: '',
+        fullName: profileData.fullName,
+        email: profileData.email,
+        dob: profileData.dob,
+        gender: profileData.gender,
+        password: profileData.password,
+        phone: phone
+      });
+      setCurrentView(AppView.MAP);
+    } catch (error: any) {
       console.error("Failed to save profile: ", error);
-      alert("Failed to save profile.");
+      alert(error.message || "Failed to save profile.");
     }
   };
 
@@ -155,7 +187,7 @@ export default function App() {
       case AppView.CREATE_ACCOUNT:
         return <CreateAccountView onContinue={handleCreateAccount} />;
       case AppView.SETUP_PROFILE:
-        return <SetupProfileView onSave={handleSaveProfile} />;
+        return <SetupProfileView phone={phone} onSave={handleSaveProfile} />;
       case AppView.EDIT_PROFILE:
         return <EditProfileView user={user} onBack={() => setCurrentView(AppView.PROFILE)} />;
       case AppView.MAP:
@@ -197,13 +229,30 @@ export default function App() {
           </div>
         );
       case AppView.MESSAGES:
-        return <MessagesView onBack={() => setCurrentView(AppView.MAP)} />;
+        return (
+          <MessagesView 
+            user={user} 
+            activeChatContext={activeChatContext} 
+            onBack={() => {
+              setActiveChatContext(null);
+              setCurrentView(AppView.MAP);
+            }} 
+          />
+        );
       case AppView.PROFILE:
         return <ProfileView user={user} setView={setCurrentView} onBack={() => setCurrentView(AppView.MAP)} onLogout={handleLogout} onDeleteAccount={handleDeleteAccount} theme={theme} toggleTheme={toggleTheme} />;
       case AppView.NOTIFICATIONS:
         return <NotificationsView onBack={() => setCurrentView(AppView.MAP)} />;
       case AppView.ADMIN_DASHBOARD:
         return <AdminDashboardView onLogout={handleLogout} />;
+      case AppView.PARKING_SPACE:
+        return <ActivitiesView user={user} onBack={() => setCurrentView(AppView.PROFILE)} />;
+      case AppView.PRIVACY_POLICY:
+        return <PrivacyPolicyView onBack={() => setCurrentView(AppView.PROFILE)} />;
+      case AppView.TERMS_OF_USE:
+        return <TermsOfUseView onBack={() => setCurrentView(AppView.PROFILE)} />;
+      case AppView.CONTACT_US:
+        return <ContactUsView onBack={() => setCurrentView(AppView.PROFILE)} />;
       default:
         return <LoginView onLogin={handleLogin} onNavigateToCreateAccount={() => setCurrentView(AppView.CREATE_ACCOUNT)} />;
     }

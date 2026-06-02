@@ -1,10 +1,10 @@
 import React, { useState, useRef } from 'react';
-import { Camera, RefreshCw, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { analyzeParkingSign } from '../services/geminiService';
+import { Camera, RefreshCw, AlertCircle, CheckCircle2, Clock, Bell } from 'lucide-react';
+import { analyzeParkingSign, SignAnalysisResult } from '../services/geminiService';
 
 export const AssistantView = () => {
   const [image, setImage] = useState<string | null>(null);
-  const [analysis, setAnalysis] = useState<string | null>(null);
+  const [analysis, setAnalysis] = useState<SignAnalysisResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -27,10 +27,12 @@ export const AssistantView = () => {
     setIsLoading(true);
     try {
       const result = await analyzeParkingSign(base64Data);
-      // Ensure result is a string to prevent React rendering errors
-      setAnalysis(String(result));
+      setAnalysis(result);
     } catch (err) {
-      setAnalysis("Error: Could not complete analysis.");
+      setAnalysis({
+        status: "ERROR",
+        explanation: "Error: Could not complete analysis."
+      });
     } finally {
       setIsLoading(false);
     }
@@ -41,6 +43,12 @@ export const AssistantView = () => {
   const reset = () => {
     setImage(null);
     setAnalysis(null);
+  };
+
+  const setReminder = () => {
+    if (analysis?.restrictionStartsAt || analysis?.actionableAdvice) {
+       alert("Alarm set! We'll remind you 15 minutes before the restriction.");
+    }
   };
 
   return (
@@ -95,27 +103,45 @@ export const AssistantView = () => {
                 <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
                   <span className="text-queen-400">Analysis Result</span>
                 </h3>
-                <div className="text-lg leading-relaxed text-gray-200">
-                    {analysis && analysis.toLowerCase().includes("yes") ? (
-                        <div className="flex items-start gap-3 mb-2">
-                             <CheckCircle2 className="text-green-500 shrink-0 mt-1" size={24} />
-                             <span className="font-bold text-green-400 text-xl">You can park here.</span>
+                {analysis && (
+                  <div className="text-lg leading-relaxed text-gray-200">
+                      {analysis.status === "YES" ? (
+                          <div className="flex items-start gap-3 mb-2">
+                               <CheckCircle2 className="text-green-500 shrink-0 mt-1" size={24} />
+                               <span className="font-bold text-green-400 text-xl">You can park here.</span>
+                          </div>
+                      ) : analysis.status === "NO" || analysis.status === "ERROR" ? (
+                          <div className="flex items-start gap-3 mb-2">
+                               <AlertCircle className="text-red-500 shrink-0 mt-1" size={24} />
+                               <span className="font-bold text-red-400 text-xl">{analysis.status === "ERROR" ? "Error Reading Sign" : "Do not park here."}</span>
+                          </div>
+                      ) : (
+                          <div className="flex items-start gap-3 mb-2">
+                               <AlertCircle className="text-yellow-500 shrink-0 mt-1" size={24} />
+                               <span className="font-bold text-yellow-400 text-xl">Conditional.</span>
+                          </div>
+                      )}
+                      
+                      <p className="text-sm text-gray-400 pl-9 border-l-2 border-dark-700 ml-3 py-2">
+                          {analysis.explanation}
+                      </p>
+
+                      {analysis.actionableAdvice && (
+                        <div className="mt-4 pl-9">
+                           <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
+                             <div className="flex items-center gap-2 text-blue-400 font-bold mb-1">
+                               <Clock size={16} /> Actionable Advice
+                             </div>
+                             <p className="text-sm text-gray-300">{analysis.actionableAdvice}</p>
+                             
+                             <button onClick={setReminder} className="mt-3 w-full bg-blue-500/20 hover:bg-blue-500/40 text-blue-300 py-2 rounded-md flex items-center justify-center gap-2 text-sm font-semibold transition-colors">
+                               <Bell size={16} /> Set Departure Reminder
+                             </button>
+                           </div>
                         </div>
-                    ) : analysis && analysis.toLowerCase().includes("no") ? (
-                        <div className="flex items-start gap-3 mb-2">
-                             <AlertCircle className="text-red-500 shrink-0 mt-1" size={24} />
-                             <span className="font-bold text-red-400 text-xl">Do not park here.</span>
-                        </div>
-                    ) : (
-                        <div className="flex items-start gap-3 mb-2">
-                             <AlertCircle className="text-yellow-500 shrink-0 mt-1" size={24} />
-                             <span className="font-bold text-yellow-400 text-xl">Conditional.</span>
-                        </div>
-                    )}
-                    <p className="text-sm text-gray-400 pl-9 border-l-2 border-dark-700 ml-3 py-2">
-                        {analysis ? String(analysis).replace(/^(YES|NO|CONDITIONAL)[\s:.]*/i, '') : 'No data available.'}
-                    </p>
-                </div>
+                      )}
+                  </div>
+                )}
               </div>
             )}
           </div>

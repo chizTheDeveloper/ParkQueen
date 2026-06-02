@@ -9,6 +9,10 @@ interface UserProfile {
   dob: string;
   gender: string;
   password?: string;
+  reputationScore?: number;
+  currentStreak?: number;
+  tier?: string;
+  phone?: string;
 }
 
 export const saveUser = async (user: UserProfile) => {
@@ -29,7 +33,10 @@ export const saveUser = async (user: UserProfile) => {
     await setDoc(doc(db, "users", firebaseUser.uid), {
         ...profileData,
         id: firebaseUser.uid,
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
+        reputationScore: 0,
+        currentStreak: 0,
+        tier: 'Newcomer'
     });
 
     console.log("User created and profile saved to Firestore with ID: ", firebaseUser.uid);

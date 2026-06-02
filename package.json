@@ -19,6 +19,7 @@
     "expo-status-bar": "~1.11.1",
     "firebase": "^10.8.0",
     "firebase-admin": "^13.6.1",
+    "geofire-common": "^6.0.0",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.344.0",
     "mapbox-gl": "^3.18.1",

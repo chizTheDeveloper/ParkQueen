@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { ChevronLeft, Edit, FileText, Bell, Shield, Info, LogOut, Trash2, Camera } from 'lucide-react';
+import { ChevronLeft, Edit, FileText, Bell, Shield, Info, LogOut, Trash2, Camera, Trophy, Flame, Star } from 'lucide-react';
 import { AppView } from '../types';
 
 const ProfileButton = ({ icon, label, onClick, isSwitch = false, isDestructive = false }: { icon: any, label: string, onClick?: () => void, isSwitch?: boolean, isDestructive?: boolean }) => (
@@ -86,6 +86,27 @@ export const ProfileView = ({ user, onBack, onLogout, onDeleteAccount, setView, 
               </div>
               <h2 className="text-2xl font-bold">{user.fullName}</h2>
               <p className="text-gray-500 dark:text-gray-400">{user.email}</p>
+
+              {/* Gamification Stats */}
+              <div className="flex items-center justify-center gap-6 mt-6 bg-white dark:bg-dark-800 p-4 rounded-2xl shadow-sm border border-gray-100 dark:border-dark-700 w-full max-w-sm mx-auto">
+                <div className="flex flex-col items-center">
+                  <Trophy className="text-yellow-500 mb-1" size={24} />
+                  <span className="font-bold text-lg">{user.reputationScore || 0}</span>
+                  <span className="text-xs text-gray-500 uppercase tracking-wider">Reputation</span>
+                </div>
+                <div className="w-px h-10 bg-gray-200 dark:bg-dark-700"></div>
+                <div className="flex flex-col items-center">
+                  <Flame className="text-orange-500 mb-1" size={24} />
+                  <span className="font-bold text-lg">{user.currentStreak || 0}</span>
+                  <span className="text-xs text-gray-500 uppercase tracking-wider">Streak</span>
+                </div>
+                <div className="w-px h-10 bg-gray-200 dark:bg-dark-700"></div>
+                <div className="flex flex-col items-center">
+                  <Star className="text-queen-500 mb-1" size={24} />
+                  <span className="font-bold text-lg text-queen-500">{user.tier || 'Newcomer'}</span>
+                  <span className="text-xs text-gray-500 uppercase tracking-wider">Tier</span>
+                </div>
+              </div>
             </div>
 
             <div className="mb-8">
@@ -96,7 +117,7 @@ export const ProfileView = ({ user, onBack, onLogout, onDeleteAccount, setView, 
               <div>
                 <h3 className="font-bold text-gray-500 dark:text-gray-400 mb-2">Parking Details</h3>
                 <div className="space-y-3">
-                  <ProfileButton icon={<FileText size={20} />} label="Parking Space" onClick={() => console.log('Parking Space')} />
+                  <ProfileButton icon={<FileText size={20} />} label="Parking Space" onClick={() => setView(AppView.PARKING_SPACE)} />
                   <ProfileButton icon={<Bell size={20} />} label="Notification" isSwitch={true} />
                 </div>
               </div>
@@ -104,9 +125,9 @@ export const ProfileView = ({ user, onBack, onLogout, onDeleteAccount, setView, 
               <div>
                 <h3 className="font-bold text-gray-500 dark:text-gray-400 mb-2">General Details</h3>
                 <div className="space-y-3">
-                  <ProfileButton icon={<Shield size={20} />} label="Privacy Policy" onClick={() => console.log('Privacy Policy')} />
-                  <ProfileButton icon={<Info size={20} />} label="Terms of Use" onClick={() => console.log('Terms of Use')} />
-                  <ProfileButton icon={<FileText size={20} />} label="Contact Us" onClick={() => console.log('Contact Us')} />
+                  <ProfileButton icon={<Shield size={20} />} label="Privacy Policy" onClick={() => setView(AppView.PRIVACY_POLICY)} />
+                  <ProfileButton icon={<Info size={20} />} label="Terms of Use" onClick={() => setView(AppView.TERMS_OF_USE)} />
+                  <ProfileButton icon={<FileText size={20} />} label="Contact Us" onClick={() => setView(AppView.CONTACT_US)} />
                 </div>
               </div>
             </div>

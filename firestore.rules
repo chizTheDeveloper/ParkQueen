@@ -10,8 +10,8 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if isAdmin();
-      allow read, write: if signedIn() && request.auth.uid == userId;
+      allow read: if signedIn() || isAdmin();
+      allow write: if signedIn() && request.auth.uid == userId;
     }
 
     match /spots/{spotId} {
@@ -24,6 +24,14 @@ service cloud.firestore {
     match /stats/{docId} {
       allow read: if isAdmin();
       allow write: if false;
+    }
+
+    match /chats/{chatId} {
+      allow read, write: if signedIn();
+      
+      match /messages/{messageId} {
+        allow read, write: if signedIn();
+      }
     }
   }
 }

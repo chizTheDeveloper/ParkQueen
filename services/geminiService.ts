@@ -11,7 +11,15 @@ const getAiClient = () => {
   return new GoogleGenAI({ apiKey: apiKey || "MISSING_KEY" });
 };
 
-export const analyzeParkingSign = async (imageBase64: string): Promise<string> => {
+export interface SignAnalysisResult {
+  status: "YES" | "NO" | "CONDITIONAL" | "ERROR";
+  explanation: string;
+  restrictionStartsAt?: string | null;
+  restrictionEndsAt?: string | null;
+  actionableAdvice?: string | null;
+}
+
+export const analyzeParkingSign = async (imageBase64: string): Promise<SignAnalysisResult> => {
   try {
     const ai = getAiClient();
     const response = await ai.models.generateContent({
@@ -26,16 +34,37 @@ export const analyzeParkingSign = async (imageBase64: string): Promise<string> =
           },
           {
             text: `You are a NYC parking expert. Analyze this parking sign image. 
-            Can I park here right now? (Assume current time is whatever is reasonable or ask me to check, but explain the rules clearly).
-            Keep it concise: YES, NO, or CONDITIONAL, followed by a one sentence explanation.`,
+            Crucially, there may be MULTIPLE stacked signs on this pole. Read all of them carefully. Resolve any conflicting rules (e.g. temporary construction signs override permanent signs).
+            Respond strictly in JSON format with the following structure:
+            {
+              "status": "YES", "NO", or "CONDITIONAL",
+              "explanation": "A one sentence explanation of the rules.",
+              "restrictionStartsAt": "ISO timestamp or null if unknown/not applicable",
+              "restrictionEndsAt": "ISO timestamp or null if unknown/not applicable",
+              "actionableAdvice": "Short advice, e.g., 'Move car by 4 PM'"
+            }
+            Do not include Markdown formatting like \`\`\`json. Just output the raw JSON object.`,
           },
         ],
       },
     });
-    return response.text || "Could not analyze image.";
+    
+    const text = response.text || "{}";
+    try {
+      const parsed = JSON.parse(text.replace(/```json/g, '').replace(/```/g, '').trim());
+      return parsed as SignAnalysisResult;
+    } catch (e) {
+      return {
+        status: "CONDITIONAL",
+        explanation: "Could not parse AI response. " + text,
+      };
+    }
   } catch (error) {
     console.error("Gemini Vision Error:", error);
-    return "Sorry, I couldn't read that sign. Please check your network or API key.";
+    return {
+      status: "ERROR",
+      explanation: "Sorry, I couldn't read that sign. Please check your network or API key."
+    };
   }
 };
 

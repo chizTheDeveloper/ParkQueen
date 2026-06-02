@@ -1,79 +1,286 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, ChevronLeft, MoreVertical, Sparkles, ArrowLeft } from 'lucide-react';
 import { generateSmartReplies } from '../services/geminiService';
+import { collection, query, where, onSnapshot, addDoc, doc, setDoc, orderBy, serverTimestamp, getDocs, getDoc, writeBatch, updateDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 
-const MOCK_CONVERSATIONS = [
-  {
-    id: 'c1',
-    otherUser: { id: 'u2', name: 'Alex', avatar: 'https://i.pravatar.cc/150?u=2' },
-    lastMessage: 'Is the spot still there?',
-    unreadCount: 1,
-    relatedSpotTitle: 'Free Spot - 82nd St',
-    messages: [
-      { id: 'm1', senderId: 'u2', text: 'Hey, I see you pinged a spot on 82nd.', timestamp: new Date(Date.now() - 1000 * 60 * 60), isMe: false },
-      { id: 'm2', senderId: 'me', text: 'Yes! Just leaving now.', timestamp: new Date(Date.now() - 1000 * 60 * 55), isMe: true },
-      { id: 'm3', senderId: 'u2', text: 'Is the spot still there?', timestamp: new Date(Date.now() - 1000 * 60 * 2), isMe: false },
-    ]
-  },
-  {
-    id: 'c2',
-    otherUser: { id: 'h1', name: 'James', avatar: 'https://i.pravatar.cc/150?u=h1' },
-    lastMessage: 'Thanks for booking!',
-    unreadCount: 0,
-    relatedSpotTitle: 'Private Driveway - UWS',
-    messages: [
-        { id: 'm4', senderId: 'h1', text: 'Thanks for booking! The gate code is 4492.', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24), isMe: false },
-    ]
-  }
-];
+interface MessagesViewProps {
+  user: any;
+  activeChatContext: { userId: string; context: string } | null;
+  onBack: () => void;
+}
 
-export const MessagesView = ({ onBack }) => {
-  const [conversations, setConversations] = useState(MOCK_CONVERSATIONS);
-  const [activeConversationId, setActiveConversationId] = useState(null);
+export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatContext, onBack }) => {
+  const [conversations, setConversations] = useState<any[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<any[]>([]);
   const [inputText, setInputText] = useState('');
-  const [smartReplies, setSmartReplies] = useState([]);
-  const messagesEndRef = useRef(null);
+  const [smartReplies, setSmartReplies] = useState<string[]>([]);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [userNamesCache, setUserNamesCache] = useState<Record<string, string>>({});
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const activeConversation = conversations.find(c => c.id === activeConversationId);
 
+  const handleDeleteChat = async () => {
+    if (!activeConversationId) return;
+    if (window.confirm("Are you sure you want to delete this conversation? This will delete all messages for both users.")) {
+      try {
+        const msgsRef = collection(db, "chats", activeConversationId, "messages");
+        const snap = await getDocs(msgsRef);
+        const batch = writeBatch(db);
+        snap.docs.forEach(d => batch.delete(d.ref));
+        batch.delete(doc(db, "chats", activeConversationId));
+        await batch.commit();
+        
+        setActiveConversationId(null);
+      } catch (e) {
+        console.error("Error deleting chat:", e);
+        alert("Failed to delete chat.");
+      }
+    }
+  };
+
+  const handleBlockUser = async () => {
+    if (!activeConversation) return;
+    const otherUserId = activeConversation.otherUser.id;
+    const otherUserName = userNamesCache[otherUserId] || activeConversation.otherUser.name;
+    if (window.confirm(`Are you sure you want to block ${otherUserName}?`)) {
+      try {
+        const userRef = doc(db, "users", user.id);
+        const currentBlocked = user.blockedUsers || [];
+        if (!currentBlocked.includes(otherUserId)) {
+          await updateDoc(userRef, {
+            blockedUsers: [...currentBlocked, otherUserId]
+          });
+        }
+        alert(`${otherUserName} has been blocked.`);
+        setActiveConversationId(null);
+      } catch (e) {
+        console.error("Error blocking user:", e);
+        alert("Failed to block user.");
+      }
+    }
+  };
+
+  const handleReportUser = async () => {
+    if (!activeConversation) return;
+    const otherUserId = activeConversation.otherUser.id;
+    const otherUserName = userNamesCache[otherUserId] || activeConversation.otherUser.name;
+    const reason = window.prompt(`Please enter the reason for reporting ${otherUserName}:`);
+    if (reason === null) return;
+    if (!reason.trim()) {
+      alert("Reason cannot be empty.");
+      return;
+    }
+    
+    try {
+      await addDoc(collection(db, "reports"), {
+        reporterId: user.id,
+        reportedUserId: otherUserId,
+        reportedUserName: otherUserName,
+        reason: reason.trim(),
+        timestamp: serverTimestamp()
+      });
+      alert("Thank you. The user has been reported and our moderation team will review this.");
+    } catch (e) {
+      console.error("Error reporting user:", e);
+      alert("Failed to submit report.");
+    }
+  };
+
+  // Dynamic User Profile Resolver & Cache to fix 'User' / 'Anonymous' fallback issues
   useEffect(() => {
-    if (activeConversation) {
-      // Scroll to bottom
+    if (conversations.length === 0 || !db) return;
+    const fetchNames = async () => {
+      const missingUserIds = conversations
+        .map(c => c.otherUser.id)
+        .filter(id => id && !userNamesCache[id]);
+      
+      if (missingUserIds.length === 0) return;
+
+      const newCache = { ...userNamesCache };
+      let updated = false;
+
+      for (const uid of missingUserIds) {
+        try {
+          const userDocRef = doc(db, "users", uid);
+          const userDocSnap = await getDoc(userDocRef);
+          if (userDocSnap.exists()) {
+             newCache[uid] = userDocSnap.data().fullName || "User";
+             updated = true;
+          }
+        } catch (e) {
+          console.warn("Failed to fetch user profile for cache:", uid, e);
+        }
+      }
+
+      if (updated) {
+        setUserNamesCache(newCache);
+      }
+    };
+
+    fetchNames();
+  }, [conversations, db]);
+
+  // 1. Fetch conversations list for user
+  useEffect(() => {
+    if (!user || !db) return;
+    const q = query(
+      collection(db, "chats"),
+      where("participants", "array-contains", user.id)
+    );
+    const unsubscribe = onSnapshot(q, (snap) => {
+      const list = snap.docs.map(docSnap => {
+        const data = docSnap.data();
+        const otherUserId = data.participants.find((p: string) => p !== user.id) || '';
+        const otherUserName = data.participantNames?.[otherUserId] || 'Anonymous';
+        
+        let timestampDate = new Date();
+        if (data.lastMessageTimestamp) {
+          if (typeof data.lastMessageTimestamp.toDate === 'function') {
+            timestampDate = data.lastMessageTimestamp.toDate();
+          } else {
+            timestampDate = new Date(data.lastMessageTimestamp);
+          }
+        }
+
+        return {
+          ...data,
+          id: docSnap.id,
+          otherUser: { id: otherUserId, name: otherUserName },
+          lastMessage: data.lastMessage || '',
+          lastMessageTimestamp: timestampDate,
+          unreadCount: 0,
+          relatedSpotTitle: data.relatedSpotTitle || ''
+        };
+      });
+      // Sort desc by last message timestamp
+      list.sort((a, b) => b.lastMessageTimestamp.getTime() - a.lastMessageTimestamp.getTime());
+      
+      const blockedList = user?.blockedUsers || [];
+      const filteredList = list.filter(conv => !blockedList.includes(conv.otherUser.id));
+      setConversations(filteredList);
+    });
+    return () => unsubscribe();
+  }, [user?.id, JSON.stringify(user?.blockedUsers)]);
+
+  // 2. Handle activeChatContext passed from spot click
+  useEffect(() => {
+    if (!user || !activeChatContext || !db) return;
+    
+    const initChat = async () => {
+      const chatId = [user.id, activeChatContext.userId].sort().join("_");
+      const chatRef = doc(db, "chats", chatId);
+      
+      let otherUserName = "User";
+      try {
+        const userDocRef = doc(db, "users", activeChatContext.userId);
+        const userDocSnap = await getDoc(userDocRef);
+        if (userDocSnap.exists()) {
+          otherUserName = userDocSnap.data().fullName || "User";
+        }
+      } catch (e) {
+        console.warn("Failed to get other user name", e);
+      }
+
+      await setDoc(chatRef, {
+        id: chatId,
+        participants: [user.id, activeChatContext.userId],
+        participantNames: {
+          [user.id]: user.fullName || "Me",
+          [activeChatContext.userId]: otherUserName
+        },
+        relatedSpotTitle: activeChatContext.context || "Street Spot",
+        lastMessage: "Conversation started",
+        lastMessageTimestamp: serverTimestamp()
+      }, { merge: true });
+
+      setActiveConversationId(chatId);
+    };
+    
+    initChat();
+  }, [user?.id, activeChatContext]);
+
+  // 3. Listen to messages for the active conversation
+  useEffect(() => {
+    if (!activeConversationId || !user || !db) {
+      setMessages([]);
+      return;
+    }
+    const q = query(
+      collection(db, "chats", activeConversationId, "messages"),
+      orderBy("timestamp", "asc")
+    );
+    const unsubscribe = onSnapshot(q, (snap) => {
+      const msgs = snap.docs.map(docSnap => {
+        const data = docSnap.data();
+        return {
+          id: docSnap.id,
+          senderId: data.senderId,
+          text: data.text || '',
+          timestamp: data.timestamp?.toDate() || new Date(),
+          isMe: data.senderId === user.id
+        };
+      });
+      setMessages(msgs);
+    });
+    return () => unsubscribe();
+  }, [activeConversationId, user?.id]);
+
+  // Update last read timestamp in localStorage when active chat receives messages
+  useEffect(() => {
+    if (activeConversationId) {
+      localStorage.setItem(`lastReadChat_${activeConversationId}`, Date.now().toString());
+    }
+    setIsMenuOpen(false);
+  }, [activeConversationId, messages.length]);
+
+  // 4. Auto-scroll to bottom of messages & trigger Smart Replies
+  useEffect(() => {
+    if (activeConversationId && messages.length > 0) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
       
-      // Generate AI replies for the last received message
-      const lastMsg = activeConversation.messages[activeConversation.messages.length - 1];
-      if (!lastMsg.isMe) {
-        generateSmartReplies(lastMsg.text, activeConversation.relatedSpotTitle || "Parking Spot").then(replies => {
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg && !lastMsg.isMe) {
+        generateSmartReplies(lastMsg.text, activeConversation?.relatedSpotTitle || "Parking Spot").then(replies => {
           setSmartReplies(replies);
+        }).catch(err => {
+          console.warn("Gemini smart replies failed", err);
+          setSmartReplies([]);
         });
       } else {
         setSmartReplies([]);
       }
     }
-  }, [activeConversation, activeConversation?.messages]);
+  }, [messages, activeConversationId]);
 
-  const handleSend = (text) => {
-    if (!text.trim() || !activeConversationId) return;
-
-    setConversations(prev => prev.map(c => {
-      if (c.id === activeConversationId) {
-        return {
-          ...c,
-          messages: [...c.messages, {
-            id: Date.now().toString(),
-            senderId: 'me',
-            text: text,
-            timestamp: new Date(),
-            isMe: true
-          }],
-          lastMessage: text
-        };
-      }
-      return c;
-    }));
+  // 5. Send message
+  const handleSend = async (text: string) => {
+    if (!text.trim() || !activeConversationId || !user || !db) return;
+    
+    localStorage.setItem(`lastReadChat_${activeConversationId}`, Date.now().toString());
+    const chatRef = doc(db, "chats", activeConversationId);
+    const messagesRef = collection(db, "chats", activeConversationId, "messages");
+    
+    const messageData = {
+        senderId: user.id,
+        text: text.trim(),
+        timestamp: serverTimestamp()
+    };
+    
     setInputText('');
     setSmartReplies([]);
+
+    try {
+        await addDoc(messagesRef, messageData);
+        await setDoc(chatRef, {
+            lastMessage: text.trim(),
+            lastMessageTimestamp: serverTimestamp()
+        }, { merge: true });
+    } catch (e) {
+        console.error("Error sending message", e);
+    }
   };
 
   if (activeConversationId && activeConversation) {
@@ -89,20 +296,47 @@ export const MessagesView = ({ onBack }) => {
                <i className="fa-solid fa-user text-xl"></i>
             </div>
             <div>
-              <h3 className="font-bold text-white">{activeConversation.otherUser.name}</h3>
+              <h3 className="font-bold text-white">{userNamesCache[activeConversation.otherUser.id] || activeConversation.otherUser.name}</h3>
               {activeConversation.relatedSpotTitle && (
                 <p className="text-xs text-queen-400">{activeConversation.relatedSpotTitle}</p>
               )}
             </div>
           </div>
-          <button className="text-gray-500">
-            <MoreVertical size={20} />
-          </button>
+          <div className="relative">
+            <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="text-gray-400 hover:text-white p-2 hover:bg-dark-700 rounded-full transition-colors">
+              <MoreVertical size={20} />
+            </button>
+            {isMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setIsMenuOpen(false)} />
+                <div className="absolute right-0 mt-2 w-48 bg-dark-800 border border-dark-700 rounded-2xl shadow-xl z-50 overflow-hidden py-1">
+                  <button 
+                    onClick={() => { setIsMenuOpen(false); handleDeleteChat(); }}
+                    className="w-full text-left px-4 py-3 text-sm text-red-500 hover:bg-dark-700 flex items-center gap-2 transition-colors font-medium"
+                  >
+                    Delete Chat
+                  </button>
+                  <button 
+                    onClick={() => { setIsMenuOpen(false); handleBlockUser(); }}
+                    className="w-full text-left px-4 py-3 text-sm text-white hover:bg-dark-700 flex items-center gap-2 transition-colors font-medium"
+                  >
+                    Block User
+                  </button>
+                  <button 
+                    onClick={() => { setIsMenuOpen(false); handleReportUser(); }}
+                    className="w-full text-left px-4 py-3 text-sm text-white hover:bg-dark-700 flex items-center gap-2 transition-colors font-medium"
+                  >
+                    Report User
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Messages Area */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
-          {activeConversation.messages.map((msg) => (
+          {messages.map((msg) => (
             <div key={msg.id} className={`flex ${msg.isMe ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[75%] rounded-2xl px-4 py-3 ${
                 msg.isMe 
@@ -179,38 +413,52 @@ export const MessagesView = ({ onBack }) => {
        </div>
 
        <div className="flex-1 overflow-y-auto px-4">
-          {conversations.map(conv => (
-            <button 
-              key={conv.id} 
-              onClick={() => setActiveConversationId(conv.id)}
-              className="w-full flex items-center gap-4 py-4 border-b border-dark-800 hover:bg-dark-800/50 transition-colors rounded-xl px-2"
-            >
-              <div className="relative">
-                <div className="w-12 h-12 rounded-full border border-dark-600 bg-dark-800 flex items-center justify-center text-gray-500 overflow-hidden shrink-0">
-                   <i className="fa-solid fa-user text-2xl"></i>
-                </div>
-                {conv.unreadCount > 0 && (
-                  <div className="absolute -top-1 -right-1 w-5 h-5 bg-queen-500 rounded-full flex items-center justify-center text-[10px] font-bold text-white border-2 border-dark-900">
-                    {conv.unreadCount}
+          {conversations.length === 0 ? (
+            <div className="text-center p-10 text-gray-500">
+              <p>No active conversations found.</p>
+            </div>
+          ) : (
+            conversations.map(conv => {
+              const lastReadStr = localStorage.getItem(`lastReadChat_${conv.id}`);
+              const lastReadTime = lastReadStr ? parseInt(lastReadStr, 10) : 0;
+              const hasUnread = conv.lastMessageTimestamp.getTime() > lastReadTime;
+
+              return (
+                <button 
+                  key={conv.id} 
+                  onClick={() => setActiveConversationId(conv.id)}
+                  className="w-full flex items-center gap-4 py-4 border-b border-dark-800 hover:bg-dark-800/50 transition-colors rounded-xl px-2 text-left"
+                >
+                  <div className="relative">
+                    <div className="w-12 h-12 rounded-full border border-dark-600 bg-dark-800 flex items-center justify-center text-gray-500 overflow-hidden shrink-0">
+                       <i className="fa-solid fa-user text-2xl"></i>
+                    </div>
                   </div>
-                )}
-              </div>
-              <div className="flex-1 text-left">
-                <div className="flex justify-between mb-1">
-                  <h3 className="font-bold text-white">{conv.otherUser.name}</h3>
-                  <span className="text-xs text-gray-500">2m ago</span>
-                </div>
-                <p className={`text-sm truncate ${conv.unreadCount > 0 ? 'text-white font-medium' : 'text-gray-400'}`}>
-                  {conv.lastMessage}
-                </p>
-                {conv.relatedSpotTitle && (
-                  <div className="mt-1 inline-flex items-center gap-1 text-[10px] text-queen-400 bg-queen-900/20 px-1.5 py-0.5 rounded">
-                     Spot: {conv.relatedSpotTitle}
+                  <div className="flex-1 text-left">
+                    <div className="flex justify-between mb-1">
+                      <h3 className="font-bold text-white">{userNamesCache[conv.otherUser.id] || conv.otherUser.name}</h3>
+                      <div className="flex items-center gap-2">
+                        {hasUnread && <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse shrink-0" />}
+                        <span className="text-xs text-gray-500">
+                          {conv.lastMessageTimestamp instanceof Date 
+                            ? conv.lastMessageTimestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+                            : 'Just now'}
+                        </span>
+                      </div>
+                    </div>
+                    <p className={`text-sm truncate ${hasUnread ? 'text-white font-medium' : 'text-gray-400'}`}>
+                      {conv.lastMessage}
+                    </p>
+                    {conv.relatedSpotTitle && (
+                      <div className="mt-1 inline-flex items-center gap-1 text-[10px] text-queen-400 bg-queen-900/20 px-1.5 py-0.5 rounded">
+                         Spot: {conv.relatedSpotTitle}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            </button>
-          ))}
+                </button>
+              );
+            })
+          )}
        </div>
     </div>
   );

@@ -12,6 +12,10 @@ export enum AppView {
   PROFILE = 'profile',
   NOTIFICATIONS = 'notifications',
   ADMIN_DASHBOARD = 'admin-dashboard',
+  PARKING_SPACE = 'parking-space',
+  PRIVACY_POLICY = 'privacy-policy',
+  TERMS_OF_USE = 'terms-of-use',
+  CONTACT_US = 'contact-us',
 }
 
 export interface StreetSpot {
@@ -19,9 +23,10 @@ export interface StreetSpot {
   lat: number;
   lng: number;
   type: 'free' | 'paid';
-  status: 'available' | 'occupied';
+  status: 'available' | 'claimed' | 'occupied';
   finderId: string;
   finderName: string;
   reportedAt: any; // Firestore Timestamp
   expiresAt: any; // Firestore Timestamp
+  claimedBy?: string | null;
 }
