@@ -550,15 +550,15 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             // Creating a new spot from scratch
             try {
                 const oneHourAgo = now - 60 * 60 * 1000;
-                const q = query(collection(db, "spots"), where("finderId", "==", user.id));
+                // Use a query with a time filter to avoid fetching the user's entire spot history
+                const q = query(
+                    collection(db, "spots"), 
+                    where("finderId", "==", user.id),
+                    where("reportedAt", ">=", Timestamp.fromMillis(oneHourAgo))
+                );
                 const snap = await getDocs(q);
-                const activeRecentPings = snap.docs.filter(d => {
-                    const data = d.data();
-                    const reportedMillis = data.reportedAt?.toMillis() || 0;
-                    return reportedMillis >= oneHourAgo;
-                });
-
-                if (activeRecentPings.length >= 5) {
+                
+                if (snap.docs.length >= 5) {
                     alert("You have reached your limit of 5 pings per hour. Please wait before pinging again!");
                     setIsPinging(false);
                     return;
@@ -579,13 +579,18 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     expiresAt,
                     geohash: geofire.geohashForLocation([userLocation[1], userLocation[0]])
                 };
+                // Optimistically show confirmation
+                setShowPingConfirmation(true);
+                setTimeout(() => setShowPingConfirmation(false), 4000);
+                onSaveSuccess();
+                
                 addDoc(collection(db, "spots"), newSpotData)
-                    .then(() => {
-                        setShowPingConfirmation(true);
-                        setTimeout(() => setShowPingConfirmation(false), 4000);
-                        onSaveSuccess();
-                    })
-                    .catch(onSaveError);
+                    .catch(error => {
+                        console.error("Optimistic save failed:", error);
+                        // We already called onSaveSuccess which cleared state, 
+                        // but we can alert the user.
+                        alert("There was an error syncing your ping to the server.");
+                    });
             } else {
                 navigator.geolocation.getCurrentPosition(
                     (position) => {
@@ -603,13 +608,16 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                             expiresAt,
                             geohash
                         };
+                        // Optimistically show confirmation
+                        setShowPingConfirmation(true);
+                        setTimeout(() => setShowPingConfirmation(false), 4000);
+                        onSaveSuccess();
+                        
                         addDoc(collection(db, "spots"), newSpotData)
-                            .then(() => {
-                                setShowPingConfirmation(true);
-                                setTimeout(() => setShowPingConfirmation(false), 4000);
-                                onSaveSuccess();
-                            })
-                            .catch(onSaveError);
+                            .catch(error => {
+                                console.error("Optimistic save failed:", error);
+                                alert("There was an error syncing your ping to the server.");
+                            });
                     },
                     (error) => {
                         console.error("Error getting position for ping:", error);
