@@ -17,7 +17,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
   const [inputText, setInputText] = useState('');
   const [smartReplies, setSmartReplies] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const [userNamesCache, setUserNamesCache] = useState<Record<string, string>>({});
+  const [userProfilesCache, setUserProfilesCache] = useState<Record<string, { name: string; avatarUrl: string | null }>>({});
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const activeConversation = conversations.find(c => c.id === activeConversationId);
@@ -44,7 +44,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
   const handleBlockUser = async () => {
     if (!activeConversation) return;
     const otherUserId = activeConversation.otherUser.id;
-    const otherUserName = userNamesCache[otherUserId] || activeConversation.otherUser.name;
+    const otherUserName = userProfilesCache[otherUserId]?.name || activeConversation.otherUser.name;
     if (window.confirm(`Are you sure you want to block ${otherUserName}?`)) {
       try {
         const userRef = doc(db, "users", user.id);
@@ -66,7 +66,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
   const handleReportUser = async () => {
     if (!activeConversation) return;
     const otherUserId = activeConversation.otherUser.id;
-    const otherUserName = userNamesCache[otherUserId] || activeConversation.otherUser.name;
+    const otherUserName = userProfilesCache[otherUserId]?.name || activeConversation.otherUser.name;
     const reason = window.prompt(`Please enter the reason for reporting ${otherUserName}:`);
     if (reason === null) return;
     if (!reason.trim()) {
@@ -95,11 +95,11 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
     const fetchNames = async () => {
       const missingUserIds = conversations
         .map(c => c.otherUser.id)
-        .filter(id => id && !userNamesCache[id]);
+        .filter(id => id && !userProfilesCache[id]);
       
       if (missingUserIds.length === 0) return;
 
-      const newCache = { ...userNamesCache };
+      const newCache = { ...userProfilesCache };
       let updated = false;
 
       for (const uid of missingUserIds) {
@@ -107,7 +107,11 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
           const userDocRef = doc(db, "users", uid);
           const userDocSnap = await getDoc(userDocRef);
           if (userDocSnap.exists()) {
-             newCache[uid] = userDocSnap.data().fullName || "User";
+             const data = userDocSnap.data();
+             newCache[uid] = {
+               name: data.fullName || "User",
+               avatarUrl: data.avatarUrl || null
+             };
              updated = true;
           }
         } catch (e) {
@@ -116,7 +120,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
       }
 
       if (updated) {
-        setUserNamesCache(newCache);
+        setUserProfilesCache(newCache);
       }
     };
 
@@ -293,10 +297,14 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
               <ChevronLeft size={24} />
             </button>
             <div className="w-10 h-10 rounded-full border border-dark-600 bg-dark-800 flex items-center justify-center text-gray-500 overflow-hidden shrink-0">
-               <i className="fa-solid fa-user text-xl"></i>
+               {userProfilesCache[activeConversation.otherUser.id]?.avatarUrl ? (
+                 <img src={userProfilesCache[activeConversation.otherUser.id].avatarUrl!} alt="Avatar" className="w-full h-full object-cover" />
+               ) : (
+                 <i className="fa-solid fa-user text-xl"></i>
+               )}
             </div>
             <div>
-              <h3 className="font-bold text-white">{userNamesCache[activeConversation.otherUser.id] || activeConversation.otherUser.name}</h3>
+              <h3 className="font-bold text-white">{userProfilesCache[activeConversation.otherUser.id]?.name || activeConversation.otherUser.name}</h3>
               {activeConversation.relatedSpotTitle && (
                 <p className="text-xs text-queen-400">{activeConversation.relatedSpotTitle}</p>
               )}
@@ -431,12 +439,16 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
                 >
                   <div className="relative">
                     <div className="w-12 h-12 rounded-full border border-dark-600 bg-dark-800 flex items-center justify-center text-gray-500 overflow-hidden shrink-0">
-                       <i className="fa-solid fa-user text-2xl"></i>
+                       {userProfilesCache[conv.otherUser.id]?.avatarUrl ? (
+                         <img src={userProfilesCache[conv.otherUser.id].avatarUrl!} alt="Avatar" className="w-full h-full object-cover" />
+                       ) : (
+                         <i className="fa-solid fa-user text-2xl"></i>
+                       )}
                     </div>
                   </div>
                   <div className="flex-1 text-left">
                     <div className="flex justify-between mb-1">
-                      <h3 className="font-bold text-white">{userNamesCache[conv.otherUser.id] || conv.otherUser.name}</h3>
+                      <h3 className="font-bold text-white">{userProfilesCache[conv.otherUser.id]?.name || conv.otherUser.name}</h3>
                       <div className="flex items-center gap-2">
                         {hasUnread && <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse shrink-0" />}
                         <span className="text-xs text-gray-500">
