@@ -200,30 +200,45 @@ export default function App() {
         );
       case AppView.GARAGE_LIST:
         return (
-          <div className="h-full flex flex-col">
-            <div className="pt-4 px-4 flex items-center gap-4 bg-dark-900 border-b border-dark-800 pb-4">
-              <button onClick={() => setCurrentView(AppView.MAP)} className="p-2 bg-dark-800 rounded-full text-white"><ChevronLeft size={24} /></button>
-              <h1 className="text-xl font-bold">Listings</h1>
+          <div className="h-full flex flex-col bg-dark-900">
+            <div className="pt-4 px-4 flex items-center gap-4 mb-4">
+              <button onClick={() => setCurrentView(AppView.MAP)} className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-white/10 text-white hover:bg-white/10 transition-all shrink-0">
+                <ChevronLeft size={20} />
+              </button>
+              <div>
+                <h1 className="text-xl font-bold text-white tracking-wide">Listings</h1>
+                <p className="text-xs text-gray-400">Browse and book private parking rentals</p>
+              </div>
             </div>
             <GarageRentalView />
           </div>
         );
       case AppView.HOST_DASHBOARD:
         return (
-          <div className="h-full flex flex-col">
-            <div className="pt-4 px-4 flex items-center gap-4 bg-dark-900 border-b border-dark-800 pb-4">
-              <button onClick={() => setCurrentView(AppView.GARAGE_LIST)} className="p-2 bg-dark-800 rounded-full text-white"><ChevronLeft size={24} /></button>
-              <h1 className="text-xl font-bold">Host Dashboard</h1>
+          <div className="h-full flex flex-col bg-dark-900">
+            <div className="pt-4 px-4 flex items-center gap-4 mb-4">
+              <button onClick={() => setCurrentView(AppView.GARAGE_LIST)} className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-white/10 text-white hover:bg-white/10 transition-all shrink-0">
+                <ChevronLeft size={20} />
+              </button>
+              <div>
+                <h1 className="text-xl font-bold text-white tracking-wide">Host Dashboard</h1>
+                <p className="text-xs text-gray-400">Manage your shared spaces and host earnings</p>
+              </div>
             </div>
             <HostDashboardView />
           </div>
         );
       case AppView.AI_ASSISTANT:
         return (
-          <div className="h-full flex flex-col">
-            <div className="pt-4 px-4 flex items-center gap-4 bg-dark-900 border-b border-dark-800 pb-4">
-              <button onClick={() => setCurrentView(AppView.MAP)} className="p-2 bg-dark-800 rounded-full text-white"><ChevronLeft size={24} /></button>
-              <h1 className="text-xl font-bold">Sign Scanner</h1>
+          <div className="h-full flex flex-col bg-dark-900">
+            <div className="pt-4 px-4 flex items-center gap-4 mb-4">
+              <button onClick={() => setCurrentView(AppView.MAP)} className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-white/10 text-white hover:bg-white/10 transition-all shrink-0">
+                <ChevronLeft size={20} />
+              </button>
+              <div>
+                <h1 className="text-xl font-bold text-white tracking-wide">Sign Scanner</h1>
+                <p className="text-xs text-gray-400">Interpret street rules instantly with AI</p>
+              </div>
             </div>
             <AssistantView />
           </div>
@@ -242,7 +257,7 @@ export default function App() {
       case AppView.PROFILE:
         return <ProfileView user={user} setView={setCurrentView} onBack={() => setCurrentView(AppView.MAP)} onLogout={handleLogout} onDeleteAccount={handleDeleteAccount} theme={theme} toggleTheme={toggleTheme} />;
       case AppView.NOTIFICATIONS:
-        return <NotificationsView onBack={() => setCurrentView(AppView.MAP)} />;
+        return <NotificationsView user={user} onBack={() => setCurrentView(AppView.MAP)} />;
       case AppView.ADMIN_DASHBOARD:
         return <AdminDashboardView onLogout={handleLogout} />;
       case AppView.PARKING_SPACE:

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, ChevronLeft, MoreVertical, Sparkles, ArrowLeft } from 'lucide-react';
+import { Send, ChevronLeft, MoreVertical, Sparkles, ArrowLeft, SquarePen, MapPin, MessageSquare } from 'lucide-react';
 import { generateSmartReplies } from '../services/geminiService';
 import { collection, query, where, onSnapshot, addDoc, doc, setDoc, orderBy, serverTimestamp, getDocs, getDoc, writeBatch, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -197,7 +197,8 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
         },
         relatedSpotTitle: activeChatContext.context || "Street Spot",
         lastMessage: "Conversation started",
-        lastMessageTimestamp: serverTimestamp()
+        lastMessageTimestamp: serverTimestamp(),
+        lastSenderId: user.id
       }, { merge: true });
 
       setActiveConversationId(chatId);
@@ -280,7 +281,8 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
         await addDoc(messagesRef, messageData);
         await setDoc(chatRef, {
             lastMessage: text.trim(),
-            lastMessageTimestamp: serverTimestamp()
+            lastMessageTimestamp: serverTimestamp(),
+            lastSenderId: user.id
         }, { merge: true });
     } catch (e) {
         console.error("Error sending message", e);
@@ -404,23 +406,27 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
   }
 
   return (
-    <div className="h-full flex flex-col bg-dark-900 pt-4 pb-20">
-       <div className="px-4 mb-4">
-         <div className="flex items-center gap-4 mb-4">
+    <div className="h-full flex flex-col bg-dark-900 pt-4 pb-20 max-w-md mx-auto">
+       {/* Header */}
+       <div className="flex items-center justify-between px-4 mb-6">
+         <div className="flex items-center gap-3">
            {onBack && (
-             <button onClick={onBack} className="p-2 -ml-2 text-white hover:bg-dark-800 rounded-full transition-colors">
-               <ArrowLeft size={24} />
+             <button onClick={onBack} className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-white/10 text-white hover:bg-white/10 transition-all shrink-0">
+               <ArrowLeft size={20} />
              </button>
            )}
-           <h2 className="text-2xl font-bold text-white">Inbox</h2>
+           <div>
+             <h2 className="text-2xl font-bold text-white tracking-wide">Inbox</h2>
+             <p className="text-xs text-gray-400">Stay updated with your parking community</p>
+           </div>
          </div>
-         <div className="flex gap-4 border-b border-dark-700 pb-1">
-           <button className="text-white font-medium border-b-2 border-queen-500 pb-2 px-2">Messages</button>
-           <button className="text-gray-500 font-medium pb-2 px-2">Notifications</button>
-         </div>
+         <button className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-white/10 text-[#38bdf8] hover:bg-white/10 transition-all shrink-0">
+           <SquarePen size={18} />
+         </button>
        </div>
 
-       <div className="flex-1 overflow-y-auto px-4">
+       {/* Conversation List */}
+       <div className="flex-1 overflow-y-auto px-4 space-y-4 no-scrollbar">
           {conversations.length === 0 ? (
             <div className="text-center p-10 text-gray-500">
               <p>No active conversations found.</p>
@@ -429,41 +435,56 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
             conversations.map(conv => {
               const lastReadStr = localStorage.getItem(`lastReadChat_${conv.id}`);
               const lastReadTime = lastReadStr ? parseInt(lastReadStr, 10) : 0;
-              const hasUnread = conv.lastMessageTimestamp.getTime() > lastReadTime;
+              const hasUnread = conv.lastMessageTimestamp.getTime() > lastReadTime && conv.lastSenderId !== user.id;
 
               return (
                 <button 
                   key={conv.id} 
                   onClick={() => setActiveConversationId(conv.id)}
-                  className="w-full flex items-center gap-4 py-4 border-b border-dark-800 hover:bg-dark-800/50 transition-colors rounded-xl px-2 text-left"
+                  className="w-full bg-[#07162c]/60 border border-white/5 backdrop-blur-md rounded-2xl p-4 flex items-start gap-4 text-left transition-all hover:bg-[#0b2240]/60 relative"
                 >
-                  <div className="relative">
-                    <div className="w-12 h-12 rounded-full border border-dark-600 bg-dark-800 flex items-center justify-center text-gray-500 overflow-hidden shrink-0">
+                  {/* Avatar with blue unread dot */}
+                  <div className="relative shrink-0">
+                    <div className="w-14 h-14 rounded-full border border-white/10 bg-dark-800 flex items-center justify-center text-gray-500 overflow-hidden">
                        {userProfilesCache[conv.otherUser.id]?.avatarUrl ? (
                          <img src={userProfilesCache[conv.otherUser.id].avatarUrl!} alt="Avatar" className="w-full h-full object-cover" />
                        ) : (
                          <i className="fa-solid fa-user text-2xl"></i>
                        )}
                     </div>
+                    {hasUnread && (
+                      <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-[#1e75ff] border-2 border-dark-900 rounded-full animate-pulse" />
+                    )}
                   </div>
-                  <div className="flex-1 text-left">
-                    <div className="flex justify-between mb-1">
-                      <h3 className="font-bold text-white">{userProfilesCache[conv.otherUser.id]?.name || conv.otherUser.name}</h3>
-                      <div className="flex items-center gap-2">
-                        {hasUnread && <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse shrink-0" />}
-                        <span className="text-xs text-gray-500">
-                          {conv.lastMessageTimestamp instanceof Date 
-                            ? conv.lastMessageTimestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
-                            : 'Just now'}
-                        </span>
-                      </div>
+
+                  {/* Body Content */}
+                  <div className="flex-1 min-w-0 text-left">
+                    <div className="flex justify-between items-start mb-0.5">
+                      <h3 className="font-bold text-white text-base truncate pr-2">
+                        {userProfilesCache[conv.otherUser.id]?.name || conv.otherUser.name}
+                      </h3>
+                      <span className="text-xs text-gray-500 shrink-0 mt-0.5">
+                        {conv.lastMessageTimestamp instanceof Date 
+                          ? conv.lastMessageTimestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+                          : 'Just now'}
+                      </span>
                     </div>
-                    <p className={`text-sm truncate ${hasUnread ? 'text-white font-medium' : 'text-gray-400'}`}>
-                      {conv.lastMessage}
-                    </p>
+
+                    <div className="flex justify-between items-center mt-0.5">
+                      <p className={`text-sm truncate pr-4 ${hasUnread ? 'text-white font-medium' : 'text-gray-400'}`}>
+                        {conv.lastMessage}
+                      </p>
+                      {hasUnread && (
+                        <span className="flex items-center justify-center w-5 h-5 bg-[#1e75ff] text-white text-[10px] font-bold rounded-full shrink-0">
+                          1
+                        </span>
+                      )}
+                    </div>
+
                     {conv.relatedSpotTitle && (
-                      <div className="mt-1 inline-flex items-center gap-1 text-[10px] text-queen-400 bg-queen-900/20 px-1.5 py-0.5 rounded">
-                         Spot: {conv.relatedSpotTitle}
+                      <div className="mt-2.5 inline-flex items-center gap-1.5 text-[10px] text-[#38bdf8] bg-[#1e75ff]/10 border border-[#1e75ff]/20 px-2.5 py-0.5 rounded-full">
+                         <MapPin size={10} className="text-[#38bdf8]" />
+                         <span>{conv.relatedSpotTitle}</span>
                       </div>
                     )}
                   </div>
@@ -471,6 +492,19 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
               );
             })
           )}
+
+          {/* All caught up footer */}
+          <div className="flex flex-col items-center justify-center py-8 text-center">
+            <div className="relative mb-3 flex items-center justify-center">
+              <div className="w-14 h-14 rounded-full bg-[#07162c]/85 border border-white/5 flex items-center justify-center text-[#1e75ff] shadow-lg relative">
+                <MessageSquare size={22} fill="#1e75ff" className="text-[#1e75ff]" />
+                <Sparkles size={14} className="absolute -top-1 -right-1 text-blue-400 animate-pulse" />
+                <Sparkles size={10} className="absolute -bottom-1 -left-1 text-blue-300 animate-pulse" />
+              </div>
+            </div>
+            <h3 className="text-white font-bold text-sm">All caught up!</h3>
+            <p className="text-[11px] text-gray-500 mt-0.5">You'll see new messages here.</p>
+          </div>
        </div>
     </div>
   );

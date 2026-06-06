@@ -1,62 +1,189 @@
-import React from 'react';
-import { ArrowLeft } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { ArrowLeft, MapPin } from 'lucide-react';
+import { db } from '../firebase';
+import { collection, query, where, onSnapshot, Timestamp } from 'firebase/firestore';
 
-const NOTIFICATIONS = [
-  { id: '1', name: 'Brooklyn westernmost', action: 'Parking Available', status: 'Near you', address: '487, Atlantic AveBay', distance: '50 m', img: 'https://i.pravatar.cc/150?u=10' },
-  { id: '2', name: 'Aliquam dui', action: 'Parking Available', status: 'Near you', address: '598, Laoreet eros tincidunt', distance: '70 m', img: 'https://i.pravatar.cc/150?u=20' },
-  { id: '3', name: 'Phasellus donec', action: 'Parking Available', status: 'Near you', address: '897, Proin blandit lacus', distance: '1 km', img: 'https://i.pravatar.cc/150?u=33' },
-  { id: '4', name: 'Fnsectr kdipiscing', action: 'Parking Available', status: 'Near you', address: '489, Rlementum sollicitudin', distance: '2 km', img: 'https://i.pravatar.cc/150?u=44' },
-  { id: '5', name: 'Phasellus fringilla nec', action: 'Parking Available', status: 'Near you', address: '89, Augue ac semper', distance: '3 km', img: 'https://i.pravatar.cc/150?u=55' },
-  { id: '6', name: 'Praesent lacinia', action: 'Parking Available', status: 'Near you', address: '002, Mauris porta non', distance: '3.5 km', img: 'https://i.pravatar.cc/150?u=66' },
-  { id: '7', name: 'Lobortis vulpu', action: 'Parking Available', status: 'Near you', address: '264, Proin blandit lacus', distance: '4 km', img: 'https://i.pravatar.cc/150?u=77' },
-  { id: '8', name: 'Efi citur lacinia', action: 'Parking Available', status: 'Near you', address: '487, Atlantic AveBay', distance: '4.5 km', img: 'https://i.pravatar.cc/150?u=88' },
-  { id: '9', name: 'Quis porttitor risus', action: 'Parking Available', status: 'Near you', address: '338, Mauris porta non', distance: '5 km', img: 'https://i.pravatar.cc/150?u=99' },
-];
+const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
-export const NotificationsView = ({ onBack }) => {
+interface NotificationsViewProps {
+  user: any;
+  onBack: () => void;
+}
+
+const deg2rad = (deg: number) => deg * (Math.PI / 180);
+
+const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+  const R = 6371; // Earth radius in km
+  const dLat = deg2rad(lat2 - lat1);
+  const dLon = deg2rad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c; // Distance in km
+};
+
+export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBack }) => {
+  const [spots, setSpots] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
+  const [addresses, setAddresses] = useState<Record<string, string>>({});
+
+  // 1. Get user's current geolocation
+  useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setUserLocation([position.coords.latitude, position.coords.longitude]);
+        },
+        (error) => {
+          console.warn("Could not get location for distance calculation", error);
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    }
+  }, []);
+
+  // 2. Query active spots from Firestore
+  useEffect(() => {
+    if (!db) return;
+    const now = Timestamp.now();
+    const q = query(
+      collection(db, "spots"),
+      where("expiresAt", ">", now)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const activeSpots = snapshot.docs.map((docSnap) => ({
+        id: docSnap.id,
+        ...docSnap.data()
+      })) as any[];
+
+      // Sort descending by reportedAt time
+      activeSpots.sort((a, b) => {
+        const timeA = a.reportedAt?.toMillis() || 0;
+        const timeB = b.reportedAt?.toMillis() || 0;
+        return timeB - timeA;
+      });
+
+      setSpots(activeSpots);
+      setLoading(false);
+    }, (error) => {
+      console.error("Error listening to spots:", error);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // 3. Geocode spots to get real street addresses using Mapbox API
+  useEffect(() => {
+    if (spots.length === 0 || !MAPBOX_TOKEN) return;
+
+    spots.forEach(async (spot) => {
+      const cacheKey = `${spot.lat},${spot.lng}`;
+      if (addresses[cacheKey]) return; // already geocoded
+
+      try {
+        const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${spot.lng},${spot.lat}.json?access_token=${MAPBOX_TOKEN}&limit=1`;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.features && data.features.length > 0) {
+          const address = data.features[0].place_name;
+          setAddresses((prev) => ({ ...prev, [cacheKey]: address }));
+        } else {
+          setAddresses((prev) => ({ ...prev, [cacheKey]: `${spot.lat.toFixed(4)}, ${spot.lng.toFixed(4)}` }));
+        }
+      } catch (err) {
+        console.warn("Mapbox geocoding error:", err);
+      }
+    });
+  }, [spots, addresses]);
+
   return (
     <div className="h-full bg-dark-900 flex flex-col pt-4">
       {/* Header */}
       <div className="flex items-center gap-4 px-4 py-4 border-b border-dark-800">
-         <button 
-            onClick={onBack} 
-            className="p-2 -ml-2 text-white hover:bg-dark-800 rounded-full transition-colors"
-         >
-            <ArrowLeft size={24} />
-         </button>
-         <h1 className="text-xl font-bold text-white">Notification</h1>
+        <button 
+          onClick={onBack} 
+          className="p-2 -ml-2 text-white hover:bg-dark-800 rounded-full transition-colors"
+        >
+          <ArrowLeft size={24} />
+        </button>
+        <h1 className="text-xl font-bold text-white">Notifications</h1>
       </div>
 
       {/* List */}
       <div className="flex-1 overflow-y-auto no-scrollbar pb-24">
-         {NOTIFICATIONS.map((item, index) => (
-           <div 
-            key={item.id} 
-            className={`flex items-start gap-4 p-4 border-b border-dark-800 hover:bg-dark-800/50 transition-colors cursor-pointer ${index % 2 === 0 ? 'bg-dark-900' : 'bg-[#151515]'}`}
-           >
-              {/* Avatar Image */}
-              <div className="w-14 h-14 rounded-2xl overflow-hidden shrink-0 border border-dark-700 shadow-sm bg-dark-800 flex items-center justify-center text-gray-500">
-                 <i className="fa-solid fa-user text-2xl"></i>
-              </div>
+        {loading ? (
+          <div className="flex justify-center p-10">
+            <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full"></div>
+          </div>
+        ) : spots.length === 0 ? (
+          <div className="text-center p-10 text-gray-500">
+            <p>No active parking alerts near you.</p>
+          </div>
+        ) : (
+          spots.map((spot, index) => {
+            const cacheKey = `${spot.lat},${spot.lng}`;
+            const address = addresses[cacheKey] || "Resolving address...";
+            
+            let distanceStr = "";
+            let isNear = false;
+            
+            if (userLocation) {
+              const distanceKm = getDistance(userLocation[0], userLocation[1], spot.lat, spot.lng);
+              isNear = distanceKm <= 2.0; // Mark as near if within 2km
+              if (distanceKm < 1.0) {
+                distanceStr = `${Math.round(distanceKm * 1000)} m`;
+              } else {
+                distanceStr = `${distanceKm.toFixed(1)} km`;
+              }
+            }
 
-              {/* Content */}
-              <div className="flex-1 min-w-0 pt-0.5">
-                 <div className="flex flex-wrap items-baseline gap-x-1 mb-1">
-                    <span className="font-bold text-white text-sm leading-tight">{item.name}</span>
-                    <span className="text-gray-400 text-sm leading-tight">{item.action}</span>
-                 </div>
-                 
-                 <div className="text-queen-400 text-xs font-bold mb-1 tracking-wide">{item.status}</div>
-                 
-                 <div className="text-gray-500 text-xs truncate">{item.address}</div>
-              </div>
+            return (
+              <div 
+                key={spot.id} 
+                className={`flex items-start gap-4 p-4 border-b border-dark-800 hover:bg-dark-800/50 transition-colors cursor-pointer ${
+                  index % 2 === 0 ? 'bg-dark-900' : 'bg-[#151515]'
+                }`}
+              >
+                {/* Map Pin Icon Container */}
+                <div className="w-14 h-14 rounded-2xl overflow-hidden shrink-0 border border-dark-700 shadow-sm bg-blue-900/20 flex items-center justify-center text-blue-400">
+                  <MapPin size={24} />
+                </div>
 
-              {/* Distance */}
-              <div className="text-gray-400 text-xs font-medium whitespace-nowrap self-end mb-1">
-                 {item.distance}
+                {/* Content */}
+                <div className="flex-1 min-w-0 pt-0.5">
+                  <div className="flex flex-wrap items-baseline gap-x-1 mb-1">
+                    <span className="font-bold text-white text-sm leading-tight">
+                      {spot.finderName || "Someone"}
+                    </span>
+                    <span className="text-gray-400 text-sm leading-tight">
+                      pinged a {spot.type} spot
+                    </span>
+                  </div>
+                  
+                  <div className="text-queen-400 text-xs font-bold mb-1 tracking-wide">
+                    {isNear ? "Near you" : "Parking Alert"}
+                  </div>
+                  
+                  <div className="text-gray-500 text-xs truncate">
+                    {address}
+                  </div>
+                </div>
+
+                {/* Distance */}
+                {distanceStr && (
+                  <div className="text-gray-400 text-xs font-medium whitespace-nowrap self-end mb-1">
+                    {distanceStr}
+                  </div>
+                )}
               </div>
-           </div>
-         ))}
+            );
+          })
+        )}
       </div>
     </div>
   );

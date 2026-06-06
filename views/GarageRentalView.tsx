@@ -206,28 +206,28 @@ const LocationPicker = ({ onConfirm, onBack }) => {
                 <button onClick={onBack} className="p-2 bg-dark-800/80 backdrop-blur rounded-full text-white hover:bg-dark-700">
                     <ChevronLeft size={24} />
                 </button>
-                <div className="flex-1 bg-white rounded-xl shadow-lg flex items-center px-4 h-12">
+                <div className="flex-1 bg-[#07162c]/80 border border-white/10 rounded-xl shadow-lg flex items-center px-4 h-12 text-white">
                     <Search className="text-gray-400 mr-2" size={20} />
-                    <input type="text" placeholder="Search for area, Street Name" className="flex-1 bg-transparent border-none outline-none text-dark-900 placeholder-gray-400" />
+                    <input type="text" placeholder="Search for area, Street Name" className="flex-1 bg-transparent border-none outline-none text-white placeholder-gray-500 text-sm" />
                 </div>
             </div>
             <div ref={mapContainerRef} className="flex-1 bg-dark-800 z-0" />
-            <div className="bg-white text-dark-900 rounded-t-3xl p-6 pb-8 shadow-2xl animate-in slide-in-from-bottom-10 z-10 relative">
-                 <button className="w-full mb-6 py-3 border border-gray-200 rounded-xl flex items-center justify-center gap-2 text-queen-600 font-bold hover:bg-gray-50 transition-colors">
+            <div className="bg-[#07162c]/95 border-t border-white/10 text-white backdrop-blur-lg rounded-t-3xl p-6 pb-8 shadow-2xl animate-in slide-in-from-bottom-10 z-10 relative">
+                 <button className="w-full mb-6 py-3 border border-white/10 bg-white/5 rounded-xl flex items-center justify-center gap-2 text-[#38bdf8] font-bold hover:bg-white/10 transition-colors">
                      <Navigation size={18} />
                      Use Current Location
                  </button>
                  <div className="flex items-start gap-3 mb-6">
-                     <MapPin className="text-queen-500 shrink-0 mt-1" size={24} fill="currentColor" fillOpacity={0.2} />
+                     <MapPin className="text-[#38bdf8] shrink-0 mt-1" size={24} fill="currentColor" fillOpacity={0.2} />
                      <div>
-                         <h3 className="font-bold text-lg">{address}</h3>
-                         <p className="text-gray-500 text-sm">{subAddress}</p>
+                          <h3 className="font-bold text-lg text-white">{address}</h3>
+                          <p className="text-gray-400 text-sm">{subAddress}</p>
                      </div>
                  </div>
-                 <button onClick={() => onConfirm(`${address}, ${subAddress}`)} className="w-full bg-queen-500 text-white font-bold py-4 rounded-2xl shadow-lg shadow-queen-500/30 active:scale-[0.98] transition-all">
+                 <button onClick={() => onConfirm(`${address}, ${subAddress}`)} className="w-full bg-[#1e75ff] hover:bg-blue-600 text-white font-bold py-4 rounded-2xl shadow-md shadow-blue-500/20 active:scale-[0.98] transition-all">
                      Save Location
                  </button>
-                 <div className="w-32 h-1 bg-gray-300 rounded-full mx-auto mt-4" />
+                 <div className="w-32 h-1 bg-white/10 rounded-full mx-auto mt-4" />
             </div>
         </div>
     );

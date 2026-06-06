@@ -29,4 +29,9 @@ export interface StreetSpot {
   reportedAt: any; // Firestore Timestamp
   expiresAt: any; // Firestore Timestamp
   claimedBy?: string | null;
+  holdRequestedBy?: string;
+  holdRequestedByName?: string;
+  holdRequestStatus?: 'pending' | 'accepted' | 'declined' | 'completed';
+  holdRequestExpiresAt?: any; // Firestore Timestamp
+  holdTimerExpiresAt?: any; // Firestore Timestamp
 }

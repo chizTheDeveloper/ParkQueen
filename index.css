@@ -9,7 +9,7 @@ html, body, #root {
   height: 100%;
   min-height: 100dvh;
   overflow: hidden;
-  background: #000;
+  background: #071426;
 }
 
 .sp-map {
@@ -24,13 +24,94 @@ html, body, #root {
   z-index: 10;
   pointer-events: none;
   background: transparent;
-  /* Flexbox properties to fix the layout */
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 1rem; /* Adjust as needed */
+  padding: 1rem;
 }
 
 .sp-overlay > * {
   pointer-events: auto;
 }
+
+/* Glassmorphism Styles */
+.glass-panel {
+  background: rgba(11, 26, 48, 0.65);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+}
+
+.glass-panel-hover {
+  transition: all 0.3s ease;
+}
+.glass-panel-hover:hover {
+  background: rgba(11, 26, 48, 0.85);
+  border-color: rgba(30, 117, 255, 0.3);
+  box-shadow: 0 8px 32px 0 rgba(30, 117, 255, 0.15);
+}
+
+.glass-button {
+  background: rgba(11, 26, 48, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.3);
+  color: white;
+  transition: all 0.2s ease;
+}
+.glass-button:hover {
+  background: rgba(30, 117, 255, 0.15);
+  border-color: rgba(30, 117, 255, 0.4);
+}
+.glass-button:active {
+  transform: scale(0.95);
+}
+
+/* Glow effects */
+.glow-blue {
+  box-shadow: 0 0 15px rgba(30, 117, 255, 0.4);
+}
+
+.glow-text-neon {
+  text-shadow: 0 0 8px rgba(0, 240, 255, 0.6);
+}
+
+/* Custom scrollbars */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Map Blue Tint Overlays */
+.map-blue-tint-color {
+  position: absolute;
+  inset: 0;
+  background: rgba(30, 117, 255, 0.12);
+  mix-blend-mode: color;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.map-blue-tint-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 30, 60, 0.4);
+  mix-blend-mode: multiply;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.map-blue-tint-soft {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at center, rgba(30, 117, 255, 0.08) 0%, rgba(7, 20, 38, 0.45) 100%);
+  mix-blend-mode: overlay;
+  pointer-events: none;
+  z-index: 1;
+}
+

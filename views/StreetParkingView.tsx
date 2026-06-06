@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StreetSpot, AppView } from '../types';
-import { MapPin, Check, Locate, ChevronUp, ChevronDown, List, Camera, MessageSquare, Bell, Clock, Calendar, X, Search } from 'lucide-react';
+import { MapPin, Check, Locate, ChevronUp, ChevronDown, List, Camera, MessageSquare, Bell, Clock, Calendar, X, Search, Menu, Star, Sliders, CloudSun, Navigation, Map, Wallet, User } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, addDoc, onSnapshot, query, orderBy, Timestamp, doc, deleteDoc, writeBatch, updateDoc, getDocs, where } from 'firebase/firestore';
 import mapboxgl from 'mapbox-gl';
@@ -9,6 +9,20 @@ import parqueenLogo from '../assets/Parqueen_Logo.png';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 const NYC_CENTER: [number, number] = [-73.9712, 40.7831];
+
+const deg2rad = (deg: number) => deg * (Math.PI / 180);
+
+const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const R = 6371; // Earth radius in km
+    const dLat = deg2rad(lat2 - lat1);
+    const dLon = deg2rad(lon2 - lon1);
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c; // Distance in km
+};
 
 const formatTimeLeft = (ms: number): string => {
     if (ms <= 0) {
@@ -29,21 +43,36 @@ const formatTimeLeft = (ms: number): string => {
     return `${hours} hour${hours === 1 ? "" : "s"} and ${minutes} minute${minutes === 1 ? "" : "s"}`;
 };
 
-const createMarkerElement = (isMine: boolean, status: string = 'available') => {
+const createMarkerElement = (type: 'free' | 'paid' | 'public', price?: string) => {
     const el = document.createElement('div');
+    el.className = "flex flex-col items-center select-none";
     el.style.zIndex = '10';
-    let color = '#3B82F6'; // default blue
-    if (status === 'claimed') {
-        color = '#F59E0B'; // orange for claimed
+    el.style.cursor = 'pointer';
+    
+    let color = '#1e75ff'; // Default Blue for Free
+    if (type === 'paid') color = '#22c55e'; // Green for Paid
+    if (type === 'public') color = '#a855f7'; // Purple for Public
+    
+    let pillHtml = '';
+    if ((type === 'paid' || type === 'public') && price) {
+        const textColorClass = type === 'paid' ? 'text-[#22c55e]' : 'text-[#a855f7]';
+        const borderColorClass = type === 'paid' ? 'border-[#22c55e]/25' : 'border-[#a855f7]/25';
+        pillHtml = `
+            <div class="mt-0.5 px-1.5 py-0.5 text-[9px] font-bold bg-[#07162c]/95 border ${borderColorClass} ${textColorClass} rounded-md shadow-lg backdrop-blur-sm whitespace-nowrap leading-none select-none pointer-events-none">
+                ${price}
+            </div>
+        `;
     }
+    
     el.innerHTML = `
-    <div style="width: 36px; height: 36px; position: relative;">
-      <svg viewBox="0 0 24 24" fill="${color}" xmlns="http://www.w3.org/2000/svg" style="width: 100%; height: 100%; filter: drop-shadow(0px 4px 6px rgba(0,0,0,0.3));">
-        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" stroke="#FFF" stroke-width="1"/>
-        <text x="12" y="11" font-size="8" font-family="sans-serif" font-weight="bold" text-anchor="middle" fill="white">P</text>
-      </svg>
-    </div>
-  `;
+        <div style="width: 32px; height: 32px; position: relative;" class="pointer-events-none">
+          <svg viewBox="0 0 24 24" fill="${color}" xmlns="http://www.w3.org/2000/svg" style="width: 100%; height: 100%; filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.35));">
+            <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" stroke="#FFF" stroke-width="1.5"/>
+            <text x="12" y="11" font-size="8.5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-weight="900" text-anchor="middle" fill="white">P</text>
+          </svg>
+        </div>
+        ${pillHtml}
+    `;
     return el;
 };
 
@@ -87,7 +116,10 @@ const SpotModal: React.FC<{ isOpen: boolean; onClose: () => void; onSave: (depar
 
     useEffect(() => {
         if (isOpen) {
-            const initialDate = spot ? spot.reportedAt.toDate() : new Date(Date.now() + 2 * 60_000);
+            const hasToDate = spot && spot.reportedAt && typeof spot.reportedAt.toDate === 'function';
+            const initialDate = hasToDate 
+                ? spot.reportedAt.toDate() 
+                : (spot && spot.reportedAt ? new Date(spot.reportedAt) : new Date(Date.now() + 2 * 60_000));
             setDepartureTime(initialDate);
             setPingType(initialDate.getTime() > Date.now() + 60_000 ? 'later' : 'now');
             setView('main');
@@ -136,6 +168,23 @@ const SpotModal: React.FC<{ isOpen: boolean; onClose: () => void; onSave: (depar
     );
 };
 
+interface MapItem {
+    id: string;
+    lat: number;
+    lng: number;
+    type: 'free' | 'paid' | 'public';
+    status: 'available' | 'claimed' | 'occupied';
+    title: string;
+    pricePerHour?: number;
+    description?: string;
+    reportedAt?: any;
+    expiresAt?: any;
+    finderId?: string;
+    finderName?: string;
+    claimedBy?: string | null;
+    rawSpot?: any;
+}
+
 interface MapViewProps {
     user: any;
     setView: (view: AppView) => void;
@@ -146,9 +195,25 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const mapContainerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
     const spotMarkersRef = useRef<Record<string, { marker: mapboxgl.Marker; timerId: number | undefined }>>({});
-    const [selectedItem, setSelectedItem] = useState<StreetSpot | null>(null);
+    const allMarkersRef = useRef<Record<string, mapboxgl.Marker>>({});
+    const [selectedItem, setSelectedItem] = useState<any | null>(null);
     const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
     const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
+    
+    // Filtering and Category states
+    const [freeSpots, setFreeSpots] = useState<MapItem[]>([]);
+    const [paidListings, setPaidListings] = useState<MapItem[]>([]);
+    const [publicGarages, setPublicGarages] = useState<MapItem[]>([]);
+    
+    const [showFree, setShowFree] = useState(true);
+    const [showPaid, setShowPaid] = useState(true);
+    const [showPublic, setShowPublic] = useState(true);
+    const [showLegend, setShowLegend] = useState(true);
+    const [trackedItemId, setTrackedItemId] = useState<string | null>(null);
+    const [isHoldModalOpen, setIsHoldModalOpen] = useState(false);
+    const [holdTimeRemaining, setHoldTimeRemaining] = useState<number | null>(null);
+    const [lastCompletedHoldId, setLastCompletedHoldId] = useState<string | null>(null);
+    const [finderSuccessNotification, setFinderSuccessNotification] = useState<string | null>(null);
     const [isPinging, setIsPinging] = useState(false);
     const [showPingConfirmation, setShowPingConfirmation] = useState(false);
     const [isSpotModalOpen, setSpotModalOpen] = useState(false);
@@ -160,8 +225,47 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const abortRef = useRef<AbortController | null>(null);
     const activeRouteDestinationRef = useRef<[number, number] | null>(null);
 
+    const [googleMapsLoaded, setGoogleMapsLoaded] = useState(false);
+
+    // Dynamic Google Maps Script Loader
+    useEffect(() => {
+        const googleObj = (window as any).google;
+        if (googleObj && googleObj.maps && googleObj.maps.places) {
+            setGoogleMapsLoaded(true);
+            return;
+        }
+
+        const existingScript = document.getElementById('google-maps-script');
+        if (existingScript) {
+            const checkLoaded = setInterval(() => {
+                const gObj = (window as any).google;
+                if (gObj && gObj.maps && gObj.maps.places) {
+                    setGoogleMapsLoaded(true);
+                    clearInterval(checkLoaded);
+                }
+            }, 100);
+            return;
+        }
+
+        const script = document.createElement('script');
+        script.id = 'google-maps-script';
+        script.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyCKSqWVd6JqpcrNUG6hei8Ug1njaIkAI7Y&libraries=places`;
+        script.async = true;
+        script.defer = true;
+        script.onload = () => {
+            setGoogleMapsLoaded(true);
+        };
+        script.onerror = (e) => {
+            console.error("Failed to load Google Maps script", e);
+        };
+        document.head.appendChild(script);
+    }, []);
+
     const resizeMap = () => mapRef.current?.resize();
 
+    const [activeSpots, setActiveSpots] = useState<any[]>([]);
+    const [spotAddress, setSpotAddress] = useState<string>("Loading address...");
+    const [activeFilterTab, setActiveFilterTab] = useState<string>("nearest");
     const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
     const [pendingUpdatesCount, setPendingUpdatesCount] = useState(() => {
         const stored = localStorage.getItem('pendingUpdatesCount');
@@ -194,11 +298,13 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 const lastReadStr = localStorage.getItem(`lastReadChat_${chatId}`);
                 const lastReadTime = lastReadStr ? parseInt(lastReadStr, 10) : 0;
                 
-                if (timestampMillis > lastReadTime) {
+                if (timestampMillis > lastReadTime && data.lastSenderId !== user.id) {
                     count++;
                 }
             });
             setUnreadMessagesCount(count);
+        }, (err) => {
+            console.warn("Chats snapshot listener error:", err);
         });
         return () => unsubscribe();
     }, [user?.id]);
@@ -283,6 +389,174 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             clearRoute();
         }
     }, [selectedItem]);
+
+    // Reactive sync selectedItem from live Firestore updates
+    useEffect(() => {
+        if (!selectedItem) return;
+        const updatedFree = freeSpots.find(s => s.id === selectedItem.id);
+        if (updatedFree) {
+            if (updatedFree.status !== selectedItem.status || 
+                updatedFree.holdRequestStatus !== selectedItem.holdRequestStatus || 
+                updatedFree.claimedBy !== selectedItem.claimedBy) {
+                setSelectedItem(updatedFree);
+            }
+            return;
+        }
+        const updatedPaid = paidListings.find(s => s.id === selectedItem.id);
+        if (updatedPaid) {
+            if (updatedPaid.status !== selectedItem.status) {
+                setSelectedItem(updatedPaid);
+            }
+            return;
+        }
+    }, [freeSpots, paidListings, selectedItem?.id]);
+
+    // Simulation Auto-Responder: if claimant is testing alone, auto-accept hold request after 3s
+    useEffect(() => {
+        if (!selectedItem || !user || !db) return;
+        if (selectedItem.holdRequestedBy === user.id && selectedItem.holdRequestStatus === 'pending') {
+            const timer = setTimeout(async () => {
+                try {
+                    const spotRef = doc(db, "spots", selectedItem.id);
+                    await updateDoc(spotRef, {
+                        holdRequestStatus: 'accepted',
+                        status: 'claimed',
+                        claimedBy: user.id,
+                        holdTimerExpiresAt: Timestamp.fromMillis(Date.now() + 5 * 60 * 1000)
+                    });
+                } catch (err) {
+                    console.warn("Auto-responder simulation error:", err);
+                }
+            }, 3000);
+            return () => clearTimeout(timer);
+        }
+    }, [selectedItem?.holdRequestStatus, selectedItem?.id, user?.id]);
+
+    // Claimant automatically triggers navigation when hold request is accepted
+    useEffect(() => {
+        if (!selectedItem || !user) return;
+        if (selectedItem.holdRequestedBy === user.id && 
+            selectedItem.holdRequestStatus === 'accepted' && 
+            trackedItemId !== selectedItem.id) {
+            setTrackedItemId(selectedItem.id);
+            const startLoc = userLocation || NYC_CENTER;
+            const dest: [number, number] = [selectedItem.lng, selectedItem.lat];
+            activeRouteDestinationRef.current = dest;
+            drawRoute(startLoc, dest);
+        }
+    }, [selectedItem?.holdRequestStatus, selectedItem?.id, userLocation]);
+
+    // Claimant hold request countdown timer
+    useEffect(() => {
+        if (!selectedItem || selectedItem.holdRequestStatus !== 'accepted' || !selectedItem.holdTimerExpiresAt) {
+            setHoldTimeRemaining(null);
+            return;
+        }
+
+        const interval = setInterval(() => {
+            const expiry = selectedItem.holdTimerExpiresAt.toMillis 
+                ? selectedItem.holdTimerExpiresAt.toMillis() 
+                : new Date(selectedItem.holdTimerExpiresAt).getTime();
+            const remaining = Math.max(0, Math.floor((expiry - Date.now()) / 1000));
+            setHoldTimeRemaining(remaining);
+
+            if (remaining <= 0) {
+                clearInterval(interval);
+                // Expire the hold request in Firestore
+                const spotRef = doc(db, "spots", selectedItem.id);
+                updateDoc(spotRef, {
+                    holdRequestStatus: 'declined',
+                    status: 'available',
+                    claimedBy: null
+                }).catch(e => console.warn("Expiry update failed", e));
+            }
+        }, 1000);
+
+        return () => clearInterval(interval);
+    }, [selectedItem?.holdRequestStatus, selectedItem?.holdTimerExpiresAt, selectedItem?.id]);
+
+    // Finder wallet payout success banner listener
+    useEffect(() => {
+        if (!user) return;
+        const completedSpot = freeSpots.find(s => s.finderId === user.id && s.holdRequestStatus === 'completed');
+        if (completedSpot && completedSpot.id !== lastCompletedHoldId) {
+            setLastCompletedHoldId(completedSpot.id);
+            setFinderSuccessNotification(`Claimant arrived! $2.00 has been released to your wallet from spot at ${completedSpot.title || 'Street Spot'}.`);
+            setTimeout(() => setFinderSuccessNotification(null), 5000);
+        }
+    }, [freeSpots, user?.id, lastCompletedHoldId]);
+
+    const handleAcceptHold = async (spot: MapItem) => {
+        if (!db) return;
+        try {
+            const spotRef = doc(db, "spots", spot.id);
+            await updateDoc(spotRef, {
+                holdRequestStatus: 'accepted',
+                status: 'claimed',
+                claimedBy: spot.holdRequestedBy,
+                holdTimerExpiresAt: Timestamp.fromMillis(Date.now() + 5 * 60 * 1000)
+            });
+        } catch (e) {
+            console.error("Error accepting hold request:", e);
+        }
+    };
+
+    const handleDeclineHold = async (spot: MapItem) => {
+        if (!db) return;
+        try {
+            const spotRef = doc(db, "spots", spot.id);
+            await updateDoc(spotRef, {
+                holdRequestStatus: 'declined',
+                status: 'available',
+                claimedBy: null
+            });
+        } catch (e) {
+            console.error("Error declining hold request:", e);
+        }
+    };
+
+    const handleSendHoldRequest = async () => {
+        const spot = selectedItem || (freeSpots.length > 0 ? freeSpots[0] : null);
+        if (!spot || !user || !db) return;
+        setIsHoldModalOpen(false);
+        try {
+            const spotRef = doc(db, "spots", spot.id);
+            await updateDoc(spotRef, {
+                holdRequestedBy: user.id,
+                holdRequestedByName: user.fullName || 'Anonymous',
+                holdRequestStatus: 'pending',
+                holdRequestExpiresAt: Timestamp.fromMillis(Date.now() + 5 * 60 * 1000)
+            });
+            setSelectedItem(prev => ({
+                ...prev,
+                holdRequestedBy: user.id,
+                holdRequestedByName: user.fullName || 'Anonymous',
+                holdRequestStatus: 'pending'
+            }));
+        } catch (e) {
+            console.error("Error sending hold request:", e);
+        }
+    };
+
+    const handleArrivalRelease = async () => {
+        const spot = selectedItem || (freeSpots.length > 0 ? freeSpots[0] : null);
+        if (!spot || !user || !db) return;
+        try {
+            const spotRef = doc(db, "spots", spot.id);
+            await updateDoc(spotRef, {
+                holdRequestStatus: 'completed',
+                status: 'occupied'
+            });
+            setSelectedItem(prev => ({
+                ...prev,
+                holdRequestStatus: 'completed',
+                status: 'occupied'
+            }));
+            alert(`Escrow released successfully! $2.00 has been transferred to ${spot.finderName}.`);
+        } catch (e) {
+            console.error("Error releasing hold escrow:", e);
+        }
+    };
 
     useEffect(() => {
         if (!mapContainerRef.current || mapRef.current) return;
@@ -403,6 +677,28 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             const activeSpots = snapshot.docs
                 .map(d => ({ id: d.id, ...d.data() } as any))
                 .filter(s => s.expiresAt?.toMillis() > now);
+            setActiveSpots(activeSpots);
+
+            // Set free spots locally for filtering
+            const mappedFree: MapItem[] = activeSpots.map(s => ({
+                id: s.id,
+                lat: s.lat,
+                lng: s.lng,
+                type: 'free' as const,
+                status: s.status || 'available',
+                title: s.address || 'Street Spot',
+                reportedAt: s.reportedAt,
+                expiresAt: s.expiresAt,
+                finderId: s.finderId,
+                finderName: s.finderName,
+                claimedBy: s.claimedBy,
+                holdRequestedBy: s.holdRequestedBy,
+                holdRequestedByName: s.holdRequestedByName,
+                holdRequestStatus: s.holdRequestStatus,
+                holdTimerExpiresAt: s.holdTimerExpiresAt,
+                rawSpot: s
+            }));
+            setFreeSpots(mappedFree);
 
             // Compute if there's any new spot added since last viewed
             const lastViewedStr = localStorage.getItem('lastViewedNotifications');
@@ -425,57 +721,308 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     setPendingUpdatesCount(parseInt(saved, 10));
                 }
             }
-
-            const nextIds = new Set(activeSpots.map(s => s.id));
-            const markers = spotMarkersRef.current;
-
-            Object.keys(markers).forEach(id => {
-                if (!nextIds.has(id)) {
-                    markers[id].marker.remove();
-                    if (markers[id].timerId) clearTimeout(markers[id].timerId);
-                    delete markers[id];
-                }
-            });
-
-            activeSpots.forEach(s => {
-                const lngLat: [number, number] = [s.lng, s.lat];
-                if (!markers[s.id]) {
-                    const el = createMarkerElement(s.finderId === user.id, s.status);
-                    const marker = new mapboxgl.Marker({ element: el, anchor: "center" }).setLngLat(lngLat).addTo(mapRef.current!);
-                    marker.getElement().addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        setSelectedItem(s);
-                        mapRef.current?.flyTo({ center: lngLat, zoom: 16 });
-                    });
-
-                    const msLeft = s.expiresAt.toMillis() - Date.now();
-                    const timerId = setTimeout(() => {
-                        marker.remove();
-                        delete markers[s.id];
-                    }, msLeft);
-
-                    markers[s.id] = { marker, timerId, status: s.status } as any;
-                } else {
-                    const cur = markers[s.id].marker.getLngLat();
-                    if (cur.lng !== s.lng || cur.lat !== s.lat) markers[s.id].marker.setLngLat(lngLat);
-                    if ((markers[s.id] as any).status !== s.status) {
-                        const newEl = createMarkerElement(s.finderId === user.id, s.status);
-                        markers[s.id].marker.getElement().innerHTML = newEl.innerHTML;
-                        (markers[s.id] as any).status = s.status;
-                    }
-                }
-            });
+        }, (err) => {
+            console.warn("Spots snapshot listener error:", err);
         });
 
         return () => {
-            Object.values(spotMarkersRef.current).forEach(m => {
-                m.marker.remove();
-                if (m.timerId) clearTimeout(m.timerId);
-            });
-            spotMarkersRef.current = {};
             unsubscribe();
         };
     }, [user?.id]);
+
+    // Fetch paid listings from Firestore and dynamically generate mocks around userLocation if empty
+    useEffect(() => {
+        if (!db || !user) return;
+        const q = query(collection(db, "listings"));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            let list = snapshot.docs.map(d => {
+                const data = d.data();
+                return {
+                    id: d.id,
+                    lat: data.lat || NYC_CENTER[1],
+                    lng: data.lng || NYC_CENTER[0],
+                    type: 'paid' as const,
+                    status: 'available' as const,
+                    title: data.title || 'Private Spot',
+                    pricePerHour: data.pricePerHour || 1.50,
+                    description: data.description || 'Secure parking space',
+                    rawSpot: { id: d.id, ...data }
+                };
+            });
+
+            // If empty, fallback to mock listings centered dynamically around userLocation (or NYC_CENTER)
+            if (list.length === 0) {
+                const centerLat = userLocation ? userLocation[1] : NYC_CENTER[1];
+                const centerLng = userLocation ? userLocation[0] : NYC_CENTER[0];
+                list = [
+                    {
+                        id: 'mock_listing_1',
+                        lat: centerLat + 0.0035,
+                        lng: centerLng - 0.0045,
+                        type: 'paid' as const,
+                        status: 'available' as const,
+                        title: 'Private Driveway - UWS',
+                        pricePerHour: 15.00,
+                        description: 'Secure driveway behind locked gate. 24/7 access.',
+                        rawSpot: null
+                    },
+                    {
+                        id: 'mock_listing_2',
+                        lat: centerLat - 0.0055,
+                        lng: centerLng + 0.0065,
+                        type: 'paid' as const,
+                        status: 'available' as const,
+                        title: 'SoHo Garage Spot',
+                        pricePerHour: 25.00,
+                        description: 'Underground heated garage. Very tight turn.',
+                        rawSpot: null
+                    },
+                    {
+                        id: 'mock_listing_3',
+                        lat: centerLat + 0.0065,
+                        lng: centerLng - 0.0015,
+                        type: 'paid' as const,
+                        status: 'available' as const,
+                        title: 'Brooklyn Brownstone Spot',
+                        pricePerHour: 10.00,
+                        description: 'Easy street access, no alternate side parking worries.',
+                        rawSpot: null
+                    }
+                ];
+            }
+            setPaidListings(list);
+        }, (err) => {
+            console.warn("Listings snapshot listener error:", err);
+        });
+        return () => unsubscribe();
+    }, [db, user, userLocation]);
+
+    // Fetch public garages POIs dynamically from Google Places (or Mapbox/mocks fallback) centered around userLocation
+    useEffect(() => {
+        const centerLat = userLocation ? userLocation[1] : NYC_CENTER[1];
+        const centerLng = userLocation ? userLocation[0] : NYC_CENTER[0];
+        
+        const generateFallbackPublicGarages = () => {
+            const items: MapItem[] = [
+                {
+                    id: 'mock_public_1',
+                    lat: centerLat + 0.0045,
+                    lng: centerLng + 0.0025,
+                    type: 'public' as const,
+                    status: 'available' as const,
+                    title: 'Central Parking System',
+                    pricePerHour: 18.00,
+                    description: 'Public parking garage. Open 24/7.',
+                    rawSpot: null
+                },
+                {
+                    id: 'mock_public_2',
+                    lat: centerLat - 0.0035,
+                    lng: centerLng - 0.0055,
+                    type: 'public' as const,
+                    status: 'available' as const,
+                    title: 'Icon Parking Garage',
+                    pricePerHour: 22.00,
+                    description: 'Secure public parking lot and garage.',
+                    rawSpot: null
+                },
+                {
+                    id: 'mock_public_3',
+                    lat: centerLat + 0.0018,
+                    lng: centerLng + 0.0052,
+                    type: 'public' as const,
+                    status: 'available' as const,
+                    title: 'Quik Park Lot',
+                    pricePerHour: 14.50,
+                    description: 'Public parking garage with valet.',
+                    rawSpot: null
+                }
+            ];
+            setPublicGarages(items);
+        };
+
+        const fetchPublicParkingMapbox = async () => {
+            if (!MAPBOX_TOKEN) {
+                generateFallbackPublicGarages();
+                return;
+            }
+            try {
+                const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/parking.json?proximity=${centerLng},${centerLat}&types=poi&limit=15&access_token=${MAPBOX_TOKEN}`;
+                const res = await fetch(url);
+                const data = await res.json();
+                if (data.features && Array.isArray(data.features) && data.features.length > 0) {
+                    const items: MapItem[] = data.features.map((f: any, idx: number) => {
+                        const [lng, lat] = f.geometry.coordinates;
+                        const mockPrices = [12.00, 15.00, 18.00, 22.00, 25.00, 30.00];
+                        const price = mockPrices[idx % mockPrices.length];
+                        return {
+                            id: f.id,
+                            lat,
+                            lng,
+                            type: 'public' as const,
+                            status: 'available' as const,
+                            title: f.text || 'Public Parking',
+                            pricePerHour: price,
+                            description: f.place_name || 'Public parking lot or garage.',
+                            rawSpot: null
+                        };
+                    });
+                    setPublicGarages(items);
+                } else {
+                    generateFallbackPublicGarages();
+                }
+            } catch (e) {
+                console.warn("Failed to fetch public parking via Mapbox", e);
+                generateFallbackPublicGarages();
+            }
+        };
+
+        const googleObj = (window as any).google;
+        if (googleMapsLoaded && googleObj && googleObj.maps && googleObj.maps.places) {
+            try {
+                const dummyElement = document.createElement('div');
+                const service = new googleObj.maps.places.PlacesService(dummyElement);
+                
+                const request = {
+                    location: new googleObj.maps.LatLng(centerLat, centerLng),
+                    radius: 3218.69, // 2 miles in meters
+                    type: 'parking'
+                };
+                
+                service.nearbySearch(request, (results: any[], status: string) => {
+                    if (status === googleObj.maps.places.PlacesServiceStatus.OK && results) {
+                        const items: MapItem[] = results.map((place, idx) => {
+                            const lat = place.geometry?.location?.lat() || (centerLat + (idx * 0.001));
+                            const lng = place.geometry?.location?.lng() || (centerLng + (idx * 0.001));
+                            
+                            // Estimate pricing based on rating
+                            let basePrice = 12.00;
+                            if (place.rating) {
+                                basePrice += place.rating * 2.5;
+                            }
+                            const finalPrice = Math.round(basePrice * 2) / 2;
+                            
+                            return {
+                                id: place.place_id || `google_public_${idx}`,
+                                lat,
+                                lng,
+                                type: 'public' as const,
+                                status: 'available' as const,
+                                title: place.name || 'Public Parking',
+                                pricePerHour: finalPrice,
+                                description: place.vicinity || 'Public parking facility.',
+                                rawSpot: null
+                            };
+                        });
+                        setPublicGarages(items);
+                    } else {
+                        console.warn("Google Places nearby search failed or returned no results, status:", status);
+                        fetchPublicParkingMapbox();
+                    }
+                });
+            } catch (err) {
+                console.error("Error performing Google Places search:", err);
+                fetchPublicParkingMapbox();
+            }
+        } else {
+            fetchPublicParkingMapbox();
+        }
+    }, [userLocation, MAPBOX_TOKEN, googleMapsLoaded]);
+
+    // Unified map marker renderer with 2-mile distance radius filtering
+    useEffect(() => {
+        if (!mapRef.current) return;
+        const map = mapRef.current;
+        const centerLat = userLocation ? userLocation[1] : NYC_CENTER[1];
+        const centerLng = userLocation ? userLocation[0] : NYC_CENTER[0];
+
+        // 1. Gather all items currently enabled by filters
+        const visibleItems: MapItem[] = [];
+        if (showFree) visibleItems.push(...freeSpots);
+        if (showPaid) visibleItems.push(...paidListings);
+        if (showPublic) visibleItems.push(...publicGarages);
+
+        // 2. Filter by 2 mile radius relative to user coordinate (3.2187 km)
+        const radiusFilteredItems = visibleItems.filter(item => {
+            const distanceVal = getDistance(centerLat, centerLng, item.lat, item.lng);
+            const distanceInMiles = distanceVal * 0.621371;
+            return distanceInMiles <= 2.0;
+        });
+
+        const nextIds = new Set(radiusFilteredItems.map(item => item.id));
+        const currentMarkers = allMarkersRef.current;
+
+        // 3. Remove markers that are no longer visible
+        Object.keys(currentMarkers).forEach(id => {
+            if (!nextIds.has(id)) {
+                currentMarkers[id].remove();
+                delete currentMarkers[id];
+            }
+        });
+
+        // 4. Add/Update markers for visible items
+        radiusFilteredItems.forEach(item => {
+            const lngLat: [number, number] = [item.lng, item.lat];
+            if (!currentMarkers[item.id]) {
+                let priceStr = undefined;
+                if (item.type === 'paid' || item.type === 'public') {
+                    priceStr = `$${(item.pricePerHour || 1.50).toFixed(2)}/hr`;
+                }
+                const el = createMarkerElement(item.type, priceStr);
+                const marker = new mapboxgl.Marker({ element: el, anchor: "center" })
+                    .setLngLat(lngLat)
+                    .addTo(map);
+
+                marker.getElement().addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    setSelectedItem(item);
+                    map.flyTo({ center: lngLat, zoom: 16 });
+                });
+
+                currentMarkers[item.id] = marker;
+            } else {
+                const cur = currentMarkers[item.id].getLngLat();
+                if (cur.lng !== item.lng || cur.lat !== item.lat) {
+                    currentMarkers[item.id].setLngLat(lngLat);
+                }
+            }
+        });
+
+    }, [showFree, showPaid, showPublic, freeSpots, paidListings, publicGarages, userLocation]);
+
+    useEffect(() => {
+        const spot = selectedItem || (freeSpots.length > 0 ? freeSpots[0] : null);
+        if (!spot) {
+            setSpotAddress("");
+            return;
+        }
+        if (spot.title) {
+            setSpotAddress(spot.title);
+            return;
+        }
+        if (spot.address) {
+            setSpotAddress(spot.address);
+            return;
+        }
+        if (!MAPBOX_TOKEN) {
+            setSpotAddress("Street Spot");
+            return;
+        }
+        
+        setSpotAddress("Resolving address...");
+        fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${spot.lng},${spot.lat}.json?access_token=${MAPBOX_TOKEN}&limit=1`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.features && data.features.length > 0) {
+                    setSpotAddress(data.features[0].place_name.split(',')[0]);
+                } else {
+                    setSpotAddress(`Coordinates: ${spot.lat.toFixed(4)}, ${spot.lng.toFixed(4)}`);
+                }
+            })
+            .catch(() => {
+                setSpotAddress("Street Spot");
+            });
+    }, [selectedItem, freeSpots, MAPBOX_TOKEN]);
 
     useEffect(() => {
         if (userMarkerRef.current) userMarkerRef.current.remove();
@@ -550,15 +1097,21 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             // Creating a new spot from scratch
             try {
                 const oneHourAgo = now - 60 * 60 * 1000;
-                // Use a query with a time filter to avoid fetching the user's entire spot history
+                // Query all spots for this finder, then filter by date client-side to avoid needing a Firestore composite index
                 const q = query(
                     collection(db, "spots"), 
-                    where("finderId", "==", user.id),
-                    where("reportedAt", ">=", Timestamp.fromMillis(oneHourAgo))
+                    where("finderId", "==", user.id)
                 );
                 const snap = await getDocs(q);
+                const recentSpots = snap.docs.filter(d => {
+                    const data = d.data();
+                    const reportedTime = data.reportedAt?.toMillis 
+                        ? data.reportedAt.toMillis() 
+                        : new Date(data.reportedAt).getTime();
+                    return reportedTime >= oneHourAgo;
+                });
                 
-                if (snap.docs.length >= 5) {
+                if (recentSpots.length >= 5) {
                     alert("You have reached your limit of 5 pings per hour. Please wait before pinging again!");
                     setIsPinging(false);
                     return;
@@ -631,14 +1184,15 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     };
 
     const handleDeletePing = async () => {
-        if (!user || !selectedItem) return;
-        if (user.id !== selectedItem.finderId) return;
+        const spotToDelete = selectedItem || (activeSpots.length > 0 ? activeSpots[0] : null);
+        if (!user || !spotToDelete) return;
+        if (user.id !== spotToDelete.finderId) return;
 
         const ok = window.confirm("Delete this ping? This can't be undone.");
         if (!ok) return;
 
         try {
-            await deleteDoc(doc(db, "spots", selectedItem.id));
+            await deleteDoc(doc(db, "spots", spotToDelete.id));
             setSelectedItem(null);
         } catch (e) {
             console.error("Error deleting ping:", e);
@@ -646,28 +1200,46 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     };
 
     const handleClaimSpot = async () => {
-        if (!user || !selectedItem) return;
+        const spotToClaim = selectedItem || (activeSpots.length > 0 ? activeSpots[0] : null);
+        if (!user || !spotToClaim) return;
         try {
-            await updateDoc(doc(db, "spots", selectedItem.id), {
+            await updateDoc(doc(db, "spots", spotToClaim.id), {
                 status: 'claimed',
                 claimedBy: user.id
             });
-            setSelectedItem({ ...selectedItem, status: 'claimed', claimedBy: user.id });
+            if (selectedItem) {
+                setSelectedItem({ ...selectedItem, status: 'claimed', claimedBy: user.id });
+            }
         } catch (e) {
             console.error("Error claiming spot:", e);
             alert("Failed to claim spot.");
         }
     };
 
+    const handleClaimSpotClick = () => {
+        const spot = selectedItem || (freeSpots.length > 0 ? freeSpots[0] : null);
+        if (!spot) return;
+        if (spot.type === 'free') {
+            setIsHoldModalOpen(true);
+        } else {
+            handleClaimSpot();
+        }
+    };
+
     const handleTrackLocation = () => {
-        if (!selectedItem) return;
-        if (!userLocation) {
-            alert("Waiting for your location to start navigation...");
+        const spotToTrack = selectedItem || (activeSpots.length > 0 ? activeSpots[0] : null);
+        if (!spotToTrack) return;
+        if (trackedItemId === spotToTrack.id) {
+            setTrackedItemId(null);
+            activeRouteDestinationRef.current = null;
+            clearRoute();
             return;
         }
-        const dest: [number, number] = [selectedItem.lng, selectedItem.lat];
+        const startLoc = userLocation || NYC_CENTER;
+        const dest: [number, number] = [spotToTrack.lng, spotToTrack.lat];
         activeRouteDestinationRef.current = dest;
-        drawRoute(userLocation, dest);
+        setTrackedItemId(spotToTrack.id);
+        drawRoute(startLoc, dest);
     };
 
     const handleCancelSearch = () => {
@@ -688,209 +1260,682 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 onSave={handleSaveSpot}
                 spot={selectedItem}
             />
+
+            {isHoldModalOpen && (
+                <div className="absolute inset-0 z-30 bg-black/60 backdrop-blur-md flex items-center justify-center p-4">
+                    <div className="bg-[#1c1c1e] rounded-3xl p-6 w-full max-w-sm text-white border border-white/10 flex flex-col gap-4">
+                        <div className="flex justify-between items-center">
+                            <h3 className="font-extrabold text-sm flex items-center gap-1.5 text-amber-500">
+                                <Wallet size={16} />
+                                <span>Escrow Hold Request</span>
+                            </h3>
+                            <button onClick={() => setIsHoldModalOpen(false)}>
+                                <X size={18} className="text-gray-400 hover:text-white" />
+                            </button>
+                        </div>
+                        <p className="text-xs text-white/85 leading-relaxed">
+                            To reserve this spot, a <strong>$2.00 escrow hold</strong> will be placed. The owner will be asked to hold the spot for you.
+                        </p>
+                        <ul className="text-[10px] text-gray-400 space-y-1">
+                            <li>• If accepted, navigation starts with a 5-minute arrival timer.</li>
+                            <li>• If declined or expired, your $2.00 is fully refunded.</li>
+                            <li>• Upon arrival, payment is released to the finder.</li>
+                        </ul>
+                        <button 
+                            onClick={handleSendHoldRequest}
+                            className="w-full bg-amber-600 hover:bg-amber-500 font-extrabold py-2.5 rounded-xl text-xs transition-colors flex items-center justify-center gap-1.5 shadow-lg shadow-amber-600/10 text-white"
+                        >
+                            Pay & Request Hold ($2.00)
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {(() => {
+                const pendingIncomingHold = freeSpots.find(s => s.finderId === user?.id && s.holdRequestStatus === 'pending');
+                if (!pendingIncomingHold) return null;
+                return (
+                    <div className="absolute top-24 left-1/2 -translate-x-1/2 w-[90%] max-w-[360px] z-50 bg-[#07162c]/95 border border-white/10 backdrop-blur-xl rounded-2xl p-4 shadow-2xl text-white pointer-events-auto flex flex-col gap-3">
+                        <div className="flex items-center gap-2 text-blue-400">
+                            <Bell size={16} className="animate-bounce" />
+                            <span className="text-xs font-bold uppercase tracking-wider">Someone wants this spot!</span>
+                        </div>
+                        <p className="text-[11px] text-white/85 leading-relaxed">
+                            <strong>{pendingIncomingHold.holdRequestedByName || 'Someone'}</strong> wants to reserve your spot at <strong>{pendingIncomingHold.title}</strong> for a <strong>$2.00 escrow hold</strong>.
+                        </p>
+                        <div className="flex gap-2">
+                            <button 
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleAcceptHold(pendingIncomingHold);
+                                }}
+                                className="flex-1 bg-green-600 hover:bg-green-500 font-bold py-1.5 rounded-xl text-xs transition-colors text-white"
+                            >
+                                Accept & Hold ($2)
+                            </button>
+                            <button 
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeclineHold(pendingIncomingHold);
+                                }}
+                                className="flex-1 bg-white/5 border border-white/10 hover:bg-white/10 font-bold py-1.5 rounded-xl text-xs transition-colors text-white"
+                            >
+                                Decline
+                            </button>
+                        </div>
+                    </div>
+                );
+            })()}
+
+            {finderSuccessNotification && (
+                <div className="absolute top-24 left-1/2 -translate-x-1/2 w-[90%] max-w-[360px] z-50 bg-green-600 border border-green-500 text-white rounded-2xl p-4 shadow-2xl pointer-events-auto flex items-center gap-3">
+                    <Check size={20} className="shrink-0" />
+                    <div className="text-xs font-semibold">{finderSuccessNotification}</div>
+                </div>
+            )}
+
+            {selectedItem?.holdRequestedBy === user?.id && selectedItem?.holdRequestStatus === 'declined' && (
+                <div className="absolute top-24 left-1/2 -translate-x-1/2 w-[90%] max-w-[360px] z-50 bg-red-600 border border-red-500 text-white rounded-2xl p-4 shadow-2xl pointer-events-auto flex justify-between items-center gap-3">
+                    <div className="flex items-center gap-2">
+                        <X size={18} />
+                        <span className="text-xs font-semibold">Hold request declined. Escrow of $2.00 was refunded.</span>
+                    </div>
+                    <button onClick={async (e) => {
+                        e.stopPropagation();
+                        if (!db) return;
+                        try {
+                            const spotRef = doc(db, "spots", selectedItem.id);
+                            await updateDoc(spotRef, {
+                                holdRequestStatus: null,
+                                holdRequestedBy: null,
+                                holdRequestedByName: null,
+                                status: 'available',
+                                claimedBy: null
+                            });
+                            setSelectedItem(prev => ({
+                                ...prev,
+                                holdRequestStatus: null,
+                                holdRequestedBy: null,
+                                holdRequestedByName: null,
+                                status: 'available',
+                                claimedBy: null
+                            }));
+                        } catch (e) {
+                            console.warn(e);
+                        }
+                    }} className="text-white hover:text-white/80">
+                        <X size={16} />
+                    </button>
+                </div>
+            )}
+
             <div ref={mapContainerRef} className="sp-map" onClick={() => setSelectedItem(null)} />
+            
+            {/* Map Blue Tint Overlays */}
+            <div className="map-blue-tint-color" />
+            <div className="map-blue-tint-overlay" />
+            <div className="map-blue-tint-soft" />
+
             {showPingConfirmation && (
                 <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 bg-green-500 text-white font-bold py-2 px-4 rounded-lg flex items-center gap-2 shadow-lg"><Check size={20} /><span>spot pinged successfully!</span></div>
             )}
             <div className="sp-overlay flex flex-col justify-between p-3 pointer-events-none">
-                <header style={{ paddingTop: 'env(safe-area-inset-top)' }} className="w-full flex items-start gap-2 pointer-events-auto">
-                    <div className={`relative flex-1 bg-black/70 backdrop-blur-xl rounded-full flex items-center h-14 px-4 shadow-lg border border-white/10 transition-all duration-300 ease-out ${searchOpen ? 'ring-2 ring-blue-500/90' : 'max-w-md'}`}>
-                        {!searchOpen && (
-                            <button onClick={() => setView(AppView.PROFILE)} className="shrink-0">
-                                {user?.avatarUrl ? (
-                                    <img src={user.avatarUrl} alt="Profile" className="w-9 h-9 rounded-full transition-all duration-300 object-cover" />
-                                ) : (
-                                    <div className="w-9 h-9 rounded-full bg-gray-800 flex items-center justify-center text-gray-400 transition-all duration-300">
-                                        <i className="fa-solid fa-user"></i>
-                                    </div>
-                                )}
-                            </button>
-                        )}
-                        <div className="flex-1 mx-3 flex items-center gap-2">
-                           <Search size={22} className={`text-gray-400 transition-all duration-300 ${searchOpen ? 'text-blue-400' : ''}`} />
-                           <input 
+                {/* Redesigned Header: Search Bar & Icons */}
+                <header style={{ paddingTop: 'env(safe-area-inset-top)' }} className="w-full flex flex-col gap-1.5 pointer-events-auto">
+                    {/* Top Search Bar */}
+                    <div className="w-full max-w-[380px] mx-auto bg-[#07162c]/85 backdrop-blur-xl border border-white/10 rounded-full h-11 px-3 flex items-center justify-between shadow-xl transition-all duration-300">
+                        {/* Menu Button / Profile Trigger */}
+                        <button 
+                            onClick={() => setView(AppView.PROFILE)} 
+                            className="text-white/80 hover:text-white p-1.5 hover:bg-white/5 rounded-full transition-colors shrink-0"
+                            aria-label="Menu"
+                        >
+                            <Menu size={18} />
+                        </button>
+
+                        {/* Search Input */}
+                        <div className="flex-1 mx-2 flex items-center gap-1.5">
+                            <Search size={16} className="text-gray-400" />
+                            <input 
                                 ref={inputRef}
                                 type="text" 
-                                placeholder="Search..." 
-                                className="bg-transparent outline-none text-white w-full h-full"
+                                placeholder="Search location..." 
+                                className="bg-transparent border-none outline-none text-white text-xs w-full placeholder-gray-400 font-medium"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 onFocus={() => setSearchOpen(true)}
-                           />
+                            />
                         </div>
-                        {!searchOpen && <div className="flex items-center gap-1 text-gray-400">
-                          <button type="button" aria-label="Scanner" onClick={() => setView(AppView.AI_ASSISTANT)} className="p-2 text-white/90 hover:text-white"><Camera size={22} /></button>
-                          
-                          <button type="button" aria-label="Chat" onClick={() => setView(AppView.MESSAGES)} className="p-2 text-white/90 hover:text-white relative">
-                            <div className="relative">
-                              <MessageSquare size={22} />
-                              {unreadMessagesCount > 0 && (
-                                <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[9px] font-extrabold rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center shadow-md animate-pulse">
-                                  {unreadMessagesCount}
-                                </span>
-                              )}
-                            </div>
-                          </button>
-                          
-                          <button type="button" aria-label="Notifications" onClick={() => {
-                              localStorage.setItem('lastViewedNotifications', Date.now().toString());
-                              localStorage.setItem('pendingUpdatesCount', '0');
-                              setPendingUpdatesCount(0);
-                              setView(AppView.NOTIFICATIONS);
-                          }} className="p-2 text-white/90 hover:text-white relative">
-                            <div className="relative">
-                              <Bell size={22} />
-                              {pendingUpdatesCount > 0 && (
-                                <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[9px] font-extrabold rounded-full min-w-[16px] h-4 px-1 flex items-center justify-center shadow-md animate-pulse">
-                                  {pendingUpdatesCount}
-                                </span>
-                              )}
-                            </div>
-                          </button>
-                        </div>}
-                        {searchOpen && (loading || results.length > 0) && (
-                          <div className="absolute left-0 right-0 mt-2 top-full z-[9999] bg-black/85 backdrop-blur-xl rounded-2xl max-h-72 overflow-y-auto border border-white/10">
-                            {loading && <div className="px-4 py-3 text-white/60">Searching…</div>}
 
-                            {!loading && results.map((r:any) => (
-                              <button
-                                key={r.id}
-                                onMouseDown={(e) => e.preventDefault()}
+                        {/* Action Icons */}
+                        <div className="flex items-center gap-0.5">
+                            <button 
+                                type="button" 
+                                aria-label="Scanner" 
+                                onClick={() => setView(AppView.AI_ASSISTANT)} 
+                                className="p-1.5 text-white/85 hover:text-white hover:bg-white/5 rounded-full transition-colors shrink-0"
+                            >
+                                <Camera size={18} />
+                            </button>
+                            
+                            <button 
+                                type="button" 
+                                aria-label="Chat" 
+                                onClick={() => setView(AppView.MESSAGES)} 
+                                className="p-1.5 text-white/85 hover:text-white hover:bg-white/5 rounded-full transition-colors relative shrink-0"
+                            >
+                                <div className="relative">
+                                    <MessageSquare size={18} />
+                                    {unreadMessagesCount > 0 && (
+                                        <span className="absolute -top-0.5 -right-0.5 bg-[#1e75ff] w-1.5 h-1.5 rounded-full animate-pulse shadow-md" />
+                                    )}
+                                </div>
+                            </button>
+                            
+                            <button 
+                                type="button" 
+                                aria-label="Notifications" 
                                 onClick={() => {
-                                  setSearchQuery(r.place_name);
-                                  setSearchOpen(false);
-                                  setResults([]);
+                                    localStorage.setItem('lastViewedNotifications', Date.now().toString());
+                                    localStorage.setItem('pendingUpdatesCount', '0');
+                                    setPendingUpdatesCount(0);
+                                    setView(AppView.NOTIFICATIONS);
+                                }} 
+                                className="p-1.5 text-white/85 hover:text-white hover:bg-white/5 rounded-full transition-colors relative shrink-0"
+                            >
+                                <div className="relative">
+                                    <Bell size={18} />
+                                    {pendingUpdatesCount > 0 && (
+                                        <span className="absolute -top-0.5 -right-0.5 bg-[#1e75ff] w-1.5 h-1.5 rounded-full animate-pulse shadow-md" />
+                                    )}
+                                </div>
+                            </button>
+                        </div>
 
-                                  mapRef.current?.easeTo({
-                                    center: r.center,
-                                    zoom: 14,
-                                    duration: 800,
-                                  });
-                                }}
-                                className="w-full text-left px-4 py-3 hover:bg-white/10"
-                              >
-                                <div className="text-white font-medium">{r.text}</div>
-                                <div className="text-xs text-white/60">{r.place_name}</div>
-                              </button>
-                            ))}
-                          </div>
+                        {/* Search Results Dropdown */}
+                        {searchOpen && (loading || results.length > 0) && (
+                            <div className="absolute left-0 right-0 mt-2 top-full z-[9999] bg-[#07162c]/95 backdrop-blur-xl rounded-2xl max-h-60 overflow-y-auto border border-white/10 shadow-2xl p-2">
+                                {loading && <div className="px-4 py-3 text-white/60 text-xs">Searching…</div>}
+
+                                {!loading && results.map((r: any) => (
+                                    <button
+                                        key={r.id}
+                                        onMouseDown={(e) => e.preventDefault()}
+                                        onClick={() => {
+                                            setSearchQuery(r.place_name);
+                                            setSearchOpen(false);
+                                            setResults([]);
+
+                                            mapRef.current?.easeTo({
+                                                center: r.center,
+                                                zoom: 14,
+                                                duration: 800,
+                                            });
+                                        }}
+                                        className="w-full text-left px-3 py-2 hover:bg-white/5 rounded-xl transition-colors"
+                                    >
+                                        <div className="text-white font-medium text-xs">{r.text}</div>
+                                        <div className="text-[10px] text-white/50">{r.place_name}</div>
+                                    </button>
+                                ))}
+                            </div>
                         )}
                     </div>
-                    {searchOpen && <button onClick={handleCancelSearch} className="text-white font-semibold px-4 h-14">Cancel</button>}
-                </header>
-                {selectedItem && (() => {
-                    const departureDate = selectedItem.reportedAt.toDate();
-                    const isScheduled = selectedItem.reportedAt.toMillis() > Date.now() + 60_000;
-                    const departureText = isScheduled ? departureDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Leaving Now';
-                    const timeLeftMs = selectedItem.expiresAt.toMillis() - Date.now();
 
-                    return (
-                        <div className="absolute bottom-32 left-1/2 -translate-x-1/2 w-full max-w-sm p-4 pointer-events-auto">
-                            <div className="bg-black/70 backdrop-blur-xl rounded-2xl p-4 border border-white/10">
-                                <div className="text-white text-center">
-                                    <h3 className="font-bold capitalize">{selectedItem.type}</h3>
-                                    <p className="text-sm text-gray-400">Departure: {departureText}</p>
-                                    <p className="text-sm text-gray-400">Expires in {formatTimeLeft(timeLeftMs)}</p>
+                    {searchOpen && (
+                        <div className="w-full max-w-[380px] mx-auto flex justify-end">
+                            <button onClick={handleCancelSearch} className="text-[#38bdf8] font-bold text-[10px] bg-white/5 border border-white/10 rounded-full py-1 px-3 mt-1">
+                                Cancel Search
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Sub-header Filter Tabs */}
+                    {!searchOpen && (
+                        <div className="w-full max-w-[380px] mx-auto mt-1 bg-[#07162c]/85 backdrop-blur-xl border border-white/10 rounded-2xl p-1 flex items-center justify-around text-[10px] shadow-lg">
+                            <button 
+                                onClick={() => setActiveFilterTab('nearest')}
+                                className={`flex flex-col items-center gap-0.5 py-1 px-2 rounded-xl font-semibold flex-1 transition-all ${
+                                    activeFilterTab === 'nearest' 
+                                        ? 'bg-[#1e75ff]/20 text-[#38bdf8]' 
+                                        : 'text-white/60 hover:text-white'
+                                }`}
+                            >
+                                <div className={`w-5.5 h-5.5 rounded-full flex items-center justify-center transition-all ${
+                                    activeFilterTab === 'nearest' ? 'bg-[#1e75ff] text-white' : 'bg-white/5'
+                                }`}>
+                                    <MapPin size={10} />
                                 </div>
-                                <div className="mt-4 space-y-2">
-                                    <div className="flex gap-2">
-                                        <button
-                                            onClick={handleTrackLocation}
-                                            className="flex-1 bg-blue-500 hover:bg-blue-600 active:scale-95 text-white font-bold py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition-all duration-200 shadow-md shadow-blue-500/20"
-                                        >
-                                            <Locate size={18} />
-                                            <span>Track Spot</span>
-                                        </button>
-                                        <button
-                                            onClick={() => onMessageUser(selectedItem.finderId, `Spot pinged by ${selectedItem.finderName}`)}
-                                            className="bg-blue-500 hover:bg-blue-600 active:scale-95 text-white font-bold p-2.5 rounded-xl flex items-center justify-center transition-all duration-200 shadow-md shadow-blue-500/20"
-                                            title="Message User"
-                                        >
-                                            <MessageSquare size={20} />
-                                        </button>
-                                    </div>
+                                <span>Nearest</span>
+                            </button>
+                            <div className="w-[1px] h-5 bg-white/10" />
+                            
+                            <button 
+                                onClick={() => setActiveFilterTab('favorites')}
+                                className={`flex flex-col items-center gap-1.5 py-1 px-2 rounded-xl font-medium flex-1 transition-all ${
+                                    activeFilterTab === 'favorites' 
+                                        ? 'bg-[#1e75ff]/20 text-[#38bdf8]' 
+                                        : 'text-white/60 hover:text-white'
+                                }`}
+                            >
+                                <Star size={14} />
+                                <span>Favorites</span>
+                            </button>
+                            <div className="w-[1px] h-5 bg-white/10" />
+                            
+                            <button 
+                                onClick={() => setActiveFilterTab('history')}
+                                className={`flex flex-col items-center gap-1.5 py-1 px-2 rounded-xl font-medium flex-1 transition-all ${
+                                    activeFilterTab === 'history' 
+                                        ? 'bg-[#1e75ff]/20 text-[#38bdf8]' 
+                                        : 'text-white/60 hover:text-white'
+                                }`}
+                            >
+                                <Clock size={14} />
+                                <span>History</span>
+                            </button>
+                            <div className="w-[1px] h-5 bg-white/10" />
+                            
+                            <button 
+                                onClick={() => {
+                                    setActiveFilterTab('filters');
+                                    setShowLegend(!showLegend);
+                                }}
+                                className={`flex flex-col items-center gap-1.5 py-1 px-2 rounded-xl font-medium flex-1 transition-all ${
+                                    activeFilterTab === 'filters' 
+                                        ? 'bg-[#1e75ff]/20 text-[#38bdf8]' 
+                                        : 'text-white/60 hover:text-white'
+                                }`}
+                            >
+                                <Sliders size={14} />
+                                <span>Filters</span>
+                            </button>
+                        </div>
+                    )}
 
-                                    {/* Owner Actions */}
-                                    {user?.id === selectedItem.finderId && (
-                                        <div className="pt-1 space-y-2">
-                                            <button
-                                                onClick={() => setSpotModalOpen(true)}
-                                                className="w-full bg-blue-500 hover:bg-blue-600 active:scale-95 text-white font-bold py-2 rounded-xl transition-all duration-200 shadow-md shadow-blue-500/20"
-                                            >
-                                                Edit Ping
-                                            </button>
-                                            <button
-                                                onClick={handleDeletePing}
-                                                className="w-full font-bold py-2 rounded-xl border border-red-500/60 text-red-400 hover:bg-red-500/10 transition-all duration-200"
-                                            >
-                                                Delete Ping
-                                            </button>
-                                        </div>
-                                    )}
-
-                                    {/* Non-owner Unclaimed Action */}
-                                    {user?.id !== selectedItem.finderId && selectedItem.status !== 'claimed' && (
-                                        <button
-                                            onClick={handleClaimSpot}
-                                            className="w-full bg-orange-500 hover:bg-orange-600 active:scale-95 text-white font-bold py-2.5 rounded-xl transition-all duration-200 shadow-md shadow-orange-500/20"
-                                        >
-                                            Claim Spot
-                                        </button>
-                                    )}
-
-                                    {/* Claimed by Me Status */}
-                                    {selectedItem.status === 'claimed' && selectedItem.claimedBy === user?.id && (
-                                        <p className="text-orange-400 font-bold py-1 text-center">You claimed this spot!</p>
-                                    )}
-
-                                    {/* Claimed by Someone Else Status */}
-                                    {selectedItem.status === 'claimed' && selectedItem.claimedBy !== user?.id && user?.id !== selectedItem.finderId && (
-                                        <p className="text-gray-400 font-bold bg-gray-800/50 py-2 rounded-xl text-center">This spot is claimed.</p>
-                                    )}
-                                </div>
+                    {/* Floating Weather Overlay (Left aligned with the centered filters) */}
+                    {!searchOpen && (
+                        <div className="w-full max-w-[380px] mx-auto flex justify-start pl-1 mt-0.5">
+                            <div className="flex items-center gap-1.5 bg-[#07162c]/85 backdrop-blur-xl border border-white/10 rounded-full px-2.5 py-1 w-fit text-[10px] font-semibold text-white/95 shadow-md pointer-events-auto">
+                                <CloudSun size={13} className="text-yellow-400" />
+                                <span>28°</span>
                             </div>
                         </div>
-                    );
-                })()}
-                {!selectedItem && (
-                    <footer className="w-full flex justify-center pointer-events-auto" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
-                        <div className="relative w-full max-w-md h-28">
-                        <button
-                        onClick={() => setSpotModalOpen(true)}
-                        disabled={!user}
-                        style={{ bottom: "calc(3.5rem + env(safe-area-inset-bottom))" }}
-                        className="
-                            absolute left-1/2 -translate-x-1/2
-                            bg-blue-500 text-white rounded-full
-                            inline-flex items-center justify-center gap-3
-                            px-8 py-4 font-bold text-base
-                            shadow-lg shadow-blue-500/50
-                            whitespace-nowrap
-                            disabled:opacity-50
-                        "
-                        >
-                        <MapPin size={20} className="shrink-0" />
-                        <span className="leading-none">PING SPOT</span>
-                        </button>
+                    )}
+                </header>
 
-                        <button
-                        onClick={handleLocateMe}
-                        style={{ bottom: "calc(3.5rem + env(safe-area-inset-bottom))" }}
-                        className="
-                            absolute right-0
-                            bg-black/60 backdrop-blur-md
-                            border border-white/20
-                            text-white rounded-full
-                            w-14 h-14
-                            flex items-center justify-center
-                            shadow-xl
-                        ">
-                        <Locate size={24} />
-                        </button>
+                {/* Floating Map Legend (Left) */}
+                {!searchOpen && showLegend && (
+                    <div className="absolute left-4 top-20 bg-[#07162c]/90 border border-white/10 backdrop-blur-xl rounded-2xl p-4 shadow-2xl w-44 pointer-events-auto flex flex-col gap-3 animate-in fade-in slide-in-from-top-2 duration-300 z-25">
+                        <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-0.5">Map Legend</div>
+                        <div className="flex flex-col gap-2.5">
+                            {/* Free Parking */}
+                            <label className="flex items-center justify-between cursor-pointer group select-none">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-5 h-5 rounded-full bg-[#1e75ff]/10 flex items-center justify-center text-[#1e75ff] border border-[#1e75ff]/20">
+                                        <MapPin size={11} fill="currentColor" fillOpacity={0.2} />
+                                    </div>
+                                    <div className="text-left">
+                                        <div className="text-[10px] font-bold text-white leading-tight text-xs">Free Parking</div>
+                                        <div className="text-[8px] text-gray-400 leading-tight">Community ping</div>
+                                    </div>
+                                </div>
+                                <input 
+                                    type="checkbox" 
+                                    checked={showFree} 
+                                    onChange={() => setShowFree(!showFree)}
+                                    className="w-3.5 h-3.5 rounded border-white/20 text-[#1e75ff] focus:ring-0 bg-white/5 cursor-pointer accent-[#1e75ff]"
+                                />
+                            </label>
 
+                            {/* Paid Parking */}
+                            <label className="flex items-center justify-between cursor-pointer group select-none">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-5 h-5 rounded-full bg-[#22c55e]/10 flex items-center justify-center text-[#22c55e] border border-[#22c55e]/20">
+                                        <MapPin size={11} fill="currentColor" fillOpacity={0.2} />
+                                    </div>
+                                    <div className="text-left">
+                                        <div className="text-[10px] font-bold text-white leading-tight text-xs">Paid Parking</div>
+                                        <div className="text-[8px] text-gray-400 leading-tight">Driveways & lots</div>
+                                    </div>
+                                </div>
+                                <input 
+                                    type="checkbox" 
+                                    checked={showPaid} 
+                                    onChange={() => setShowPaid(!showPaid)}
+                                    className="w-3.5 h-3.5 rounded border-white/20 text-[#22c55e] focus:ring-0 bg-white/5 cursor-pointer accent-[#22c55e]"
+                                />
+                            </label>
+
+                            {/* Public Parking */}
+                            <label className="flex items-center justify-between cursor-pointer group select-none">
+                                <div className="flex items-center gap-2">
+                                    <div className="w-5 h-5 rounded-full bg-[#a855f7]/10 flex items-center justify-center text-[#a855f7] border border-[#a855f7]/20">
+                                        <MapPin size={11} fill="currentColor" fillOpacity={0.2} />
+                                    </div>
+                                    <div className="text-left">
+                                        <div className="text-[10px] font-bold text-white leading-tight text-xs">Public Parking</div>
+                                        <div className="text-[8px] text-gray-400 leading-tight">Garages & lots</div>
+                                    </div>
+                                </div>
+                                <input 
+                                    type="checkbox" 
+                                    checked={showPublic} 
+                                    onChange={() => setShowPublic(!showPublic)}
+                                    className="w-3.5 h-3.5 rounded border-white/20 text-[#a855f7] focus:ring-0 bg-white/5 cursor-pointer accent-[#a855f7]"
+                                />
+                            </label>
                         </div>
-                    </footer>
+                    </div>
                 )}
+
+                {/* Floating Map Controls Column (Right) */}
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col gap-2.5 pointer-events-auto z-20">
+                    <button 
+                        onClick={handleLocateMe} 
+                        className="w-10 h-10 rounded-full glass-button flex items-center justify-center shadow-lg transition-transform active:scale-90"
+                        title="Locate Me"
+                    >
+                        <Locate size={18} className="text-[#1e75ff]" />
+                    </button>
+                    
+                    <button 
+                        onClick={() => alert("Toggle 2D/3D map view")}
+                        className="w-10 h-10 rounded-full glass-button flex items-center justify-center font-extrabold text-[10px] shadow-lg transition-transform active:scale-90"
+                        title="Map Mode"
+                    >
+                        2D
+                    </button>
+                    
+                    <button 
+                        onClick={() => alert("Navigation routing enabled")}
+                        className="w-10 h-10 rounded-full glass-button flex items-center justify-center shadow-lg transition-transform active:scale-90"
+                        title="Compass Directions"
+                    >
+                        <Navigation size={18} className="rotate-45 text-[#38bdf8]" />
+                    </button>
+                </div>
+
+                {/* Bottom Card, Action Button, and Navigation Bar */}
+                <div className="w-full flex flex-col gap-2 pointer-events-auto mt-auto pb-2">
+                    
+                    {/* Dynamic Spot Details Card ("Best Match" style) */}
+                    {(() => {
+                        const getSpotToDisplay = () => {
+                            if (selectedItem) {
+                                const departureDate = selectedItem.reportedAt ? (typeof selectedItem.reportedAt.toDate === 'function' ? selectedItem.reportedAt.toDate() : new Date(selectedItem.reportedAt)) : null;
+                                const isScheduled = departureDate && departureDate.getTime() > Date.now() + 60_000;
+                                const departureText = departureDate 
+                                    ? (isScheduled ? departureDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Leaving Now')
+                                    : 'N/A';
+                                const timeLeftMs = selectedItem.expiresAt ? (typeof selectedItem.expiresAt.toMillis === 'function' ? selectedItem.expiresAt.toMillis() : new Date(selectedItem.expiresAt).getTime()) - Date.now() : 0;
+                                const distanceVal = userLocation 
+                                    ? getDistance(userLocation[1], userLocation[0], selectedItem.lat, selectedItem.lng)
+                                    : null;
+                                const distanceText = distanceVal 
+                                    ? (distanceVal * 0.621371 < 0.1 
+                                        ? `${Math.round(distanceVal * 1000 * 1.09361)} yd` 
+                                        : `${(distanceVal * 0.621371).toFixed(1)} mi`)
+                                    : "120 yd";
+                                                            const holdStatus = selectedItem.holdRequestStatus;
+                                const isRequester = selectedItem.holdRequestedBy === user?.id;
+                                
+                                let dynamicRate = selectedItem.type === 'free' ? 'Free' : `$${(selectedItem.pricePerHour || 1.50).toFixed(2)}/hr`;
+                                let dynamicSubText = selectedItem.type === 'free' 
+                                    ? `Departure: ${departureText} • Expires: ${formatTimeLeft(timeLeftMs)}`
+                                    : (selectedItem.description || 'Private driveways & lots');
+
+                                if (selectedItem.type === 'free') {
+                                    if (holdStatus === 'pending') {
+                                        dynamicRate = '$2.00 Hold';
+                                        dynamicSubText = isRequester 
+                                            ? "Hold requested. Waiting for owner..." 
+                                            : "Hold requested by someone...";
+                                    } else if (holdStatus === 'accepted') {
+                                        dynamicRate = '$2.00 Escrow';
+                                        if (holdTimeRemaining !== null) {
+                                            const mins = Math.floor(holdTimeRemaining / 60);
+                                            const secs = holdTimeRemaining % 60;
+                                            dynamicSubText = `Reserved! Arrive in ${mins}:${secs.toString().padStart(2, '0')} • Escrow active`;
+                                        } else {
+                                            dynamicSubText = "Reserved! Escrow active";
+                                        }
+                                    } else if (holdStatus === 'completed') {
+                                        dynamicRate = 'Occupied';
+                                        dynamicSubText = "Payment released! Spot occupied.";
+                                    }
+                                }
+
+                                return {
+                                    id: selectedItem.id,
+                                    title: selectedItem.title || spotAddress || "Street Parking Spot",
+                                    typeLabel: selectedItem.type === 'free' ? 'Free' : (selectedItem.type === 'paid' ? 'Paid' : 'Public'),
+                                    statusLabel: selectedItem.status,
+                                    distance: distanceText,
+                                    isMock: false,
+                                    rawSpot: selectedItem.type === 'free' ? selectedItem : null,
+                                    rate: dynamicRate,
+                                    subText: dynamicSubText
+                                };
+                            } else if (freeSpots.length > 0) {
+                                const closest = freeSpots[0];
+                                const distanceVal = userLocation 
+                                    ? getDistance(userLocation[1], userLocation[0], closest.lat, closest.lng)
+                                    : null;
+                                const distanceText = distanceVal 
+                                    ? (distanceVal * 0.621371 < 0.1 
+                                        ? `${Math.round(distanceVal * 1000 * 1.09361)} yd` 
+                                        : `${(distanceVal * 0.621371).toFixed(1)} mi`)
+                                    : "120 yd";
+                                    
+                                const holdStatus = closest.holdRequestStatus;
+                                const isRequester = closest.holdRequestedBy === user?.id;
+                                
+                                let dynamicRate = 'Free';
+                                let dynamicSubText = `${distanceText} • ${closest.status || 'available'}`;
+
+                                if (holdStatus === 'pending') {
+                                    dynamicRate = '$2.00 Hold';
+                                    dynamicSubText = isRequester 
+                                        ? `${distanceText} • Hold requested. Waiting...` 
+                                        : `${distanceText} • Hold requested by someone`;
+                                } else if (holdStatus === 'accepted') {
+                                    dynamicRate = '$2.00 Escrow';
+                                    dynamicSubText = `${distanceText} • Reserved! Escrow active`;
+                                } else if (holdStatus === 'completed') {
+                                    dynamicRate = 'Occupied';
+                                    dynamicSubText = `${distanceText} • Occupied`;
+                                }
+
+                                return {
+                                    id: closest.id,
+                                    title: closest.title || spotAddress || "Street Parking Spot",
+                                    typeLabel: 'Free',
+                                    statusLabel: closest.status,
+                                    distance: distanceText,
+                                    isMock: false,
+                                    rawSpot: closest,
+                                    rate: dynamicRate,
+                                    subText: dynamicSubText
+                                };
+                            } else {
+                                return {
+                                    id: 'mock',
+                                    title: 'Maple Street Parking',
+                                    typeLabel: 'Paid',
+                                    statusLabel: 'available',
+                                    distance: '120 yd',
+                                    isMock: true,
+                                    rawSpot: null,
+                                    rate: '$1.50/hr',
+                                    subText: '120 yd • 12 available'
+                                };
+                            }
+                        };
+
+                        const spotToDisplay = getSpotToDisplay();
+                        
+                        let badgeBgColor = 'bg-[#1e75ff]';
+                        if (spotToDisplay.typeLabel === 'Paid') badgeBgColor = 'bg-[#22c55e]';
+                        if (spotToDisplay.typeLabel === 'Public') badgeBgColor = 'bg-[#a855f7]';
+
+                        return (
+                            <div className="w-full max-w-[380px] mx-auto bg-[#07162c]/95 backdrop-blur-xl border border-white/10 rounded-3xl p-3.5 shadow-2xl transition-all">
+                                <div className="flex items-center gap-3">
+                                    {/* Badge */}
+                                    <div className={`w-14 h-14 rounded-2xl ${badgeBgColor} flex flex-col items-center justify-center text-white shadow-lg shrink-0`}>
+                                        <span className="font-extrabold text-lg">P</span>
+                                        <span className="text-[9px] font-medium">{spotToDisplay.distance}</span>
+                                    </div>
+                                    {/* Details */}
+                                    <div className="flex-1 min-w-0">
+                                        <span className="text-[9px] font-bold text-[#38bdf8] uppercase tracking-wider">| {spotToDisplay.typeLabel} Parking</span>
+                                        <h3 className="text-sm font-bold text-white truncate mt-0.5">{spotToDisplay.title}</h3>
+                                        <p className="text-[11px] text-white/50 mt-0.5 truncate">
+                                            {spotToDisplay.subText}
+                                        </p>
+                                    </div>
+                                    {/* Rate & Arrow */}
+                                    <div className="flex items-center gap-2 shrink-0">
+                                        <span className="text-[10px] font-bold text-green-400 bg-green-500/10 border border-green-500/20 px-2 py-0.5 rounded-lg">
+                                            {spotToDisplay.rate}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {/* Spot Interactive Controls */}
+                                {!spotToDisplay.isMock && (
+                                    <div className="flex gap-2 mt-2.5 pt-2.5 border-t border-white/5">
+                                        <button 
+                                            onClick={handleTrackLocation} 
+                                            className={`flex-1 font-bold py-1.5 rounded-xl flex items-center justify-center gap-1 transition-all text-[11px] shadow-md ${
+                                                trackedItemId === spotToDisplay.id
+                                                    ? 'bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-400'
+                                                    : 'bg-[#1e75ff] hover:bg-blue-600 text-white'
+                                            }`}
+                                        >
+                                            <Locate size={12} />
+                                            <span>{trackedItemId === spotToDisplay.id ? 'Untrack' : 'Track'}</span>
+                                        </button>
+
+                                        {spotToDisplay.rawSpot && (
+                                            <>
+                                                {user?.id !== spotToDisplay.rawSpot.finderId && (
+                                                    <button 
+                                                        onClick={() => onMessageUser(spotToDisplay.rawSpot!.finderId, `Spot pinged by ${spotToDisplay.rawSpot!.finderName}`)} 
+                                                        className="bg-white/10 hover:bg-white/20 text-white p-1.5 rounded-xl flex items-center justify-center transition-all shadow-md shrink-0"
+                                                        title="Message User"
+                                                    >
+                                                        <MessageSquare size={14} />
+                                                    </button>
+                                                )}
+
+                                                {user?.id !== spotToDisplay.rawSpot.finderId && spotToDisplay.rawSpot.status !== 'claimed' && (
+                                                    <button 
+                                                        onClick={handleClaimSpotClick} 
+                                                        className="flex-1 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white font-bold py-1.5 rounded-xl transition-all text-[11px] shadow-md shadow-amber-600/20"
+                                                    >
+                                                        Claim Spot
+                                                    </button>
+                                                )}
+
+                                                {user?.id === spotToDisplay.rawSpot.finderId && (
+                                                    <div className="flex flex-1 gap-1.5">
+                                                        <button 
+                                                            onClick={() => {
+                                                                setSelectedItem(spotToDisplay.rawSpot);
+                                                                setSpotModalOpen(true);
+                                                            }} 
+                                                            className="flex-1 bg-blue-600/50 hover:bg-blue-600 text-white font-bold py-1.5 rounded-xl transition-all text-[11px]"
+                                                        >
+                                                            Edit
+                                                        </button>
+                                                        <button 
+                                                            onClick={handleDeletePing} 
+                                                            className="flex-1 border border-red-500/50 hover:bg-red-500/10 text-red-400 font-bold py-1.5 rounded-xl transition-all text-[11px]"
+                                                        >
+                                                            Delete
+                                                        </button>
+                                                    </div>
+                                                )}
+
+                                                {spotToDisplay.rawSpot.status === 'claimed' && spotToDisplay.rawSpot.claimedBy === user?.id && spotToDisplay.rawSpot.holdRequestStatus === 'accepted' && (
+                                                    <button 
+                                                        onClick={handleArrivalRelease} 
+                                                        className="flex-1 bg-green-600 hover:bg-green-500 active:scale-95 text-white font-bold py-1.5 rounded-xl transition-all text-[11px] shadow-md shadow-green-600/20 text-white"
+                                                    >
+                                                        I've Arrived (Release $2)
+                                                    </button>
+                                                )}
+
+                                                {spotToDisplay.rawSpot.status === 'claimed' && spotToDisplay.rawSpot.claimedBy === user?.id && spotToDisplay.rawSpot.holdRequestStatus !== 'accepted' && (
+                                                    <span className="text-[10px] font-bold text-amber-400 self-center px-2 py-0.5 bg-amber-500/10 rounded-lg">Claimed by You!</span>
+                                                )}
+
+                                                {spotToDisplay.rawSpot.status === 'claimed' && spotToDisplay.rawSpot.claimedBy !== user?.id && user?.id !== spotToDisplay.rawSpot.finderId && (
+                                                    <span className="text-[10px] font-bold text-gray-500 self-center px-2 py-0.5 bg-gray-500/10 rounded-lg">Claimed</span>
+                                                )}
+                                            </>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })()}
+
+                    {/* Find Parking Button */}
+                    <button 
+                        onClick={() => {
+                            setSelectedItem(null);
+                            setSpotModalOpen(true);
+                        }} 
+                        disabled={!user}
+                        className="w-full max-w-[380px] mx-auto bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 active:scale-95 text-white font-bold py-2.5 px-5 rounded-full flex items-center justify-center gap-2.5 transition-all duration-200 shadow-lg shadow-blue-500/30 border border-blue-400/20 disabled:opacity-50"
+                    >
+                        <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center shrink-0">
+                            <MapPin size={13} />
+                        </div>
+                        <div className="text-left leading-tight">
+                            <div className="font-extrabold text-xs uppercase tracking-wide">PING PARKING</div>
+                            <div className="text-[9px] text-white/80 font-normal">Ping a nearby parking spot</div>
+                        </div>
+                    </button>
+
+                    {/* Persistent Navigation Bar */}
+                    <div className="w-full max-w-[380px] mx-auto bg-[#07162c]/95 backdrop-blur-xl border border-white/10 rounded-3xl py-2 px-5 flex items-center justify-between shadow-2xl">
+                        <button 
+                            onClick={() => setView(AppView.MAP)} 
+                            className="flex flex-col items-center gap-0.5 text-[#1e75ff] flex-1"
+                        >
+                            <Map size={18} />
+                            <span className="text-[9px] font-bold">Map</span>
+                        </button>
+                        
+                        <button 
+                            onClick={() => setView(AppView.PARKING_SPACE)} 
+                            className="flex flex-col items-center gap-0.5 text-white/50 hover:text-white flex-1 transition-colors"
+                        >
+                            <Calendar size={18} />
+                            <span className="text-[9px] font-medium">Bookings</span>
+                        </button>
+                        
+                        <button 
+                            onClick={() => alert("Wallet features coming soon!")} 
+                            className="flex flex-col items-center gap-0.5 text-white/50 hover:text-white flex-1 transition-colors"
+                        >
+                            <Wallet size={18} />
+                            <span className="text-[9px] font-medium">Wallet</span>
+                        </button>
+                        
+                        <button 
+                            onClick={() => setView(AppView.PROFILE)} 
+                            className="flex flex-col items-center gap-0.5 text-white/50 hover:text-white flex-1 transition-colors"
+                        >
+                            <User size={18} />
+                            <span className="text-[9px] font-medium">Profile</span>
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
     );

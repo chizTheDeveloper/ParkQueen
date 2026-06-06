@@ -31,40 +31,47 @@ export const ActivitiesView = ({ user, onBack }: { user: any, onBack: () => void
   }, [user]);
 
   return (
-    <div className="bg-gray-100 dark:bg-dark-900 font-sans text-gray-800 dark:text-white min-h-full">
-      <div className="bg-white dark:bg-dark-800 shadow-sm sticky top-0 z-10">
-        <div className="p-4 flex items-center gap-4">
-          <button onClick={onBack} className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-dark-700">
-            <ChevronLeft size={24} />
-          </button>
-          <h1 className="text-xl font-bold">Parking Space</h1>
+    <div className="min-h-full bg-dark-900 text-white pt-4 pb-20 px-4 max-w-md mx-auto">
+      {/* Header */}
+      <div className="flex items-center gap-4 mb-6">
+        <button onClick={onBack} className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-white/10 text-white hover:bg-white/10 transition-all shrink-0">
+          <ChevronLeft size={20} />
+        </button>
+        <div>
+          <h1 className="text-xl font-bold text-white tracking-wide">Parking Space</h1>
+          <p className="text-xs text-gray-400">Manage your active and past parking spot pings</p>
         </div>
       </div>
-      <div className="p-6">
-        <h2 className="text-lg font-bold mb-4 text-gray-500 dark:text-gray-400">Previous Activities</h2>
+
+      <div>
+        <h2 className="font-bold text-gray-400 text-xs uppercase tracking-wider mb-3 px-1">Previous Activities</h2>
         {loading ? (
             <div className="flex justify-center p-10"><div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full"></div></div>
         ) : activities.length === 0 ? (
-            <div className="text-center p-10 text-gray-500">
-                <MapPin className="mx-auto mb-4 opacity-50" size={48} />
-                <p>No parking activities found.</p>
+            <div className="text-center p-10 text-gray-500 bg-[#07162c]/40 border border-white/5 backdrop-blur-md rounded-2xl">
+                <MapPin className="mx-auto mb-3.5 text-gray-500 opacity-80" size={32} />
+                <p className="text-sm">No parking activities found.</p>
             </div>
         ) : (
-            <div className="space-y-4">
+            <div className="space-y-3">
                 {activities.map((activity) => (
-                    <div key={activity.id} className="bg-white dark:bg-dark-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-dark-700 flex items-center gap-4">
-                        <div className="bg-blue-100 dark:bg-blue-900/30 p-3 rounded-full text-blue-500 shrink-0">
-                            <MapPin size={24} />
+                    <div key={activity.id} className="bg-[#07162c]/60 border border-white/5 backdrop-blur-md rounded-2xl p-4 flex items-center gap-4 text-left transition-all hover:bg-[#0b2240]/60 relative">
+                        <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0">
+                            <MapPin size={20} />
                         </div>
-                        <div className="flex-1">
-                            <h3 className="font-bold">{activity.type === 'free' ? 'Street Parking' : 'Paid Spot'}</h3>
-                            <p className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-1">
-                                <Clock size={14} /> 
-                                {activity.reportedAt ? activity.reportedAt.toDate().toLocaleString() : 'Unknown time'}
+                        <div className="flex-1 min-w-0">
+                            <h3 className="font-bold text-white text-base truncate">{activity.type === 'free' ? 'Street Parking' : 'Paid Spot'}</h3>
+                            <p className="text-xs text-gray-400 flex items-center gap-1.5 mt-1">
+                                <Clock size={13} className="text-gray-500 shrink-0" /> 
+                                <span>{activity.reportedAt ? activity.reportedAt.toDate().toLocaleString() : 'Unknown time'}</span>
                             </p>
                         </div>
-                        <div className="text-right">
-                            <span className={`text-xs font-bold px-2 py-1 rounded-full ${activity.status === 'claimed' ? 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400' : 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400'}`}>
+                        <div className="text-right shrink-0">
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border ${
+                                activity.status === 'claimed' 
+                                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' 
+                                    : 'bg-green-500/10 text-green-400 border-green-500/20'
+                            }`}>
                                 {activity.status || 'available'}
                             </span>
                         </div>

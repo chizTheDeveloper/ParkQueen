@@ -9,16 +9,16 @@ interface SetupProfileViewProps {
 
 const InputField = ({ icon, label, value, onChange, placeholder, type = 'text', onClick = null, autoComplete = 'off' }) => {
     const commonProps = {
-        className: "w-full bg-transparent text-gray-800 font-semibold outline-none placeholder-gray-400",
+        className: "w-full bg-transparent text-white font-semibold outline-none placeholder-gray-500 text-sm",
     };
     
     return (
-        <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm w-full" onClick={onClick}>
-          <label className="text-xs text-gray-400 font-medium">{label}</label>
+        <div className="bg-[#07162c]/60 p-3 rounded-2xl border border-white/10 shadow-inner w-full focus-within:border-[#1e75ff] transition-all" onClick={onClick}>
+          <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider px-1">{label}</label>
           <div className="flex items-center mt-1">
-            <div className="text-gray-400 mr-3">{icon}</div>
+            <div className="text-gray-400 mr-3 shrink-0">{icon}</div>
             {onClick ? (
-                <div {...commonProps}>{value || <span className="text-gray-400">{placeholder}</span>}</div>
+                <div {...commonProps}>{value || <span className="text-gray-550">{placeholder}</span>}</div>
             ) : (
                 <input
                   type={type}
@@ -42,23 +42,23 @@ const SelectField = ({ icon, label, value, onChange, options, isOpen, setIsOpen 
 
     return (
         <div className="relative w-full">
-            <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm w-full cursor-pointer" onClick={() => setIsOpen(!isOpen)}>
-                <label className="text-xs text-gray-400 font-medium">{label}</label>
+            <div className="bg-[#07162c]/60 p-3 rounded-2xl border border-white/10 shadow-inner w-full cursor-pointer hover:border-[#1e75ff] transition-all" onClick={() => setIsOpen(!isOpen)}>
+                <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider px-1">{label}</label>
                 <div className="flex items-center mt-1">
-                    <div className="text-gray-400 mr-3">{icon}</div>
-                    <span className="w-full bg-transparent text-gray-800 font-semibold outline-none">
+                    <div className="text-gray-400 mr-3 shrink-0">{icon}</div>
+                    <span className="w-full bg-transparent text-white font-semibold outline-none text-sm">
                         {value}
                     </span>
                     <ChevronDown className={`text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
                 </div>
             </div>
             {isOpen && (
-                <div className="absolute top-full mt-1 w-full bg-white rounded-xl border border-gray-200 shadow-lg z-10 overflow-hidden">
+                <div className="absolute top-full mt-2 w-full bg-[#07162c] rounded-2xl border border-white/10 shadow-2xl z-20 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
                     {options.map(opt => (
                         <div
                             key={opt}
                             onClick={() => handleSelect(opt)}
-                            className={`p-3 cursor-pointer ${value === opt ? 'bg-blue-600 text-white' : 'text-gray-800 hover:bg-gray-100'}`}
+                            className={`p-3.5 cursor-pointer text-sm font-medium border-b border-white/5 last:border-0 hover:bg-white/5 transition-colors ${value === opt ? 'bg-[#1e75ff] text-white font-semibold hover:bg-blue-600' : 'text-gray-200'}`}
                         >
                             {opt}
                         </div>
@@ -118,19 +118,19 @@ export const SetupProfileView: React.FC<SetupProfileViewProps> = ({ phone, onSav
   };
 
   return (
-    <div className="h-full overflow-y-auto bg-sky-50 flex flex-col items-center p-4 pb-24 font-sans">
+    <div className="h-full overflow-y-auto bg-dark-900 flex flex-col items-center p-4 pb-24 font-sans text-white">
       <div className="w-full max-w-sm my-auto">
-        <h1 className="text-2xl font-bold text-center text-gray-800 mt-8 mb-6">Setup Profile</h1>
+        <h1 className="text-2xl font-bold text-center text-white mt-8 mb-6">Setup Profile</h1>
 
         <div className="relative w-28 h-28 mx-auto mb-8">
-            <div className="w-full h-full rounded-full bg-white border-2 border-gray-200 flex items-center justify-center shadow overflow-hidden">
+            <div className="w-full h-full rounded-full bg-white/5 border-2 border-white/10 flex items-center justify-center shadow overflow-hidden">
                 {avatarPreview ? (
                   <img src={avatarPreview} alt="Avatar Preview" className="w-full h-full object-cover" />
                 ) : (
                   <i className="fa-solid fa-user text-4xl text-gray-400"></i>
                 )}
             </div>
-            <button onClick={triggerUpload} className="absolute bottom-1 right-1 bg-blue-500 text-white rounded-full p-2.5 shadow-md">
+            <button onClick={triggerUpload} className="absolute bottom-1 right-1 bg-[#1e75ff] hover:bg-blue-600 text-white rounded-full p-2.5 shadow-md active:scale-95 transition-all">
                 <Camera size={18} />
             </button>
             <input 
@@ -199,7 +199,7 @@ export const SetupProfileView: React.FC<SetupProfileViewProps> = ({ phone, onSav
         </div>
 
         <div className="mt-8 mb-4">
-            <button onClick={handleSave} className="w-full bg-cyan-500 text-white font-bold py-4 rounded-xl shadow-lg active:scale-95 transition-transform">
+            <button onClick={handleSave} className="w-full bg-[#1e75ff] hover:bg-blue-600 active:scale-95 text-white font-bold py-4 rounded-2xl shadow-md shadow-blue-500/20 transition-all">
                 Create
             </button>
         </div>

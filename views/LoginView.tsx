@@ -12,16 +12,16 @@ interface LoginViewProps {
 
 const InputField = ({ icon, label, value, onChange, placeholder, type = 'text', autoComplete = 'off' }) => {
     return (
-        <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm w-full">
+        <div className="bg-white/5 p-3.5 rounded-2xl border border-white/10 shadow-inner w-full focus-within:border-[#1e75ff] transition-all">
           <div className="flex items-center">
-            <div className="text-gray-400 mr-3">{icon}</div>
+            <div className="text-gray-400 mr-3 shrink-0">{icon}</div>
             <input
               type={type}
               value={value}
               onChange={onChange}
               placeholder={placeholder}
               autoComplete={autoComplete}
-              className="w-full bg-transparent text-gray-800 font-semibold outline-none placeholder-gray-400"
+              className="w-full bg-transparent text-white font-semibold outline-none placeholder-gray-500 text-sm"
             />
           </div>
         </div>
@@ -62,12 +62,12 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin, onNavigateToCreat
     return (
       <div className="h-full w-full flex flex-col items-center justify-center bg-cover bg-no-repeat bg-center p-4"
            style={{ backgroundImage: `url(${SplashScreen})` }}>
-        <div className="w-full max-w-sm bg-white/70 backdrop-blur-md rounded-2xl p-8 shadow-lg">
+        <div className="w-full max-w-sm bg-[#07162c]/65 border border-white/8 backdrop-blur-md rounded-3xl p-8 shadow-2xl">
           <div className="flex justify-center mb-6">
               <img src={ParqueenLogo} alt="Logo" className="h-16" />
           </div>
-          <h1 className="text-2xl font-bold text-center text-gray-800">Reset Password</h1>
-          <p className="text-center text-gray-600 mb-6">Enter your email to receive a password reset link.</p>
+          <h1 className="text-2xl font-bold text-center text-white">Reset Password</h1>
+          <p className="text-center text-gray-400 mb-6 text-sm">Enter your email to receive a password reset link.</p>
           
           <div className="space-y-4">
             <InputField
@@ -81,14 +81,14 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin, onNavigateToCreat
             />
           </div>
 
-          {resetError && <p className="text-red-500 text-sm mt-3 text-center">{resetError}</p>}
-          {resetMessage && <p className="text-green-600 text-sm mt-3 text-center">{resetMessage}</p>}
+          {resetError && <p className="text-red-400 text-sm mt-3 text-center">{resetError}</p>}
+          {resetMessage && <p className="text-green-400 text-sm mt-3 text-center">{resetMessage}</p>}
 
           <div className="mt-6">
             <button 
               onClick={handleResetPassword} 
               disabled={isResetting}
-              className={`w-full bg-blue-500 text-white font-bold py-3 rounded-lg shadow-lg hover:bg-blue-600 transition-transform active:scale-95 ${isResetting ? 'opacity-70 cursor-not-allowed' : ''}`}>
+              className={`w-full bg-[#1e75ff] hover:bg-blue-600 active:scale-95 text-white font-bold py-3.5 rounded-2xl transition-all shadow-md shadow-blue-500/20 ${isResetting ? 'opacity-70 cursor-not-allowed' : ''}`}>
               {isResetting ? "Sending..." : "Send Reset Link"}
             </button>
           </div>
@@ -100,7 +100,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin, onNavigateToCreat
                   setResetMessage('');
                   setResetError('');
                 }} 
-                className="font-bold text-blue-600 hover:underline text-sm">
+                className="font-bold text-[#38bdf8] hover:underline text-sm">
                   Back to Login
               </button>
           </div>
@@ -112,12 +112,12 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin, onNavigateToCreat
   return (
     <div className="h-full w-full flex flex-col items-center justify-center bg-cover bg-no-repeat bg-center p-4"
          style={{ backgroundImage: `url(${SplashScreen})` }}>
-      <div className="w-full max-w-sm bg-white/70 backdrop-blur-md rounded-2xl p-8 shadow-lg">
+      <div className="w-full max-w-sm bg-[#07162c]/65 border border-white/8 backdrop-blur-md rounded-3xl p-8 shadow-2xl">
         <div className="flex justify-center mb-6">
             <img src={ParqueenLogo} alt="Logo" className="h-16" />
         </div>
-        <h1 className="text-2xl font-bold text-center text-gray-800">Welcome Back!</h1>
-        <p className="text-center text-gray-600 mb-8">Please log in to your account.</p>
+        <h1 className="text-2xl font-bold text-center text-white">Welcome Back!</h1>
+        <p className="text-center text-gray-400 mb-8 text-sm">Please log in to your account.</p>
         
         <div className="space-y-4">
           <InputField
@@ -146,23 +146,23 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin, onNavigateToCreat
                 e.preventDefault();
                 setIsForgotPassword(true);
               }} 
-              className="text-sm font-semibold text-blue-600 hover:underline">
+              className="text-sm font-semibold text-[#38bdf8] hover:underline">
               Forgot password?
             </button>
         </div>
 
         <div className="mt-6">
-          <button onClick={handleLogin} className="w-full bg-blue-500 text-white font-bold py-3 rounded-lg shadow-lg hover:bg-blue-600 transition-transform active:scale-95">
+          <button onClick={handleLogin} className="w-full bg-[#1e75ff] hover:bg-blue-600 active:scale-95 text-white font-bold py-3.5 rounded-2xl transition-all shadow-md shadow-blue-500/20">
             Log In
           </button>
         </div>
 
         <div className="text-center mt-6">
-            <p className="text-sm text-gray-600">
-                Don't have an account?{' '}
-                <button onClick={onNavigateToCreateAccount} className="font-bold text-blue-600 hover:underline">
-                    Sign Up
-                </button>
+            <p className="text-sm text-gray-400">
+              Don't have an account?{' '}
+              <button onClick={onNavigateToCreateAccount} className="font-bold text-[#38bdf8] hover:underline">
+                Sign Up
+              </button>
             </p>
         </div>
       </div>
