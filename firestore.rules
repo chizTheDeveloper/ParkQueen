@@ -21,6 +21,11 @@ service cloud.firestore {
       allow update: if signedIn();
     }
 
+    match /listings/{listingId} {
+      allow read: if signedIn() || isAdmin();
+      allow write: if signedIn();
+    }
+
     match /stats/{docId} {
       allow read: if isAdmin();
       allow write: if false;
