@@ -22,7 +22,7 @@ service cloud.firestore {
     }
 
     match /listings/{listingId} {
-      allow read: if signedIn() || isAdmin();
+      allow read: if true;
       allow write: if signedIn();
     }
 

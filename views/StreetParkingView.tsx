@@ -6,6 +6,7 @@ import { collection, addDoc, onSnapshot, query, orderBy, Timestamp, doc, deleteD
 import mapboxgl from 'mapbox-gl';
 import * as geofire from 'geofire-common';
 import parqueenLogo from '../assets/Parqueen_Logo.png';
+import { useLocalParkingData } from '../hooks/useLocalParkingData';
 
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 const NYC_CENTER: [number, number] = [-73.9712, 40.7831];
@@ -198,7 +199,14 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const allMarkersRef = useRef<Record<string, mapboxgl.Marker>>({});
     const [selectedItem, setSelectedItem] = useState<any | null>(null);
     const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
+    const [searchCenter, setSearchCenter] = useState<[number, number]>(NYC_CENTER);
     const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
+    const [searchRadius, setSearchRadius] = useState<number>(2000);
+    
+    const userRef = useRef(user);
+    useEffect(() => {
+        userRef.current = user;
+    }, [user]);
     
     // Filtering and Category states
     const [freeSpots, setFreeSpots] = useState<MapItem[]>([]);
@@ -206,8 +214,13 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const [publicGarages, setPublicGarages] = useState<MapItem[]>([]);
     
     const [showFree, setShowFree] = useState(true);
-    const [showPaid, setShowPaid] = useState(true);
-    const [showPublic, setShowPublic] = useState(true);
+    const [showPaid, setShowPaid] = useState(false);
+    const [showPublic, setShowPublic] = useState(false);
+    
+    const { parkingData, loading: parkingLoading } = useLocalParkingData(
+        (showPaid || showPublic) ? { lat: searchCenter[1], lng: searchCenter[0] } : null,
+        searchRadius
+    );
     const [showLegend, setShowLegend] = useState(true);
     const [trackedItemId, setTrackedItemId] = useState<string | null>(null);
     const [isHoldModalOpen, setIsHoldModalOpen] = useState(false);
@@ -225,41 +238,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const abortRef = useRef<AbortController | null>(null);
     const activeRouteDestinationRef = useRef<[number, number] | null>(null);
 
-    const [googleMapsLoaded, setGoogleMapsLoaded] = useState(false);
 
-    // Dynamic Google Maps Script Loader
-    useEffect(() => {
-        const googleObj = (window as any).google;
-        if (googleObj && googleObj.maps && googleObj.maps.places) {
-            setGoogleMapsLoaded(true);
-            return;
-        }
-
-        const existingScript = document.getElementById('google-maps-script');
-        if (existingScript) {
-            const checkLoaded = setInterval(() => {
-                const gObj = (window as any).google;
-                if (gObj && gObj.maps && gObj.maps.places) {
-                    setGoogleMapsLoaded(true);
-                    clearInterval(checkLoaded);
-                }
-            }, 100);
-            return;
-        }
-
-        const script = document.createElement('script');
-        script.id = 'google-maps-script';
-        script.src = `https://maps.googleapis.com/maps/api/js?key=AIzaSyCKSqWVd6JqpcrNUG6hei8Ug1njaIkAI7Y&libraries=places`;
-        script.async = true;
-        script.defer = true;
-        script.onload = () => {
-            setGoogleMapsLoaded(true);
-        };
-        script.onerror = (e) => {
-            console.error("Failed to load Google Maps script", e);
-        };
-        document.head.appendChild(script);
-    }, []);
 
     const resizeMap = () => mapRef.current?.resize();
 
@@ -572,6 +551,11 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             resizeMap();
         });
 
+        map.on('moveend', () => {
+            const center = map.getCenter();
+            setSearchCenter([center.lng, center.lat]);
+        });
+
         return () => {
             map.remove();
             mapRef.current = null;
@@ -597,11 +581,13 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     drawRoute(newLocation, activeRouteDestinationRef.current);
                 }
 
-                // Update user's lastGeohash
+                // Update user's lastGeohash only if 5-char prefix changes to save writes and avoid lag
                 try {
                     const newGeohash = geofire.geohashForLocation([latitude, longitude]);
-                    if (user && db) {
-                        updateDoc(doc(db, 'users', user.id), { lastGeohash: newGeohash }).catch(e => console.warn('Failed to update lastGeohash', e));
+                    const newPrefix = newGeohash.substring(0, 5);
+                    const currentPrefix = userRef.current?.lastGeohash?.substring(0, 5);
+                    if (userRef.current && db && newPrefix !== currentPrefix) {
+                        updateDoc(doc(db, 'users', userRef.current.id), { lastGeohash: newGeohash }).catch(e => console.warn('Failed to update lastGeohash', e));
                     }
                 } catch (err) {
                     console.error("Geohash generation error:", err);
@@ -686,7 +672,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 lng: s.lng,
                 type: 'free' as const,
                 status: s.status || 'available',
-                title: s.address || 'Street Spot',
+                title: s.address || '',
                 reportedAt: s.reportedAt,
                 expiresAt: s.expiresAt,
                 finderId: s.finderId,
@@ -730,8 +716,9 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         };
     }, [user?.id]);
 
-    // Fetch paid listings from Firestore and dynamically generate mocks around userLocation if empty
+    // Fetch paid listings from Firestore (only if showPaid is enabled)
     useEffect(() => {
+        if (!showPaid) return;
         if (!db || !user) return;
         const q = query(collection(db, "listings"));
         const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -750,231 +737,45 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 };
             });
 
-            // If empty, fallback to mock listings centered dynamically around userLocation (or NYC_CENTER)
-            if (list.length === 0) {
-                const centerLat = userLocation ? userLocation[1] : NYC_CENTER[1];
-                const centerLng = userLocation ? userLocation[0] : NYC_CENTER[0];
-                list = [
-                    {
-                        id: 'mock_listing_1',
-                        lat: centerLat + 0.0035,
-                        lng: centerLng - 0.0045,
-                        type: 'paid' as const,
-                        status: 'available' as const,
-                        title: 'Private Driveway - UWS',
-                        pricePerHour: 15.00,
-                        description: 'Secure driveway behind locked gate. 24/7 access.',
-                        rawSpot: null
-                    },
-                    {
-                        id: 'mock_listing_2',
-                        lat: centerLat - 0.0055,
-                        lng: centerLng + 0.0065,
-                        type: 'paid' as const,
-                        status: 'available' as const,
-                        title: 'SoHo Garage Spot',
-                        pricePerHour: 25.00,
-                        description: 'Underground heated garage. Very tight turn.',
-                        rawSpot: null
-                    },
-                    {
-                        id: 'mock_listing_3',
-                        lat: centerLat + 0.0065,
-                        lng: centerLng - 0.0015,
-                        type: 'paid' as const,
-                        status: 'available' as const,
-                        title: 'Brooklyn Brownstone Spot',
-                        pricePerHour: 10.00,
-                        description: 'Easy street access, no alternate side parking worries.',
-                        rawSpot: null
-                    }
-                ];
-            }
             setPaidListings(list);
         }, (err) => {
             console.warn("Listings snapshot listener error:", err);
         });
         return () => unsubscribe();
-    }, [db, user, userLocation]);
+    }, [db, user, searchCenter, showPaid]);
 
-    // Fetch public garages POIs dynamically from Google Places (or Mapbox/mocks fallback) centered around userLocation
+    // Fetch public and paid garages dynamically from Google Places (New API)
     useEffect(() => {
-        const centerLat = userLocation ? userLocation[1] : NYC_CENTER[1];
-        const centerLng = userLocation ? userLocation[0] : NYC_CENTER[0];
+        if (!parkingData) return;
+        const newPublicItems: MapItem[] = parkingData.map(p => ({
+            id: p.id,
+            lat: p.lat,
+            lng: p.lng,
+            type: p.isPaid ? 'paid' : 'public',
+            status: 'available',
+            title: p.title,
+            pricePerHour: p.pricePerHour,
+            description: p.address,
+            rawSpot: null
+        }));
         
-        const generateFallbackPublicGarages = () => {
-            const items: MapItem[] = [
-                {
-                    id: 'mock_public_1',
-                    lat: centerLat + 0.0045,
-                    lng: centerLng + 0.0025,
-                    type: 'public' as const,
-                    status: 'available' as const,
-                    title: 'Central Parking System',
-                    pricePerHour: 18.00,
-                    description: 'Public parking garage. Open 24/7.',
-                    rawSpot: null
-                },
-                {
-                    id: 'mock_public_2',
-                    lat: centerLat - 0.0035,
-                    lng: centerLng - 0.0055,
-                    type: 'public' as const,
-                    status: 'available' as const,
-                    title: 'Icon Parking Garage',
-                    pricePerHour: 22.00,
-                    description: 'Secure public parking lot and garage.',
-                    rawSpot: null
-                },
-                {
-                    id: 'mock_public_3',
-                    lat: centerLat + 0.0018,
-                    lng: centerLng + 0.0052,
-                    type: 'public' as const,
-                    status: 'available' as const,
-                    title: 'Quik Park Lot',
-                    pricePerHour: 14.50,
-                    description: 'Public parking garage with valet.',
-                    rawSpot: null
-                }
-            ];
-            setPublicGarages(items);
-        };
-
-        const fetchPublicParkingMapbox = async () => {
-            if (!MAPBOX_TOKEN) {
-                generateFallbackPublicGarages();
-                return;
-            }
-            try {
-                const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/parking.json?proximity=${centerLng},${centerLat}&types=poi&limit=15&access_token=${MAPBOX_TOKEN}`;
-                const res = await fetch(url);
-                const data = await res.json();
-                if (data.features && Array.isArray(data.features) && data.features.length > 0) {
-                    const items: MapItem[] = data.features.map((f: any, idx: number) => {
-                        const [lng, lat] = f.geometry.coordinates;
-                        const mockPrices = [12.00, 15.00, 18.00, 22.00, 25.00, 30.00];
-                        const price = mockPrices[idx % mockPrices.length];
-                        return {
-                            id: f.id,
-                            lat,
-                            lng,
-                            type: 'public' as const,
-                            status: 'available' as const,
-                            title: f.text || 'Public Parking',
-                            pricePerHour: price,
-                            description: f.place_name || 'Public parking lot or garage.',
-                            rawSpot: null
-                        };
-                    });
-                    setPublicGarages(items);
-                } else {
-                    generateFallbackPublicGarages();
-                }
-            } catch (e) {
-                console.warn("Failed to fetch public parking via Mapbox", e);
-                generateFallbackPublicGarages();
-            }
-        };
-
-        const fetchPublicParkingOSM = async () => {
-            try {
-                const queryStr = `[out:json][timeout:15];(node["amenity"="parking"](around:2000,${centerLat},${centerLng});way["amenity"="parking"](around:2000,${centerLat},${centerLng}););out center;`;
-                const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(queryStr)}`;
-                const res = await fetch(url);
-                const data = await res.json();
-                
-                if (data.elements && data.elements.length > 0) {
-                    const items: MapItem[] = data.elements.map((el: any, idx: number) => {
-                        const lat = el.lat || (el.center && el.center.lat) || centerLat;
-                        const lng = el.lon || (el.center && el.center.lon) || centerLng;
-                        const tags = el.tags || {};
-                        const name = tags.name || tags.operator || `Public Parking Lot`;
-                        
-                        // Estimate pricing dynamically based on standard rates
-                        const mockPrices = [12.00, 15.00, 18.00, 22.00, 25.00];
-                        const price = mockPrices[idx % mockPrices.length];
-                        
-                        return {
-                            id: `osm_public_${el.id}`,
-                            lat,
-                            lng,
-                            type: 'public' as const,
-                            status: 'available' as const,
-                            title: name,
-                            pricePerHour: price,
-                            description: tags.website || tags.description || 'Public parking facility.',
-                            rawSpot: null
-                        };
-                    });
-                    setPublicGarages(items);
-                } else {
-                    fetchPublicParkingMapbox();
-                }
-            } catch (e) {
-                console.warn("Failed to fetch public parking via OSM Overpass, falling back to Mapbox:", e);
-                fetchPublicParkingMapbox();
-            }
-        };
-
-        const googleObj = (window as any).google;
-        if (googleMapsLoaded && googleObj && googleObj.maps && googleObj.maps.places) {
-            try {
-                const dummyElement = document.createElement('div');
-                const service = new googleObj.maps.places.PlacesService(dummyElement);
-                
-                const request = {
-                    location: new googleObj.maps.LatLng(centerLat, centerLng),
-                    radius: 3218.69, // 2 miles in meters
-                    type: 'parking'
-                };
-                
-                service.nearbySearch(request, (results: any[], status: string) => {
-                    if (status === googleObj.maps.places.PlacesServiceStatus.OK && results) {
-                        const items: MapItem[] = results.map((place, idx) => {
-                            const lat = place.geometry?.location?.lat() || (centerLat + (idx * 0.001));
-                            const lng = place.geometry?.location?.lng() || (centerLng + (idx * 0.001));
-                            
-                            // Estimate pricing based on rating
-                            let basePrice = 12.00;
-                            if (place.rating) {
-                                basePrice += place.rating * 2.5;
-                            }
-                            const finalPrice = Math.round(basePrice * 2) / 2;
-                            
-                            return {
-                                id: place.place_id || `google_public_${idx}`,
-                                lat,
-                                lng,
-                                type: 'public' as const,
-                                status: 'available' as const,
-                                title: place.name || 'Public Parking',
-                                pricePerHour: finalPrice,
-                                description: place.vicinity || 'Public parking facility.',
-                                rawSpot: null
-                            };
-                        });
-                        setPublicGarages(items);
-                    } else {
-                        console.warn("Google Places nearby search failed or returned no results, status:", status);
-                        fetchPublicParkingOSM();
-                    }
-                });
-            } catch (err) {
-                console.error("Error performing Google Places search:", err);
-                fetchPublicParkingOSM();
-            }
-        } else {
-            fetchPublicParkingOSM();
-        }
-    }, [userLocation, MAPBOX_TOKEN, googleMapsLoaded]);
+        const paidItems = newPublicItems.filter(p => p.type === 'paid');
+        const publicItems = newPublicItems.filter(p => p.type === 'public');
+        
+        setPublicGarages(publicItems);
+        
+        setPaidListings(prev => {
+            const firestoreListings = prev.filter(p => !p.id.startsWith('places_'));
+            return [...firestoreListings, ...paidItems];
+        });
+    }, [parkingData]);
 
     // Unified map marker renderer with 2-mile distance radius filtering
     useEffect(() => {
         if (!mapRef.current) return;
         const map = mapRef.current;
-        const centerLat = userLocation ? userLocation[1] : NYC_CENTER[1];
-        const centerLng = userLocation ? userLocation[0] : NYC_CENTER[0];
+        const centerLat = searchCenter[1];
+        const centerLng = searchCenter[0];
 
         // 1. Gather all items currently enabled by filters
         const visibleItems: MapItem[] = [];
@@ -982,7 +783,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         if (showPaid) visibleItems.push(...paidListings);
         if (showPublic) visibleItems.push(...publicGarages);
 
-        // 2. Filter by 2 mile radius relative to user coordinate (3.2187 km)
+        // 2. Filter by 2 mile radius relative to map center coordinate (3.2187 km)
         const radiusFilteredItems = visibleItems.filter(item => {
             const distanceVal = getDistance(centerLat, centerLng, item.lat, item.lng);
             const distanceInMiles = distanceVal * 0.621371;
@@ -1028,7 +829,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             }
         });
 
-    }, [showFree, showPaid, showPublic, freeSpots, paidListings, publicGarages, userLocation]);
+    }, [showFree, showPaid, showPublic, freeSpots, paidListings, publicGarages, searchCenter]);
 
     useEffect(() => {
         const spot = selectedItem || (freeSpots.length > 0 ? freeSpots[0] : null);
@@ -1627,44 +1428,6 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     className="w-3.5 h-3.5 rounded border-white/20 text-[#1e75ff] focus:ring-0 bg-white/5 cursor-pointer accent-[#1e75ff]"
                                 />
                             </label>
-
-                            {/* Paid Parking */}
-                            <label className="flex items-center justify-between cursor-pointer group select-none">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-5 h-5 rounded-full bg-[#22c55e]/10 flex items-center justify-center text-[#22c55e] border border-[#22c55e]/20">
-                                        <MapPin size={11} fill="currentColor" fillOpacity={0.2} />
-                                    </div>
-                                    <div className="text-left">
-                                        <div className="text-[10px] font-bold text-white leading-tight text-xs">Paid Parking</div>
-                                        <div className="text-[8px] text-gray-400 leading-tight">Driveways & lots</div>
-                                    </div>
-                                </div>
-                                <input 
-                                    type="checkbox" 
-                                    checked={showPaid} 
-                                    onChange={() => setShowPaid(!showPaid)}
-                                    className="w-3.5 h-3.5 rounded border-white/20 text-[#22c55e] focus:ring-0 bg-white/5 cursor-pointer accent-[#22c55e]"
-                                />
-                            </label>
-
-                            {/* Public Parking */}
-                            <label className="flex items-center justify-between cursor-pointer group select-none">
-                                <div className="flex items-center gap-2">
-                                    <div className="w-5 h-5 rounded-full bg-[#a855f7]/10 flex items-center justify-center text-[#a855f7] border border-[#a855f7]/20">
-                                        <MapPin size={11} fill="currentColor" fillOpacity={0.2} />
-                                    </div>
-                                    <div className="text-left">
-                                        <div className="text-[10px] font-bold text-white leading-tight text-xs">Public Parking</div>
-                                        <div className="text-[8px] text-gray-400 leading-tight">Garages & lots</div>
-                                    </div>
-                                </div>
-                                <input 
-                                    type="checkbox" 
-                                    checked={showPublic} 
-                                    onChange={() => setShowPublic(!showPublic)}
-                                    className="w-3.5 h-3.5 rounded border-white/20 text-[#a855f7] focus:ring-0 bg-white/5 cursor-pointer accent-[#a855f7]"
-                                />
-                            </label>
                         </div>
                     </div>
                 )}
@@ -1758,7 +1521,18 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     subText: dynamicSubText
                                 };
                             } else if (freeSpots.length > 0) {
-                                const closest = freeSpots[0];
+                                // Find closest free spot
+                                let closest = freeSpots[0];
+                                if (userLocation) {
+                                    let minDistance = Infinity;
+                                    freeSpots.forEach(s => {
+                                        const dist = getDistance(userLocation[1], userLocation[0], s.lat, s.lng);
+                                        if (dist < minDistance) {
+                                            minDistance = dist;
+                                            closest = s;
+                                        }
+                                    });
+                                }
                                 const distanceVal = userLocation 
                                     ? getDistance(userLocation[1], userLocation[0], closest.lat, closest.lng)
                                     : null;

@@ -151,7 +151,8 @@ export const ProfileView = ({ user, onBack, onLogout, onDeleteAccount, setView, 
                   <ChevronLeft size={16} className="text-gray-400 rotate-180" />
                 </button>
 
-                {/* Listings row */}
+                {/* Listings row - Disabled for now as per client feedback */}
+                {/*
                 <button 
                   onClick={() => setView(AppView.GARAGE_LIST)}
                   className="w-full p-4 flex items-center justify-between text-left hover:bg-[#0b2240]/40 transition-colors"
@@ -167,8 +168,10 @@ export const ProfileView = ({ user, onBack, onLogout, onDeleteAccount, setView, 
                   </div>
                   <ChevronLeft size={16} className="text-gray-400 rotate-180" />
                 </button>
+                */}
 
-                {/* Host Dashboard row */}
+                {/* Host Dashboard row - Disabled for now as per client feedback */}
+                {/*
                 <button 
                   onClick={() => setView(AppView.HOST_DASHBOARD)}
                   className="w-full p-4 flex items-center justify-between text-left hover:bg-[#0b2240]/40 transition-colors"
@@ -184,6 +187,7 @@ export const ProfileView = ({ user, onBack, onLogout, onDeleteAccount, setView, 
                   </div>
                   <ChevronLeft size={16} className="text-gray-400 rotate-180" />
                 </button>
+                */}
 
                 {/* Notifications row */}
                 <div className="w-full p-4 flex items-center justify-between text-left">
