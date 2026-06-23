@@ -1441,14 +1441,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     >
                         <Locate size={18} className="text-[#1e75ff]" />
                     </button>
-                    
-                    <button 
-                        onClick={() => alert("Toggle 2D/3D map view")}
-                        className="w-10 h-10 rounded-full glass-button flex items-center justify-center font-extrabold text-[10px] shadow-lg transition-transform active:scale-90"
-                        title="Map Mode"
-                    >
-                        2D
-                    </button>
+
                     
                     <button 
                         onClick={() => alert("Navigation routing enabled")}
