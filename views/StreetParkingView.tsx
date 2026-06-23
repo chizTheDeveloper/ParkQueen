@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { StreetSpot, AppView } from '../types';
 import { MapPin, Check, Locate, ChevronUp, ChevronDown, List, Camera, MessageSquare, Bell, Clock, Calendar, X, Search, Menu, Star, Sliders, CloudSun, Navigation, Map, Wallet, User } from 'lucide-react';
 import { db } from '../firebase';
@@ -551,12 +551,21 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             resizeMap();
         });
 
+        // Debounce moveend so rapid pans/drags don't each trigger a fresh
+        // Places API fetch and a full marker rebuild. Only the final
+        // resting position (after 400ms of no further movement) updates
+        // searchCenter.
+        let moveEndTimeout: ReturnType<typeof setTimeout> | undefined;
         map.on('moveend', () => {
-            const center = map.getCenter();
-            setSearchCenter([center.lng, center.lat]);
+            if (moveEndTimeout) clearTimeout(moveEndTimeout);
+            moveEndTimeout = setTimeout(() => {
+                const center = map.getCenter();
+                setSearchCenter([center.lng, center.lat]);
+            }, 400);
         });
 
         return () => {
+            if (moveEndTimeout) clearTimeout(moveEndTimeout);
             map.remove();
             mapRef.current = null;
         };
@@ -770,30 +779,39 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         });
     }, [parkingData]);
 
-    // Unified map marker renderer with 2-mile distance radius filtering
-    useEffect(() => {
-        if (!mapRef.current) return;
-        const map = mapRef.current;
+    // Gather and radius-filter all currently visible items. This is pure
+    // computation (no DOM/map mutation), so it's memoized and only
+    // recomputed when the underlying data, filters, or map center actually
+    // change — rather than re-running on every render of this component.
+    const radiusFilteredItems = useMemo(() => {
         const centerLat = searchCenter[1];
         const centerLng = searchCenter[0];
 
-        // 1. Gather all items currently enabled by filters
         const visibleItems: MapItem[] = [];
         if (showFree) visibleItems.push(...freeSpots);
         if (showPaid) visibleItems.push(...paidListings);
         if (showPublic) visibleItems.push(...publicGarages);
 
-        // 2. Filter by 2 mile radius relative to map center coordinate (3.2187 km)
-        const radiusFilteredItems = visibleItems.filter(item => {
+        // Filter by 2 mile radius relative to map center coordinate (3.2187 km)
+        return visibleItems.filter(item => {
             const distanceVal = getDistance(centerLat, centerLng, item.lat, item.lng);
             const distanceInMiles = distanceVal * 0.621371;
             return distanceInMiles <= 2.0;
         });
+    }, [showFree, showPaid, showPublic, freeSpots, paidListings, publicGarages, searchCenter]);
+
+    // Unified map marker renderer: takes the memoized, already-filtered
+    // item list and reconciles it against the markers currently on the map.
+    // This effect only touches the DOM/map (no filtering logic), so it
+    // re-runs exactly when the visible item set changes.
+    useEffect(() => {
+        if (!mapRef.current) return;
+        const map = mapRef.current;
 
         const nextIds = new Set(radiusFilteredItems.map(item => item.id));
         const currentMarkers = allMarkersRef.current;
 
-        // 3. Remove markers that are no longer visible
+        // Remove markers that are no longer visible
         Object.keys(currentMarkers).forEach(id => {
             if (!nextIds.has(id)) {
                 currentMarkers[id].remove();
@@ -801,7 +819,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             }
         });
 
-        // 4. Add/Update markers for visible items
+        // Add/Update markers for visible items
         radiusFilteredItems.forEach(item => {
             const lngLat: [number, number] = [item.lng, item.lat];
             if (!currentMarkers[item.id]) {
@@ -829,7 +847,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             }
         });
 
-    }, [showFree, showPaid, showPublic, freeSpots, paidListings, publicGarages, searchCenter]);
+    }, [radiusFilteredItems]);
 
     useEffect(() => {
         const spot = selectedItem || (freeSpots.length > 0 ? freeSpots[0] : null);

@@ -1,20 +1,27 @@
-import React, { useState, useEffect } from 'react';
-import { MapView } from './views/StreetParkingView';
-import { GarageRentalView } from './views/GarageRentalView';
-import { HostDashboardView } from './views/HostDashboardView';
-import { AssistantView } from './views/AssistantView';
-import { MessagesView } from './views/MessagesView';
-import { ProfileView } from './views/ProfileView';
-import { NotificationsView } from './views/NotificationsView';
-import { CreateAccountView } from './views/CreateAccountView';
-import { SetupProfileView } from './views/SetupProfileView';
-import { EditProfileView } from './views/EditProfileView';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
+// LoginView is kept as an eager import since it's the first screen most users see.
 import { LoginView } from './views/LoginView';
-import { AdminDashboardView } from './views/AdminDashboardView';
-import { ActivitiesView } from './views/ActivitiesView';
-import { PrivacyPolicyView } from './views/PrivacyPolicyView';
-import { TermsOfUseView } from './views/TermsOfUseView';
-import { ContactUsView } from './views/ContactUsView';
+
+// All other views are lazy-loaded so the initial bundle only contains what's
+// needed for the login screen. Each view is brought in on demand the first
+// time its AppView is rendered, which keeps heavy dependencies (mapbox-gl,
+// leaflet, recharts, the Gemini-backed assistant, the admin dashboard, etc.)
+// out of the critical path for users who never visit those screens.
+const MapView = lazy(() => import('./views/StreetParkingView').then(m => ({ default: m.MapView })));
+const GarageRentalView = lazy(() => import('./views/GarageRentalView').then(m => ({ default: m.GarageRentalView })));
+const HostDashboardView = lazy(() => import('./views/HostDashboardView').then(m => ({ default: m.HostDashboardView })));
+const AssistantView = lazy(() => import('./views/AssistantView').then(m => ({ default: m.AssistantView })));
+const MessagesView = lazy(() => import('./views/MessagesView').then(m => ({ default: m.MessagesView })));
+const ProfileView = lazy(() => import('./views/ProfileView').then(m => ({ default: m.ProfileView })));
+const NotificationsView = lazy(() => import('./views/NotificationsView').then(m => ({ default: m.NotificationsView })));
+const CreateAccountView = lazy(() => import('./views/CreateAccountView').then(m => ({ default: m.CreateAccountView })));
+const SetupProfileView = lazy(() => import('./views/SetupProfileView').then(m => ({ default: m.SetupProfileView })));
+const EditProfileView = lazy(() => import('./views/EditProfileView').then(m => ({ default: m.EditProfileView })));
+const AdminDashboardView = lazy(() => import('./views/AdminDashboardView').then(m => ({ default: m.AdminDashboardView })));
+const ActivitiesView = lazy(() => import('./views/ActivitiesView').then(m => ({ default: m.ActivitiesView })));
+const PrivacyPolicyView = lazy(() => import('./views/PrivacyPolicyView').then(m => ({ default: m.PrivacyPolicyView })));
+const TermsOfUseView = lazy(() => import('./views/TermsOfUseView').then(m => ({ default: m.TermsOfUseView })));
+const ContactUsView = lazy(() => import('./views/ContactUsView').then(m => ({ default: m.ContactUsView })));
 import { AppView } from './types';
 import { ChevronLeft } from 'lucide-react';
 import ErrorBoundary from './ErrorBoundary';
@@ -279,7 +286,9 @@ export default function App() {
     <div className="h-screen w-screen flex flex-col bg-white dark:bg-dark-900 text-slate-900 dark:text-white font-sans selection:bg-queen-500 selection:text-white transition-colors duration-300">
       <main className={`flex-1 relative ${isMapView ? 'overflow-hidden' : 'overflow-y-auto'}`}>
         <ErrorBoundary>
-          {renderView()}
+          <Suspense fallback={<div className="flex items-center justify-center h-full">Loading...</div>}>
+            {renderView()}
+          </Suspense>
         </ErrorBoundary>
       </main>
     </div>
