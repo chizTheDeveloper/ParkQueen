@@ -222,7 +222,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         if (!MAPBOX_TOKEN) { setSpotAddress("Street Spot"); return; }
 
         setSpotAddress("Resolving address...");
-        fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${spot.lng},${spot.lat}.json?access_token=${MAPBOX_TOKEN}&limit=1`)
+        fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${spot.lng},${spot.lat}.json?types=address&access_token=${MAPBOX_TOKEN}&limit=1`)
             .then(res => res.json())
             .then(data => {
                 if (data.features && data.features.length > 0) {
