@@ -128,6 +128,23 @@ export const ProfileView = ({ user, onBack, onLogout, onDeleteAccount, setView, 
             <ChevronLeft size={16} className="text-gray-400 rotate-180" />
           </button>
 
+          {/* Complete Profile Block */}
+          <button
+            onClick={() => setView(AppView.COMPLETE_PROFILE)}
+            className="w-full bg-[#07162c]/60 border border-white/5 backdrop-blur-md rounded-2xl p-4 flex items-center justify-between text-left hover:bg-[#0b2240]/60 transition-all mb-6"
+          >
+            <div className="flex items-center gap-3.5">
+              <div className="bg-green-500/10 p-2.5 rounded-xl text-green-400 shrink-0">
+                <Settings size={18} />
+              </div>
+              <div>
+                <h4 className="font-bold text-white text-sm">Complete Profile</h4>
+                <p className="text-xs text-gray-400 mt-0.5">Add email, password, and more</p>
+              </div>
+            </div>
+            <ChevronLeft size={16} className="text-gray-400 rotate-180" />
+          </button>
+
           {/* List Items Groups */}
           <div className="space-y-6">
             {/* Parking Details Group */}

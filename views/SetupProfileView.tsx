@@ -5,6 +5,7 @@ import { User, Mail, Calendar, ChevronDown, Camera, Lock } from 'lucide-react';
 interface SetupProfileViewProps {
   phone: string;
   onSave: (profileData: { fullName: string; email: string; dob: string; gender: string, avatar: File | null, password: string }) => void;
+  onSkip?: () => void;
 }
 
 const InputField = ({ icon, label, value, onChange, placeholder, type = 'text', onClick = null, autoComplete = 'off' }) => {
@@ -69,7 +70,7 @@ const SelectField = ({ icon, label, value, onChange, options, isOpen, setIsOpen 
     );
 };
 
-export const SetupProfileView: React.FC<SetupProfileViewProps> = ({ phone, onSave }) => {
+export const SetupProfileView: React.FC<SetupProfileViewProps> = ({ phone, onSave, onSkip }) => {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [dob, setDob] = useState('');
@@ -198,10 +199,15 @@ export const SetupProfileView: React.FC<SetupProfileViewProps> = ({ phone, onSav
             />
         </div>
 
-        <div className="mt-8 mb-4">
+        <div className="mt-8 mb-4 space-y-3">
             <button onClick={handleSave} className="w-full bg-[#1e75ff] hover:bg-blue-600 active:scale-95 text-white font-bold py-4 rounded-2xl shadow-md shadow-blue-500/20 transition-all">
-                Create
+                Save
             </button>
+            {onSkip && (
+                <button onClick={onSkip} className="w-full text-white/50 hover:text-white/70 font-semibold py-3 text-sm transition-all">
+                    Skip for now
+                </button>
+            )}
         </div>
       </div>
     </div>

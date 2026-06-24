@@ -17,6 +17,8 @@ export enum AppView {
   TERMS_OF_USE = 'terms-of-use',
   CONTACT_US = 'contact-us',
   ONBOARDING = 'onboarding',
+  VERIFY_PHONE = 'verify-phone',
+  COMPLETE_PROFILE = 'complete-profile',
 }
 
 export interface StreetSpot {
