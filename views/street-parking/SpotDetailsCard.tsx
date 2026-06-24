@@ -85,7 +85,7 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                 typeLabel: selectedItem.type === 'free' ? 'Free' : (selectedItem.type === 'paid' ? 'Paid' : 'Public'),
                 statusLabel: selectedItem.status,
                 distance: distanceText,
-                isMock: false,
+
                 rawSpot: selectedItem.type === 'free' ? selectedItem : null,
                 rate: dynamicRate,
                 subText: dynamicSubText
@@ -136,27 +136,18 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                 typeLabel: 'Free',
                 statusLabel: closest.status,
                 distance: distanceText,
-                isMock: false,
+
                 rawSpot: closest,
                 rate: dynamicRate,
                 subText: dynamicSubText
             };
         } else {
-            return {
-                id: 'mock',
-                title: 'Maple Street Parking',
-                typeLabel: 'Paid',
-                statusLabel: 'available',
-                distance: '120 yd',
-                isMock: true,
-                rawSpot: null,
-                rate: '$1.50/hr',
-                subText: '120 yd • 12 available'
-            };
+            return null;
         }
     };
 
     const spotToDisplay = getSpotToDisplay();
+    if (!spotToDisplay) return null;
 
     let badgeBgColor = 'bg-[#1e75ff]';
     if (spotToDisplay.typeLabel === 'Paid') badgeBgColor = 'bg-[#22c55e]';
@@ -183,7 +174,6 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                 </div>
             </div>
 
-            {!spotToDisplay.isMock && (
                 <div className="flex gap-2 mt-2.5 pt-2.5 border-t border-white/5">
                     <button
                         onClick={onTrackLocation}
@@ -254,7 +244,6 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                         </>
                     )}
                 </div>
-            )}
         </div>
     );
 };

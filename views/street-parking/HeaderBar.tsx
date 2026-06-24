@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, Camera, MessageSquare, Bell, Menu, MapPin, Star, Clock, Sliders, CloudSun } from 'lucide-react';
+import { Search, Camera, MessageSquare, Bell, Menu, MapPin, Star, Clock, Sliders } from 'lucide-react';
 import { AppView } from '../../types';
 
 interface HeaderBarProps {
@@ -211,14 +211,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                 </div>
             )}
 
-            {!searchOpen && (
-                <div className="w-full max-w-[380px] mx-auto flex justify-start pl-1 mt-0.5">
-                    <div className="flex items-center gap-1.5 bg-[#07162c]/85 backdrop-blur-xl border border-white/10 rounded-full px-2.5 py-1 w-fit text-[10px] font-semibold text-white/95 shadow-md pointer-events-auto">
-                        <CloudSun size={13} className="text-yellow-400" />
-                        <span>28°</span>
-                    </div>
-                </div>
-            )}
+
         </header>
     );
 };
