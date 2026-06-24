@@ -1,0 +1,67 @@
+import { useState, useRef, useEffect } from 'react';
+
+export function useSearch() {
+    const inputRef = useRef<HTMLInputElement>(null);
+    const [searchQuery, setSearchQuery] = useState("");
+    const [searchOpen, setSearchOpen] = useState(false);
+    const [results, setResults] = useState<any[]>([]);
+    const [loading, setLoading] = useState(false);
+    const abortRef = useRef<AbortController | null>(null);
+
+    useEffect(() => {
+        if (!searchOpen || searchQuery.trim().length < 2) {
+            setResults([]);
+            return;
+        }
+
+        const token = import.meta.env.VITE_MAPBOX_TOKEN;
+        if (!token) return;
+
+        const t = setTimeout(async () => {
+            try {
+                abortRef.current?.abort();
+                const controller = new AbortController();
+                abortRef.current = controller;
+
+                setLoading(true);
+
+                const url =
+                    `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(searchQuery)}.json` +
+                    `?autocomplete=true&limit=6&types=place,locality,address,postcode,poi&language=en&access_token=${token}`;
+
+                const res = await fetch(url, { signal: controller.signal });
+                const data = await res.json();
+
+                setResults(Array.isArray(data.features) ? data.features : []);
+            } catch (e: any) {
+                if (e.name !== "AbortError") console.warn("Geocode failed", e);
+            } finally {
+                setLoading(false);
+            }
+        }, 300);
+
+        return () => {
+            clearTimeout(t);
+            abortRef.current?.abort();
+        };
+    }, [searchQuery, searchOpen]);
+
+    const handleCancelSearch = () => {
+        setSearchQuery("");
+        setResults([]);
+        setSearchOpen(false);
+        inputRef.current?.blur();
+    };
+
+    return {
+        inputRef,
+        searchQuery,
+        setSearchQuery,
+        searchOpen,
+        setSearchOpen,
+        results,
+        setResults,
+        loading,
+        handleCancelSearch,
+    };
+}
