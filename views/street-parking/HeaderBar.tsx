@@ -19,8 +19,6 @@ interface HeaderBarProps {
     setPendingUpdatesCount: (n: number) => void;
     activeFilterTab: string;
     setActiveFilterTab: (tab: string) => void;
-    showLegend: boolean;
-    setShowLegend: (show: boolean) => void;
     mapRef: React.RefObject<mapboxgl.Map | null>;
 }
 
@@ -40,8 +38,6 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
     setPendingUpdatesCount,
     activeFilterTab,
     setActiveFilterTab,
-    showLegend,
-    setShowLegend,
     mapRef,
 }) => {
     return (
@@ -197,7 +193,6 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                     <button
                         onClick={() => {
                             setActiveFilterTab('filters');
-                            setShowLegend(!showLegend);
                         }}
                         className={`flex flex-col items-center gap-1.5 py-1 px-2 rounded-xl font-medium flex-1 transition-all ${
                             activeFilterTab === 'filters'
