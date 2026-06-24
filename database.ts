@@ -18,6 +18,8 @@ interface UserProfile {
 export const saveUser = async (user: UserProfile) => {
   console.log("Saving user to the database:", user);
   
+  // TODO: This email/password requirement goes away once phone auth
+  // (signInWithPhoneNumber) replaces createUserWithEmailAndPassword.
   if (!user.password) {
     throw new Error("Password is required to create a user.");
   }

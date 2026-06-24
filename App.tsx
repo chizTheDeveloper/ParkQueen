@@ -16,6 +16,8 @@ const ProfileView = lazy(() => import('./views/ProfileView').then(m => ({ defaul
 const NotificationsView = lazy(() => import('./views/NotificationsView').then(m => ({ default: m.NotificationsView })));
 const CreateAccountView = lazy(() => import('./views/CreateAccountView').then(m => ({ default: m.CreateAccountView })));
 const SetupProfileView = lazy(() => import('./views/SetupProfileView').then(m => ({ default: m.SetupProfileView })));
+const VerifyPhoneView = lazy(() => import('./views/VerifyPhoneView').then(m => ({ default: m.VerifyPhoneView })));
+const NameEntryView = lazy(() => import('./views/NameEntryView').then(m => ({ default: m.NameEntryView })));
 const EditProfileView = lazy(() => import('./views/EditProfileView').then(m => ({ default: m.EditProfileView })));
 const AdminDashboardView = lazy(() => import('./views/AdminDashboardView').then(m => ({ default: m.AdminDashboardView })));
 const ActivitiesView = lazy(() => import('./views/ActivitiesView').then(m => ({ default: m.ActivitiesView })));
@@ -133,7 +135,24 @@ export default function App() {
 
   const handleCreateAccount = (phone: string) => {
     setPhone(phone);
-    setCurrentView(AppView.SETUP_PROFILE);
+    setCurrentView(AppView.VERIFY_PHONE);
+  };
+
+  const handleNameComplete = async (fullName: string) => {
+    // TEMPORARY: placeholder email/password until real Firebase phone auth
+    // (signInWithPhoneNumber + RecaptchaVerifier) replaces email/password as
+    // the auth method. Both these values are meaningless to the user and must
+    // be removed/replaced when phone auth is implemented.
+    const digits = phone.replace(/\D/g, '');
+    const placeholderEmail = `phone${digits}@parkqueen.placeholder`;
+    const placeholderPassword = crypto.randomUUID();
+    try {
+      await saveUser({ id: '', fullName, email: placeholderEmail, dob: '', gender: '', password: placeholderPassword, phone });
+      setCurrentView(AppView.MAP);
+    } catch (error: any) {
+      console.error("Failed to save profile: ", error);
+      alert(error.message || "Failed to save profile.");
+    }
   };
 
   const handleSaveProfile = async (profileData) => {
@@ -193,8 +212,12 @@ export default function App() {
         return <LoginView onLogin={handleLogin} onNavigateToCreateAccount={() => setCurrentView(AppView.CREATE_ACCOUNT)} />;
       case AppView.CREATE_ACCOUNT:
         return <CreateAccountView onContinue={handleCreateAccount} />;
+      case AppView.VERIFY_PHONE:
+        return <VerifyPhoneView phone={phone} onVerify={() => setCurrentView(AppView.SETUP_PROFILE)} onEditNumber={() => setCurrentView(AppView.CREATE_ACCOUNT)} />;
       case AppView.SETUP_PROFILE:
-        return <SetupProfileView phone={phone} onSave={handleSaveProfile} />;
+        return <NameEntryView onComplete={handleNameComplete} />;
+      case AppView.COMPLETE_PROFILE:
+        return <SetupProfileView phone={phone} onSave={handleSaveProfile} onSkip={() => setCurrentView(AppView.PROFILE)} />;
       case AppView.EDIT_PROFILE:
         return <EditProfileView user={user} onBack={() => setCurrentView(AppView.PROFILE)} />;
       case AppView.MAP:

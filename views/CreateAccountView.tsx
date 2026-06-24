@@ -1,45 +1,53 @@
 import React, { useState } from 'react';
-import splashScreen from '../assets/splash_screen.svg';
+
+const ProgressBar = ({ step }: { step: number }) => (
+    <div className="flex gap-1.5 w-full max-w-xs mx-auto mb-10">
+        {[1, 2, 3].map(i => (
+            <div key={i} className={`h-1 rounded-full flex-1 transition-all duration-300 ${i <= step ? 'bg-blue-500' : 'bg-white/10'}`} />
+        ))}
+    </div>
+);
 
 interface CreateAccountViewProps {
-  onContinue: (phone: string) => void;
+    onContinue: (phone: string) => void;
 }
 
 export const CreateAccountView: React.FC<CreateAccountViewProps> = ({ onContinue }) => {
-  const [phone, setPhone] = useState('');
+    const [phone, setPhone] = useState('');
 
-  return (
-    <div 
-      className="h-screen w-full flex flex-col items-center justify-center bg-cover bg-no-repeat bg-center p-4"
-      style={{ backgroundImage: `url(${splashScreen})` }}
-    >
-      <div className="w-full max-w-md bg-[#07162c]/65 border border-white/8 backdrop-blur-md rounded-3xl p-8 shadow-2xl">
-        <h1 className="text-3xl font-black text-white">Create Account</h1>
-        <p className="text-gray-400 mt-2 text-center text-sm">Enter your phone number to begin</p>
-
-        <div className="w-full mt-8 text-left">
-          <label className='text-left w-full block text-gray-400 text-sm px-1'>Mobile Number</label>
-          <div className="relative mt-2 bg-white/5 rounded-2xl border border-white/10 shadow-inner focus-within:border-[#1e75ff] transition-all">
-            <div className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none">
-              <span className='text-gray-300 font-semibold text-sm'>🇨🇦/🇺🇸 +1</span>
+    return (
+        <div className="h-full w-full bg-[#07162c] flex flex-col px-7 pt-14">
+            <div>
+                <ProgressBar step={1} />
+                <h1 className="text-[24px] font-bold text-white leading-tight">What's your number?</h1>
+                <p className="text-[15px] text-white/50 mt-2 mb-8">We'll text you a code to verify it's you</p>
+                <div className="relative bg-white/5 rounded-full border border-white/10 focus-within:border-blue-500 transition-all">
+                    <div className="absolute inset-y-0 left-0 flex items-center pl-5 pointer-events-none">
+                        <span className="text-white/70 font-semibold text-[15px]">+1</span>
+                    </div>
+                    <input
+                        type="tel"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        placeholder="(555) 555-1234"
+                        className="w-full bg-transparent py-4 pl-14 pr-5 text-white font-semibold outline-none placeholder-white/25 text-[16px] rounded-full"
+                        autoFocus
+                    />
+                </div>
             </div>
-            <input
-              type="tel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="(555) 555-1234"
-              className="w-full bg-transparent p-4 pl-24 text-white font-semibold outline-none placeholder-gray-500 text-sm"
-            />
-          </div>
-        </div>
 
-        <button
-          onClick={() => onContinue(phone)}
-          className="w-full mt-8 bg-[#1e75ff] hover:bg-blue-600 active:scale-95 text-white font-bold py-4 rounded-2xl shadow-md shadow-blue-500/20 transition-all"
-        >
-          Create Account
-        </button>
-      </div>
-    </div>
-  );
+            <div className="flex-1" />
+
+            <div className="pb-8">
+                {/* TODO: Wire up Firebase phone auth (RecaptchaVerifier + signInWithPhoneNumber) here */}
+                <button
+                    onClick={() => onContinue(phone)}
+                    disabled={phone.length < 7}
+                    className="w-full bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 active:scale-[0.98] text-white font-semibold text-[16px] py-4 rounded-full shadow-lg shadow-blue-500/30 transition-all disabled:opacity-40 disabled:active:scale-100"
+                >
+                    Send code
+                </button>
+            </div>
+        </div>
+    );
 };

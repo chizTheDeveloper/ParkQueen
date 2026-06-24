@@ -16,6 +16,8 @@ export enum AppView {
   PRIVACY_POLICY = 'privacy-policy',
   TERMS_OF_USE = 'terms-of-use',
   CONTACT_US = 'contact-us',
+  VERIFY_PHONE = 'verify-phone',
+  COMPLETE_PROFILE = 'complete-profile',
 }
 
 export interface StreetSpot {
