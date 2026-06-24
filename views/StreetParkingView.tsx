@@ -15,7 +15,7 @@ import { useSpotData } from './street-parking/useSpotData';
 import { useHoldFlow } from './street-parking/useHoldFlow';
 import { SpotDetailsCard } from './street-parking/SpotDetailsCard';
 import { HeaderBar } from './street-parking/HeaderBar';
-import { MapLegend } from './street-parking/MapLegend';
+
 import { NavigationBar } from './street-parking/NavigationBar';
 
 export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }) => {
@@ -34,7 +34,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const [showPaid, setShowPaid] = useState(false);
     const [showPublic, setShowPublic] = useState(false);
 
-    const [showLegend, setShowLegend] = useState(true);
+
     const [isPinging, setIsPinging] = useState(false);
     const [showPingConfirmation, setShowPingConfirmation] = useState(false);
     const [isSpotModalOpen, setSpotModalOpen] = useState(false);
@@ -564,17 +564,9 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     setPendingUpdatesCount={spotData.setPendingUpdatesCount}
                     activeFilterTab={activeFilterTab}
                     setActiveFilterTab={setActiveFilterTab}
-                    showLegend={showLegend}
-                    setShowLegend={setShowLegend}
                     mapRef={mapRef}
                 />
 
-                <MapLegend
-                    searchOpen={search.searchOpen}
-                    showLegend={showLegend}
-                    showFree={showFree}
-                    setShowFree={setShowFree}
-                />
 
                 <div className="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col gap-2.5 pointer-events-auto z-20">
                     <button
