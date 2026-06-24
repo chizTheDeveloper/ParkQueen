@@ -1,6 +1,7 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 // LoginView is kept as an eager import since it's the first screen most users see.
 import { LoginView } from './views/LoginView';
+import SplashScreen from './assets/splash_screen.svg';
 
 // All other views are lazy-loaded so the initial bundle only contains what's
 // needed for the login screen. Each view is brought in on demand the first
@@ -185,7 +186,7 @@ export default function App() {
 
   const renderView = () => {
     if (loading) {
-      return <div className="flex items-center justify-center h-full">Loading...</div>;
+      return <div className="h-full w-full bg-cover bg-center bg-no-repeat" style={{ backgroundImage: `url(${SplashScreen})` }} />;
     }
 
     switch (currentView) {
@@ -286,7 +287,7 @@ export default function App() {
     <div className="h-screen w-screen flex flex-col bg-white dark:bg-dark-900 text-slate-900 dark:text-white font-sans selection:bg-queen-500 selection:text-white transition-colors duration-300">
       <main className={`flex-1 relative ${isMapView ? 'overflow-hidden' : 'overflow-y-auto'}`}>
         <ErrorBoundary>
-          <Suspense fallback={<div className="flex items-center justify-center h-full">Loading...</div>}>
+          <Suspense fallback={<div className="h-full w-full bg-cover bg-center bg-no-repeat" style={{ backgroundImage: `url(${SplashScreen})` }} />}>
             {renderView()}
           </Suspense>
         </ErrorBoundary>
