@@ -1,6 +1,7 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 // LoginView is kept as an eager import since it's the first screen most users see.
 import { LoginView } from './views/LoginView';
+import { OnboardingView } from './views/OnboardingView';
 
 // All other views are lazy-loaded so the initial bundle only contains what's
 // needed for the login screen. Each view is brought in on demand the first
@@ -99,7 +100,7 @@ export default function App() {
       } else {
         // No user is logged in
         setUser(null);
-        setCurrentView(AppView.LOGIN);
+        setCurrentView(localStorage.getItem('hasSeenOnboarding') ? AppView.LOGIN : AppView.ONBOARDING);
       }
       setLoading(false);
     });
@@ -189,6 +190,8 @@ export default function App() {
     }
 
     switch (currentView) {
+      case AppView.ONBOARDING:
+        return <OnboardingView onComplete={() => { localStorage.setItem('hasSeenOnboarding', '1'); setCurrentView(AppView.LOGIN); }} />;
       case AppView.LOGIN:
         return <LoginView onLogin={handleLogin} onNavigateToCreateAccount={() => setCurrentView(AppView.CREATE_ACCOUNT)} />;
       case AppView.CREATE_ACCOUNT:
