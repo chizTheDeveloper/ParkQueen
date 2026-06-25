@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { RecaptchaVerifier, signInWithPhoneNumber, ConfirmationResult } from 'firebase/auth';
+import { auth } from '../firebaseConfig';
 
 const ProgressBar = ({ step, total = 2 }: { step: number; total?: number }) => (
     <div className="flex gap-1.5 w-full max-w-xs mx-auto mb-10">
@@ -9,11 +11,43 @@ const ProgressBar = ({ step, total = 2 }: { step: number; total?: number }) => (
 );
 
 interface CreateAccountViewProps {
-    onContinue: (phone: string) => void;
+    onContinue: (phone: string, confirmationResult: ConfirmationResult) => void;
 }
 
 export const CreateAccountView: React.FC<CreateAccountViewProps> = ({ onContinue }) => {
     const [phone, setPhone] = useState('');
+    const [sending, setSending] = useState(false);
+    const [error, setError] = useState('');
+    const recaptchaRef = useRef<RecaptchaVerifier | null>(null);
+
+    useEffect(() => {
+        if (!recaptchaRef.current) {
+            recaptchaRef.current = new RecaptchaVerifier(auth, 'recaptcha-container', { size: 'invisible' });
+        }
+        return () => { recaptchaRef.current = null; };
+    }, []);
+
+    const handleSend = async () => {
+        setError('');
+        setSending(true);
+        try {
+            const digits = phone.replace(/\D/g, '');
+            const fullNumber = `+1${digits}`;
+            const result = await signInWithPhoneNumber(auth, fullNumber, recaptchaRef.current!);
+            onContinue(phone, result);
+        } catch (e: any) {
+            console.error('Send OTP failed:', e);
+            if (e.code === 'auth/too-many-requests') {
+                setError('Too many attempts. Please try again later.');
+            } else if (e.code === 'auth/invalid-phone-number') {
+                setError('Invalid phone number. Please check and try again.');
+            } else {
+                setError(e.message || 'Failed to send code. Please try again.');
+            }
+        } finally {
+            setSending(false);
+        }
+    };
 
     return (
         <div className="h-full w-full bg-[var(--color-bg)] flex flex-col px-7 pt-14">
@@ -34,20 +68,21 @@ export const CreateAccountView: React.FC<CreateAccountViewProps> = ({ onContinue
                         autoFocus
                     />
                 </div>
+                {error && <p className="text-red-400 text-sm mt-3 text-center">{error}</p>}
             </div>
 
             <div className="flex-1" />
 
             <div className="pb-8">
-                {/* TODO: Wire up Firebase phone auth (RecaptchaVerifier + signInWithPhoneNumber) here */}
                 <button
-                    onClick={() => onContinue(phone)}
-                    disabled={phone.length < 7}
+                    onClick={handleSend}
+                    disabled={phone.replace(/\D/g, '').length < 10 || sending}
                     className="w-full bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 active:scale-[0.98] text-white font-semibold text-[16px] py-4 rounded-full shadow-lg shadow-blue-500/30 transition-all disabled:opacity-40 disabled:active:scale-100"
                 >
-                    Send code
+                    {sending ? 'Sending...' : 'Send code'}
                 </button>
             </div>
+            <div id="recaptcha-container" />
         </div>
     );
 };

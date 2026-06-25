@@ -92,6 +92,8 @@ html, body, #root {
   transform: scale(0.95);
 }
 
+.grecaptcha-badge { visibility: hidden !important; }
+
 /* Glow effects */
 .glow-blue {
   box-shadow: 0 0 15px rgba(30, 117, 255, 0.4);

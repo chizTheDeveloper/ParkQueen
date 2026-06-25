@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { ConfirmationResult, RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth';
+import { auth } from '../firebaseConfig';
 
 const ProgressBar = ({ step, total = 2 }: { step: number; total?: number }) => (
     <div className="flex gap-1.5 w-full max-w-xs mx-auto mb-10">
@@ -10,14 +12,19 @@ const ProgressBar = ({ step, total = 2 }: { step: number; total?: number }) => (
 
 interface VerifyPhoneViewProps {
     phone: string;
-    onVerify: () => void;
+    confirmationResult: ConfirmationResult;
+    onVerify: (confirmationResult: ConfirmationResult) => void;
     onEditNumber: () => void;
 }
 
-export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({ phone, onVerify, onEditNumber }) => {
+export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({ phone, confirmationResult: initialConfirmation, onVerify, onEditNumber }) => {
     const [digits, setDigits] = useState<string[]>(Array(6).fill(''));
     const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
     const [cooldown, setCooldown] = useState(30);
+    const [verifying, setVerifying] = useState(false);
+    const [error, setError] = useState('');
+    const [confirmation, setConfirmation] = useState<ConfirmationResult>(initialConfirmation);
+    const recaptchaRef = useRef<RecaptchaVerifier | null>(null);
 
     useEffect(() => {
         if (cooldown <= 0) return;
@@ -38,6 +45,41 @@ export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({ phone, onVerif
     const handleKeyDown = (index: number, e: React.KeyboardEvent) => {
         if (e.key === 'Backspace' && !digits[index] && index > 0) {
             inputRefs.current[index - 1]?.focus();
+        }
+    };
+
+    const handleVerify = async () => {
+        setError('');
+        setVerifying(true);
+        try {
+            const code = digits.join('');
+            await confirmation.confirm(code);
+            onVerify(confirmation);
+        } catch (e: any) {
+            console.error('OTP verification failed:', e);
+            if (e.code === 'auth/invalid-verification-code') {
+                setError('Invalid code. Please check and try again.');
+            } else {
+                setError(e.message || 'Verification failed. Please try again.');
+            }
+        } finally {
+            setVerifying(false);
+        }
+    };
+
+    const handleResend = async () => {
+        setError('');
+        try {
+            if (!recaptchaRef.current) {
+                recaptchaRef.current = new RecaptchaVerifier(auth, 'recaptcha-container-verify', { size: 'invisible' });
+            }
+            const fullDigits = phone.replace(/\D/g, '');
+            const result = await signInWithPhoneNumber(auth, `+1${fullDigits}`, recaptchaRef.current);
+            setConfirmation(result);
+            setCooldown(30);
+        } catch (e: any) {
+            console.error('Resend failed:', e);
+            setError('Failed to resend code. Please try again.');
         }
     };
 
@@ -70,12 +112,13 @@ export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({ phone, onVerif
                     ))}
                 </div>
 
+                {error && <p className="text-red-400 text-sm mt-4 text-center">{error}</p>}
+
                 <p className="text-center text-[14px] text-[var(--color-text-secondary)] mt-6">
                     {cooldown > 0 ? (
                         <>Resend code in {cooldown}s</>
                     ) : (
-                        // TODO: Wire up actual resend logic when Firebase phone auth is integrated
-                        <button onClick={() => setCooldown(30)} className="text-blue-400 font-semibold">Resend code</button>
+                        <button onClick={handleResend} className="text-blue-400 font-semibold">Resend code</button>
                     )}
                 </p>
             </div>
@@ -83,15 +126,15 @@ export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({ phone, onVerif
             <div className="flex-1" />
 
             <div className="pb-8">
-                {/* TODO: Verify the OTP code with Firebase confirmationResult.confirm(code) */}
                 <button
-                    onClick={onVerify}
-                    disabled={!allFilled}
+                    onClick={handleVerify}
+                    disabled={!allFilled || verifying}
                     className="w-full bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 active:scale-[0.98] text-white font-semibold text-[16px] py-4 rounded-full shadow-lg shadow-blue-500/30 transition-all disabled:opacity-40 disabled:active:scale-100"
                 >
-                    Verify
+                    {verifying ? 'Verifying...' : 'Verify'}
                 </button>
             </div>
+            <div id="recaptcha-container-verify" />
         </div>
     );
 };

@@ -28,7 +28,8 @@ const ContactUsView = lazy(() => import('./views/ContactUsView').then(m => ({ de
 import { AppView } from './types';
 import { ChevronLeft } from 'lucide-react';
 import ErrorBoundary from './ErrorBoundary';
-import { saveUser, loginUser, logoutUser, deleteUser } from './database';
+import { saveUserProfile, logoutUser, deleteUser } from './database';
+import { ConfirmationResult } from 'firebase/auth';
 import { auth, db } from './firebaseConfig';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, onSnapshot, getDoc, updateDoc, collection, query, where, getDocs } from "firebase/firestore";
@@ -44,6 +45,7 @@ export default function App() {
   });
   const [activeChatContext, setActiveChatContext] = useState<{ userId: string; context: string } | null>(null);
   const [phone, setPhone] = useState('');
+  const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
 
   useEffect(() => {
     let userProfileUnsubscribe = () => {};
@@ -134,21 +136,16 @@ export default function App() {
     setCurrentView(AppView.MESSAGES);
   };
 
-  const handleCreateAccount = (phone: string) => {
+  const handleCreateAccount = (phone: string, result: ConfirmationResult) => {
     setPhone(phone);
+    setConfirmationResult(result);
     setCurrentView(AppView.VERIFY_PHONE);
   };
 
   const handleNameComplete = async (fullName: string) => {
-    // TEMPORARY: placeholder email/password until real Firebase phone auth
-    // (signInWithPhoneNumber + RecaptchaVerifier) replaces email/password as
-    // the auth method. Both these values are meaningless to the user and must
-    // be removed/replaced when phone auth is implemented.
     const digits = phone.replace(/\D/g, '');
-    const placeholderEmail = `phone${digits}@parkqueen.placeholder`;
-    const placeholderPassword = crypto.randomUUID();
     try {
-      await saveUser({ id: '', fullName, email: placeholderEmail, dob: '', gender: '', password: placeholderPassword, phone: digits });
+      await saveUserProfile({ fullName, phone: digits });
       setCurrentView(AppView.MAP);
     } catch (error: any) {
       console.error("Failed to save profile: ", error);
@@ -158,15 +155,16 @@ export default function App() {
 
   const handleSaveProfile = async (profileData) => {
     try {
-      await saveUser({
-        id: '',
-        fullName: profileData.fullName,
-        email: profileData.email,
-        dob: profileData.dob,
-        gender: profileData.gender,
-        password: crypto.randomUUID(), // TEMPORARY: placeholder until phone auth replaces email/password
-        phone: phone
-      });
+      const uid = auth.currentUser?.uid;
+      if (!uid) throw new Error("Not authenticated");
+      await import("firebase/firestore").then(({ doc, updateDoc }) =>
+        updateDoc(doc(db, 'users', uid), {
+          fullName: profileData.fullName,
+          email: profileData.email,
+          dob: profileData.dob,
+          gender: profileData.gender,
+        })
+      );
       setCurrentView(AppView.MAP);
     } catch (error: any) {
       console.error("Failed to save profile: ", error);
@@ -206,25 +204,22 @@ export default function App() {
       case AppView.CREATE_ACCOUNT:
         return <CreateAccountView onContinue={handleCreateAccount} />;
       case AppView.VERIFY_PHONE:
-        return <VerifyPhoneView phone={phone} onVerify={async () => {
-          // TODO: Replace with real Firebase phone auth verification
-          const digits = phone.replace(/\D/g, '');
-          const usersRef = collection(db, 'users');
-          const q = query(usersRef, where('phone', '==', digits));
-          const snap = await getDocs(q);
-          if (!snap.empty) {
-            const existingUser = snap.docs[0].data();
-            try {
-              await loginUser(existingUser.email, existingUser._placeholderPw);
-            } catch (e) {
-              console.error('Auto-login failed:', e);
-              alert('Login failed. Please try again.');
-              setCurrentView(AppView.CREATE_ACCOUNT);
+        return <VerifyPhoneView
+          phone={phone}
+          confirmationResult={confirmationResult!}
+          onVerify={async () => {
+            const digits = phone.replace(/\D/g, '');
+            const usersRef = collection(db, 'users');
+            const q = query(usersRef, where('phone', '==', digits));
+            const snap = await getDocs(q);
+            if (!snap.empty) {
+              setCurrentView(AppView.MAP);
+            } else {
+              setCurrentView(AppView.SETUP_PROFILE);
             }
-          } else {
-            setCurrentView(AppView.SETUP_PROFILE);
-          }
-        }} onEditNumber={() => setCurrentView(AppView.CREATE_ACCOUNT)} />;
+          }}
+          onEditNumber={() => setCurrentView(AppView.CREATE_ACCOUNT)}
+        />;
       case AppView.SETUP_PROFILE:
         return <NameEntryView onComplete={handleNameComplete} />;
       case AppView.COMPLETE_PROFILE:
@@ -312,7 +307,7 @@ export default function App() {
       case AppView.CONTACT_US:
         return <ContactUsView onBack={() => setCurrentView(AppView.PROFILE)} />;
       default:
-        return <LoginView onLogin={handleLogin} onNavigateToCreateAccount={() => setCurrentView(AppView.CREATE_ACCOUNT)} />;
+        return <CreateAccountView onContinue={handleCreateAccount} />;
     }
   };
 
