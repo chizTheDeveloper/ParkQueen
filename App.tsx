@@ -313,7 +313,7 @@ export default function App() {
     <div className="h-screen w-screen flex flex-col bg-white dark:bg-dark-900 text-slate-900 dark:text-white font-sans selection:bg-queen-500 selection:text-white transition-colors duration-300">
       <main className={`flex-1 relative ${isMapView ? 'overflow-hidden' : 'overflow-y-auto'}`}>
         <ErrorBoundary>
-          <Suspense fallback={<div className="h-full w-full bg-cover bg-center bg-no-repeat" style={{ backgroundImage: `url(${SplashScreen})` }} />}>
+          <Suspense fallback={<div className="h-full w-full bg-[#07162c] flex items-center justify-center"><div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" /></div>}>
             {renderView()}
           </Suspense>
         </ErrorBoundary>
