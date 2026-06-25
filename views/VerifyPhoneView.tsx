@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 
-const ProgressBar = ({ step }: { step: number }) => (
+const ProgressBar = ({ step, total = 2 }: { step: number; total?: number }) => (
     <div className="flex gap-1.5 w-full max-w-xs mx-auto mb-10">
-        {[1, 2, 3].map(i => (
-            <div key={i} className={`h-1 rounded-full flex-1 transition-all duration-300 ${i <= step ? 'bg-blue-500' : 'bg-white/10'}`} />
+        {Array.from({ length: total }, (_, i) => i + 1).map(i => (
+            <div key={i} className={`h-1 rounded-full flex-1 transition-all duration-300 ${i <= step ? 'bg-blue-500' : 'bg-[var(--color-border)]'}`} />
         ))}
     </div>
 );

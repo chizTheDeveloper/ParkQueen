@@ -1,6 +1,4 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
-// LoginView is kept as an eager import since it's the first screen most users see.
-import { LoginView } from './views/LoginView';
 import SplashScreen from './assets/splash_screen.svg';
 import { OnboardingView } from './views/OnboardingView';
 
@@ -33,12 +31,12 @@ import ErrorBoundary from './ErrorBoundary';
 import { saveUser, loginUser, logoutUser, deleteUser } from './database';
 import { auth, db } from './firebaseConfig';
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, onSnapshot, getDoc, updateDoc } from "firebase/firestore";
+import { doc, onSnapshot, getDoc, updateDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { getToken, onMessage } from 'firebase/messaging';
 import { getFCM } from './firebaseConfig';
 
 export default function App() {
-  const [currentView, setCurrentView] = useState(AppView.LOGIN);
+  const [currentView, setCurrentView] = useState(AppView.CREATE_ACCOUNT);
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useState(() => {
@@ -104,7 +102,7 @@ export default function App() {
       } else {
         // No user is logged in
         setUser(null);
-        setCurrentView(localStorage.getItem('hasSeenOnboarding') ? AppView.LOGIN : AppView.ONBOARDING);
+        setCurrentView(localStorage.getItem('hasSeenOnboarding') ? AppView.CREATE_ACCOUNT : AppView.ONBOARDING);
       }
       setLoading(false);
     });
@@ -150,7 +148,7 @@ export default function App() {
     const placeholderEmail = `phone${digits}@parkqueen.placeholder`;
     const placeholderPassword = crypto.randomUUID();
     try {
-      await saveUser({ id: '', fullName, email: placeholderEmail, dob: '', gender: '', password: placeholderPassword, phone });
+      await saveUser({ id: '', fullName, email: placeholderEmail, dob: '', gender: '', password: placeholderPassword, phone: digits });
       setCurrentView(AppView.MAP);
     } catch (error: any) {
       console.error("Failed to save profile: ", error);
@@ -176,14 +174,6 @@ export default function App() {
     }
   };
 
-  const handleLogin = async (email, password) => {
-    try {
-      await loginUser(email, password);
-    } catch (error) {
-      console.error("Failed to login: ", error);
-      alert("Failed to login. Please check your email and password.");
-    }
-  };
 
   const handleLogout = async () => {
     try {
@@ -212,13 +202,29 @@ export default function App() {
 
     switch (currentView) {
       case AppView.ONBOARDING:
-        return <OnboardingView onComplete={() => { localStorage.setItem('hasSeenOnboarding', '1'); setCurrentView(AppView.LOGIN); }} />;
-      case AppView.LOGIN:
-        return <LoginView onLogin={handleLogin} onNavigateToCreateAccount={() => setCurrentView(AppView.CREATE_ACCOUNT)} />;
+        return <OnboardingView onComplete={() => { localStorage.setItem('hasSeenOnboarding', '1'); setCurrentView(AppView.CREATE_ACCOUNT); }} />;
       case AppView.CREATE_ACCOUNT:
         return <CreateAccountView onContinue={handleCreateAccount} />;
       case AppView.VERIFY_PHONE:
-        return <VerifyPhoneView phone={phone} onVerify={() => setCurrentView(AppView.SETUP_PROFILE)} onEditNumber={() => setCurrentView(AppView.CREATE_ACCOUNT)} />;
+        return <VerifyPhoneView phone={phone} onVerify={async () => {
+          // TODO: Replace with real Firebase phone auth verification
+          const digits = phone.replace(/\D/g, '');
+          const usersRef = collection(db, 'users');
+          const q = query(usersRef, where('phone', '==', digits));
+          const snap = await getDocs(q);
+          if (!snap.empty) {
+            const existingUser = snap.docs[0].data();
+            try {
+              await loginUser(existingUser.email, existingUser._placeholderPw);
+            } catch (e) {
+              console.error('Auto-login failed:', e);
+              alert('Login failed. Please try again.');
+              setCurrentView(AppView.CREATE_ACCOUNT);
+            }
+          } else {
+            setCurrentView(AppView.SETUP_PROFILE);
+          }
+        }} onEditNumber={() => setCurrentView(AppView.CREATE_ACCOUNT)} />;
       case AppView.SETUP_PROFILE:
         return <NameEntryView onComplete={handleNameComplete} />;
       case AppView.COMPLETE_PROFILE:

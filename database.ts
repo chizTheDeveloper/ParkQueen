@@ -30,11 +30,13 @@ export const saveUser = async (user: UserProfile) => {
 
     await updateProfile(firebaseUser, { displayName: user.fullName });
 
-    const { password, ...profileData } = user;
+    const { password: _pw, ...profileData } = user;
 
     await setDoc(doc(db, "users", firebaseUser.uid), {
         ...profileData,
         id: firebaseUser.uid,
+        // TEMPORARY: store placeholder password for auto-login until real phone auth replaces this
+        _placeholderPw: user.password,
         createdAt: serverTimestamp(),
         reputationScore: 0,
         currentStreak: 0,

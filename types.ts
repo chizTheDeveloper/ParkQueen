@@ -1,6 +1,5 @@
 export enum AppView {
   SPLASH = 'splash',
-  LOGIN = 'login',
   CREATE_ACCOUNT = 'create-account',
   SETUP_PROFILE = 'setup-profile',
   EDIT_PROFILE = 'edit-profile',
