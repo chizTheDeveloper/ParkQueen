@@ -610,8 +610,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     </div>
                 )}
 
-                <div className="w-full flex flex-col gap-2 pointer-events-auto mt-auto pb-2">
-                    <div className="flex justify-end max-w-[380px] mx-auto w-full">
+                <div className="w-full flex flex-col gap-2 pointer-events-auto mt-auto pb-16 px-4">
+                    <div className="flex justify-end max-w-[380px] mx-auto w-full mb-2">
                         <button
                             onClick={handleLocateMe}
                             className="w-10 h-10 rounded-full glass-button flex items-center justify-center shadow-lg transition-transform active:scale-90"
@@ -665,15 +665,11 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                             setSpotModalOpen(true);
                         }}
                         disabled={!user}
-                        className="w-full max-w-[380px] mx-auto bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 active:scale-95 text-white font-bold py-2.5 px-5 rounded-full flex items-center justify-center gap-2.5 transition-all duration-200 shadow-lg shadow-blue-500/30 border border-blue-400/20 disabled:opacity-50 ping-glow"
+                        className="relative mx-auto h-[52px] rounded-full px-14 active:scale-95 text-white disabled:opacity-50 transition-transform duration-200 ping-glow"
+                        style={{ background: 'linear-gradient(90deg, #378ADD, #1D9E75)', minWidth: '250px' }}
                     >
-                        <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center shrink-0">
-                            <MapPin size={13} />
-                        </div>
-                        <div className="text-left leading-tight">
-                            <div className="font-extrabold text-xs uppercase tracking-wide">PING PARKING</div>
-                            <div className="text-[9px] text-white/80 font-normal">Ping a nearby parking spot</div>
-                        </div>
+                        <MapPin size={24} className="absolute left-9 top-1/2 -translate-y-1/2" />
+                        <span className="text-[19px] font-bold absolute top-1/2 -translate-y-1/2 whitespace-nowrap" style={{ left: 'calc(50% + 12px)', transform: 'translate(-50%, -50%)' }}>Ping Parking</span>
                     </button>
 
                 </div>

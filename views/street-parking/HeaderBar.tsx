@@ -64,7 +64,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 }) => {
     return (
         <header style={{ paddingTop: 'env(safe-area-inset-top)' }} className="w-full flex flex-col gap-1.5 pointer-events-auto">
-            <div className="w-full max-w-[380px] mx-auto bg-[#07162c]/85 backdrop-blur-xl border border-white/10 rounded-full h-12 px-3.5 flex items-center justify-between shadow-xl transition-all duration-300">
+            <div className="w-full max-w-[380px] mx-auto bg-[#07162c]/85 backdrop-blur-xl border border-white/10 rounded-full h-[50px] px-3.5 flex items-center justify-between shadow-xl transition-all duration-300">
                 <UserAvatar user={user} onClick={() => setView(AppView.PROFILE)} />
 
                 <div className="flex-1 mx-2.5 flex items-center gap-2.5">
@@ -87,7 +87,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                         onClick={() => setView(AppView.AI_ASSISTANT)}
                         className="p-1.5 text-white/85 hover:text-white hover:bg-white/5 rounded-full transition-colors shrink-0"
                     >
-                        <Camera size={18} />
+                        <Camera size={20} />
                     </button>
 
                     <button
@@ -97,7 +97,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                         className="p-1.5 text-white/85 hover:text-white hover:bg-white/5 rounded-full transition-colors relative shrink-0"
                     >
                         <div className="relative">
-                            <MessageSquare size={18} />
+                            <MessageSquare size={20} />
                             {unreadMessagesCount > 0 && (
                                 <span className="absolute -top-0.5 -right-0.5 bg-[#1e75ff] w-1.5 h-1.5 rounded-full animate-pulse shadow-md" />
                             )}
@@ -116,7 +116,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                         className="p-1.5 text-white/85 hover:text-white hover:bg-white/5 rounded-full transition-colors relative shrink-0"
                     >
                         <div className="relative">
-                            <Bell size={18} />
+                            <Bell size={20} />
                             {pendingUpdatesCount > 0 && (
                                 <span className="absolute -top-0.5 -right-0.5 bg-[#1e75ff] w-1.5 h-1.5 rounded-full animate-pulse shadow-md" />
                             )}
