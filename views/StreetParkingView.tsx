@@ -1,12 +1,12 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { AppView } from '../types';
-import { MapPin, Check, Locate, X, Bell, Wallet } from 'lucide-react';
+import { MapPin, Check, Locate, X, Bell, Wallet, Clock } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, addDoc, Timestamp, doc, deleteDoc, writeBatch, updateDoc, getDocs, where, query } from 'firebase/firestore';
 import mapboxgl from 'mapbox-gl';
 import * as geofire from 'geofire-common';
 
-import { MAPBOX_TOKEN, NYC_CENTER, createMarkerElement, clearRoute, drawRoute } from './street-parking/utils';
+import { MAPBOX_TOKEN, NYC_CENTER, createMarkerElement, clearRoute, drawRoute, getDistance } from './street-parking/utils';
 import { MapItem, MapViewProps } from './street-parking/types';
 import { SpotModal } from './street-parking/SpotModal';
 import { useSearch } from './street-parking/useSearch';
@@ -38,6 +38,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const [showPingConfirmation, setShowPingConfirmation] = useState(false);
     const [isSpotModalOpen, setSpotModalOpen] = useState(false);
     const [spotAddress, setSpotAddress] = useState<string>("Loading address...");
+    const [emptyCardDismissed, setEmptyCardDismissed] = useState(false);
 
     const userRef = useRef(user);
     useEffect(() => { userRef.current = user; }, [user]);
@@ -65,6 +66,28 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         mapRef,
         activeRouteDestinationRef,
     });
+
+    const spotCount = spotData.radiusFilteredItems.length;
+
+    const nearestSpot = useMemo(() => {
+        if (!userLocation || spotData.freeSpots.length === 0) return null;
+        let closest: any = null;
+        let minDist = Infinity;
+        spotData.freeSpots.forEach(s => {
+            const d = getDistance(userLocation[1], userLocation[0], s.lat, s.lng);
+            if (d < minDist) { minDist = d; closest = s; }
+        });
+        if (!closest) return null;
+        const mi = minDist * 0.621371;
+        const distText = mi < 0.1 ? `${Math.round(minDist * 1000 * 1.09361)} yd` : `${mi.toFixed(1)} mi`;
+        const reportedAt = closest.reportedAt?.toDate?.();
+        let timeAgo: string | null = null;
+        if (reportedAt) {
+            const mins = Math.floor((Date.now() - reportedAt.getTime()) / 60000);
+            timeAgo = mins < 1 ? 'just now' : mins < 60 ? `${mins} min ago` : `${Math.floor(mins / 60)}h ago`;
+        }
+        return { spot: closest, distText, timeAgo };
+    }, [userLocation, spotData.freeSpots]);
 
     // --- Remaining effects ---
 
@@ -563,6 +586,29 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     mapRef={mapRef}
                 />
 
+                {spotCount > 0 && (
+                    <div className="w-full max-w-[380px] mx-auto mt-1 pointer-events-auto">
+                        <div className="inline-flex items-center gap-1.5 bg-[#07162c]/85 backdrop-blur-xl border border-emerald-500/20 rounded-full px-2.5 py-1 text-[10px] font-semibold text-emerald-400 shadow-md">
+                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                            {spotCount} free spot{spotCount !== 1 ? 's' : ''} nearby
+                        </div>
+                    </div>
+                )}
+
+                {spotCount === 0 && !emptyCardDismissed && (
+                    <div className="absolute top-28 left-1/2 -translate-x-1/2 z-20 pointer-events-auto w-[280px]">
+                        <div className="bg-[#07162c]/95 backdrop-blur-xl border border-white/10 rounded-3xl p-5 shadow-2xl text-center relative">
+                            <button onClick={() => setEmptyCardDismissed(true)} className="absolute top-3 right-3 text-white/40 hover:text-white/70 transition-colors">
+                                <X size={14} />
+                            </button>
+                            <div className="w-10 h-10 rounded-full bg-[#1e75ff]/15 flex items-center justify-center mx-auto mb-3">
+                                <MapPin size={18} className="text-[#1e75ff]" />
+                            </div>
+                            <h3 className="text-sm font-bold text-white">No spots reported yet</h3>
+                            <p className="text-[11px] text-white/50 mt-1">Be the first to help your neighbors find parking here</p>
+                        </div>
+                    </div>
+                )}
 
                 <div className="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col gap-2.5 pointer-events-auto z-20">
                     <button
@@ -595,13 +641,33 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                         onMessageUser={onMessageUser}
                     />
 
+                    {nearestSpot && !selectedItem && (
+                        <button
+                            onClick={() => setSelectedItem(nearestSpot.spot)}
+                            className="w-full max-w-[380px] mx-auto bg-[#07162c]/90 backdrop-blur-xl border border-white/10 rounded-2xl px-3.5 py-2.5 flex items-center gap-3 shadow-lg"
+                        >
+                            <div className="w-8 h-8 rounded-xl bg-[#1e75ff]/15 flex items-center justify-center shrink-0">
+                                <MapPin size={14} className="text-[#1e75ff]" />
+                            </div>
+                            <div className="flex-1 min-w-0 text-left">
+                                <div className="text-[11px] font-bold text-white truncate">Nearest spot · {nearestSpot.distText}</div>
+                                {nearestSpot.timeAgo && (
+                                    <div className="text-[10px] text-white/40 flex items-center gap-1 mt-0.5">
+                                        <Clock size={9} />
+                                        Reported {nearestSpot.timeAgo}
+                                    </div>
+                                )}
+                            </div>
+                        </button>
+                    )}
+
                     <button
                         onClick={() => {
                             setSelectedItem(null);
                             setSpotModalOpen(true);
                         }}
                         disabled={!user}
-                        className="w-full max-w-[380px] mx-auto bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 active:scale-95 text-white font-bold py-2.5 px-5 rounded-full flex items-center justify-center gap-2.5 transition-all duration-200 shadow-lg shadow-blue-500/30 border border-blue-400/20 disabled:opacity-50"
+                        className="w-full max-w-[380px] mx-auto bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 active:scale-95 text-white font-bold py-2.5 px-5 rounded-full flex items-center justify-center gap-2.5 transition-all duration-200 shadow-lg shadow-blue-500/30 border border-blue-400/20 disabled:opacity-50 ping-glow"
                     >
                         <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center shrink-0">
                             <MapPin size={13} />

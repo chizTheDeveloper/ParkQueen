@@ -78,6 +78,12 @@ html, body, #root {
   text-shadow: 0 0 8px rgba(0, 240, 255, 0.6);
 }
 
+@keyframes ping-glow {
+  0%, 100% { box-shadow: 0 0 12px rgba(30, 117, 255, 0.3), 0 4px 12px rgba(30, 117, 255, 0.15); }
+  50% { box-shadow: 0 0 22px rgba(30, 117, 255, 0.55), 0 4px 18px rgba(30, 117, 255, 0.3); }
+}
+.ping-glow { animation: ping-glow 2s ease-in-out infinite; }
+
 /* Custom scrollbars */
 .no-scrollbar::-webkit-scrollbar {
   display: none;
