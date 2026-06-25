@@ -85,7 +85,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                         type="button"
                         aria-label="Scanner"
                         onClick={() => setView(AppView.AI_ASSISTANT)}
-                        className="p-1.5 text-white/85 hover:text-white hover:bg-white/5 rounded-full transition-colors shrink-0"
+                        className="p-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-overlay)] rounded-full transition-colors shrink-0"
                     >
                         <Camera size={20} />
                     </button>
@@ -94,7 +94,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                         type="button"
                         aria-label="Chat"
                         onClick={() => setView(AppView.MESSAGES)}
-                        className="p-1.5 text-white/85 hover:text-white hover:bg-white/5 rounded-full transition-colors relative shrink-0"
+                        className="p-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-overlay)] rounded-full transition-colors relative shrink-0"
                     >
                         <div className="relative">
                             <MessageSquare size={20} />
@@ -113,7 +113,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                             setPendingUpdatesCount(0);
                             setView(AppView.NOTIFICATIONS);
                         }}
-                        className="p-1.5 text-white/85 hover:text-white hover:bg-white/5 rounded-full transition-colors relative shrink-0"
+                        className="p-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-overlay)] rounded-full transition-colors relative shrink-0"
                     >
                         <div className="relative">
                             <Bell size={20} />
