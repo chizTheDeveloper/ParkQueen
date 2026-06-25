@@ -237,23 +237,26 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     // Spot address resolution
     useEffect(() => {
         const spot = selectedItem || (spotData.freeSpots.length > 0 ? spotData.freeSpots[0] : null);
-        if (!spot) { setSpotAddress(""); return; }
-        if (spot.title) { setSpotAddress(spot.title); return; }
-        if (spot.address) { setSpotAddress(spot.address); return; }
+        const coords = spot
+            ? { lng: spot.lng, lat: spot.lat, title: spot.title, address: spot.address }
+            : userLocation ? { lng: userLocation[0], lat: userLocation[1], title: null, address: null } : null;
+        if (!coords) { setSpotAddress(""); return; }
+        if (coords.title) { setSpotAddress(coords.title); return; }
+        if (coords.address) { setSpotAddress(coords.address); return; }
         if (!MAPBOX_TOKEN) { setSpotAddress("Street Spot"); return; }
 
         setSpotAddress("Resolving address...");
-        fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${spot.lng},${spot.lat}.json?types=address&access_token=${MAPBOX_TOKEN}&limit=1`)
+        fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${coords.lng},${coords.lat}.json?types=address&access_token=${MAPBOX_TOKEN}&limit=1`)
             .then(res => res.json())
             .then(data => {
                 if (data.features && data.features.length > 0) {
                     setSpotAddress(data.features[0].place_name.split(',')[0]);
                 } else {
-                    setSpotAddress(`Coordinates: ${spot.lat.toFixed(4)}, ${spot.lng.toFixed(4)}`);
+                    setSpotAddress(`Coordinates: ${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)}`);
                 }
             })
             .catch(() => { setSpotAddress("Street Spot"); });
-    }, [selectedItem, spotData.freeSpots, MAPBOX_TOKEN]);
+    }, [selectedItem, spotData.freeSpots, userLocation, MAPBOX_TOKEN]);
 
     // User location marker
     useEffect(() => {
@@ -453,6 +456,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 }}
                 onSave={handleSaveSpot}
                 spot={selectedItem}
+                spotAddress={spotAddress}
             />
 
             {holdFlow.isHoldModalOpen && (
@@ -564,7 +568,10 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             <div className="map-blue-tint-soft" />
 
             {showPingConfirmation && (
-                <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 bg-green-500 text-white font-bold py-2 px-4 rounded-lg flex items-center gap-2 shadow-lg"><Check size={20} /><span>spot pinged successfully!</span></div>
+                <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 bg-[#07162c]/95 backdrop-blur-xl border border-emerald-500/30 text-white font-semibold py-3 px-5 rounded-2xl flex items-center gap-2.5 shadow-2xl">
+                    <div className="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0"><Check size={14} className="text-emerald-400" /></div>
+                    <span className="text-sm">Spot pinged! Nearby drivers will be notified</span>
+                </div>
             )}
 
             <div className="sp-overlay flex flex-col justify-between p-3 pointer-events-none">

@@ -1,10 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { MapPin, Clock, Calendar, X } from 'lucide-react';
+import { MapPin, Zap, Clock, X, Check } from 'lucide-react';
 import { StreetSpot } from '../../types';
-import parqueenLogo from '../../assets/Parqueen_Logo.png';
 import { TimePicker } from './TimePicker';
 
-export const SpotModal: React.FC<{ isOpen: boolean; onClose: () => void; onSave: (departure: Date | null) => void; spot?: StreetSpot | null; }> = ({ isOpen, onClose, onSave, spot }) => {
+interface SpotModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    onSave: (departure: Date | null) => void;
+    spot?: StreetSpot | null;
+    spotAddress?: string;
+}
+
+export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, spot, spotAddress }) => {
     const [view, setView] = useState<'main' | 'timePicker'>('main');
     const [departureTime, setDepartureTime] = useState(new Date());
     const [pingType, setPingType] = useState<'now' | 'later'>('now');
@@ -27,35 +34,109 @@ export const SpotModal: React.FC<{ isOpen: boolean; onClose: () => void; onSave:
 
     if (!isOpen) return null;
 
+    const isEditing = !!spot;
+
     return (
         <div className="absolute inset-0 z-30 bg-black/60 backdrop-blur-md flex items-center justify-center p-4">
-            <div className="bg-[#1c1c1e] rounded-3xl p-6 w-full max-w-sm text-white border border-white/10">
-                <div className="flex justify-end"><button onClick={onClose}><X size={20} className="text-gray-400" /></button></div>
+            <div className="bg-[#07162c]/95 backdrop-blur-xl rounded-3xl p-6 w-full max-w-sm text-white border border-white/10 shadow-2xl">
+                <div className="flex justify-end">
+                    <button onClick={onClose} className="text-white/40 hover:text-white/70 transition-colors">
+                        <X size={18} />
+                    </button>
+                </div>
+
                 {view === 'main' ? (
                     <>
-                        <div className="text-center">
-                            <img src={parqueenLogo} alt="ParkQueen Logo" className="w-16 h-16 mx-auto mb-4" />
-                            <h2 className="text-2xl font-bold">{spot ? 'Edit Spot' : 'Ping spot'}</h2>
-                            <p className="text-sm text-blue-400">BROADCASTING LIVE</p>
-                        </div>
-                        <div className="my-8 space-y-4">
-                            <div onClick={() => setPingType('now')} className={`rounded-lg p-4 flex items-center gap-4 cursor-pointer ${pingType === 'now' ? 'bg-blue-500/30 border border-blue-400' : 'bg-gray-700/50 border border-gray-600'}`}>
-                                <Clock size={24} />
-                                <div><h3 className="font-bold">Leaving Now</h3><p className="text-xs text-gray-300">IMMEDIATE SPOT</p></div>
+                        <div className="flex items-center gap-3 mb-1">
+                            <div className="w-[34px] h-[34px] rounded-full bg-gradient-to-tr from-blue-600 to-cyan-500 flex items-center justify-center shrink-0">
+                                <MapPin size={16} className="text-white" />
                             </div>
-                            <div onClick={() => { setPingType('later'); setView('timePicker'); }} className={`rounded-lg p-4 flex items-center gap-4 cursor-pointer ${pingType === 'later' ? 'bg-blue-500/30 border border-blue-400' : 'bg-gray-700/50 border border-gray-600'}`}>
-                                <Calendar size={24} />
-                                <div><h3 className="font-bold">Later Today</h3><p className="text-xs text-gray-300">{pingType === 'later' ? departureTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'SCHEDULED SPOT'}</p></div>
-                            </div>
+                            <h2 className="text-lg font-bold leading-snug">{isEditing ? 'Edit spot' : 'When are you leaving?'}</h2>
                         </div>
-                        <button onClick={handleSetTime} className="w-full bg-blue-500 text-white font-bold py-3 rounded-lg flex items-center justify-center gap-2"><MapPin size={20} /><span>{spot ? 'UPDATE' : 'PING'}</span></button>
+                        <p className="text-[11px] text-white/40 ml-[46px] mb-6">{spotAddress || 'Locating...'}</p>
+
+                        <div className="space-y-3">
+                            <button
+                                onClick={() => setPingType('now')}
+                                className={`w-full rounded-2xl p-3.5 flex items-center gap-3 transition-all ${
+                                    pingType === 'now'
+                                        ? 'bg-blue-500/15 border border-blue-400/40'
+                                        : 'bg-white/5 border border-white/10 hover:bg-white/8'
+                                }`}
+                            >
+                                <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                                    pingType === 'now' ? 'bg-blue-500/20 text-blue-400' : 'bg-white/5 text-white/50'
+                                }`}>
+                                    <Zap size={18} />
+                                </div>
+                                <div className="flex-1 text-left">
+                                    <div className="text-sm font-bold">Leaving Now</div>
+                                    <div className="text-[11px] text-white/40">Spot opens immediately</div>
+                                </div>
+                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                                    pingType === 'now' ? 'border-blue-400 bg-blue-500' : 'border-white/20'
+                                }`}>
+                                    {pingType === 'now' && <Check size={12} className="text-white" />}
+                                </div>
+                            </button>
+
+                            <button
+                                onClick={() => { setPingType('later'); setView('timePicker'); }}
+                                className={`w-full rounded-2xl p-3.5 flex items-center gap-3 transition-all ${
+                                    pingType === 'later'
+                                        ? 'bg-blue-500/15 border border-blue-400/40'
+                                        : 'bg-white/5 border border-white/10 hover:bg-white/8'
+                                }`}
+                            >
+                                <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                                    pingType === 'later' ? 'bg-blue-500/20 text-blue-400' : 'bg-white/5 text-white/50'
+                                }`}>
+                                    <Clock size={18} />
+                                </div>
+                                <div className="flex-1 text-left">
+                                    <div className="text-sm font-bold">Leaving Later</div>
+                                    <div className="text-[11px] text-white/40">
+                                        {pingType === 'later'
+                                            ? departureTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                                            : 'Set a specific time'}
+                                    </div>
+                                </div>
+                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                                    pingType === 'later' ? 'border-blue-400 bg-blue-500' : 'border-white/20'
+                                }`}>
+                                    {pingType === 'later' && <Check size={12} className="text-white" />}
+                                </div>
+                            </button>
+                        </div>
+
+                        <button
+                            onClick={handleSetTime}
+                            className="w-full mt-6 font-bold py-3 rounded-full flex items-center justify-center gap-2 text-white active:scale-95 transition-transform"
+                            style={{ background: 'linear-gradient(90deg, #378ADD, #1D9E75)' }}
+                        >
+                            <MapPin size={18} />
+                            <span>{isEditing ? 'Confirm' : 'Ping'}</span>
+                        </button>
                     </>
                 ) : (
                     <>
-                        <div className="text-center"><Clock size={24} className="mx-auto text-blue-400 mb-2" /><h2 className="text-2xl font-bold">Time Picker</h2><p className="text-sm text-gray-400">LATER DEPARTURE</p></div>
-                        <div className="my-8"><TimePicker initialTime={departureTime} onTimeChange={setDepartureTime} /></div>
-                        <button onClick={() => { setPingType('later'); setView('main'); }} className="w-full bg-blue-500 text-white font-bold py-3 rounded-lg">Set Time</button>
-                        <button onClick={() => setView('main')} className="w-full text-center mt-2 text-gray-400 text-sm">CANCEL</button>
+                        <div className="text-center mb-6">
+                            <Clock size={24} className="mx-auto text-blue-400 mb-2" />
+                            <h2 className="text-lg font-bold">Set departure time</h2>
+                        </div>
+                        <div className="mb-6">
+                            <TimePicker initialTime={departureTime} onTimeChange={setDepartureTime} />
+                        </div>
+                        <button
+                            onClick={() => { setPingType('later'); setView('main'); }}
+                            className="w-full font-bold py-3 rounded-full text-white active:scale-95 transition-transform"
+                            style={{ background: 'linear-gradient(90deg, #378ADD, #1D9E75)' }}
+                        >
+                            Set Time
+                        </button>
+                        <button onClick={() => setView('main')} className="w-full text-center mt-2 text-white/40 hover:text-white/60 text-sm transition-colors">
+                            Cancel
+                        </button>
                     </>
                 )}
             </div>
