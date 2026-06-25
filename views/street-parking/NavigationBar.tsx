@@ -8,7 +8,7 @@ interface NavigationBarProps {
 
 export const NavigationBar: React.FC<NavigationBarProps> = ({ setView }) => {
     return (
-        <div className="w-full max-w-[380px] mx-auto bg-[#07162c]/95 backdrop-blur-xl border border-white/10 rounded-3xl py-2 px-5 flex items-center justify-between shadow-2xl">
+        <div className="w-full max-w-[380px] mx-auto bg-[var(--color-glass)] backdrop-blur-xl border border-[var(--color-border)] rounded-3xl py-2 px-5 flex items-center justify-between shadow-2xl">
             <button
                 onClick={() => setView(AppView.MAP)}
                 className="flex flex-col items-center gap-0.5 text-[#1e75ff] flex-1"
@@ -19,7 +19,7 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({ setView }) => {
 
             <button
                 onClick={() => setView(AppView.PARKING_SPACE)}
-                className="flex flex-col items-center gap-0.5 text-white/50 hover:text-white flex-1 transition-colors"
+                className="flex flex-col items-center gap-0.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text)] flex-1 transition-colors"
             >
                 <Calendar size={18} />
                 <span className="text-[9px] font-medium">Bookings</span>
@@ -27,7 +27,7 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({ setView }) => {
 
             <button
                 onClick={() => alert("Wallet features coming soon!")}
-                className="flex flex-col items-center gap-0.5 text-white/50 hover:text-white flex-1 transition-colors"
+                className="flex flex-col items-center gap-0.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text)] flex-1 transition-colors"
             >
                 <Wallet size={18} />
                 <span className="text-[9px] font-medium">Wallet</span>
@@ -35,7 +35,7 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({ setView }) => {
 
             <button
                 onClick={() => setView(AppView.PROFILE)}
-                className="flex flex-col items-center gap-0.5 text-white/50 hover:text-white flex-1 transition-colors"
+                className="flex flex-col items-center gap-0.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text)] flex-1 transition-colors"
             >
                 <User size={18} />
                 <span className="text-[9px] font-medium">Profile</span>

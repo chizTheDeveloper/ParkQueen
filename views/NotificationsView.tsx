@@ -102,16 +102,16 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
   }, [spots, addresses]);
 
   return (
-    <div className="h-full bg-dark-900 flex flex-col pt-4">
+    <div className="h-full bg-[var(--color-bg)] flex flex-col pt-4">
       {/* Header */}
-      <div className="flex items-center gap-4 px-4 py-4 border-b border-dark-800">
+      <div className="flex items-center gap-4 px-4 py-4 border-b border-[var(--color-border)]">
         <button 
           onClick={onBack} 
-          className="p-2 -ml-2 text-white hover:bg-dark-800 rounded-full transition-colors"
+          className="p-2 -ml-2 text-[var(--color-text)] hover:bg-white/5 rounded-full transition-colors"
         >
           <ArrowLeft size={24} />
         </button>
-        <h1 className="text-xl font-bold text-white">Notifications</h1>
+        <h1 className="text-xl font-bold text-[var(--color-text)]">Notifications</h1>
       </div>
 
       {/* List */}
@@ -145,22 +145,22 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
             return (
               <div 
                 key={spot.id} 
-                className={`flex items-start gap-4 p-4 border-b border-dark-800 hover:bg-dark-800/50 transition-colors cursor-pointer ${
-                  index % 2 === 0 ? 'bg-dark-900' : 'bg-[#151515]'
+                className={`flex items-start gap-4 p-4 border-b border-[var(--color-border)] hover:bg-white/5/50 transition-colors cursor-pointer ${
+                  index % 2 === 0 ? 'bg-[var(--color-bg)]' : 'bg-[var(--color-surface)]'
                 }`}
               >
                 {/* Map Pin Icon Container */}
-                <div className="w-14 h-14 rounded-2xl overflow-hidden shrink-0 border border-dark-700 shadow-sm bg-blue-900/20 flex items-center justify-center text-blue-400">
+                <div className="w-14 h-14 rounded-2xl overflow-hidden shrink-0 border border-[var(--color-border)] shadow-sm bg-blue-900/20 flex items-center justify-center text-blue-400">
                   <MapPin size={24} />
                 </div>
 
                 {/* Content */}
                 <div className="flex-1 min-w-0 pt-0.5">
                   <div className="flex flex-wrap items-baseline gap-x-1 mb-1">
-                    <span className="font-bold text-white text-sm leading-tight">
+                    <span className="font-bold text-[var(--color-text)] text-sm leading-tight">
                       {spot.finderName || "Someone"}
                     </span>
-                    <span className="text-gray-400 text-sm leading-tight">
+                    <span className="text-[var(--color-text-secondary)] text-sm leading-tight">
                       pinged a {spot.type} spot
                     </span>
                   </div>
@@ -176,7 +176,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
 
                 {/* Distance */}
                 {distanceStr && (
-                  <div className="text-gray-400 text-xs font-medium whitespace-nowrap self-end mb-1">
+                  <div className="text-[var(--color-text-secondary)] text-xs font-medium whitespace-nowrap self-end mb-1">
                     {distanceStr}
                   </div>
                 )}

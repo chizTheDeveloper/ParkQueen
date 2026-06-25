@@ -31,37 +31,37 @@ export const ActivitiesView = ({ user, onBack }: { user: any, onBack: () => void
   }, [user]);
 
   return (
-    <div className="min-h-full bg-dark-900 text-white pt-4 pb-20 px-4 max-w-md mx-auto">
+    <div className="min-h-full bg-[var(--color-bg)] text-[var(--color-text)] pt-4 pb-20 px-4 max-w-md mx-auto">
       {/* Header */}
       <div className="flex items-center gap-4 mb-6">
-        <button onClick={onBack} className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-white/10 text-white hover:bg-white/10 transition-all shrink-0">
+        <button onClick={onBack} className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] text-[var(--color-text)] hover:bg-white/10 transition-all shrink-0">
           <ChevronLeft size={20} />
         </button>
         <div>
-          <h1 className="text-xl font-bold text-white tracking-wide">Parking Space</h1>
-          <p className="text-xs text-gray-400">Manage your active and past parking spot pings</p>
+          <h1 className="text-xl font-bold text-[var(--color-text)] tracking-wide">Parking Space</h1>
+          <p className="text-xs text-[var(--color-text-secondary)]">Manage your active and past parking spot pings</p>
         </div>
       </div>
 
       <div>
-        <h2 className="font-bold text-gray-400 text-xs uppercase tracking-wider mb-3 px-1">Previous Activities</h2>
+        <h2 className="font-bold text-[var(--color-text-secondary)] text-xs uppercase tracking-wider mb-3 px-1">Previous Activities</h2>
         {loading ? (
             <div className="flex justify-center p-10"><div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full"></div></div>
         ) : activities.length === 0 ? (
-            <div className="text-center p-10 text-gray-500 bg-[#07162c]/40 border border-white/5 backdrop-blur-md rounded-2xl">
+            <div className="text-center p-10 text-gray-500 bg-[var(--color-card)] border border-[var(--color-border)] backdrop-blur-md rounded-2xl">
                 <MapPin className="mx-auto mb-3.5 text-gray-500 opacity-80" size={32} />
                 <p className="text-sm">No parking activities found.</p>
             </div>
         ) : (
             <div className="space-y-3">
                 {activities.map((activity) => (
-                    <div key={activity.id} className="bg-[#07162c]/60 border border-white/5 backdrop-blur-md rounded-2xl p-4 flex items-center gap-4 text-left transition-all hover:bg-[#0b2240]/60 relative">
+                    <div key={activity.id} className="bg-[var(--color-card)] border border-[var(--color-border)] backdrop-blur-md rounded-2xl p-4 flex items-center gap-4 text-left transition-all hover:bg-[#0b2240]/60 relative">
                         <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0">
                             <MapPin size={20} />
                         </div>
                         <div className="flex-1 min-w-0">
-                            <h3 className="font-bold text-white text-base truncate">{activity.type === 'free' ? 'Street Parking' : 'Paid Spot'}</h3>
-                            <p className="text-xs text-gray-400 flex items-center gap-1.5 mt-1">
+                            <h3 className="font-bold text-[var(--color-text)] text-base truncate">{activity.type === 'free' ? 'Street Parking' : 'Paid Spot'}</h3>
+                            <p className="text-xs text-[var(--color-text-secondary)] flex items-center gap-1.5 mt-1">
                                 <Clock size={13} className="text-gray-500 shrink-0" /> 
                                 <span>{activity.reportedAt ? activity.reportedAt.toDate().toLocaleString() : 'Unknown time'}</span>
                             </p>

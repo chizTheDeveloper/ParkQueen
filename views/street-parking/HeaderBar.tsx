@@ -64,16 +64,16 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 }) => {
     return (
         <header style={{ paddingTop: 'env(safe-area-inset-top)' }} className="w-full flex flex-col gap-1.5 pointer-events-auto">
-            <div className="w-full max-w-[380px] mx-auto bg-[#07162c]/85 backdrop-blur-xl border border-white/10 rounded-full h-[50px] px-3.5 flex items-center justify-between shadow-xl transition-all duration-300">
+            <div className="w-full max-w-[380px] mx-auto bg-[var(--color-card)] backdrop-blur-xl border border-[var(--color-border)] rounded-full h-[50px] px-3.5 flex items-center justify-between shadow-xl transition-all duration-300">
                 <UserAvatar user={user} onClick={() => setView(AppView.PROFILE)} />
 
                 <div className="flex-1 mx-2.5 flex items-center gap-2.5">
-                    <Search size={17} className="text-gray-400" />
+                    <Search size={17} className="text-[var(--color-text-secondary)]" />
                     <input
                         ref={inputRef}
                         type="text"
                         placeholder="Search location..."
-                        className="bg-transparent border-none outline-none text-white text-[14px] w-full placeholder-gray-400 font-medium"
+                        className="bg-transparent border-none outline-none text-[var(--color-text)] text-[14px] w-full placeholder-[var(--color-text-secondary)] font-medium"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         onFocus={() => setSearchOpen(true)}
@@ -125,8 +125,8 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                 </div>
 
                 {searchOpen && (loading || results.length > 0) && (
-                    <div className="absolute left-0 right-0 mt-2 top-full z-[9999] bg-[#07162c]/95 backdrop-blur-xl rounded-2xl max-h-60 overflow-y-auto border border-white/10 shadow-2xl p-2">
-                        {loading && <div className="px-4 py-3 text-white/60 text-xs">Searching…</div>}
+                    <div className="absolute left-0 right-0 mt-2 top-full z-[9999] bg-[var(--color-glass)] backdrop-blur-xl rounded-2xl max-h-60 overflow-y-auto border border-[var(--color-border)] shadow-2xl p-2">
+                        {loading && <div className="px-4 py-3 text-[var(--color-text-secondary)] text-xs">Searching…</div>}
 
                         {!loading && results.map((r: any) => (
                             <button
@@ -145,8 +145,8 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                                 }}
                                 className="w-full text-left px-3 py-2 hover:bg-white/5 rounded-xl transition-colors"
                             >
-                                <div className="text-white font-medium text-xs">{r.text}</div>
-                                <div className="text-[10px] text-white/50">{r.place_name}</div>
+                                <div className="text-[var(--color-text)] font-medium text-xs">{r.text}</div>
+                                <div className="text-[10px] text-[var(--color-text-secondary)]">{r.place_name}</div>
                             </button>
                         ))}
                     </div>
@@ -155,7 +155,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 
             {searchOpen && (
                 <div className="w-full max-w-[380px] mx-auto flex justify-end">
-                    <button onClick={handleCancelSearch} className="text-[#38bdf8] font-bold text-[10px] bg-white/5 border border-white/10 rounded-full py-1 px-3 mt-1">
+                    <button onClick={handleCancelSearch} className="text-[#38bdf8] font-bold text-[10px] bg-white/5 border border-[var(--color-border)] rounded-full py-1 px-3 mt-1">
                         Cancel Search
                     </button>
                 </div>

@@ -1,3 +1,26 @@
+:root {
+  --color-bg: #F7FAFC;
+  --color-surface: #FFFFFF;
+  --color-text: #0C2238;
+  --color-text-secondary: rgba(12, 34, 56, 0.55);
+  --color-border: rgba(12, 34, 56, 0.12);
+  --color-card: rgba(255, 255, 255, 0.85);
+  --color-glass: rgba(255, 255, 255, 0.75);
+  --color-glass-border: rgba(12, 34, 56, 0.1);
+  --color-overlay: rgba(255, 255, 255, 0.04);
+}
+.dark {
+  --color-bg: #07162c;
+  --color-surface: #0c1b30;
+  --color-text: #ffffff;
+  --color-text-secondary: rgba(255, 255, 255, 0.55);
+  --color-border: rgba(255, 255, 255, 0.1);
+  --color-card: rgba(7, 22, 44, 0.6);
+  --color-glass: rgba(7, 22, 44, 0.85);
+  --color-glass-border: rgba(255, 255, 255, 0.1);
+  --color-overlay: rgba(255, 255, 255, 0.04);
+}
+
 html, body, #root {
   height: 100%;
   margin: 0;
@@ -9,7 +32,7 @@ html, body, #root {
   height: 100%;
   min-height: 100dvh;
   overflow: hidden;
-  background: #071426;
+  background: var(--color-bg);
 }
 
 .sp-map {
@@ -36,29 +59,29 @@ html, body, #root {
 
 /* Glassmorphism Styles */
 .glass-panel {
-  background: rgba(11, 26, 48, 0.65);
+  background: var(--color-glass);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--color-glass-border);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.1);
 }
 
 .glass-panel-hover {
   transition: all 0.3s ease;
 }
 .glass-panel-hover:hover {
-  background: rgba(11, 26, 48, 0.85);
+  background: var(--color-glass);
   border-color: rgba(30, 117, 255, 0.3);
   box-shadow: 0 8px 32px 0 rgba(30, 117, 255, 0.15);
 }
 
 .glass-button {
-  background: rgba(11, 26, 48, 0.6);
+  background: var(--color-glass);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.3);
-  color: white;
+  border: 1px solid var(--color-glass-border);
+  box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.1);
+  color: var(--color-text);
   transition: all 0.2s ease;
 }
 .glass-button:hover {
@@ -105,9 +128,12 @@ html, body, #root {
 .map-blue-tint-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(10, 30, 60, 0.2);
+  background: rgba(10, 30, 60, 0.08);
   pointer-events: none;
   z-index: 1;
+}
+.dark .map-blue-tint-overlay {
+  background: rgba(10, 30, 60, 0.2);
 }
 
 .map-blue-tint-soft {

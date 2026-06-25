@@ -44,11 +44,11 @@ export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({ phone, onVerif
     const allFilled = digits.every(d => d !== '');
 
     return (
-        <div className="h-full w-full bg-[#07162c] flex flex-col px-7 pt-14">
+        <div className="h-full w-full bg-[var(--color-bg)] flex flex-col px-7 pt-14">
             <div>
                 <ProgressBar step={2} />
-                <h1 className="text-[24px] font-bold text-white leading-tight">Enter your code</h1>
-                <p className="text-[15px] text-white/50 mt-2">
+                <h1 className="text-[24px] font-bold text-[var(--color-text)] leading-tight">Enter your code</h1>
+                <p className="text-[15px] text-[var(--color-text-secondary)] mt-2">
                     Sent to {phone}{' '}
                     <button onClick={onEditNumber} className="text-blue-400 font-semibold">Edit</button>
                 </p>
@@ -64,13 +64,13 @@ export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({ phone, onVerif
                             value={d}
                             onChange={e => handleChange(i, e.target.value)}
                             onKeyDown={e => handleKeyDown(i, e)}
-                            className="w-12 h-14 bg-white/5 border border-white/10 rounded-2xl text-center text-white text-xl font-bold outline-none focus:border-blue-500 transition-all"
+                            className="w-12 h-14 bg-white/5 border border-[var(--color-border)] rounded-2xl text-center text-[var(--color-text)] text-xl font-bold outline-none focus:border-blue-500 transition-all"
                             autoFocus={i === 0}
                         />
                     ))}
                 </div>
 
-                <p className="text-center text-[14px] text-white/40 mt-6">
+                <p className="text-center text-[14px] text-[var(--color-text-secondary)] mt-6">
                     {cooldown > 0 ? (
                         <>Resend code in {cooldown}s</>
                     ) : (

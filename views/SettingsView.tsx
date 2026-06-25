@@ -15,8 +15,8 @@ interface SettingsViewProps {
 }
 
 const Toggle = ({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) => (
-    <button onClick={() => onChange(!checked)} className="relative shrink-0 w-11 h-6 rounded-full transition-colors" style={{ backgroundColor: checked ? '#1e75ff' : 'rgba(255,255,255,0.1)' }}>
-        <div className={`absolute top-0.5 left-[2px] w-5 h-5 bg-white rounded-full transition-transform ${checked ? 'translate-x-5' : ''}`} />
+    <button onClick={() => onChange(!checked)} className={`relative shrink-0 w-11 h-6 rounded-full transition-colors ${checked ? 'bg-[#1e75ff]' : 'bg-[var(--color-border)]'}`}>
+        <div className={`absolute top-0.5 left-[2px] w-5 h-5 rounded-full shadow transition-transform ${checked ? 'translate-x-5 bg-white' : 'bg-white dark:bg-gray-300'}`} />
     </button>
 );
 
@@ -33,29 +33,29 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
     };
 
     return (
-        <div className="min-h-full bg-dark-900 text-white pt-4 pb-20 px-4">
+        <div className="min-h-full bg-[var(--color-bg)] text-[var(--color-text)] pt-4 pb-20 px-4">
             <div className="max-w-md mx-auto flex flex-col">
                 <div className="flex items-center gap-4 mb-6">
-                    <button onClick={onBack} className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-white/10 text-white hover:bg-white/10 transition-all shrink-0">
+                    <button onClick={onBack} className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] text-[var(--color-text)] hover:bg-white/10 transition-all shrink-0">
                         <ChevronLeft size={20} />
                     </button>
-                    <h2 className="text-xl font-bold text-white tracking-wide">Settings</h2>
+                    <h2 className="text-xl font-bold text-[var(--color-text)] tracking-wide">Settings</h2>
                 </div>
 
                 <div className="space-y-6">
                     {/* Account */}
                     <div>
-                        <h3 className="font-bold text-gray-400 text-xs uppercase tracking-wider mb-2.5 px-1">Account</h3>
-                        <div className="bg-[#07162c]/60 border border-white/5 backdrop-blur-md rounded-2xl divide-y divide-white/5 overflow-hidden">
+                        <h3 className="font-bold text-[var(--color-text-secondary)] text-xs uppercase tracking-wider mb-2.5 px-1">Account</h3>
+                        <div className="bg-[var(--color-card)] border border-[var(--color-border)] backdrop-blur-md rounded-2xl divide-y divide-[var(--color-border)] overflow-hidden">
                             <button onClick={() => setView(AppView.EDIT_PROFILE)} className="w-full p-4 flex items-center justify-between text-left hover:bg-[#0b2240]/40 transition-colors">
                                 <div className="flex items-center gap-3.5">
                                     <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><Edit size={18} /></div>
                                     <div>
-                                        <h4 className="font-bold text-white text-sm">Edit profile</h4>
-                                        <p className="text-xs text-gray-400 mt-0.5">Update your information</p>
+                                        <h4 className="font-bold text-[var(--color-text)] text-sm">Edit profile</h4>
+                                        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Update your information</p>
                                     </div>
                                 </div>
-                                <ChevronLeft size={16} className="text-gray-400 rotate-180" />
+                                <ChevronLeft size={16} className="text-[var(--color-text-secondary)] rotate-180" />
                             </button>
                             <div className="w-full p-4">
                                 {editingEmail ? (
@@ -67,7 +67,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                                                 value={emailDraft}
                                                 onChange={(e) => setEmailDraft(e.target.value)}
                                                 placeholder="you@example.com"
-                                                className="w-full bg-[#07162c]/60 border border-white/10 rounded-xl px-3 py-2 text-white text-sm outline-none focus:border-[#1e75ff] transition-all"
+                                                className="w-full bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-[var(--color-text)] text-sm outline-none focus:border-[#1e75ff] transition-all"
                                                 autoFocus
                                             />
                                         </div>
@@ -88,16 +88,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                                         <div className="flex items-center gap-3.5">
                                             <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><Mail size={18} /></div>
                                             <div>
-                                                <h4 className="font-bold text-white text-sm">Email address</h4>
+                                                <h4 className="font-bold text-[var(--color-text)] text-sm">Email address</h4>
                                                 <div className="flex items-center gap-2 mt-0.5">
-                                                    <p className="text-xs text-gray-400">{user?.email || 'Add email'}</p>
+                                                    <p className="text-xs text-[var(--color-text-secondary)]">{user?.email || 'Add email'}</p>
                                                     {user?.email && !user?.emailVerified && (
                                                         <span className="text-[9px] font-bold text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded">Unverified</span>
                                                     )}
                                                 </div>
                                             </div>
                                         </div>
-                                        <ChevronLeft size={16} className="text-gray-400 rotate-180" />
+                                        <ChevronLeft size={16} className="text-[var(--color-text-secondary)] rotate-180" />
                                     </button>
                                 )}
                             </div>
@@ -106,14 +106,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
 
                     {/* Preferences */}
                     <div>
-                        <h3 className="font-bold text-gray-400 text-xs uppercase tracking-wider mb-2.5 px-1">Preferences</h3>
-                        <div className="bg-[#07162c]/60 border border-white/5 backdrop-blur-md rounded-2xl divide-y divide-white/5 overflow-hidden">
+                        <h3 className="font-bold text-[var(--color-text-secondary)] text-xs uppercase tracking-wider mb-2.5 px-1">Preferences</h3>
+                        <div className="bg-[var(--color-card)] border border-[var(--color-border)] backdrop-blur-md rounded-2xl divide-y divide-[var(--color-border)] overflow-hidden">
                             <div className="w-full p-4 flex items-center justify-between">
                                 <div className="flex items-center gap-3.5">
                                     <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><Bell size={18} /></div>
                                     <div>
-                                        <h4 className="font-bold text-white text-sm">Notifications</h4>
-                                        <p className="text-xs text-gray-400 mt-0.5">Spot alerts and updates</p>
+                                        <h4 className="font-bold text-[var(--color-text)] text-sm">Notifications</h4>
+                                        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Spot alerts and updates</p>
                                     </div>
                                 </div>
                                 <Toggle checked={notificationsEnabled} onChange={(v) => { setNotificationsEnabled(v); updatePref('notificationsEnabled', v); }} />
@@ -122,8 +122,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                                 <div className="flex items-center gap-3.5">
                                     <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><MapPin size={18} /></div>
                                     <div>
-                                        <h4 className="font-bold text-white text-sm">Share precise location</h4>
-                                        <p className="text-xs text-gray-400 mt-0.5">Used for nearby spot detection</p>
+                                        <h4 className="font-bold text-[var(--color-text)] text-sm">Share precise location</h4>
+                                        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Used for nearby spot detection</p>
                                     </div>
                                 </div>
                                 {/* ponytail: sharePreciseLocation needs checking in StreetParkingView's geolocation watch when wired up */}
@@ -133,8 +133,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                                 <div className="flex items-center gap-3.5">
                                     <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><Moon size={18} /></div>
                                     <div>
-                                        <h4 className="font-bold text-white text-sm">Dark theme</h4>
-                                        <p className="text-xs text-gray-400 mt-0.5">{theme === 'dark' ? 'On' : 'Off'}</p>
+                                        <h4 className="font-bold text-[var(--color-text)] text-sm">Dark theme</h4>
+                                        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{theme === 'dark' ? 'On' : 'Off'}</p>
                                     </div>
                                 </div>
                                 <Toggle checked={theme === 'dark'} onChange={toggleTheme} />
@@ -144,7 +144,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
 
                     {/* Danger Zone */}
                     <div>
-                        <h3 className="font-bold text-gray-400 text-xs uppercase tracking-wider mb-2.5 px-1">Danger Zone</h3>
+                        <h3 className="font-bold text-[var(--color-text-secondary)] text-xs uppercase tracking-wider mb-2.5 px-1">Danger Zone</h3>
                         <div className="space-y-3">
                             <button onClick={onLogout} className="w-full border border-[#1e75ff]/30 bg-transparent text-[#38bdf8] hover:bg-[#1e75ff]/10 active:scale-95 font-bold py-3.5 rounded-xl flex items-center justify-center gap-2.5 transition-all text-sm">
                                 <LogOut size={16} />

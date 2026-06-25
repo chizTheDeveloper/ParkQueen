@@ -73,32 +73,32 @@ const TimePicker = ({ label, value, onChange, onClose }) => {
 
   return (
       <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center">
-          <div className="bg-dark-800 w-full max-w-sm sm:rounded-2xl rounded-t-3xl p-6 shadow-2xl animate-in slide-in-from-bottom-10 border border-dark-700">
+          <div className="bg-[var(--color-surface)] w-full max-w-sm sm:rounded-2xl rounded-t-3xl p-6 shadow-2xl animate-in slide-in-from-bottom-10 border border-[var(--color-border)]">
               <div className="flex justify-between items-center mb-6">
-                  <h3 className="text-xl font-bold text-white">{label}</h3>
-                  <button onClick={onClose}><X className="text-gray-400" /></button>
+                  <h3 className="text-xl font-bold text-[var(--color-text)]">{label}</h3>
+                  <button onClick={onClose}><X className="text-[var(--color-text-secondary)]" /></button>
               </div>
               
               <div className="flex gap-2 justify-center mb-8 h-48">
-                  <div className="flex-1 overflow-y-auto no-scrollbar bg-dark-900 rounded-xl border border-dark-700 text-center py-2">
+                  <div className="flex-1 overflow-y-auto no-scrollbar bg-[var(--color-bg)] rounded-xl border border-[var(--color-border)] text-center py-2">
                       <div className="text-xs text-gray-500 mb-2 font-bold uppercase">Hour</div>
                       {[1,2,3,4,5,6,7,8,9,10,11,12].map(h => (
-                          <button key={h} onClick={() => setHour(h)} className={`block w-full py-2 ${hour === h ? 'text-queen-400 font-bold text-xl bg-queen-900/20' : 'text-gray-400'}`}>
+                          <button key={h} onClick={() => setHour(h)} className={`block w-full py-2 ${hour === h ? 'text-queen-400 font-bold text-xl bg-queen-900/20' : 'text-[var(--color-text-secondary)]'}`}>
                               {h}
                           </button>
                       ))}
                   </div>
-                  <div className="flex-1 overflow-y-auto no-scrollbar bg-dark-900 rounded-xl border border-dark-700 text-center py-2">
+                  <div className="flex-1 overflow-y-auto no-scrollbar bg-[var(--color-bg)] rounded-xl border border-[var(--color-border)] text-center py-2">
                        <div className="text-xs text-gray-500 mb-2 font-bold uppercase">Min</div>
                       {[0, 15, 30, 45].map(m => (
-                          <button key={m} onClick={() => setMinute(m)} className={`block w-full py-2 ${minute === m ? 'text-queen-400 font-bold text-xl bg-queen-900/20' : 'text-gray-400'}`}>
+                          <button key={m} onClick={() => setMinute(m)} className={`block w-full py-2 ${minute === m ? 'text-queen-400 font-bold text-xl bg-queen-900/20' : 'text-[var(--color-text-secondary)]'}`}>
                               {m.toString().padStart(2, '0')}
                           </button>
                       ))}
                   </div>
-                  <div className="flex-1 bg-dark-900 rounded-xl border border-dark-700 text-center py-2 flex flex-col justify-center gap-2">
-                       <button onClick={() => setPeriod('AM')} className={`py-3 rounded-lg mx-2 ${period === 'AM' ? 'bg-queen-500 text-white font-bold' : 'text-gray-400 hover:bg-dark-800'}`}>AM</button>
-                       <button onClick={() => setPeriod('PM')} className={`py-3 rounded-lg mx-2 ${period === 'PM' ? 'bg-queen-500 text-white font-bold' : 'text-gray-400 hover:bg-dark-800'}`}>PM</button>
+                  <div className="flex-1 bg-[var(--color-bg)] rounded-xl border border-[var(--color-border)] text-center py-2 flex flex-col justify-center gap-2">
+                       <button onClick={() => setPeriod('AM')} className={`py-3 rounded-lg mx-2 ${period === 'AM' ? 'bg-queen-500 text-white font-bold' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface)]'}`}>AM</button>
+                       <button onClick={() => setPeriod('PM')} className={`py-3 rounded-lg mx-2 ${period === 'PM' ? 'bg-queen-500 text-white font-bold' : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface)]'}`}>PM</button>
                   </div>
               </div>
 
@@ -123,27 +123,27 @@ const CustomDropdown = ({ label, options, value, onChange, icon: Icon }) => {
     <div className="relative">
        <button 
          onClick={() => setIsOpen(!isOpen)}
-         className="w-full bg-dark-800 border border-dark-700 rounded-2xl p-4 flex items-center justify-between group hover:border-queen-500 transition-colors"
+         className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl p-4 flex items-center justify-between group hover:border-queen-500 transition-colors"
        >
          <div className="flex items-center gap-4">
-            <div className={`p-2 rounded-xl ${value ? 'bg-queen-900/30 text-queen-400' : 'bg-dark-700 text-gray-500'}`}>
+            <div className={`p-2 rounded-xl ${value ? 'bg-queen-900/30 text-queen-400' : 'bg-[var(--color-card)] text-gray-500'}`}>
                 {Icon ? <Icon size={20} /> : <Car size={20} />}
             </div>
             <div className="text-left">
                 <div className="text-xs text-gray-500 mb-0.5">{label}</div>
-                <div className={`font-bold ${value ? 'text-white' : 'text-gray-400'}`}>{value || `Select ${label}`}</div>
+                <div className={`font-bold ${value ? 'text-[var(--color-text)]' : 'text-[var(--color-text-secondary)]'}`}>{value || `Select ${label}`}</div>
             </div>
          </div>
          <ChevronDown size={20} className={`text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
        </button>
        
        {isOpen && (
-         <div className="absolute top-full left-0 right-0 mt-2 bg-dark-800 border border-dark-700 rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+         <div className="absolute top-full left-0 right-0 mt-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             {options.map((opt) => (
                 <button 
                   key={opt}
                   onClick={() => { onChange(opt); setIsOpen(false); }}
-                  className="w-full text-left px-5 py-4 hover:bg-dark-700 text-white border-b border-dark-700 last:border-0 font-medium"
+                  className="w-full text-left px-5 py-4 hover:bg-white/5 text-[var(--color-text)] border-b border-[var(--color-border)] last:border-0 font-medium"
                 >
                     {opt}
                 </button>
@@ -201,27 +201,27 @@ const LocationPicker = ({ onConfirm, onBack }) => {
     }, []);
 
     return (
-        <div className="fixed inset-0 z-[60] bg-dark-900 flex flex-col">
+        <div className="fixed inset-0 z-[60] bg-[var(--color-bg)] flex flex-col">
             <div className="absolute top-0 left-0 right-0 p-4 z-[400] flex items-center gap-4 bg-gradient-to-b from-black/80 to-transparent">
-                <button onClick={onBack} className="p-2 bg-dark-800/80 backdrop-blur rounded-full text-white hover:bg-dark-700">
+                <button onClick={onBack} className="p-2 bg-[var(--color-surface)]/80 backdrop-blur rounded-full text-[var(--color-text)] hover:bg-white/5">
                     <ChevronLeft size={24} />
                 </button>
-                <div className="flex-1 bg-[#07162c]/80 border border-white/10 rounded-xl shadow-lg flex items-center px-4 h-12 text-white">
-                    <Search className="text-gray-400 mr-2" size={20} />
-                    <input type="text" placeholder="Search for area, Street Name" className="flex-1 bg-transparent border-none outline-none text-white placeholder-gray-500 text-sm" />
+                <div className="flex-1 bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl shadow-lg flex items-center px-4 h-12 text-[var(--color-text)]">
+                    <Search className="text-[var(--color-text-secondary)] mr-2" size={20} />
+                    <input type="text" placeholder="Search for area, Street Name" className="flex-1 bg-transparent border-none outline-none text-[var(--color-text)] placeholder-[var(--color-text-secondary)] text-sm" />
                 </div>
             </div>
-            <div ref={mapContainerRef} className="flex-1 bg-dark-800 z-0" />
-            <div className="bg-[#07162c]/95 border-t border-white/10 text-white backdrop-blur-lg rounded-t-3xl p-6 pb-8 shadow-2xl animate-in slide-in-from-bottom-10 z-10 relative">
-                 <button className="w-full mb-6 py-3 border border-white/10 bg-white/5 rounded-xl flex items-center justify-center gap-2 text-[#38bdf8] font-bold hover:bg-white/10 transition-colors">
+            <div ref={mapContainerRef} className="flex-1 bg-[var(--color-surface)] z-0" />
+            <div className="bg-[var(--color-glass)] border-t border-[var(--color-border)] text-[var(--color-text)] backdrop-blur-lg rounded-t-3xl p-6 pb-8 shadow-2xl animate-in slide-in-from-bottom-10 z-10 relative">
+                 <button className="w-full mb-6 py-3 border border-[var(--color-border)] bg-white/5 rounded-xl flex items-center justify-center gap-2 text-[#38bdf8] font-bold hover:bg-white/10 transition-colors">
                      <Navigation size={18} />
                      Use Current Location
                  </button>
                  <div className="flex items-start gap-3 mb-6">
                      <MapPin className="text-[#38bdf8] shrink-0 mt-1" size={24} fill="currentColor" fillOpacity={0.2} />
                      <div>
-                          <h3 className="font-bold text-lg text-white">{address}</h3>
-                          <p className="text-gray-400 text-sm">{subAddress}</p>
+                          <h3 className="font-bold text-lg text-[var(--color-text)]">{address}</h3>
+                          <p className="text-[var(--color-text-secondary)] text-sm">{subAddress}</p>
                      </div>
                  </div>
                  <button onClick={() => onConfirm(`${address}, ${subAddress}`)} className="w-full bg-[#1e75ff] hover:bg-blue-600 text-white font-bold py-4 rounded-2xl shadow-md shadow-blue-500/20 active:scale-[0.98] transition-all">
@@ -252,16 +252,16 @@ export const GarageRentalView = () => {
   );
 
   const renderAddForm = () => (
-      <div className="fixed inset-0 z-50 bg-dark-900 overflow-y-auto no-scrollbar flex flex-col">
-          <div className="sticky top-0 bg-dark-900/95 backdrop-blur-md border-b border-dark-800 p-4 flex items-center gap-4 z-10">
-              <button onClick={() => setIsAddingSpace(false)} className="p-2 hover:bg-dark-800 rounded-full text-white">
+      <div className="fixed inset-0 z-50 bg-[var(--color-bg)] overflow-y-auto no-scrollbar flex flex-col">
+          <div className="sticky top-0 bg-[var(--color-bg)]/95 backdrop-blur-md border-b border-[var(--color-border)] p-4 flex items-center gap-4 z-10">
+              <button onClick={() => setIsAddingSpace(false)} className="p-2 hover:bg-[var(--color-surface)] rounded-full text-[var(--color-text)]">
                   <ChevronLeft size={24} />
               </button>
-              <h2 className="text-lg font-bold text-white">Add Your Parking Space</h2>
+              <h2 className="text-lg font-bold text-[var(--color-text)]">Add Your Parking Space</h2>
           </div>
           <div className="p-5 space-y-8 pb-32">
               <section>
-                  <h3 className="text-gray-400 text-sm mb-3">Upload Space Photo <span className="text-xs opacity-50 block">Max 2 Mb File Upload</span></h3>
+                  <h3 className="text-[var(--color-text-secondary)] text-sm mb-3">Upload Space Photo <span className="text-xs opacity-50 block">Max 2 Mb File Upload</span></h3>
                   <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2">
                       <button className="w-24 h-24 shrink-0 rounded-2xl border-2 border-dashed border-queen-500/50 bg-queen-500/10 flex items-center justify-center text-queen-500 hover:bg-queen-500/20 transition-colors">
                           <Camera size={24} />
@@ -277,82 +277,82 @@ export const GarageRentalView = () => {
                   </div>
               </section>
               <section className="space-y-4">
-                  <h3 className="text-gray-400 text-sm font-medium">Owner Details</h3>
-                  <div className="bg-dark-800 border border-dark-700 rounded-2xl px-4 py-3 flex items-center gap-3">
-                      <div className="p-2 bg-dark-700 rounded-lg text-gray-400"><User size={18} /></div>
+                  <h3 className="text-[var(--color-text-secondary)] text-sm font-medium">Owner Details</h3>
+                  <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl px-4 py-3 flex items-center gap-3">
+                      <div className="p-2 bg-[var(--color-card)] rounded-lg text-[var(--color-text-secondary)]"><User size={18} /></div>
                       <div className="flex-1">
                           <div className="text-[10px] text-gray-500 uppercase font-bold">Parking Name</div>
-                          <input type="text" placeholder="Parking Name" className="w-full bg-transparent border-none outline-none text-white placeholder-gray-600 text-sm font-medium" />
+                          <input type="text" placeholder="Parking Name" className="w-full bg-transparent border-none outline-none text-[var(--color-text)] placeholder-[var(--color-text-secondary)] text-sm font-medium" />
                       </div>
                   </div>
-                  <div className="bg-dark-800 border border-dark-700 rounded-2xl px-4 py-3 flex items-center gap-3">
-                      <div className="p-2 bg-dark-700 rounded-lg text-gray-400"><Mail size={18} /></div>
+                  <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl px-4 py-3 flex items-center gap-3">
+                      <div className="p-2 bg-[var(--color-card)] rounded-lg text-[var(--color-text-secondary)]"><Mail size={18} /></div>
                       <div className="flex-1">
                           <div className="text-[10px] text-gray-500 uppercase font-bold">Email</div>
-                          <input type="email" defaultValue="johandoe@gmail.com" className="w-full bg-transparent border-none outline-none text-white placeholder-gray-600 text-sm font-medium" />
+                          <input type="email" defaultValue="johandoe@gmail.com" className="w-full bg-transparent border-none outline-none text-[var(--color-text)] placeholder-[var(--color-text-secondary)] text-sm font-medium" />
                       </div>
                   </div>
-                  <div className="bg-dark-800 border border-dark-700 rounded-2xl px-4 py-3 flex items-center gap-3">
-                      <div className="flex items-center gap-1 pr-3 border-r border-dark-600">
+                  <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl px-4 py-3 flex items-center gap-3">
+                      <div className="flex items-center gap-1 pr-3 border-r border-[var(--color-border)]">
                            <img src="https://flagcdn.com/w40/us.png" className="w-5 h-3.5 rounded-sm object-cover" alt="US" />
                            <span className="text-xs font-bold text-white">+1</span>
                       </div>
                       <div className="flex-1">
                           <div className="text-[10px] text-gray-500 uppercase font-bold">Mobile Number</div>
-                          <input type="tel" defaultValue="(324) 4589" className="w-full bg-transparent border-none outline-none text-white placeholder-gray-600 text-sm font-medium" />
+                          <input type="tel" defaultValue="(324) 4589" className="w-full bg-transparent border-none outline-none text-[var(--color-text)] placeholder-[var(--color-text-secondary)] text-sm font-medium" />
                       </div>
                   </div>
               </section>
               <section>
-                  <h3 className="text-gray-400 text-sm font-medium mb-3">Time Availability</h3>
+                  <h3 className="text-[var(--color-text-secondary)] text-sm font-medium mb-3">Time Availability</h3>
                   <div className="flex gap-4">
-                      <button onClick={() => setActiveTimePicker('start')} className="flex-1 bg-dark-800 border border-dark-700 rounded-2xl px-4 py-3 flex items-center gap-3 hover:border-queen-500 transition-colors text-left">
+                      <button onClick={() => setActiveTimePicker('start')} className="flex-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl px-4 py-3 flex items-center gap-3 hover:border-queen-500 transition-colors text-left">
                           <Clock className="text-queen-500" size={20} />
                           <div>
                               <div className="text-xs text-gray-500">From</div>
-                              <div className="text-white font-bold text-lg">{startTime}</div>
+                              <div className="text-[var(--color-text)] font-bold text-lg">{startTime}</div>
                           </div>
                       </button>
-                      <button onClick={() => setActiveTimePicker('end')} className="flex-1 bg-dark-800 border border-dark-700 rounded-2xl px-4 py-3 flex items-center gap-3 hover:border-queen-500 transition-colors text-left">
+                      <button onClick={() => setActiveTimePicker('end')} className="flex-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl px-4 py-3 flex items-center gap-3 hover:border-queen-500 transition-colors text-left">
                           <Clock className="text-queen-500" size={20} />
                           <div>
                               <div className="text-xs text-gray-500">To</div>
-                              <div className="text-white font-bold text-lg">{endTime}</div>
+                              <div className="text-[var(--color-text)] font-bold text-lg">{endTime}</div>
                           </div>
                       </button>
                   </div>
               </section>
               <section className="space-y-4">
-                  <h3 className="text-gray-400 text-sm font-medium">Parking Details</h3>
+                  <h3 className="text-[var(--color-text-secondary)] text-sm font-medium">Parking Details</h3>
                   <CustomDropdown label="Vehicle Type" icon={Car} options={['Two Wheeler', 'Four Wheeler', 'SUV Four Wheeler', 'Van/Truck']} value={vehicleType} onChange={setVehicleType} />
                   <CustomDropdown label="Parking Type" icon={MapPin} options={['Garage Parking', 'Driveway', 'Rent Parking', 'Free Parking']} value={parkingType} onChange={setParkingType} />
               </section>
               <section>
-                  <h3 className="text-gray-400 text-sm font-medium mb-3">Location</h3>
+                  <h3 className="text-[var(--color-text-secondary)] text-sm font-medium mb-3">Location</h3>
                   {location ? (
-                      <div className="bg-dark-800 border border-queen-500 rounded-2xl p-4 flex items-center justify-between">
+                      <div className="bg-[var(--color-surface)] border border-queen-500 rounded-2xl p-4 flex items-center justify-between">
                           <div className="flex items-center gap-3">
                               <MapPin className="text-queen-500" size={20} />
                               <div>
-                                  <div className="font-bold text-white text-sm">{location.split(',')[0]}</div>
-                                  <div className="text-xs text-gray-400 truncate max-w-[200px]">{location}</div>
+                                  <div className="font-bold text-[var(--color-text)] text-sm">{location.split(',')[0]}</div>
+                                  <div className="text-xs text-[var(--color-text-secondary)] truncate max-w-[200px]">{location}</div>
                               </div>
                           </div>
                           <button onClick={() => setIsPickingLocation(true)} className="text-xs text-queen-400 font-bold hover:underline">Change</button>
                       </div>
                   ) : (
-                      <button onClick={() => setIsPickingLocation(true)} className="w-full py-4 border border-dashed border-dark-600 rounded-2xl text-queen-400 font-bold flex items-center justify-center gap-2 hover:bg-dark-800 transition-colors">
+                      <button onClick={() => setIsPickingLocation(true)} className="w-full py-4 border border-dashed border-[var(--color-border)] rounded-2xl text-queen-400 font-bold flex items-center justify-center gap-2 hover:bg-[var(--color-surface)] transition-colors">
                           <Plus size={20} />
                           Add New Location
                       </button>
                   )}
               </section>
               <section>
-                  <h3 className="text-gray-400 text-sm font-medium mb-3">About</h3>
-                  <textarea placeholder="Enter the Parking Space Details" className="w-full bg-dark-800 border border-dark-700 rounded-2xl p-4 text-white min-h-[120px] focus:border-queen-500 outline-none resize-none" />
+                  <h3 className="text-[var(--color-text-secondary)] text-sm font-medium mb-3">About</h3>
+                  <textarea placeholder="Enter the Parking Space Details" className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl p-4 text-[var(--color-text)] min-h-[120px] focus:border-queen-500 outline-none resize-none" />
               </section>
           </div>
-          <div className="fixed bottom-0 left-0 right-0 p-4 bg-dark-900 border-t border-dark-800 z-20">
+          <div className="fixed bottom-0 left-0 right-0 p-4 bg-[var(--color-bg)] border-t border-[var(--color-border)] z-20">
               <button onClick={() => setIsAddingSpace(false)} className="w-full bg-queen-500 text-white font-bold py-4 rounded-2xl shadow-lg shadow-queen-500/20 active:scale-[0.98] transition-all">Submit</button>
           </div>
       </div>
@@ -363,7 +363,7 @@ export const GarageRentalView = () => {
   }
 
   return (
-    <div className="pt-20 pb-24 px-4 h-full overflow-y-auto no-scrollbar bg-dark-900">
+    <div className="pt-20 pb-24 px-4 h-full overflow-y-auto no-scrollbar bg-[var(--color-bg)]">
       {isAddingSpace && renderAddForm()}
       {activeTimePicker && (
           <TimePicker 
@@ -373,10 +373,10 @@ export const GarageRentalView = () => {
             onClose={() => setActiveTimePicker(null)}
           />
       )}
-      <div className="sticky top-0 z-30 bg-dark-900 pb-4 pt-2">
-          <div className="flex bg-dark-800 p-1 rounded-xl border border-dark-700">
-              <button onClick={() => setActiveTab('browse')} className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'browse' ? 'bg-queen-600 text-white shadow-lg' : 'text-gray-400 hover:text-gray-200'}`}>Private Parking</button>
-              <button onClick={() => setActiveTab('host')} className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'host' ? 'bg-queen-600 text-white shadow-lg' : 'text-gray-400 hover:text-gray-200'}`}>My Parking Space</button>
+      <div className="sticky top-0 z-30 bg-[var(--color-bg)] pb-4 pt-2">
+          <div className="flex bg-[var(--color-surface)] p-1 rounded-xl border border-[var(--color-border)]">
+              <button onClick={() => setActiveTab('browse')} className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'browse' ? 'bg-queen-600 text-white shadow-lg' : 'text-[var(--color-text-secondary)] hover:text-gray-200'}`}>Private Parking</button>
+              <button onClick={() => setActiveTab('host')} className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all ${activeTab === 'host' ? 'bg-queen-600 text-white shadow-lg' : 'text-[var(--color-text-secondary)] hover:text-gray-200'}`}>My Parking Space</button>
           </div>
       </div>
 
@@ -389,7 +389,7 @@ export const GarageRentalView = () => {
                     placeholder="Where do you need parking?"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full bg-dark-800 border border-dark-700 text-white rounded-xl py-3 px-4 pl-10 focus:outline-none focus:border-queen-500 transition-colors shadow-sm"
+                    className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] rounded-xl py-3 px-4 pl-10 focus:outline-none focus:border-queen-500 transition-colors shadow-sm"
                 />
                 <MapPin className="absolute left-3 top-3.5 text-gray-500" size={18} />
                 </div>
@@ -397,7 +397,7 @@ export const GarageRentalView = () => {
 
             <div className="grid gap-6">
                 {filteredListings.map((listing) => (
-                <div key={listing.id} className="group bg-dark-800 rounded-2xl overflow-hidden border border-dark-700 hover:border-queen-500/50 transition-all duration-300">
+                <div key={listing.id} className="group bg-[var(--color-surface)] rounded-2xl overflow-hidden border border-[var(--color-border)] hover:border-queen-500/50 transition-all duration-300">
                     <div className="relative h-48 overflow-hidden">
                     <img src={listing.image} alt={listing.title} className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500" />
                     <div className="absolute top-3 right-3 bg-black/60 backdrop-blur-md px-2 py-1 rounded-lg flex items-center gap-1">
@@ -407,17 +407,17 @@ export const GarageRentalView = () => {
                     </div>
                     <div className="p-4">
                     <div className="flex justify-between items-start mb-1">
-                        <h3 className="font-bold text-lg text-white leading-tight">{listing.title}</h3>
+                        <h3 className="font-bold text-lg text-[var(--color-text)] leading-tight">{listing.title}</h3>
                         <span className="text-queen-400 font-bold">${listing.pricePerHour}<span className="text-xs text-gray-500 font-normal">/hr</span></span>
                     </div>
-                    <p className="text-gray-400 text-sm mb-3 line-clamp-2">{listing.description}</p>
+                    <p className="text-[var(--color-text-secondary)] text-sm mb-3 line-clamp-2">{listing.description}</p>
                     <div className="flex flex-wrap gap-2 mb-4">
-                        {listing.amenities.map(a => <span key={a} className="text-[10px] uppercase tracking-wider bg-dark-700 text-gray-300 px-2 py-1 rounded">{a}</span>)}
+                        {listing.amenities.map(a => <span key={a} className="text-[10px] uppercase tracking-wider bg-[var(--color-card)] text-gray-300 px-2 py-1 rounded">{a}</span>)}
                     </div>
-                    <div className="flex items-center justify-between pt-3 border-t border-dark-700">
+                    <div className="flex items-center justify-between pt-3 border-t border-[var(--color-border)]">
                         <div className="flex items-center gap-2">
                             <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-blue-500 to-cyan-500 flex items-center justify-center text-[10px] font-bold">{listing.hostName[0]}</div>
-                            <span className="text-xs text-gray-400">Hosted by {listing.hostName}</span>
+                            <span className="text-xs text-[var(--color-text-secondary)]">Hosted by {listing.hostName}</span>
                         </div>
                         {listing.hostName === 'James' && (
                         <div className="flex items-center gap-1 text-queen-400">
@@ -426,7 +426,7 @@ export const GarageRentalView = () => {
                         </div>
                         )}
                     </div>
-                    <button className="w-full mt-4 bg-white text-dark-900 font-bold py-2 rounded-lg hover:bg-queen-100 transition-colors">Reserve</button>
+                    <button className="w-full mt-4 bg-white text-[var(--color-bg)] font-bold py-2 rounded-lg hover:bg-queen-100 transition-colors">Reserve</button>
                     </div>
                 </div>
                 ))}
@@ -435,21 +435,21 @@ export const GarageRentalView = () => {
       ) : (
         <div className="flex flex-col h-full">
             <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-white">Your Listed Spots</h2>
+                <h2 className="text-xl font-bold text-[var(--color-text)]">Your Listed Spots</h2>
                 <button className="text-queen-400 text-xs font-bold bg-queen-900/20 px-3 py-1.5 rounded-full border border-queen-500/20">Host Dashboard</button>
             </div>
             <div className="space-y-4 mb-8">
                 {MY_LISTINGS.map(item => (
-                    <div key={item.id} className="bg-dark-800 border border-dark-700 p-4 rounded-2xl flex gap-4">
+                    <div key={item.id} className="bg-[var(--color-surface)] border border-[var(--color-border)] p-4 rounded-2xl flex gap-4">
                         <div className="w-20 h-20 rounded-xl overflow-hidden shrink-0">
                             <img src={item.image} className="w-full h-full object-cover" alt="Thumb" />
                         </div>
                         <div className="flex-1 py-1">
                             <div className="flex justify-between items-start">
-                                <h3 className="font-bold text-white">{item.title}</h3>
+                                <h3 className="font-bold text-[var(--color-text)]">{item.title}</h3>
                                 <div className="px-2 py-0.5 bg-green-900/30 text-green-400 text-[10px] font-bold rounded uppercase border border-green-500/20">Active</div>
                             </div>
-                            <p className="text-gray-400 text-xs mt-1">{item.description}</p>
+                            <p className="text-[var(--color-text-secondary)] text-xs mt-1">{item.description}</p>
                             <div className="mt-3 flex items-center gap-3">
                                 <div className="flex items-center gap-1 text-xs text-gray-300">
                                     <Star size={12} className="text-yellow-400 fill-current" />
@@ -464,12 +464,12 @@ export const GarageRentalView = () => {
                     </div>
                 ))}
             </div>
-            <div className="bg-gradient-to-br from-dark-800 to-dark-800/50 border border-dashed border-dark-600 rounded-3xl p-8 flex flex-col items-center justify-center text-center">
+            <div className="bg-gradient-to-br from-dark-800 to-dark-800/50 border border-dashed border-[var(--color-border)] rounded-3xl p-8 flex flex-col items-center justify-center text-center">
                 <div className="w-16 h-16 bg-queen-900/30 rounded-full flex items-center justify-center text-queen-400 mb-4 shadow-lg shadow-queen-500/10">
                     <Car size={32} />
                 </div>
-                <h3 className="text-lg font-bold text-white mb-2">Rent out your driveway</h3>
-                <p className="text-gray-400 text-sm mb-6 max-w-[240px]">Earn passive income by renting your unused parking space to neighbors.</p>
+                <h3 className="text-lg font-bold text-[var(--color-text)] mb-2">Rent out your driveway</h3>
+                <p className="text-[var(--color-text-secondary)] text-sm mb-6 max-w-[240px]">Earn passive income by renting your unused parking space to neighbors.</p>
                 <button onClick={() => setIsAddingSpace(true)} className="bg-queen-500 hover:bg-queen-600 text-white font-bold py-3 px-8 rounded-full shadow-lg shadow-queen-500/30 transition-all flex items-center gap-2">
                     <Plus size={20} />
                     Add Parking Space

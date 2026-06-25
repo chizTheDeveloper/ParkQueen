@@ -16,17 +16,17 @@ export const NameEntryView: React.FC<NameEntryViewProps> = ({ onComplete }) => {
     const [fullName, setFullName] = useState('');
 
     return (
-        <div className="h-full w-full bg-[#07162c] flex flex-col px-7 pt-14">
+        <div className="h-full w-full bg-[var(--color-bg)] flex flex-col px-7 pt-14">
             <div>
                 <ProgressBar step={3} />
-                <h1 className="text-[24px] font-bold text-white leading-tight">What should we call you?</h1>
-                <p className="text-[15px] text-white/50 mt-2 mb-8">This is how neighbors will see you</p>
+                <h1 className="text-[24px] font-bold text-[var(--color-text)] leading-tight">What should we call you?</h1>
+                <p className="text-[15px] text-[var(--color-text-secondary)] mt-2 mb-8">This is how neighbors will see you</p>
                 <input
                     type="text"
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     placeholder="Your name"
-                    className="w-full bg-white/5 border border-white/10 rounded-full py-4 px-5 text-white font-semibold outline-none placeholder-white/25 text-[16px] focus:border-blue-500 transition-all"
+                    className="w-full bg-white/5 border border-[var(--color-border)] rounded-full py-4 px-5 text-[var(--color-text)] font-semibold outline-none placeholder-[var(--color-text-secondary)] text-[16px] focus:border-blue-500 transition-all"
                     autoComplete="name"
                     autoFocus
                 />

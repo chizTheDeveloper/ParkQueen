@@ -12,16 +12,16 @@ interface LoginViewProps {
 
 const InputField = ({ icon, label, value, onChange, placeholder, type = 'text', autoComplete = 'off' }) => {
     return (
-        <div className="bg-white/5 p-3.5 rounded-2xl border border-white/10 shadow-inner w-full focus-within:border-[#1e75ff] transition-all">
+        <div className="bg-white/5 p-3.5 rounded-2xl border border-[var(--color-border)] shadow-inner w-full focus-within:border-[#1e75ff] transition-all">
           <div className="flex items-center">
-            <div className="text-gray-400 mr-3 shrink-0">{icon}</div>
+            <div className="text-[var(--color-text-secondary)] mr-3 shrink-0">{icon}</div>
             <input
               type={type}
               value={value}
               onChange={onChange}
               placeholder={placeholder}
               autoComplete={autoComplete}
-              className="w-full bg-transparent text-white font-semibold outline-none placeholder-gray-500 text-sm"
+              className="w-full bg-transparent text-[var(--color-text)] font-semibold outline-none placeholder-[var(--color-text-secondary)] text-sm"
             />
           </div>
         </div>
@@ -62,12 +62,12 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin, onNavigateToCreat
     return (
       <div className="h-full w-full flex flex-col items-center justify-center bg-cover bg-no-repeat bg-center p-4"
            style={{ backgroundImage: `url(${SplashScreen})` }}>
-        <div className="w-full max-w-sm bg-[#07162c]/65 border border-white/8 backdrop-blur-md rounded-3xl p-8 shadow-2xl">
+        <div className="w-full max-w-sm bg-[var(--color-card)] border border-[var(--color-border)] backdrop-blur-md rounded-3xl p-8 shadow-2xl">
           <div className="flex justify-center mb-6">
               <img src={ParqueenLogo} alt="Logo" className="h-16" />
           </div>
-          <h1 className="text-2xl font-bold text-center text-white">Reset Password</h1>
-          <p className="text-center text-gray-400 mb-6 text-sm">Enter your email to receive a password reset link.</p>
+          <h1 className="text-2xl font-bold text-center text-[var(--color-text)]">Reset Password</h1>
+          <p className="text-center text-[var(--color-text-secondary)] mb-6 text-sm">Enter your email to receive a password reset link.</p>
           
           <div className="space-y-4">
             <InputField
@@ -112,12 +112,12 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin, onNavigateToCreat
   return (
     <div className="h-full w-full flex flex-col items-center justify-center bg-cover bg-no-repeat bg-center p-4"
          style={{ backgroundImage: `url(${SplashScreen})` }}>
-      <div className="w-full max-w-sm bg-[#07162c]/65 border border-white/8 backdrop-blur-md rounded-3xl p-8 shadow-2xl">
+      <div className="w-full max-w-sm bg-[var(--color-card)] border border-[var(--color-border)] backdrop-blur-md rounded-3xl p-8 shadow-2xl">
         <div className="flex justify-center mb-6">
             <img src={ParqueenLogo} alt="Logo" className="h-16" />
         </div>
-        <h1 className="text-2xl font-bold text-center text-white">Welcome Back!</h1>
-        <p className="text-center text-gray-400 mb-8 text-sm">Please log in to your account.</p>
+        <h1 className="text-2xl font-bold text-center text-[var(--color-text)]">Welcome Back!</h1>
+        <p className="text-center text-[var(--color-text-secondary)] mb-8 text-sm">Please log in to your account.</p>
         
         <div className="space-y-4">
           <InputField
@@ -158,7 +158,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLogin, onNavigateToCreat
         </div>
 
         <div className="text-center mt-6">
-            <p className="text-sm text-gray-400">
+            <p className="text-sm text-[var(--color-text-secondary)]">
               Don't have an account?{' '}
               <button onClick={onNavigateToCreateAccount} className="font-bold text-[#38bdf8] hover:underline">
                 Sign Up

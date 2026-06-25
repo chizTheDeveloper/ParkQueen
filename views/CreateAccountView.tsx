@@ -16,21 +16,21 @@ export const CreateAccountView: React.FC<CreateAccountViewProps> = ({ onContinue
     const [phone, setPhone] = useState('');
 
     return (
-        <div className="h-full w-full bg-[#07162c] flex flex-col px-7 pt-14">
+        <div className="h-full w-full bg-[var(--color-bg)] flex flex-col px-7 pt-14">
             <div>
                 <ProgressBar step={1} />
-                <h1 className="text-[24px] font-bold text-white leading-tight">What's your number?</h1>
-                <p className="text-[15px] text-white/50 mt-2 mb-8">We'll text you a code to verify it's you</p>
-                <div className="relative bg-white/5 rounded-full border border-white/10 focus-within:border-blue-500 transition-all">
+                <h1 className="text-[24px] font-bold text-[var(--color-text)] leading-tight">What's your number?</h1>
+                <p className="text-[15px] text-[var(--color-text-secondary)] mt-2 mb-8">We'll text you a code to verify it's you</p>
+                <div className="relative bg-white/5 rounded-full border border-[var(--color-border)] focus-within:border-blue-500 transition-all">
                     <div className="absolute inset-y-0 left-0 flex items-center pl-5 pointer-events-none">
-                        <span className="text-white/70 font-semibold text-[15px]">+1</span>
+                        <span className="text-[var(--color-text-secondary)] font-semibold text-[15px]">+1</span>
                     </div>
                     <input
                         type="tel"
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
                         placeholder="(555) 555-1234"
-                        className="w-full bg-transparent py-4 pl-14 pr-5 text-white font-semibold outline-none placeholder-white/25 text-[16px] rounded-full"
+                        className="w-full bg-transparent py-4 pl-14 pr-5 text-[var(--color-text)] font-semibold outline-none placeholder-[var(--color-text-secondary)] text-[16px] rounded-full"
                         autoFocus
                     />
                 </div>

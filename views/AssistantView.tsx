@@ -52,12 +52,12 @@ export const AssistantView = () => {
   };
 
   return (
-    <div className="pt-20 pb-24 px-4 h-full bg-dark-900 overflow-y-auto no-scrollbar flex flex-col items-center">
+    <div className="pt-20 pb-24 px-4 h-full bg-[var(--color-bg)] overflow-y-auto no-scrollbar flex flex-col items-center">
       <div className="text-center mb-8 max-w-xs">
         <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-queen-400 to-blue-400 mb-2">
           AI Sign Decoder
         </h2>
-        <p className="text-gray-400 text-sm">
+        <p className="text-[var(--color-text-secondary)] text-sm">
           Confused by NYC parking signs? Snap a photo and let ParQueen's AI tell you if you're safe.
         </p>
       </div>
@@ -65,12 +65,12 @@ export const AssistantView = () => {
       {!image ? (
         <div 
           onClick={triggerUpload}
-          className="w-full max-w-sm aspect-square rounded-3xl border-2 border-dashed border-dark-700 bg-dark-800 flex flex-col items-center justify-center cursor-pointer hover:border-queen-500 hover:bg-dark-700/50 transition-all group"
+          className="w-full max-w-sm aspect-square rounded-3xl border-2 border-dashed border-[var(--color-border)] bg-[var(--color-surface)] flex flex-col items-center justify-center cursor-pointer hover:border-queen-500 hover:bg-[var(--color-card)]/50 transition-all group"
         >
-          <div className="w-20 h-20 bg-dark-700 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+          <div className="w-20 h-20 bg-[var(--color-card)] rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
             <Camera size={40} className="text-queen-400" />
           </div>
-          <span className="font-bold text-gray-300">Tap to Scan Sign</span>
+          <span className="font-bold text-[var(--color-text-secondary)]">Tap to Scan Sign</span>
           <span className="text-xs text-gray-500 mt-2">or upload from gallery</span>
           <input 
             type="file" 
@@ -82,7 +82,7 @@ export const AssistantView = () => {
         </div>
       ) : (
         <div className="w-full max-w-sm">
-          <div className="relative rounded-3xl overflow-hidden border border-dark-700 shadow-2xl mb-6">
+          <div className="relative rounded-3xl overflow-hidden border border-[var(--color-border)] shadow-2xl mb-6">
             <img src={image} alt="Sign" className="w-full h-auto max-h-[400px] object-cover" />
             <button 
               onClick={reset}
@@ -92,11 +92,11 @@ export const AssistantView = () => {
             </button>
           </div>
 
-          <div className="bg-dark-800 rounded-2xl p-6 border border-dark-700 min-h-[150px] relative">
+          <div className="bg-[var(--color-surface)] rounded-2xl p-6 border border-[var(--color-border)] min-h-[150px] relative">
             {isLoading ? (
               <div className="flex flex-col items-center justify-center h-full py-8">
                 <div className="w-10 h-10 border-4 border-queen-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-                <p className="text-gray-400 animate-pulse text-sm">Analyzing complex rules...</p>
+                <p className="text-[var(--color-text-secondary)] animate-pulse text-sm">Analyzing complex rules...</p>
               </div>
             ) : (
               <div className="animate-in fade-in duration-500">
@@ -122,7 +122,7 @@ export const AssistantView = () => {
                           </div>
                       )}
                       
-                      <p className="text-sm text-gray-400 pl-9 border-l-2 border-dark-700 ml-3 py-2">
+                      <p className="text-sm text-[var(--color-text-secondary)] pl-9 border-l-2 border-[var(--color-border)] ml-3 py-2">
                           {analysis.explanation}
                       </p>
 
@@ -132,7 +132,7 @@ export const AssistantView = () => {
                              <div className="flex items-center gap-2 text-blue-400 font-bold mb-1">
                                <Clock size={16} /> Actionable Advice
                              </div>
-                             <p className="text-sm text-gray-300">{analysis.actionableAdvice}</p>
+                             <p className="text-sm text-[var(--color-text-secondary)]">{analysis.actionableAdvice}</p>
                              
                              <button onClick={setReminder} className="mt-3 w-full bg-blue-500/20 hover:bg-blue-500/40 text-blue-300 py-2 rounded-md flex items-center justify-center gap-2 text-sm font-semibold transition-colors">
                                <Bell size={16} /> Set Departure Reminder

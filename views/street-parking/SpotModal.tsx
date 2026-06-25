@@ -38,9 +38,9 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
 
     return (
         <div className="absolute inset-0 z-30 bg-black/60 backdrop-blur-md flex items-center justify-center p-4">
-            <div className="bg-[#07162c]/95 backdrop-blur-xl rounded-3xl p-6 w-full max-w-sm text-white border border-white/10 shadow-2xl">
+            <div className="bg-[var(--color-glass)] backdrop-blur-xl rounded-3xl p-6 w-full max-w-sm text-[var(--color-text)] border border-[var(--color-border)] shadow-2xl">
                 <div className="flex justify-end">
-                    <button onClick={onClose} className="text-white/40 hover:text-white/70 transition-colors">
+                    <button onClick={onClose} className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors">
                         <X size={18} />
                     </button>
                 </div>
@@ -53,7 +53,7 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                             </div>
                             <h2 className="text-lg font-bold leading-snug">{isEditing ? 'Edit spot' : 'When are you leaving?'}</h2>
                         </div>
-                        <p className="text-[11px] text-white/40 ml-[46px] mb-6">{spotAddress || 'Locating...'}</p>
+                        <p className="text-[11px] text-[var(--color-text-secondary)] ml-[46px] mb-6">{spotAddress || 'Locating...'}</p>
 
                         <div className="space-y-3">
                             <button
@@ -61,17 +61,17 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                                 className={`w-full rounded-2xl p-3.5 flex items-center gap-3 transition-all ${
                                     pingType === 'now'
                                         ? 'bg-blue-500/15 border border-blue-400/40'
-                                        : 'bg-white/5 border border-white/10 hover:bg-white/8'
+                                        : 'bg-white/5 border border-[var(--color-border)] hover:bg-white/8'
                                 }`}
                             >
                                 <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                                    pingType === 'now' ? 'bg-blue-500/20 text-blue-400' : 'bg-white/5 text-white/50'
+                                    pingType === 'now' ? 'bg-blue-500/20 text-blue-400' : 'bg-white/5 text-[var(--color-text-secondary)]'
                                 }`}>
                                     <Zap size={18} />
                                 </div>
                                 <div className="flex-1 text-left">
                                     <div className="text-sm font-bold">Leaving Now</div>
-                                    <div className="text-[11px] text-white/40">Spot opens immediately</div>
+                                    <div className="text-[11px] text-[var(--color-text-secondary)]">Spot opens immediately</div>
                                 </div>
                                 <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
                                     pingType === 'now' ? 'border-blue-400 bg-blue-500' : 'border-white/20'
@@ -85,17 +85,17 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                                 className={`w-full rounded-2xl p-3.5 flex items-center gap-3 transition-all ${
                                     pingType === 'later'
                                         ? 'bg-blue-500/15 border border-blue-400/40'
-                                        : 'bg-white/5 border border-white/10 hover:bg-white/8'
+                                        : 'bg-white/5 border border-[var(--color-border)] hover:bg-white/8'
                                 }`}
                             >
                                 <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                                    pingType === 'later' ? 'bg-blue-500/20 text-blue-400' : 'bg-white/5 text-white/50'
+                                    pingType === 'later' ? 'bg-blue-500/20 text-blue-400' : 'bg-white/5 text-[var(--color-text-secondary)]'
                                 }`}>
                                     <Clock size={18} />
                                 </div>
                                 <div className="flex-1 text-left">
                                     <div className="text-sm font-bold">Leaving Later</div>
-                                    <div className="text-[11px] text-white/40">
+                                    <div className="text-[11px] text-[var(--color-text-secondary)]">
                                         {pingType === 'later'
                                             ? departureTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                                             : 'Set a specific time'}
@@ -134,7 +134,7 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                         >
                             Set Time
                         </button>
-                        <button onClick={() => setView('main')} className="w-full text-center mt-2 text-white/40 hover:text-white/60 text-sm transition-colors">
+                        <button onClick={() => setView('main')} className="w-full text-center mt-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text)] text-sm transition-colors">
                             Cancel
                         </button>
                     </>

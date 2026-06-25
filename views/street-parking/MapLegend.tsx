@@ -12,8 +12,8 @@ export const MapLegend: React.FC<MapLegendProps> = ({ searchOpen, showLegend, sh
     if (searchOpen || !showLegend) return null;
 
     return (
-        <div className="absolute left-4 top-20 bg-[#07162c]/90 border border-white/10 backdrop-blur-xl rounded-2xl p-4 shadow-2xl w-44 pointer-events-auto flex flex-col gap-3 animate-in fade-in slide-in-from-top-2 duration-300 z-25">
-            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-0.5">Map Legend</div>
+        <div className="absolute left-4 top-20 bg-[var(--color-card)] border border-[var(--color-border)] backdrop-blur-xl rounded-2xl p-4 shadow-2xl w-44 pointer-events-auto flex flex-col gap-3 animate-in fade-in slide-in-from-top-2 duration-300 z-25">
+            <div className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider px-0.5">Map Legend</div>
             <div className="flex flex-col gap-2.5">
                 <label className="flex items-center justify-between cursor-pointer group select-none">
                     <div className="flex items-center gap-2">
@@ -21,8 +21,8 @@ export const MapLegend: React.FC<MapLegendProps> = ({ searchOpen, showLegend, sh
                             <MapPin size={11} fill="currentColor" fillOpacity={0.2} />
                         </div>
                         <div className="text-left">
-                            <div className="text-[10px] font-bold text-white leading-tight text-xs">Free Parking</div>
-                            <div className="text-[8px] text-gray-400 leading-tight">Community ping</div>
+                            <div className="text-[10px] font-bold text-[var(--color-text)] leading-tight text-xs">Free Parking</div>
+                            <div className="text-[8px] text-[var(--color-text-secondary)] leading-tight">Community ping</div>
                         </div>
                     </div>
                     <input

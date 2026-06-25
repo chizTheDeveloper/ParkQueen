@@ -70,10 +70,10 @@ export const OnboardingView = ({ onComplete }: { onComplete: () => void }) => {
                         <span className="text-[10px] font-bold tracking-[0.2em] text-blue-400/80 uppercase mb-2">
                             {s.eyebrow}
                         </span>
-                        <h2 className="text-[22px] leading-tight font-bold text-white mb-1.5">
+                        <h2 className="text-[22px] leading-tight font-bold text-[var(--color-text)] mb-1.5">
                             {s.headline}
                         </h2>
-                        <p className="text-[13px] text-white/65 leading-relaxed">
+                        <p className="text-[13px] text-[var(--color-text-secondary)] leading-relaxed">
                             {s.subtext}
                         </p>
 

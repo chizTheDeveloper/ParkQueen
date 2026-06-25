@@ -154,7 +154,7 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
     if (spotToDisplay.typeLabel === 'Public') badgeBgColor = 'bg-[#a855f7]';
 
     return (
-        <div className="w-full max-w-[380px] mx-auto bg-[#07162c]/95 backdrop-blur-xl border border-white/10 rounded-3xl p-3.5 shadow-2xl transition-all">
+        <div className="w-full max-w-[380px] mx-auto bg-[var(--color-glass)] backdrop-blur-xl border border-[var(--color-border)] rounded-3xl p-3.5 shadow-2xl transition-all">
             <div className="flex items-center gap-3">
                 <div className={`w-14 h-14 rounded-2xl ${badgeBgColor} flex flex-col items-center justify-center text-white shadow-lg shrink-0`}>
                     <span className="font-extrabold text-lg">P</span>
@@ -162,8 +162,8 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                 </div>
                 <div className="flex-1 min-w-0">
                     <span className="text-[9px] font-bold text-[#38bdf8] uppercase tracking-wider">| {spotToDisplay.typeLabel} Parking</span>
-                    <h3 className="text-sm font-bold text-white truncate mt-0.5">{spotToDisplay.title}</h3>
-                    <p className="text-[11px] text-white/50 mt-0.5 truncate">
+                    <h3 className="text-sm font-bold text-[var(--color-text)] truncate mt-0.5">{spotToDisplay.title}</h3>
+                    <p className="text-[11px] text-[var(--color-text-secondary)] mt-0.5 truncate">
                         {spotToDisplay.subText}
                     </p>
                 </div>
@@ -174,7 +174,7 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                 </div>
             </div>
 
-                <div className="flex gap-2 mt-2.5 pt-2.5 border-t border-white/5">
+                <div className="flex gap-2 mt-2.5 pt-2.5 border-t border-[var(--color-border)]">
                     <button
                         onClick={onTrackLocation}
                         className={`flex-1 font-bold py-1.5 rounded-xl flex items-center justify-center gap-1 transition-all text-[11px] shadow-md ${

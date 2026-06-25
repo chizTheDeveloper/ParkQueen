@@ -128,7 +128,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         } else {
             mapboxgl.accessToken = MAPBOX_TOKEN;
         }
-        const map = new mapboxgl.Map({ container: mapContainerRef.current, style: 'mapbox://styles/mapbox/dark-v11', center: NYC_CENTER, zoom: 14, attributionControl: false, interactive: true });
+        const isDark = document.documentElement.classList.contains('dark');
+        const map = new mapboxgl.Map({ container: mapContainerRef.current, style: `mapbox://styles/mapbox/${isDark ? 'dark' : 'light'}-v11`, center: NYC_CENTER, zoom: 14, attributionControl: false, interactive: true });
         mapRef.current = map;
 
         map.on('load', () => { map.resize(); });
@@ -461,20 +462,20 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
             {holdFlow.isHoldModalOpen && (
                 <div className="absolute inset-0 z-30 bg-black/60 backdrop-blur-md flex items-center justify-center p-4">
-                    <div className="bg-[#1c1c1e] rounded-3xl p-6 w-full max-w-sm text-white border border-white/10 flex flex-col gap-4">
+                    <div className="bg-[#1c1c1e] rounded-3xl p-6 w-full max-w-sm text-[var(--color-text)] border border-[var(--color-border)] flex flex-col gap-4">
                         <div className="flex justify-between items-center">
                             <h3 className="font-extrabold text-sm flex items-center gap-1.5 text-amber-500">
                                 <Wallet size={16} />
                                 <span>Escrow Hold Request</span>
                             </h3>
                             <button onClick={() => holdFlow.setIsHoldModalOpen(false)}>
-                                <X size={18} className="text-gray-400 hover:text-white" />
+                                <X size={18} className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)]" />
                             </button>
                         </div>
                         <p className="text-xs text-white/85 leading-relaxed">
                             To reserve this spot, a <strong>$2.00 escrow hold</strong> will be placed. The owner will be asked to hold the spot for you.
                         </p>
-                        <ul className="text-[10px] text-gray-400 space-y-1">
+                        <ul className="text-[10px] text-[var(--color-text-secondary)] space-y-1">
                             <li>• If accepted, navigation starts with a 5-minute arrival timer.</li>
                             <li>• If declined or expired, your $2.00 is fully refunded.</li>
                             <li>• Upon arrival, payment is released to the finder.</li>
@@ -493,7 +494,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 const pendingIncomingHold = spotData.freeSpots.find(s => s.finderId === user?.id && s.holdRequestStatus === 'pending');
                 if (!pendingIncomingHold) return null;
                 return (
-                    <div className="absolute top-24 left-1/2 -translate-x-1/2 w-[90%] max-w-[360px] z-50 bg-[#07162c]/95 border border-white/10 backdrop-blur-xl rounded-2xl p-4 shadow-2xl text-white pointer-events-auto flex flex-col gap-3">
+                    <div className="absolute top-24 left-1/2 -translate-x-1/2 w-[90%] max-w-[360px] z-50 bg-[var(--color-glass)] border border-[var(--color-border)] backdrop-blur-xl rounded-2xl p-4 shadow-2xl text-[var(--color-text)] pointer-events-auto flex flex-col gap-3">
                         <div className="flex items-center gap-2 text-blue-400">
                             <Bell size={16} className="animate-bounce" />
                             <span className="text-xs font-bold uppercase tracking-wider">Someone wants this spot!</span>
@@ -510,7 +511,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                             </button>
                             <button
                                 onClick={(e) => { e.stopPropagation(); holdFlow.handleDeclineHold(pendingIncomingHold); }}
-                                className="flex-1 bg-white/5 border border-white/10 hover:bg-white/10 font-bold py-1.5 rounded-xl text-xs transition-colors text-white"
+                                className="flex-1 bg-white/5 border border-[var(--color-border)] hover:bg-white/10 font-bold py-1.5 rounded-xl text-xs transition-colors text-white"
                             >
                                 Decline
                             </button>
@@ -568,7 +569,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             <div className="map-blue-tint-soft" />
 
             {showPingConfirmation && (
-                <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 bg-[#07162c]/95 backdrop-blur-xl border border-emerald-500/30 text-white font-semibold py-3 px-5 rounded-2xl flex items-center gap-2.5 shadow-2xl">
+                <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 bg-[var(--color-glass)] backdrop-blur-xl border border-emerald-500/30 text-white font-semibold py-3 px-5 rounded-2xl flex items-center gap-2.5 shadow-2xl">
                     <div className="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0"><Check size={14} className="text-emerald-400" /></div>
                     <span className="text-sm">Spot pinged! Nearby drivers will be notified</span>
                 </div>
@@ -595,7 +596,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
                 {spotCount > 0 && (
                     <div className="w-full max-w-[380px] mx-auto mt-1 pointer-events-auto">
-                        <div className="inline-flex items-center gap-1.5 bg-[#07162c]/85 backdrop-blur-xl border border-emerald-500/20 rounded-full px-2.5 py-1 text-[10px] font-semibold text-emerald-400 shadow-md">
+                        <div className="inline-flex items-center gap-1.5 bg-[var(--color-card)] backdrop-blur-xl border border-emerald-500/20 rounded-full px-2.5 py-1 text-[10px] font-semibold text-emerald-400 shadow-md">
                             <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                             {spotCount} free spot{spotCount !== 1 ? 's' : ''} nearby
                         </div>
@@ -604,15 +605,15 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
                 {spotCount === 0 && !emptyCardDismissed && (
                     <div className="absolute top-28 left-1/2 -translate-x-1/2 z-20 pointer-events-auto w-[280px]">
-                        <div className="bg-[#07162c]/95 backdrop-blur-xl border border-white/10 rounded-3xl p-5 shadow-2xl text-center relative">
-                            <button onClick={() => setEmptyCardDismissed(true)} className="absolute top-3 right-3 text-white/40 hover:text-white/70 transition-colors">
+                        <div className="bg-[var(--color-glass)] backdrop-blur-xl border border-[var(--color-border)] rounded-3xl p-5 shadow-2xl text-center relative">
+                            <button onClick={() => setEmptyCardDismissed(true)} className="absolute top-3 right-3 text-[var(--color-text-secondary)] hover:text-white/70 transition-colors">
                                 <X size={14} />
                             </button>
                             <div className="w-10 h-10 rounded-full bg-[#1e75ff]/15 flex items-center justify-center mx-auto mb-3">
                                 <MapPin size={18} className="text-[#1e75ff]" />
                             </div>
-                            <h3 className="text-sm font-bold text-white">No spots reported yet</h3>
-                            <p className="text-[11px] text-white/50 mt-1">Be the first to help your neighbors find parking here</p>
+                            <h3 className="text-sm font-bold text-[var(--color-text)]">No spots reported yet</h3>
+                            <p className="text-[11px] text-[var(--color-text-secondary)] mt-1">Be the first to help your neighbors find parking here</p>
                         </div>
                     </div>
                 )}
@@ -649,15 +650,15 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     {nearestSpot && !selectedItem && (
                         <button
                             onClick={() => setSelectedItem(nearestSpot.spot)}
-                            className="w-full max-w-[380px] mx-auto bg-[#07162c]/90 backdrop-blur-xl border border-white/10 rounded-2xl px-3.5 py-2.5 flex items-center gap-3 shadow-lg"
+                            className="w-full max-w-[380px] mx-auto bg-[var(--color-glass)] backdrop-blur-xl border border-[var(--color-border)] rounded-2xl px-3.5 py-2.5 flex items-center gap-3 shadow-lg"
                         >
                             <div className="w-8 h-8 rounded-xl bg-[#1e75ff]/15 flex items-center justify-center shrink-0">
                                 <MapPin size={14} className="text-[#1e75ff]" />
                             </div>
                             <div className="flex-1 min-w-0 text-left">
-                                <div className="text-[11px] font-bold text-white truncate">Nearest spot · {nearestSpot.distText}</div>
+                                <div className="text-[11px] font-bold text-[var(--color-text)] truncate">Nearest spot · {nearestSpot.distText}</div>
                                 {nearestSpot.timeAgo && (
-                                    <div className="text-[10px] text-white/40 flex items-center gap-1 mt-0.5">
+                                    <div className="text-[10px] text-[var(--color-text-secondary)] flex items-center gap-1 mt-0.5">
                                         <Clock size={9} />
                                         Reported {nearestSpot.timeAgo}
                                     </div>
