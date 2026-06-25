@@ -213,6 +213,8 @@ export default function App() {
             const q = query(usersRef, where('phone', '==', digits));
             const snap = await getDocs(q);
             if (!snap.empty) {
+              const existingDoc = snap.docs[0];
+              setUser({ id: existingDoc.id, ...existingDoc.data() });
               setCurrentView(AppView.MAP);
             } else {
               setCurrentView(AppView.SETUP_PROFILE);
