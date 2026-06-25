@@ -1,10 +1,10 @@
 
 import React, { useState, useRef } from 'react';
-import { User, Mail, Calendar, ChevronDown, Camera, Lock } from 'lucide-react';
+import { User, Mail, Calendar, ChevronDown, Camera } from 'lucide-react';
 
 interface SetupProfileViewProps {
   phone: string;
-  onSave: (profileData: { fullName: string; email: string; dob: string; gender: string, avatar: File | null, password: string }) => void;
+  onSave: (profileData: { fullName: string; email: string; dob: string; gender: string, avatar: File | null }) => void;
   onSkip?: () => void;
 }
 
@@ -75,8 +75,6 @@ export const SetupProfileView: React.FC<SetupProfileViewProps> = ({ phone, onSav
   const [email, setEmail] = useState('');
   const [dob, setDob] = useState('');
   const [gender, setGender] = useState('Male');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [isGenderDropdownOpen, setGenderDropdownOpen] = useState(false);
   const [avatar, setAvatar] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
@@ -85,21 +83,17 @@ export const SetupProfileView: React.FC<SetupProfileViewProps> = ({ phone, onSav
   const handleDobChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value.replace(/\D/g, '');
     let formattedVal = val;
-    if (val.length > 4) {
-      formattedVal = `${val.slice(0, 4)}-${val.slice(4)}`;
+    if (val.length > 2) {
+      formattedVal = `${val.slice(0, 2)}-${val.slice(2)}`;
     }
-    if (val.length > 6) {
-      formattedVal = `${val.slice(0, 4)}-${val.slice(4, 6)}-${val.slice(6, 8)}`;
+    if (val.length > 4) {
+      formattedVal = `${val.slice(0, 2)}-${val.slice(2, 4)}-${val.slice(4, 8)}`;
     }
     setDob(formattedVal);
   };
 
   const handleSave = () => {
-    if (password !== confirmPassword) {
-        alert("Passwords do not match.");
-        return;
-    }
-    onSave({ fullName, email, dob, gender, avatar, password });
+    onSave({ fullName, email, dob, gender, avatar });
   };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -166,7 +160,7 @@ export const SetupProfileView: React.FC<SetupProfileViewProps> = ({ phone, onSav
                 label="Date of Birth"
                 value={dob}
                 onChange={handleDobChange}
-                placeholder="YYYY-MM-DD"
+                placeholder="MM-DD-YYYY"
                 type="text"
             />
 
@@ -178,24 +172,6 @@ export const SetupProfileView: React.FC<SetupProfileViewProps> = ({ phone, onSav
                 options={['Male', 'Female', 'Other']}
                 isOpen={isGenderDropdownOpen}
                 setIsOpen={setGenderDropdownOpen}
-            />
-            <InputField
-                icon={<Lock size={20} />}
-                label="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter your password"
-                type="password"
-                autoComplete="new-password"
-            />
-            <InputField
-                icon={<Lock size={20} />}
-                label="Confirm Password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Confirm your password"
-                type="password"
-                autoComplete="new-password"
             />
         </div>
 

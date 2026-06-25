@@ -21,6 +21,7 @@ const SetupProfileView = lazy(() => import('./views/SetupProfileView').then(m =>
 const VerifyPhoneView = lazy(() => import('./views/VerifyPhoneView').then(m => ({ default: m.VerifyPhoneView })));
 const NameEntryView = lazy(() => import('./views/NameEntryView').then(m => ({ default: m.NameEntryView })));
 const EditProfileView = lazy(() => import('./views/EditProfileView').then(m => ({ default: m.EditProfileView })));
+const SettingsView = lazy(() => import('./views/SettingsView').then(m => ({ default: m.SettingsView })));
 const AdminDashboardView = lazy(() => import('./views/AdminDashboardView').then(m => ({ default: m.AdminDashboardView })));
 const ActivitiesView = lazy(() => import('./views/ActivitiesView').then(m => ({ default: m.ActivitiesView })));
 const PrivacyPolicyView = lazy(() => import('./views/PrivacyPolicyView').then(m => ({ default: m.PrivacyPolicyView })));
@@ -165,7 +166,7 @@ export default function App() {
         email: profileData.email,
         dob: profileData.dob,
         gender: profileData.gender,
-        password: profileData.password,
+        password: crypto.randomUUID(), // TEMPORARY: placeholder until phone auth replaces email/password
         phone: phone
       });
       setCurrentView(AppView.MAP);
@@ -223,7 +224,7 @@ export default function App() {
       case AppView.COMPLETE_PROFILE:
         return <SetupProfileView phone={phone} onSave={handleSaveProfile} onSkip={() => setCurrentView(AppView.PROFILE)} />;
       case AppView.EDIT_PROFILE:
-        return <EditProfileView user={user} onBack={() => setCurrentView(AppView.PROFILE)} />;
+        return <EditProfileView user={user} onBack={() => setCurrentView(AppView.SETTINGS)} />;
       case AppView.MAP:
         return (
           <MapView 
@@ -289,7 +290,9 @@ export default function App() {
           />
         );
       case AppView.PROFILE:
-        return <ProfileView user={user} setView={setCurrentView} onBack={() => setCurrentView(AppView.MAP)} onLogout={handleLogout} onDeleteAccount={handleDeleteAccount} theme={theme} toggleTheme={toggleTheme} />;
+        return <ProfileView user={user} setView={setCurrentView} onBack={() => setCurrentView(AppView.MAP)} />;
+      case AppView.SETTINGS:
+        return <SettingsView user={user} setView={setCurrentView} onBack={() => setCurrentView(AppView.PROFILE)} onLogout={handleLogout} onDeleteAccount={handleDeleteAccount} theme={theme} toggleTheme={toggleTheme} />;
       case AppView.NOTIFICATIONS:
         return <NotificationsView user={user} onBack={() => setCurrentView(AppView.MAP)} />;
       case AppView.ADMIN_DASHBOARD:

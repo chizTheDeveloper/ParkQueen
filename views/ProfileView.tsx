@@ -2,10 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { ChevronLeft, Edit, FileText, Bell, Shield, Info, LogOut, Trash2, Camera, Trophy, Flame, Star, Settings, List, LayoutDashboard } from 'lucide-react';
+import { ChevronLeft, Edit, FileText, Shield, Info, Camera, Trophy, Flame, Star, Settings } from 'lucide-react';
 import { AppView } from '../types';
 
-export const ProfileView = ({ user, onBack, onLogout, onDeleteAccount, setView, theme, toggleTheme }) => {
+export const ProfileView = ({ user, onBack, setView }) => {
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -42,7 +42,7 @@ export const ProfileView = ({ user, onBack, onLogout, onDeleteAccount, setView, 
               <ChevronLeft size={20} />
             </button>
             <h2 className="text-xl font-bold text-white tracking-wide">Profile</h2>
-            <button onClick={() => setView(AppView.EDIT_PROFILE)} className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-white/10 text-white hover:bg-white/10 transition-all shrink-0">
+            <button onClick={() => setView(AppView.SETTINGS)} className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-white/10 text-white hover:bg-white/10 transition-all shrink-0">
               <Settings size={20} />
             </button>
           </div>
@@ -111,40 +111,6 @@ export const ProfileView = ({ user, onBack, onLogout, onDeleteAccount, setView, 
             </div>
           </div>
 
-          {/* Edit Profile Block */}
-          <button 
-            onClick={() => setView(AppView.EDIT_PROFILE)}
-            className="w-full bg-[#07162c]/60 border border-white/5 backdrop-blur-md rounded-2xl p-4 flex items-center justify-between text-left hover:bg-[#0b2240]/60 transition-all mb-6"
-          >
-            <div className="flex items-center gap-3.5">
-              <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0">
-                <Edit size={18} />
-              </div>
-              <div>
-                <h4 className="font-bold text-white text-sm">Edit Profile</h4>
-                <p className="text-xs text-gray-400 mt-0.5">Update your information</p>
-              </div>
-            </div>
-            <ChevronLeft size={16} className="text-gray-400 rotate-180" />
-          </button>
-
-          {/* Complete Profile Block */}
-          <button
-            onClick={() => setView(AppView.COMPLETE_PROFILE)}
-            className="w-full bg-[#07162c]/60 border border-white/5 backdrop-blur-md rounded-2xl p-4 flex items-center justify-between text-left hover:bg-[#0b2240]/60 transition-all mb-6"
-          >
-            <div className="flex items-center gap-3.5">
-              <div className="bg-green-500/10 p-2.5 rounded-xl text-green-400 shrink-0">
-                <Settings size={18} />
-              </div>
-              <div>
-                <h4 className="font-bold text-white text-sm">Complete Profile</h4>
-                <p className="text-xs text-gray-400 mt-0.5">Add email, password, and more</p>
-              </div>
-            </div>
-            <ChevronLeft size={16} className="text-gray-400 rotate-180" />
-          </button>
-
           {/* List Items Groups */}
           <div className="space-y-6">
             {/* Parking Details Group */}
@@ -206,29 +172,6 @@ export const ProfileView = ({ user, onBack, onLogout, onDeleteAccount, setView, 
                 </button>
                 */}
 
-                {/* Notifications row */}
-                <div className="w-full p-4 flex items-center justify-between text-left">
-                  <div className="flex items-center gap-3.5">
-                    <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0">
-                      <Bell size={18} />
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-white text-sm">Notifications</h4>
-                      <p className="text-xs text-gray-400 mt-0.5">Manage your preferences</p>
-                    </div>
-                  </div>
-                  
-                  {/* Sliding switch */}
-                  <div className="relative shrink-0 flex items-center">
-                    <input 
-                      type="checkbox" 
-                      id="notifications-toggle"
-                      className="sr-only peer" 
-                      defaultChecked 
-                    />
-                    <div className="w-11 h-6 bg-white/10 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-white/20 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#1e75ff]" />
-                  </div>
-                </div>
               </div>
             </div>
 
@@ -290,24 +233,6 @@ export const ProfileView = ({ user, onBack, onLogout, onDeleteAccount, setView, 
             </div>
           </div>
 
-          {/* Action Buttons */}
-          <div className="mt-10 space-y-3.5">
-            <button 
-              onClick={onLogout} 
-              className="w-full border border-[#1e75ff]/30 bg-transparent text-[#38bdf8] hover:bg-[#1e75ff]/10 active:scale-95 font-bold py-3.5 rounded-xl flex items-center justify-center gap-2.5 transition-all text-sm animate-fade-in"
-            >
-              <LogOut size={16} />
-              <span>Logout</span>
-            </button>
-            
-            <button 
-              onClick={onDeleteAccount} 
-              className="w-full border border-red-500/30 bg-transparent text-red-500 hover:bg-red-500/10 active:scale-95 font-bold py-3.5 rounded-xl flex items-center justify-center gap-2.5 transition-all text-sm animate-fade-in"
-            >
-              <Trash2 size={16} />
-              <span>Delete Account</span>
-            </button>
-          </div>
         </div>
       ) : (
         <div className="text-center py-10">Please log in to see your profile.</div>

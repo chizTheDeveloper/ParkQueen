@@ -19,6 +19,7 @@ export enum AppView {
   ONBOARDING = 'onboarding',
   VERIFY_PHONE = 'verify-phone',
   COMPLETE_PROFILE = 'complete-profile',
+  SETTINGS = 'settings',
 }
 
 export interface StreetSpot {

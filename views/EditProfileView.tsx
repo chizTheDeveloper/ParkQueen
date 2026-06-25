@@ -8,7 +8,6 @@ export const EditProfileView = ({ onBack }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('');
   const [dob, setDob] = useState('');
   const [gender, setGender] = useState('');
 
@@ -21,7 +20,6 @@ export const EditProfileView = ({ onBack }) => {
           const userData = userDoc.data();
           setUser(userData);
           setFullName(userData.fullName);
-          setEmail(userData.email);
           setDob(userData.dob);
           setGender(userData.gender);
         } else {
@@ -42,7 +40,6 @@ export const EditProfileView = ({ onBack }) => {
       const userRef = doc(db, 'users', user.id);
       await updateDoc(userRef, {
         fullName,
-        email,
         dob,
         gender,
       });
@@ -77,16 +74,6 @@ export const EditProfileView = ({ onBack }) => {
                   onChange={(e) => setFullName(e.target.value)}
                   className="block w-full px-4 py-3 bg-[#07162c]/60 border border-white/10 rounded-2xl text-white outline-none focus:border-[#1e75ff] transition-all text-sm"
                   placeholder="Full Name"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 px-1">Email Address</label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="block w-full px-4 py-3 bg-[#07162c]/60 border border-white/10 rounded-2xl text-white outline-none focus:border-[#1e75ff] transition-all text-sm"
-                  placeholder="Email Address"
                 />
               </div>
               <div>
