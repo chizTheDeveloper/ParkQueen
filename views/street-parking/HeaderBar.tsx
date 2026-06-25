@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, Camera, MessageSquare, Bell, Menu, MapPin, Star, Clock, Sliders } from 'lucide-react';
+import { Search, Camera, MessageSquare, Bell } from 'lucide-react';
 import { AppView } from '../../types';
 
 interface HeaderBarProps {
@@ -17,12 +17,36 @@ interface HeaderBarProps {
     unreadMessagesCount: number;
     pendingUpdatesCount: number;
     setPendingUpdatesCount: (n: number) => void;
-    activeFilterTab: string;
-    setActiveFilterTab: (tab: string) => void;
     mapRef: React.RefObject<mapboxgl.Map | null>;
 }
 
+const UserAvatar = ({ user, onClick }: { user: any; onClick: () => void }) => {
+    const initials = (user?.fullName || '?')
+        .split(' ')
+        .map((w: string) => w[0])
+        .slice(0, 2)
+        .join('')
+        .toUpperCase();
+
+    return (
+        <button
+            onClick={onClick}
+            className="w-7 h-7 rounded-full overflow-hidden shrink-0 flex items-center justify-center text-[10px] font-bold text-white"
+            aria-label="Profile"
+        >
+            {user?.avatarUrl ? (
+                <img src={user.avatarUrl} alt="Profile" className="w-full h-full object-cover" />
+            ) : (
+                <div className="w-full h-full bg-gradient-to-tr from-blue-600 to-cyan-500 flex items-center justify-center">
+                    {initials}
+                </div>
+            )}
+        </button>
+    );
+};
+
 export const HeaderBar: React.FC<HeaderBarProps> = ({
+    user,
     setView,
     inputRef,
     searchQuery,
@@ -36,20 +60,12 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
     unreadMessagesCount,
     pendingUpdatesCount,
     setPendingUpdatesCount,
-    activeFilterTab,
-    setActiveFilterTab,
     mapRef,
 }) => {
     return (
         <header style={{ paddingTop: 'env(safe-area-inset-top)' }} className="w-full flex flex-col gap-1.5 pointer-events-auto">
             <div className="w-full max-w-[380px] mx-auto bg-[#07162c]/85 backdrop-blur-xl border border-white/10 rounded-full h-11 px-3 flex items-center justify-between shadow-xl transition-all duration-300">
-                <button
-                    onClick={() => setView(AppView.PROFILE)}
-                    className="text-white/80 hover:text-white p-1.5 hover:bg-white/5 rounded-full transition-colors shrink-0"
-                    aria-label="Menu"
-                >
-                    <Menu size={18} />
-                </button>
+                <UserAvatar user={user} onClick={() => setView(AppView.PROFILE)} />
 
                 <div className="flex-1 mx-2 flex items-center gap-1.5">
                     <Search size={16} className="text-gray-400" />
@@ -144,69 +160,6 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                     </button>
                 </div>
             )}
-
-            {!searchOpen && (
-                <div className="w-full max-w-[380px] mx-auto mt-1 bg-[#07162c]/85 backdrop-blur-xl border border-white/10 rounded-2xl p-1 flex items-center justify-around text-[10px] shadow-lg">
-                    <button
-                        onClick={() => setActiveFilterTab('nearest')}
-                        className={`flex flex-col items-center gap-0.5 py-1 px-2 rounded-xl font-semibold flex-1 transition-all ${
-                            activeFilterTab === 'nearest'
-                                ? 'bg-[#1e75ff]/20 text-[#38bdf8]'
-                                : 'text-white/60 hover:text-white'
-                        }`}
-                    >
-                        <div className={`w-5.5 h-5.5 rounded-full flex items-center justify-center transition-all ${
-                            activeFilterTab === 'nearest' ? 'bg-[#1e75ff] text-white' : 'bg-white/5'
-                        }`}>
-                            <MapPin size={10} />
-                        </div>
-                        <span>Nearest</span>
-                    </button>
-                    <div className="w-[1px] h-5 bg-white/10" />
-
-                    <button
-                        onClick={() => setActiveFilterTab('favorites')}
-                        className={`flex flex-col items-center gap-1.5 py-1 px-2 rounded-xl font-medium flex-1 transition-all ${
-                            activeFilterTab === 'favorites'
-                                ? 'bg-[#1e75ff]/20 text-[#38bdf8]'
-                                : 'text-white/60 hover:text-white'
-                        }`}
-                    >
-                        <Star size={14} />
-                        <span>Favorites</span>
-                    </button>
-                    <div className="w-[1px] h-5 bg-white/10" />
-
-                    <button
-                        onClick={() => setActiveFilterTab('history')}
-                        className={`flex flex-col items-center gap-1.5 py-1 px-2 rounded-xl font-medium flex-1 transition-all ${
-                            activeFilterTab === 'history'
-                                ? 'bg-[#1e75ff]/20 text-[#38bdf8]'
-                                : 'text-white/60 hover:text-white'
-                        }`}
-                    >
-                        <Clock size={14} />
-                        <span>History</span>
-                    </button>
-                    <div className="w-[1px] h-5 bg-white/10" />
-
-                    <button
-                        onClick={() => {
-                            setActiveFilterTab('filters');
-                        }}
-                        className={`flex flex-col items-center gap-1.5 py-1 px-2 rounded-xl font-medium flex-1 transition-all ${
-                            activeFilterTab === 'filters'
-                                ? 'bg-[#1e75ff]/20 text-[#38bdf8]'
-                                : 'text-white/60 hover:text-white'
-                        }`}
-                    >
-                        <Sliders size={14} />
-                        <span>Filters</span>
-                    </button>
-                </div>
-            )}
-
-
         </header>
     );
 };

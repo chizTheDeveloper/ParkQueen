@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { AppView } from '../types';
-import { MapPin, Check, Locate, X, Navigation, Bell, Wallet } from 'lucide-react';
+import { MapPin, Check, Locate, X, Bell, Wallet } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, addDoc, Timestamp, doc, deleteDoc, writeBatch, updateDoc, getDocs, where, query } from 'firebase/firestore';
 import mapboxgl from 'mapbox-gl';
@@ -16,7 +16,6 @@ import { useHoldFlow } from './street-parking/useHoldFlow';
 import { SpotDetailsCard } from './street-parking/SpotDetailsCard';
 import { HeaderBar } from './street-parking/HeaderBar';
 
-import { NavigationBar } from './street-parking/NavigationBar';
 
 export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }) => {
     const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -39,7 +38,6 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const [showPingConfirmation, setShowPingConfirmation] = useState(false);
     const [isSpotModalOpen, setSpotModalOpen] = useState(false);
     const [spotAddress, setSpotAddress] = useState<string>("Loading address...");
-    const [activeFilterTab, setActiveFilterTab] = useState<string>("nearest");
 
     const userRef = useRef(user);
     useEffect(() => { userRef.current = user; }, [user]);
@@ -562,8 +560,6 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     unreadMessagesCount={unreadMessagesCount}
                     pendingUpdatesCount={spotData.pendingUpdatesCount}
                     setPendingUpdatesCount={spotData.setPendingUpdatesCount}
-                    activeFilterTab={activeFilterTab}
-                    setActiveFilterTab={setActiveFilterTab}
                     mapRef={mapRef}
                 />
 
@@ -577,13 +573,6 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                         <Locate size={18} className="text-[#1e75ff]" />
                     </button>
 
-                    <button
-                        onClick={() => alert("Navigation routing enabled")}
-                        className="w-10 h-10 rounded-full glass-button flex items-center justify-center shadow-lg transition-transform active:scale-90"
-                        title="Compass Directions"
-                    >
-                        <Navigation size={18} className="rotate-45 text-[#38bdf8]" />
-                    </button>
                 </div>
 
                 <div className="w-full flex flex-col gap-2 pointer-events-auto mt-auto pb-2">
@@ -623,7 +612,6 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                         </div>
                     </button>
 
-                    <NavigationBar setView={setView} />
                 </div>
             </div>
         </div>
