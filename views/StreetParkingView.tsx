@@ -610,18 +610,16 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     </div>
                 )}
 
-                <div className="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col gap-2.5 pointer-events-auto z-20">
-                    <button
-                        onClick={handleLocateMe}
-                        className="w-10 h-10 rounded-full glass-button flex items-center justify-center shadow-lg transition-transform active:scale-90"
-                        title="Locate Me"
-                    >
-                        <Locate size={18} className="text-[#1e75ff]" />
-                    </button>
-
-                </div>
-
                 <div className="w-full flex flex-col gap-2 pointer-events-auto mt-auto pb-2">
+                    <div className="flex justify-end max-w-[380px] mx-auto w-full">
+                        <button
+                            onClick={handleLocateMe}
+                            className="w-10 h-10 rounded-full glass-button flex items-center justify-center shadow-lg transition-transform active:scale-90"
+                            title="Locate Me"
+                        >
+                            <Locate size={18} className="text-[#1e75ff]" />
+                        </button>
+                    </div>
                     <SpotDetailsCard
                         selectedItem={selectedItem}
                         freeSpots={spotData.freeSpots}

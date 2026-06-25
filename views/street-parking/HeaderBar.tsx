@@ -31,7 +31,7 @@ const UserAvatar = ({ user, onClick }: { user: any; onClick: () => void }) => {
     return (
         <button
             onClick={onClick}
-            className="w-7 h-7 rounded-full overflow-hidden shrink-0 flex items-center justify-center text-[10px] font-bold text-white"
+            className="w-8 h-8 rounded-full overflow-hidden shrink-0 flex items-center justify-center text-[13px] font-bold text-white"
             aria-label="Profile"
         >
             {user?.avatarUrl ? (
@@ -64,16 +64,16 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 }) => {
     return (
         <header style={{ paddingTop: 'env(safe-area-inset-top)' }} className="w-full flex flex-col gap-1.5 pointer-events-auto">
-            <div className="w-full max-w-[380px] mx-auto bg-[#07162c]/85 backdrop-blur-xl border border-white/10 rounded-full h-11 px-3 flex items-center justify-between shadow-xl transition-all duration-300">
+            <div className="w-full max-w-[380px] mx-auto bg-[#07162c]/85 backdrop-blur-xl border border-white/10 rounded-full h-12 px-3.5 flex items-center justify-between shadow-xl transition-all duration-300">
                 <UserAvatar user={user} onClick={() => setView(AppView.PROFILE)} />
 
-                <div className="flex-1 mx-2 flex items-center gap-1.5">
-                    <Search size={16} className="text-gray-400" />
+                <div className="flex-1 mx-2.5 flex items-center gap-2.5">
+                    <Search size={17} className="text-gray-400" />
                     <input
                         ref={inputRef}
                         type="text"
                         placeholder="Search location..."
-                        className="bg-transparent border-none outline-none text-white text-xs w-full placeholder-gray-400 font-medium"
+                        className="bg-transparent border-none outline-none text-white text-[14px] w-full placeholder-gray-400 font-medium"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         onFocus={() => setSearchOpen(true)}
