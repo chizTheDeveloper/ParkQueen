@@ -5,7 +5,7 @@ export interface MapItem {
     lat: number;
     lng: number;
     type: 'free' | 'paid' | 'public';
-    status: 'available' | 'claimed' | 'occupied';
+    status: 'available' | 'interested' | 'occupied';
     title: string;
     pricePerHour?: number;
     description?: string;
@@ -13,11 +13,10 @@ export interface MapItem {
     expiresAt?: any;
     finderId?: string;
     finderName?: string;
-    claimedBy?: string | null;
-    holdRequestedBy?: string;
-    holdRequestedByName?: string;
-    holdRequestStatus?: string;
-    holdTimerExpiresAt?: any;
+    interestedUserId?: string | null;
+    interestedUserName?: string | null;
+    etaMinutes?: number | null;
+    interestExpiresAt?: any;
     rawSpot?: any;
 }
 

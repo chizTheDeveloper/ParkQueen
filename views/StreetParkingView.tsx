@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { AppView } from '../types';
-import { MapPin, Check, Locate, X, Bell, Wallet, Clock } from 'lucide-react';
+import { MapPin, Check, Locate, X, Bell, Clock } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, addDoc, Timestamp, doc, deleteDoc, writeBatch, updateDoc, getDocs, where, query } from 'firebase/firestore';
 import mapboxgl from 'mapbox-gl';
@@ -12,7 +12,7 @@ import { SpotModal } from './street-parking/SpotModal';
 import { useSearch } from './street-parking/useSearch';
 import { useUnreadMessages } from './street-parking/useUnreadMessages';
 import { useSpotData } from './street-parking/useSpotData';
-import { useHoldFlow } from './street-parking/useHoldFlow';
+import { useInterestFlow } from './street-parking/useInterestFlow';
 import { SpotDetailsCard } from './street-parking/SpotDetailsCard';
 import { HeaderBar } from './street-parking/HeaderBar';
 
@@ -57,7 +57,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         showPublic,
     });
 
-    const holdFlow = useHoldFlow({
+    const interestFlow = useInterestFlow({
         selectedItem,
         setSelectedItem,
         user,
@@ -105,8 +105,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         const updatedFree = spotData.freeSpots.find(s => s.id === selectedItem.id);
         if (updatedFree) {
             if (updatedFree.status !== selectedItem.status ||
-                updatedFree.holdRequestStatus !== selectedItem.holdRequestStatus ||
-                updatedFree.claimedBy !== selectedItem.claimedBy) {
+                updatedFree.interestedUserId !== selectedItem.interestedUserId) {
                 setSelectedItem(updatedFree);
             }
             return;
@@ -420,33 +419,6 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         }
     };
 
-    const handleClaimSpot = async () => {
-        const spotToClaim = selectedItem || (spotData.activeSpots.length > 0 ? spotData.activeSpots[0] : null);
-        if (!user || !spotToClaim) return;
-        try {
-            await updateDoc(doc(db, "spots", spotToClaim.id), {
-                status: 'claimed',
-                claimedBy: user.id
-            });
-            if (selectedItem) {
-                setSelectedItem({ ...selectedItem, status: 'claimed', claimedBy: user.id });
-            }
-        } catch (e) {
-            console.error("Error claiming spot:", e);
-            alert("Failed to claim spot.");
-        }
-    };
-
-    const handleClaimSpotClick = () => {
-        const spot = selectedItem || (spotData.freeSpots.length > 0 ? spotData.freeSpots[0] : null);
-        if (!spot) return;
-        if (spot.type === 'free') {
-            holdFlow.setIsHoldModalOpen(true);
-        } else {
-            handleClaimSpot();
-        }
-    };
-
     return (
         <div className="sp-page">
             <SpotModal
@@ -460,107 +432,73 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 spotAddress={spotAddress}
             />
 
-            {holdFlow.isHoldModalOpen && (
+            {/* ETA picker modal */}
+            {interestFlow.isEtaPickerOpen && (
                 <div className="absolute inset-0 z-30 bg-black/60 backdrop-blur-md flex items-center justify-center p-4">
-                    <div className="bg-[#1c1c1e] rounded-3xl p-6 w-full max-w-sm text-[var(--color-text)] border border-[var(--color-border)] flex flex-col gap-4">
-                        <div className="flex justify-between items-center">
-                            <h3 className="font-extrabold text-sm flex items-center gap-1.5 text-amber-500">
-                                <Wallet size={16} />
-                                <span>Escrow Hold Request</span>
-                            </h3>
-                            <button onClick={() => holdFlow.setIsHoldModalOpen(false)}>
-                                <X size={18} className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)]" />
+                    <div className="bg-[var(--color-glass)] backdrop-blur-xl rounded-3xl p-6 w-full max-w-sm text-[var(--color-text)] border border-[var(--color-border)] shadow-2xl">
+                        <div className="flex justify-between items-center mb-4">
+                            <h3 className="font-bold text-sm">How soon can you get there?</h3>
+                            <button onClick={() => interestFlow.setIsEtaPickerOpen(false)}>
+                                <X size={18} className="text-[var(--color-text-secondary)]" />
                             </button>
                         </div>
-                        <p className="text-xs text-white/85 leading-relaxed">
-                            To reserve this spot, a <strong>$2.00 escrow hold</strong> will be placed. The owner will be asked to hold the spot for you.
-                        </p>
-                        <ul className="text-[10px] text-[var(--color-text-secondary)] space-y-1">
-                            <li>• If accepted, navigation starts with a 5-minute arrival timer.</li>
-                            <li>• If declined or expired, your $2.00 is fully refunded.</li>
-                            <li>• Upon arrival, payment is released to the finder.</li>
-                        </ul>
-                        <button
-                            onClick={holdFlow.handleSendHoldRequest}
-                            className="w-full bg-amber-600 hover:bg-amber-500 font-extrabold py-2.5 rounded-xl text-xs transition-colors flex items-center justify-center gap-1.5 shadow-lg shadow-amber-600/10 text-white"
-                        >
-                            Pay & Request Hold ($2.00)
-                        </button>
+                        <div className="grid grid-cols-2 gap-2">
+                            {interestFlow.ETA_OPTIONS.map(min => (
+                                <button key={min} onClick={() => interestFlow.handleExpressInterest(min)}
+                                    className="py-3 rounded-2xl font-bold text-sm transition-all active:scale-95 text-white"
+                                    style={{ background: 'linear-gradient(90deg, #378ADD, #1D9E75)' }}>
+                                    {min} min
+                                </button>
+                            ))}
+                        </div>
+                        {interestFlow.interestError && (
+                            <p className="text-red-400 text-xs mt-3 text-center">{interestFlow.interestError}</p>
+                        )}
                     </div>
                 </div>
             )}
 
+            {/* Post-arrival feedback */}
+            {interestFlow.showFeedback && (
+                <div className="absolute inset-0 z-30 bg-black/60 backdrop-blur-md flex items-center justify-center p-4">
+                    <div className="bg-[var(--color-glass)] backdrop-blur-xl rounded-3xl p-6 w-full max-w-sm text-[var(--color-text)] border border-[var(--color-border)] shadow-2xl text-center">
+                        <div className="w-12 h-12 rounded-full bg-green-500/15 flex items-center justify-center mx-auto mb-3">
+                            <Check size={24} className="text-green-400" />
+                        </div>
+                        <h3 className="font-bold text-lg mb-1">You've arrived!</h3>
+                        <p className="text-xs text-[var(--color-text-secondary)] mb-4">How was the experience?</p>
+                        <div className="space-y-2">
+                            {['Thank the driver', 'Spot wasn\'t available', 'Other'].map(opt => (
+                                <button key={opt} onClick={() => interestFlow.handleFeedback(opt)}
+                                    className="w-full py-2.5 rounded-xl text-sm font-semibold bg-white/5 border border-[var(--color-border)] hover:bg-white/10 transition-all">
+                                    {opt}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Finder notification: someone is heading to their spot */}
             {(() => {
-                const pendingIncomingHold = spotData.freeSpots.find(s => s.finderId === user?.id && s.holdRequestStatus === 'pending');
-                if (!pendingIncomingHold) return null;
+                const interestedSpot = spotData.freeSpots.find(s => s.finderId === user?.id && s.status === 'interested');
+                if (!interestedSpot || selectedItem?.id === interestedSpot.id) return null;
                 return (
                     <div className="absolute top-24 left-1/2 -translate-x-1/2 w-[90%] max-w-[360px] z-50 bg-[var(--color-glass)] border border-[var(--color-border)] backdrop-blur-xl rounded-2xl p-4 shadow-2xl text-[var(--color-text)] pointer-events-auto flex flex-col gap-3">
                         <div className="flex items-center gap-2 text-blue-400">
                             <Bell size={16} className="animate-bounce" />
-                            <span className="text-xs font-bold uppercase tracking-wider">Someone wants this spot!</span>
+                            <span className="text-xs font-bold uppercase tracking-wider">Someone is heading there!</span>
                         </div>
-                        <p className="text-[11px] text-white/85 leading-relaxed">
-                            <strong>{pendingIncomingHold.holdRequestedByName || 'Someone'}</strong> wants to reserve your spot at <strong>{pendingIncomingHold.title}</strong> for a <strong>$2.00 escrow hold</strong>.
+                        <p className="text-[11px] text-[var(--color-text-secondary)] leading-relaxed">
+                            <strong>{interestedSpot.interestedUserName || 'Someone'}</strong> is heading to your spot at <strong>{interestedSpot.title}</strong>, ETA ~{interestedSpot.etaMinutes} min.
                         </p>
-                        <div className="flex gap-2">
-                            <button
-                                onClick={(e) => { e.stopPropagation(); holdFlow.handleAcceptHold(pendingIncomingHold); }}
-                                className="flex-1 bg-green-600 hover:bg-green-500 font-bold py-1.5 rounded-xl text-xs transition-colors text-white"
-                            >
-                                Accept & Hold ($2)
-                            </button>
-                            <button
-                                onClick={(e) => { e.stopPropagation(); holdFlow.handleDeclineHold(pendingIncomingHold); }}
-                                className="flex-1 bg-white/5 border border-[var(--color-border)] hover:bg-white/10 font-bold py-1.5 rounded-xl text-xs transition-colors text-white"
-                            >
-                                Decline
-                            </button>
-                        </div>
+                        <button onClick={() => setSelectedItem(interestedSpot)}
+                            className="w-full bg-[#1e75ff] hover:bg-blue-600 font-bold py-1.5 rounded-xl text-xs transition-colors text-white">
+                            View
+                        </button>
                     </div>
                 );
             })()}
-
-            {holdFlow.finderSuccessNotification && (
-                <div className="absolute top-24 left-1/2 -translate-x-1/2 w-[90%] max-w-[360px] z-50 bg-green-600 border border-green-500 text-white rounded-2xl p-4 shadow-2xl pointer-events-auto flex items-center gap-3">
-                    <Check size={20} className="shrink-0" />
-                    <div className="text-xs font-semibold">{holdFlow.finderSuccessNotification}</div>
-                </div>
-            )}
-
-            {selectedItem?.holdRequestedBy === user?.id && selectedItem?.holdRequestStatus === 'declined' && (
-                <div className="absolute top-24 left-1/2 -translate-x-1/2 w-[90%] max-w-[360px] z-50 bg-red-600 border border-red-500 text-white rounded-2xl p-4 shadow-2xl pointer-events-auto flex justify-between items-center gap-3">
-                    <div className="flex items-center gap-2">
-                        <X size={18} />
-                        <span className="text-xs font-semibold">Hold request declined. Escrow of $2.00 was refunded.</span>
-                    </div>
-                    <button onClick={async (e) => {
-                        e.stopPropagation();
-                        if (!db) return;
-                        try {
-                            const spotRef = doc(db, "spots", selectedItem.id);
-                            await updateDoc(spotRef, {
-                                holdRequestStatus: null,
-                                holdRequestedBy: null,
-                                holdRequestedByName: null,
-                                status: 'available',
-                                claimedBy: null
-                            });
-                            setSelectedItem((prev: any) => ({
-                                ...prev,
-                                holdRequestStatus: null,
-                                holdRequestedBy: null,
-                                holdRequestedByName: null,
-                                status: 'available',
-                                claimedBy: null
-                            }));
-                        } catch (e) {
-                            console.warn(e);
-                        }
-                    }} className="text-white hover:text-white/80">
-                        <X size={16} />
-                    </button>
-                </div>
-            )}
 
             <div ref={mapContainerRef} className="sp-map" onClick={() => setSelectedItem(null)} />
 
@@ -634,17 +572,19 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                         user={user}
                         userLocation={userLocation}
                         spotAddress={spotAddress}
-                        trackedItemId={holdFlow.trackedItemId}
-                        holdTimeRemaining={holdFlow.holdTimeRemaining}
-                        onTrackLocation={holdFlow.handleTrackLocation}
-                        onClaimSpotClick={handleClaimSpotClick}
-                        onEditSpot={(spot) => {
-                            setSelectedItem(spot);
-                            setSpotModalOpen(true);
-                        }}
+                        trackedItemId={interestFlow.trackedItemId}
+                        onTrackLocation={interestFlow.handleTrackLocation}
+                        onHeadingThere={() => interestFlow.setIsEtaPickerOpen(true)}
+                        onEditSpot={(spot) => { setSelectedItem(spot); setSpotModalOpen(true); }}
                         onDeletePing={handleDeletePing}
-                        onArrivalRelease={holdFlow.handleArrivalRelease}
+                        onArrival={interestFlow.handleArrival}
+                        onCancelByFinder={interestFlow.handleCancelByFinder}
+                        onDelayByFinder={interestFlow.handleDelayByFinder}
                         onMessageUser={onMessageUser}
+                        interestError={interestFlow.interestError}
+                        estDriveMinutes={selectedItem ? interestFlow.getEstDriveMinutes(selectedItem) : null}
+                        isWithinArrivalRange={selectedItem ? interestFlow.isWithinArrivalRange(selectedItem) : false}
+                        maxEtaMinutes={interestFlow.MAX_ETA_MINUTES}
                     />
 
                     {nearestSpot && !selectedItem && (

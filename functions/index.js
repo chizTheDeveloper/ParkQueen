@@ -46,6 +46,40 @@ exports.cleanupExpiredSpotsHourly = onSchedule(
   }
 );
 
+// 1b) Revert expired interest reservations every minute
+exports.cleanupExpiredInterests = onSchedule(
+  {
+    schedule: "every 1 minutes",
+    timeZone: "America/Toronto",
+    region: "us-central1",
+    memory: "256MiB",
+  },
+  async () => {
+    const now = Timestamp.now();
+    const snap = await db
+      .collection("spots")
+      .where("status", "==", "interested")
+      .where("interestExpiresAt", "<=", now)
+      .limit(500)
+      .get();
+
+    if (snap.empty) return;
+
+    const batch = db.batch();
+    snap.docs.forEach((d) => {
+      batch.update(d.ref, {
+        status: "available",
+        interestedUserId: null,
+        interestedUserName: null,
+        etaMinutes: null,
+        interestExpiresAt: null,
+      });
+    });
+    await batch.commit();
+    console.log(`✅ cleanupExpiredInterests: reverted ${snap.size} spots`);
+  }
+);
+
 // 2) Increment total spots pinged (all-time) whenever a spot is created
 exports.incrementTotalSpotsPinged = onDocumentCreated(
   {

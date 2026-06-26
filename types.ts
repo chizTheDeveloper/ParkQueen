@@ -26,15 +26,13 @@ export interface StreetSpot {
   lat: number;
   lng: number;
   type: 'free' | 'paid';
-  status: 'available' | 'claimed' | 'occupied';
+  status: 'available' | 'interested' | 'occupied';
   finderId: string;
   finderName: string;
-  reportedAt: any; // Firestore Timestamp
-  expiresAt: any; // Firestore Timestamp
-  claimedBy?: string | null;
-  holdRequestedBy?: string;
-  holdRequestedByName?: string;
-  holdRequestStatus?: 'pending' | 'accepted' | 'declined' | 'completed';
-  holdRequestExpiresAt?: any; // Firestore Timestamp
-  holdTimerExpiresAt?: any; // Firestore Timestamp
+  reportedAt: any;
+  expiresAt: any;
+  interestedUserId?: string | null;
+  interestedUserName?: string | null;
+  etaMinutes?: number | null;
+  interestExpiresAt?: any;
 }

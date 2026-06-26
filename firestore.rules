@@ -40,6 +40,11 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /spotFeedback/{feedbackId} {
+      allow create: if signedIn();
+      allow read: if false;
+    }
+
     match /chats/{chatId} {
       allow read, write: if signedIn();
       

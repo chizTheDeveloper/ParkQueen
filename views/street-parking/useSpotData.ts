@@ -56,11 +56,10 @@ export function useSpotData({ userId, searchCenter, searchRadius, showFree, show
                 expiresAt: s.expiresAt,
                 finderId: s.finderId,
                 finderName: s.finderName,
-                claimedBy: s.claimedBy,
-                holdRequestedBy: s.holdRequestedBy,
-                holdRequestedByName: s.holdRequestedByName,
-                holdRequestStatus: s.holdRequestStatus,
-                holdTimerExpiresAt: s.holdTimerExpiresAt,
+                interestedUserId: s.interestedUserId,
+                interestedUserName: s.interestedUserName,
+                etaMinutes: s.etaMinutes,
+                interestExpiresAt: s.interestExpiresAt,
                 rawSpot: s
             }));
             setFreeSpots(mappedFree);
