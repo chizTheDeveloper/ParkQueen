@@ -85,8 +85,8 @@ exports.notifyNearbyUsers = onDocumentCreated(
       const messages = [];
       neighborsSnap.forEach(userDoc => {
           const userData = userDoc.data();
-          // Don't notify the finder, and only notify users with an FCM token
-          if (userData.id !== spotData.finderId && userData.fcmToken) {
+          // Don't notify the finder, only notify users with an FCM token who haven't disabled notifications
+          if (userData.id !== spotData.finderId && userData.fcmToken && userData.notificationsEnabled !== false) {
               messages.push({
                   token: userData.fcmToken,
                   notification: {
