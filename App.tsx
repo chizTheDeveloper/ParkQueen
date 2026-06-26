@@ -44,6 +44,7 @@ export default function App() {
     return localStorage.getItem('theme') || 'dark';
   });
   const [activeChatContext, setActiveChatContext] = useState<{ userId: string; context: string } | null>(null);
+  const [pushToast, setPushToast] = useState<{ title: string; body: string } | null>(null);
   const [phone, setPhone] = useState('');
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
 
@@ -72,7 +73,8 @@ export default function App() {
 
                 onMessage(messaging, (payload) => {
                     console.log("Foreground message received:", payload);
-                    alert(`👑 ${payload.notification?.title}\n${payload.notification?.body}`);
+                    setPushToast({ title: payload.notification?.title || '', body: payload.notification?.body || '' });
+                    setTimeout(() => setPushToast(null), 5000);
                 });
             }
         });
@@ -324,6 +326,21 @@ export default function App() {
           </Suspense>
         </ErrorBoundary>
       </main>
+
+      {pushToast && (
+        <div className="fixed top-4 left-4 right-4 z-50 flex justify-center animate-in fade-in slide-in-from-top duration-300">
+          <div className="bg-[var(--color-glass)] backdrop-blur-xl border border-[var(--color-border)] rounded-2xl px-4 py-3 shadow-2xl flex items-center gap-3 max-w-sm w-full">
+            <div className="w-9 h-9 rounded-full bg-[#1e75ff]/15 flex items-center justify-center shrink-0">
+              <span className="text-lg">👑</span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-bold text-[var(--color-text)] truncate">{pushToast.title}</div>
+              <div className="text-xs text-[var(--color-text-secondary)] truncate">{pushToast.body}</div>
+            </div>
+            <button onClick={() => setPushToast(null)} className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)] shrink-0 text-lg">&times;</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
