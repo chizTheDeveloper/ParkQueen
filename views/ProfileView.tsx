@@ -1,28 +1,55 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { ChevronLeft, Edit, FileText, Shield, Info, Camera, Trophy, Flame, Star, Settings } from 'lucide-react';
 import { AppView } from '../types';
 
 export const ProfileView = ({ user, onBack, setView }) => {
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file && user) {
       setIsUploading(true);
+      setUploadStatus('Uploading...');
       const storage = getStorage();
       const storageRef = ref(storage, `avatars/${user.id}`);
       try {
         await uploadBytes(storageRef, file);
-        const avatarUrl = await getDownloadURL(storageRef);
-        await updateDoc(doc(db, 'users', user.id), { avatarUrl });
+        setUploadStatus('Checking photo...');
+
+        const moderationRef = doc(db, 'avatarModeration', user.id);
+        const timeout = setTimeout(() => {
+          unsub();
+          setUploadStatus('');
+          setIsUploading(false);
+          alert('Photo check timed out. Please try again.');
+        }, 20000);
+
+        const unsub = onSnapshot(moderationRef, async (snap) => {
+          const data = snap.data();
+          if (!data || data.status === 'checking') return;
+
+          clearTimeout(timeout);
+          unsub();
+
+          if (data.status === 'approved') {
+            const avatarUrl = await getDownloadURL(storageRef);
+            await updateDoc(doc(db, 'users', user.id), { avatarUrl });
+            setUploadStatus('');
+          } else {
+            setUploadStatus('This photo couldn\'t be used. Please choose a different photo.');
+            setTimeout(() => setUploadStatus(''), 4000);
+          }
+          setIsUploading(false);
+        });
       } catch (error) {
         console.error("Error uploading file:", error);
-        alert("Failed to upload new avatar. Please try again.");
-      } finally {
+        setUploadStatus('');
+        alert("Failed to upload. Please try again.");
         setIsUploading(false);
       }
     }
@@ -72,7 +99,10 @@ export const ProfileView = ({ user, onBack, setView }) => {
               <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" className="hidden" />
             </div>
             <h2 className="text-xl font-extrabold text-[var(--color-text)]">{user.fullName || "Chi Chima"}</h2>
-            <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{user.email || "chumc554@gmail.com"}</p>
+            <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{user.email || ""}</p>
+            {uploadStatus && (
+              <p className={`text-xs mt-2 font-semibold ${uploadStatus.includes('couldn') ? 'text-red-400' : 'text-blue-400'}`}>{uploadStatus}</p>
+            )}
           </div>
 
           {/* Gamification Stats */}

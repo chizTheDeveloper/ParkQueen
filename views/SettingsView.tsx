@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
-import { ChevronLeft, Edit, Mail, Bell, MapPin, Moon, LogOut, Trash2 } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { ChevronLeft, Edit, Mail, Bell, MapPin, Moon, LogOut, Trash2, Check } from 'lucide-react';
 import { doc, updateDoc } from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { getApp } from 'firebase/app';
 import { db } from '../firebase';
 import { AppView } from '../types';
 
@@ -23,8 +25,61 @@ const Toggle = ({ checked, onChange }: { checked: boolean; onChange: (v: boolean
 export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBack, onLogout, onDeleteAccount, theme, toggleTheme }) => {
     const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(user?.notificationsEnabled ?? true);
     const [sharePreciseLocation, setSharePreciseLocation] = useState<boolean>(user?.sharePreciseLocation ?? true);
-    const [editingEmail, setEditingEmail] = useState(false);
+    const [emailStep, setEmailStep] = useState<'view' | 'input' | 'otp'>('view');
     const [emailDraft, setEmailDraft] = useState(user?.email || '');
+    const [otpDigits, setOtpDigits] = useState<string[]>(Array(6).fill(''));
+    const [otpCooldown, setOtpCooldown] = useState(0);
+    const [emailError, setEmailError] = useState('');
+    const [emailSending, setEmailSending] = useState(false);
+    const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+    useEffect(() => {
+        if (otpCooldown <= 0) return;
+        const t = setTimeout(() => setOtpCooldown(c => c - 1), 1000);
+        return () => clearTimeout(t);
+    }, [otpCooldown]);
+
+    const handleSendEmailOTP = async () => {
+        setEmailError('');
+        setEmailSending(true);
+        try {
+            const functions = getFunctions(getApp(), 'us-central1');
+            await httpsCallable(functions, 'generateEmailOTP')({ email: emailDraft.trim() });
+            setEmailStep('otp');
+            setOtpDigits(Array(6).fill(''));
+            setOtpCooldown(60);
+        } catch (e: any) {
+            setEmailError(e.details || e.message || 'Failed to send code.');
+        } finally {
+            setEmailSending(false);
+        }
+    };
+
+    const handleVerifyEmailOTP = async () => {
+        setEmailError('');
+        setEmailSending(true);
+        try {
+            const functions = getFunctions(getApp(), 'us-central1');
+            await httpsCallable(functions, 'verifyEmailOTP')({ email: emailDraft.trim(), code: otpDigits.join('') });
+            setEmailStep('view');
+        } catch (e: any) {
+            setEmailError(e.details || e.message || 'Verification failed.');
+        } finally {
+            setEmailSending(false);
+        }
+    };
+
+    const handleOtpChange = (index: number, value: string) => {
+        if (!/^\d*$/.test(value)) return;
+        const next = [...otpDigits];
+        next[index] = value.slice(-1);
+        setOtpDigits(next);
+        if (value && index < 5) otpRefs.current[index + 1]?.focus();
+    };
+
+    const handleOtpKeyDown = (index: number, e: React.KeyboardEvent) => {
+        if (e.key === 'Backspace' && !otpDigits[index] && index > 0) otpRefs.current[index - 1]?.focus();
+    };
 
     const updatePref = (field: string, value: boolean) => {
         if (user?.id) {
@@ -58,39 +113,60 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                                 <ChevronLeft size={16} className="text-[var(--color-text-secondary)] rotate-180" />
                             </button>
                             <div className="w-full p-4">
-                                {editingEmail ? (
+                                {emailStep === 'otp' ? (
+                                    <div>
+                                        <div className="flex items-center gap-3.5 mb-3">
+                                            <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><Mail size={18} /></div>
+                                            <div>
+                                                <h4 className="font-bold text-[var(--color-text)] text-sm">Enter code</h4>
+                                                <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Sent to {emailDraft}</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-2 justify-center mb-3">
+                                            {otpDigits.map((d, i) => (
+                                                <input key={i} ref={el => { otpRefs.current[i] = el; }} type="text" inputMode="numeric" maxLength={1} value={d}
+                                                    onChange={e => handleOtpChange(i, e.target.value)} onKeyDown={e => handleOtpKeyDown(i, e)}
+                                                    className="w-10 h-12 bg-white/5 border border-[var(--color-border)] rounded-xl text-center text-[var(--color-text)] text-lg font-bold outline-none focus:border-blue-500 transition-all"
+                                                    autoFocus={i === 0} />
+                                            ))}
+                                        </div>
+                                        {emailError && <p className="text-red-400 text-xs text-center mb-2">{emailError}</p>}
+                                        <div className="flex items-center justify-between">
+                                            <button onClick={() => setEmailStep('input')} className="text-[var(--color-text-secondary)] text-xs">Back</button>
+                                            <p className="text-xs text-[var(--color-text-secondary)]">
+                                                {otpCooldown > 0 ? `Resend in ${otpCooldown}s` : <button onClick={handleSendEmailOTP} className="text-blue-400 font-semibold">Resend</button>}
+                                            </p>
+                                        </div>
+                                        <button onClick={handleVerifyEmailOTP} disabled={otpDigits.some(d => !d) || emailSending}
+                                            className="w-full mt-3 py-2.5 rounded-xl font-bold text-white text-sm active:scale-95 transition-transform disabled:opacity-40"
+                                            style={{ background: 'linear-gradient(90deg, #378ADD, #1D9E75)' }}>
+                                            {emailSending ? 'Verifying...' : 'Verify'}
+                                        </button>
+                                    </div>
+                                ) : emailStep === 'input' ? (
                                     <div className="flex items-center gap-3.5">
                                         <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><Mail size={18} /></div>
                                         <div className="flex-1">
-                                            <input
-                                                type="email"
-                                                value={emailDraft}
-                                                onChange={(e) => setEmailDraft(e.target.value)}
-                                                placeholder="you@example.com"
-                                                className="w-full bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-[var(--color-text)] text-sm outline-none focus:border-[#1e75ff] transition-all"
-                                                autoFocus
-                                            />
+                                            <input type="email" value={emailDraft} onChange={(e) => setEmailDraft(e.target.value)} placeholder="you@example.com"
+                                                className="w-full bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-[var(--color-text)] text-sm outline-none focus:border-[#1e75ff] transition-all" autoFocus />
+                                            {emailError && <p className="text-red-400 text-xs mt-1">{emailError}</p>}
                                         </div>
-                                        <button
-                                            onClick={() => {
-                                                if (emailDraft.trim() && user?.id) {
-                                                    updateDoc(doc(db, 'users', user.id), { email: emailDraft.trim(), emailVerified: false }).catch(e => console.warn('Failed to update email', e));
-                                                }
-                                                setEditingEmail(false);
-                                            }}
-                                            className="text-[#38bdf8] font-bold text-xs shrink-0"
-                                        >
-                                            Save
+                                        <button onClick={handleSendEmailOTP} disabled={!emailDraft.includes('@') || emailSending}
+                                            className="text-[#38bdf8] font-bold text-xs shrink-0 disabled:opacity-40">
+                                            {emailSending ? 'Sending...' : 'Send code'}
                                         </button>
                                     </div>
                                 ) : (
-                                    <button onClick={() => setEditingEmail(true)} className="w-full flex items-center justify-between text-left">
+                                    <button onClick={() => setEmailStep('input')} className="w-full flex items-center justify-between text-left">
                                         <div className="flex items-center gap-3.5">
                                             <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><Mail size={18} /></div>
                                             <div>
                                                 <h4 className="font-bold text-[var(--color-text)] text-sm">Email address</h4>
                                                 <div className="flex items-center gap-2 mt-0.5">
                                                     <p className="text-xs text-[var(--color-text-secondary)]">{user?.email || 'Add email'}</p>
+                                                    {user?.email && user?.emailVerified && (
+                                                        <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded flex items-center gap-0.5"><Check size={8} />Verified</span>
+                                                    )}
                                                     {user?.email && !user?.emailVerified && (
                                                         <span className="text-[9px] font-bold text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded">Unverified</span>
                                                     )}
