@@ -279,6 +279,16 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
     const handleSaveSpot = async (departureTime: Date | null) => {
         if (isPinging || !user) return;
+
+        if (!selectedItem) {
+            const activeQ = query(collection(db, 'spots'), where('finderId', '==', user.id), where('status', 'in', ['available', 'interested']));
+            const activeSnap = await getDocs(activeQ);
+            if (!activeSnap.empty) {
+                alert('You already have an active ping. Cancel or wait for it to be taken before creating a new one.');
+                return;
+            }
+        }
+
         setIsPinging(true);
         setSpotModalOpen(false);
 
