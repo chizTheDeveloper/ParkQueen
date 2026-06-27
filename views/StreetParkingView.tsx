@@ -275,7 +275,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         if (mapRef.current && userLocation) {
             const el = document.createElement('div');
             el.style.zIndex = '5';
-            el.innerHTML = `<div class="relative flex items-center justify-center"><div class="absolute w-11 h-11 bg-blue-500/20 rounded-full animate-pulse"></div><div class="w-6 h-6 bg-blue-500 rounded-full border-2 border-white shadow-md flex items-center justify-center"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14"/></svg></div></div>`;
+            el.innerHTML = `<div class="relative flex items-center justify-center"><div class="absolute w-10 h-10 bg-blue-500/20 rounded-full animate-ping"></div><div class="absolute w-6 h-6 bg-blue-500/15 rounded-full animate-pulse"></div><div class="w-3.5 h-3.5 bg-blue-500 rounded-full border-2 border-white shadow-md"></div></div>`;
             userMarkerRef.current = new mapboxgl.Marker(el).setLngLat(userLocation).addTo(mapRef.current);
         }
     }, [userLocation]);
