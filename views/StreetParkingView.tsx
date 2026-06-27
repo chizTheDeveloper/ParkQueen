@@ -521,9 +521,23 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             <div className="map-blue-tint-soft" />
 
             {showPingConfirmation && (
-                <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 bg-[var(--color-glass)] backdrop-blur-xl border border-emerald-500/30 text-white font-semibold py-3 px-5 rounded-2xl flex items-center gap-2.5 shadow-2xl">
+                <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 bg-[var(--color-glass)] backdrop-blur-xl border border-emerald-500/30 text-[var(--color-text)] font-semibold py-3 px-5 rounded-2xl flex items-center gap-2.5 shadow-2xl">
                     <div className="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0"><Check size={14} className="text-emerald-400" /></div>
                     <span className="text-sm">Spot pinged! Nearby drivers will be notified</span>
+                </div>
+            )}
+
+            {interestFlow.finderToast && (
+                <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 bg-[var(--color-glass)] backdrop-blur-xl border border-blue-500/30 text-[var(--color-text)] font-semibold py-3 px-5 rounded-2xl flex items-center gap-2.5 shadow-2xl">
+                    <div className="w-7 h-7 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0"><Check size={14} className="text-blue-400" /></div>
+                    <span className="text-sm">{interestFlow.finderToast}</span>
+                </div>
+            )}
+
+            {interestFlow.driverNotification && (
+                <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 bg-[var(--color-glass)] backdrop-blur-xl border border-amber-500/30 text-[var(--color-text)] font-semibold py-3 px-5 rounded-2xl flex items-center gap-2.5 shadow-2xl">
+                    <div className="w-7 h-7 rounded-full bg-amber-500/20 flex items-center justify-center shrink-0"><Bell size={14} className="text-amber-400" /></div>
+                    <span className="text-sm">{interestFlow.driverNotification}</span>
                 </div>
             )}
 

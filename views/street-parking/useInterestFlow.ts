@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { db } from '../../firebase';
-import { doc, updateDoc, runTransaction, Timestamp, collection, query, where, getDocs, addDoc } from 'firebase/firestore';
+import { doc, updateDoc, deleteDoc, runTransaction, Timestamp, collection, query, where, getDocs, addDoc, onSnapshot, orderBy, limit } from 'firebase/firestore';
 import { MapItem } from './types';
 import { getDistance, drawRoute, clearRoute, NYC_CENTER } from './utils';
 
@@ -27,6 +27,36 @@ export function useInterestFlow({
     const [isEtaPickerOpen, setIsEtaPickerOpen] = useState(false);
     const [interestError, setInterestError] = useState<string | null>(null);
     const [showFeedback, setShowFeedback] = useState(false);
+    const [finderToast, setFinderToast] = useState<string | null>(null);
+    const [driverNotification, setDriverNotification] = useState<string | null>(null);
+
+    // Listen for notifications targeted at this user (as the interested driver)
+    useEffect(() => {
+        if (!user?.id) return;
+        const q = query(
+            collection(db, 'spotNotifications'),
+            where('targetUserId', '==', user.id),
+            orderBy('createdAt', 'desc'),
+            limit(1)
+        );
+        const unsub = onSnapshot(q, (snap) => {
+            snap.docChanges().forEach(change => {
+                if (change.type === 'added') {
+                    const data = change.doc.data();
+                    setDriverNotification(data.message);
+                    setTimeout(() => setDriverNotification(null), 5000);
+                    if (data.type === 'cancelled') {
+                        setTrackedItemId(null);
+                        activeRouteDestinationRef.current = null;
+                        if (mapRef.current) clearRoute(mapRef.current);
+                        setSelectedItem(null);
+                    }
+                    change.doc.ref.delete().catch(() => {});
+                }
+            });
+        });
+        return () => unsub();
+    }, [user?.id]);
 
     const getEstDriveMinutes = (spot: MapItem): number | null => {
         if (!userLocation) return null;
@@ -93,13 +123,17 @@ export function useInterestFlow({
 
     const handleCancelByFinder = async () => {
         if (!selectedItem || !db) return;
-        await updateDoc(doc(db, 'spots', selectedItem.id), {
-            status: 'available',
-            interestedUserId: null,
-            interestedUserName: null,
-            etaMinutes: null,
-            interestExpiresAt: null,
-        });
+        const interestedId = selectedItem.interestedUserId;
+        if (interestedId) {
+            await addDoc(collection(db, 'spotNotifications'), {
+                targetUserId: interestedId,
+                type: 'cancelled',
+                message: "The driver isn't leaving anymore",
+                createdAt: Timestamp.now(),
+            });
+        }
+        await deleteDoc(doc(db, 'spots', selectedItem.id));
+        setSelectedItem(null);
     };
 
     const handleDelayByFinder = async (extraMinutes = 3) => {
@@ -108,6 +142,17 @@ export function useInterestFlow({
         await updateDoc(doc(db, 'spots', selectedItem.id), {
             interestExpiresAt: Timestamp.fromMillis(current + extraMinutes * 60000),
         });
+        const interestedId = selectedItem.interestedUserId;
+        if (interestedId) {
+            await addDoc(collection(db, 'spotNotifications'), {
+                targetUserId: interestedId,
+                type: 'delayed',
+                message: 'Driver needs a few more minutes',
+                createdAt: Timestamp.now(),
+            });
+        }
+        setFinderToast('The other driver has been notified');
+        setTimeout(() => setFinderToast(null), 3000);
     };
 
     const handleArrival = async () => {
@@ -154,6 +199,8 @@ export function useInterestFlow({
         interestError,
         setInterestError,
         showFeedback,
+        finderToast,
+        driverNotification,
         handleExpressInterest,
         handleCancelByFinder,
         handleDelayByFinder,
