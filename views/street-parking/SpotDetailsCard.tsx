@@ -1,7 +1,11 @@
-import React from 'react';
-import { Locate, MessageSquare, Navigation, Clock, X } from 'lucide-react';
+import React, { useState } from 'react';
+import { Locate, MessageSquare, Check } from 'lucide-react';
 import { MapItem } from './types';
 import { getDistance, formatTimeLeft } from './utils';
+import { db } from '../../firebase';
+import { doc, setDoc, addDoc, collection, serverTimestamp } from 'firebase/firestore';
+
+const QUICK_REPLIES = ['On my way out', 'Be there in a few minutes', 'Already left, go ahead', 'Running a bit late'];
 
 interface SpotDetailsCardProps {
     selectedItem: any;
@@ -30,6 +34,9 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
     onCancelByFinder, onDelayByFinder, onMessageUser,
     interestError, estDriveMinutes, isWithinArrivalRange, maxEtaMinutes,
 }) => {
+    const [showQuickReplies, setShowQuickReplies] = useState(false);
+    const [messageSent, setMessageSent] = useState(false);
+
     if (!selectedItem) return null;
 
     const distanceVal = userLocation ? getDistance(userLocation[1], userLocation[0], selectedItem.lat, selectedItem.lng) : null;
@@ -50,14 +57,34 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
     if (spotStatus === 'available') {
         subText = `Departure: ${departureText} • Expires: ${formatTimeLeft(timeLeftMs)}`;
     } else if (spotStatus === 'interested') {
-        if (isFinder) {
-            subText = `Someone is heading there, ETA ~${selectedItem.etaMinutes || '?'} min`;
-        } else if (isInterestedUser) {
-            subText = 'Driver is preparing to leave';
-        } else {
-            subText = 'Someone is heading there';
-        }
+        if (isFinder) subText = `Someone is heading there, ETA ~${selectedItem.etaMinutes || '?'} min`;
+        else if (isInterestedUser) subText = 'Driver is preparing to leave';
+        else subText = 'Someone is heading there';
     }
+
+    const sendQuickReply = async (text: string) => {
+        if (!user || !selectedItem.interestedUserId) return;
+        const otherUserId = selectedItem.interestedUserId;
+        const chatId = [user.id, otherUserId].sort().join('_');
+        const chatRef = doc(db, 'chats', chatId);
+        await setDoc(chatRef, {
+            id: chatId,
+            participants: [user.id, otherUserId],
+            participantNames: { [user.id]: user.fullName || 'Driver', [otherUserId]: selectedItem.interestedUserName || 'Driver' },
+            relatedSpotTitle: selectedItem.title || spotAddress || 'Street Spot',
+            lastMessage: text,
+            lastMessageTimestamp: serverTimestamp(),
+            lastSenderId: user.id,
+        }, { merge: true });
+        await addDoc(collection(db, 'chats', chatId, 'messages'), {
+            senderId: user.id,
+            text,
+            timestamp: serverTimestamp(),
+        });
+        setShowQuickReplies(false);
+        setMessageSent(true);
+        setTimeout(() => setMessageSent(false), 2000);
+    };
 
     return (
         <div className="w-full max-w-[380px] mx-auto bg-[var(--color-glass)] backdrop-blur-xl border border-[var(--color-border)] rounded-3xl p-3.5 shadow-2xl transition-all">
@@ -80,26 +107,39 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                 </span>
             </div>
 
-            {interestError && (
-                <p className="text-red-400 text-xs mt-2 text-center">{interestError}</p>
+            {interestError && <p className="text-red-400 text-xs mt-2 text-center">{interestError}</p>}
+            {messageSent && <p className="text-emerald-400 text-xs mt-2 text-center font-semibold">Message sent</p>}
+
+            {showQuickReplies && (
+                <div className="mt-2.5 pt-2.5 border-t border-[var(--color-border)] grid grid-cols-2 gap-1.5">
+                    {QUICK_REPLIES.map(msg => (
+                        <button key={msg} onClick={() => sendQuickReply(msg)}
+                            className="bg-white/5 border border-[var(--color-border)] hover:bg-white/10 text-[var(--color-text)] font-semibold py-2 px-2 rounded-xl text-[10px] transition-all active:scale-95">
+                            {msg}
+                        </button>
+                    ))}
+                </div>
             )}
 
             <div className="flex gap-2 mt-2.5 pt-2.5 border-t border-[var(--color-border)]">
-                <button onClick={onTrackLocation}
-                    className={`flex-1 font-bold py-1.5 rounded-xl flex items-center justify-center gap-1 transition-all text-[11px] shadow-md ${
-                        trackedItemId === selectedItem.id
-                            ? 'bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-400'
-                            : 'bg-[#1e75ff] hover:bg-blue-600 text-white'
-                    }`}>
-                    <Locate size={12} />
-                    <span>{trackedItemId === selectedItem.id ? 'Untrack' : 'Track'}</span>
-                </button>
+                {/* Track — only for non-finder */}
+                {!isFinder && (
+                    <button onClick={onTrackLocation}
+                        className={`flex-1 font-bold py-1.5 rounded-xl flex items-center justify-center gap-1 transition-all text-[11px] shadow-md ${
+                            trackedItemId === selectedItem.id
+                                ? 'bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-400'
+                                : 'bg-[#1e75ff] hover:bg-blue-600 text-white'
+                        }`}>
+                        <Locate size={12} />
+                        <span>{trackedItemId === selectedItem.id ? 'Untrack' : 'Track'}</span>
+                    </button>
+                )}
 
                 {/* Not the finder, spot is available */}
                 {!isFinder && spotStatus === 'available' && (
                     <>
                         <button onClick={() => onMessageUser(selectedItem.finderId, `Spot pinged by ${selectedItem.finderName}`)}
-                            className="bg-white/10 hover:bg-white/20 text-white p-1.5 rounded-xl flex items-center justify-center transition-all shadow-md shrink-0">
+                            className="bg-white/10 hover:bg-white/20 text-[var(--color-text)] p-1.5 rounded-xl flex items-center justify-center transition-all shadow-md shrink-0">
                             <MessageSquare size={14} />
                         </button>
                         {estDriveMinutes !== null && estDriveMinutes > maxEtaMinutes ? (
@@ -130,9 +170,13 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                     </div>
                 )}
 
-                {/* Finder, someone is interested */}
+                {/* Finder, someone is interested — message + delay + cancel */}
                 {isFinder && spotStatus === 'interested' && (
                     <div className="flex flex-1 gap-1.5">
+                        <button onClick={() => setShowQuickReplies(!showQuickReplies)}
+                            className="bg-[#1e75ff] hover:bg-blue-600 text-white p-1.5 rounded-xl flex items-center justify-center transition-all shadow-md shrink-0">
+                            <MessageSquare size={14} />
+                        </button>
                         <button onClick={onDelayByFinder}
                             className="flex-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 font-bold py-1.5 rounded-xl transition-all text-[11px] border border-amber-500/30">
                             Need more time
