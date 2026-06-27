@@ -27,7 +27,7 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                 ? spot.reportedAt.toDate()
                 : (spot && spot.reportedAt ? new Date(spot.reportedAt) : new Date(Date.now() + 2 * 60_000));
             setDepartureTime(initialDate);
-            setPingType(spot && initialDate.getTime() > Date.now() + 60_000 ? 'later' : 'now');
+            setPingType('now');
             setView('main');
             requestAnimationFrame(() => setVisible(true));
         } else {
@@ -59,6 +59,10 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
     };
 
     const handleSetTime = () => {
+        if (pingType === 'later' && departureTime.getTime() <= Date.now()) {
+            alert('Please select a future time.');
+            return;
+        }
         onSave(pingType === 'now' ? null : departureTime);
     };
 

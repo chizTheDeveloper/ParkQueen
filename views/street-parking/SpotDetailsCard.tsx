@@ -55,7 +55,7 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
 
     let subText = '';
     if (spotStatus === 'available') {
-        subText = `Departure: ${departureText} • Expires: ${formatTimeLeft(timeLeftMs)}`;
+        subText = isScheduled ? `Available at ${departureText}` : `Departure: Leaving Now • Expires: ${formatTimeLeft(timeLeftMs)}`;
     } else if (spotStatus === 'interested') {
         if (isFinder) subText = `Someone is heading there, ETA ~${selectedItem.etaMinutes || '?'} min`;
         else if (isInterestedUser) subText = 'Driver is preparing to leave';
@@ -99,11 +99,12 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                     <p className="text-[11px] text-[var(--color-text-secondary)] mt-0.5 truncate">{subText}</p>
                 </div>
                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg ${
-                    spotStatus === 'available' ? 'text-green-400 bg-green-500/10 border border-green-500/20'
+                    spotStatus === 'available' && isScheduled ? 'text-yellow-400 bg-yellow-500/10 border border-yellow-500/20'
+                    : spotStatus === 'available' ? 'text-green-400 bg-green-500/10 border border-green-500/20'
                     : spotStatus === 'interested' ? 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
                     : 'text-red-400 bg-red-500/10 border border-red-500/20'
                 }`}>
-                    {spotStatus === 'available' ? 'Free' : spotStatus === 'interested' ? 'Reserved' : 'Occupied'}
+                    {spotStatus === 'available' && isScheduled ? 'Soon' : spotStatus === 'available' ? 'Free' : spotStatus === 'interested' ? 'Reserved' : 'Occupied'}
                 </span>
             </div>
 

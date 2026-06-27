@@ -212,29 +212,36 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
         spotData.radiusFilteredItems.forEach(item => {
             const lngLat: [number, number] = [item.lng, item.lat];
-            if (!currentMarkers[item.id]) {
-                let priceStr = undefined;
-                if (item.type === 'paid' || item.type === 'public') {
-                    priceStr = `$${(item.pricePerHour || 1.50).toFixed(2)}/hr`;
-                }
-                const el = createMarkerElement(item.type, priceStr);
-                const marker = new mapboxgl.Marker({ element: el, anchor: "center" })
-                    .setLngLat(lngLat)
-                    .addTo(map);
+            const reportedMs = item.reportedAt ? (typeof item.reportedAt.toMillis === 'function' ? item.reportedAt.toMillis() : typeof item.reportedAt.seconds === 'number' ? item.reportedAt.seconds * 1000 : 0) : 0;
+            const isScheduled = reportedMs > Date.now() + 60_000;
 
-                marker.getElement().addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    setSelectedItem(item);
-                    map.flyTo({ center: lngLat, zoom: 16 });
-                });
-
-                currentMarkers[item.id] = marker;
-            } else {
-                const cur = currentMarkers[item.id].getLngLat();
-                if (cur.lng !== item.lng || cur.lat !== item.lat) {
-                    currentMarkers[item.id].setLngLat(lngLat);
+            if (currentMarkers[item.id]) {
+                const existing = currentMarkers[item.id].getElement();
+                const wasScheduled = existing.dataset.scheduled === 'true';
+                if (wasScheduled !== isScheduled) {
+                    currentMarkers[item.id].remove();
+                    delete currentMarkers[item.id];
+                } else {
+                    const cur = currentMarkers[item.id].getLngLat();
+                    if (cur.lng !== item.lng || cur.lat !== item.lat) {
+                        currentMarkers[item.id].setLngLat(lngLat);
+                    }
+                    return;
                 }
             }
+
+            const el = createMarkerElement(isScheduled);
+            const marker = new mapboxgl.Marker({ element: el, anchor: "center" })
+                .setLngLat(lngLat)
+                .addTo(map);
+
+            marker.getElement().addEventListener('click', (e) => {
+                e.stopPropagation();
+                setSelectedItem(item);
+                map.flyTo({ center: lngLat, zoom: 16 });
+            });
+
+            currentMarkers[item.id] = marker;
         });
     }, [spotData.radiusFilteredItems]);
 
@@ -324,6 +331,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     status: 'available',
                     finderId: user.id,
                     finderName: user.fullName || 'Anonymous',
+                    pingMode: departureTime ? 'later' : 'now',
                     reportedAt,
                     expiresAt,
                 };
@@ -366,6 +374,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     status: 'available',
                     finderId: user.id,
                     finderName: user.fullName || 'Anonymous',
+                    pingMode: departureTime ? 'later' : 'now',
                     reportedAt,
                     expiresAt,
                     geohash: geofire.geohashForLocation([userLocation[1], userLocation[0]])
@@ -392,6 +401,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                             status: 'available',
                             finderId: user.id,
                             finderName: user.fullName || 'Anonymous',
+                            pingMode: departureTime ? 'later' : 'now',
                             reportedAt,
                             expiresAt,
                             geohash

@@ -36,26 +36,14 @@ export const formatTimeLeft = (ms: number): string => {
     return `${hours} hour${hours === 1 ? "" : "s"} and ${minutes} minute${minutes === 1 ? "" : "s"}`;
 };
 
-export const createMarkerElement = (type: 'free' | 'paid' | 'public', price?: string) => {
+export const createMarkerElement = (scheduled = false) => {
     const el = document.createElement('div');
     el.className = "flex flex-col items-center select-none";
     el.style.zIndex = '10';
     el.style.cursor = 'pointer';
+    el.dataset.scheduled = String(scheduled);
 
-    let color = '#1e75ff';
-    if (type === 'paid') color = '#22c55e';
-    if (type === 'public') color = '#a855f7';
-
-    let pillHtml = '';
-    if ((type === 'paid' || type === 'public') && price) {
-        const textColorClass = type === 'paid' ? 'text-[#22c55e]' : 'text-[#a855f7]';
-        const borderColorClass = type === 'paid' ? 'border-[#22c55e]/25' : 'border-[#a855f7]/25';
-        pillHtml = `
-            <div class="mt-0.5 px-1.5 py-0.5 text-[9px] font-bold bg-[#07162c]/95 border ${borderColorClass} ${textColorClass} rounded-md shadow-lg backdrop-blur-sm whitespace-nowrap leading-none select-none pointer-events-none">
-                ${price}
-            </div>
-        `;
-    }
+    const color = scheduled ? '#eab308' : '#1e75ff';
 
     el.innerHTML = `
         <div style="width: 32px; height: 32px; position: relative;" class="pointer-events-none">
@@ -64,7 +52,6 @@ export const createMarkerElement = (type: 'free' | 'paid' | 'public', price?: st
             <text x="12" y="11" font-size="8.5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-weight="900" text-anchor="middle" fill="white">P</text>
           </svg>
         </div>
-        ${pillHtml}
     `;
     return el;
 };
