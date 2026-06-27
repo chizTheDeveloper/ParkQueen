@@ -117,6 +117,10 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             }
             return;
         }
+        // Spot no longer in any data source (occupied/expired/deleted) — clear selection
+        if (!interestFlow.showFeedback) {
+            setSelectedItem(null);
+        }
     }, [spotData.freeSpots, spotData.paidListings, selectedItem?.id]);
 
     // Map initialization
