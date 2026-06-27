@@ -170,20 +170,17 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                     </div>
                 )}
 
-                {/* Finder, someone is interested — message + delay + cancel */}
+                {/* Finder, someone is interested */}
                 {isFinder && spotStatus === 'interested' && (
                     <div className="flex flex-1 gap-1.5">
-                        <button onClick={() => setShowQuickReplies(!showQuickReplies)}
-                            className="bg-[#1e75ff] hover:bg-blue-600 text-white p-1.5 rounded-xl flex items-center justify-center transition-all shadow-md shrink-0">
-                            <MessageSquare size={14} />
-                        </button>
-                        <button onClick={onDelayByFinder}
-                            className="flex-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 font-bold py-1.5 rounded-xl transition-all text-[11px] border border-amber-500/30">
-                            Need more time
-                        </button>
                         <button onClick={onCancelByFinder}
                             className="flex-1 border border-red-500/50 hover:bg-red-500/10 text-red-400 font-bold py-1.5 rounded-xl transition-all text-[11px]">
-                            Cancel
+                            Cancel Ping
+                        </button>
+                        <button onClick={() => setShowQuickReplies(!showQuickReplies)}
+                            className="flex-1 bg-[#1e75ff] hover:bg-blue-600 text-white font-bold py-1.5 rounded-xl flex items-center justify-center gap-1 transition-all text-[11px]">
+                            <MessageSquare size={12} />
+                            Message
                         </button>
                     </div>
                 )}
