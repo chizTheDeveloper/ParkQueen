@@ -138,7 +138,8 @@ export function useInterestFlow({
 
     const handleDelayByFinder = async (extraMinutes = 3) => {
         if (!selectedItem || !db) return;
-        const current = selectedItem.interestExpiresAt?.toMillis?.() || Date.now();
+        const exp = selectedItem.interestExpiresAt;
+        const current = exp ? (typeof exp.toMillis === 'function' ? exp.toMillis() : typeof exp.seconds === 'number' ? exp.seconds * 1000 : Date.now()) : Date.now();
         await updateDoc(doc(db, 'spots', selectedItem.id), {
             interestExpiresAt: Timestamp.fromMillis(current + extraMinutes * 60000),
         });
