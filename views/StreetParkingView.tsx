@@ -40,7 +40,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const [showPingConfirmation, setShowPingConfirmation] = useState(false);
     const [isSpotModalOpen, setSpotModalOpen] = useState(false);
     const [spotAddress, setSpotAddress] = useState<string>("Loading address...");
-    const [emptyCardDismissed, setEmptyCardDismissed] = useState(false);
+
 
     const userRef = useRef(user);
     useEffect(() => { userRef.current = user; }, [user]);
@@ -614,20 +614,6 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     </div>
                 )}
 
-                {spotCount === 0 && !emptyCardDismissed && (
-                    <div className="absolute top-28 left-1/2 -translate-x-1/2 z-20 pointer-events-auto w-[280px]">
-                        <div className="bg-[var(--color-glass)] backdrop-blur-xl border border-[var(--color-border)] rounded-3xl p-5 shadow-2xl text-center relative">
-                            <button onClick={() => setEmptyCardDismissed(true)} className="absolute top-3 right-3 text-[var(--color-text-secondary)] hover:text-white/70 transition-colors">
-                                <X size={14} />
-                            </button>
-                            <div className="w-10 h-10 rounded-full bg-[#1e75ff]/15 flex items-center justify-center mx-auto mb-3">
-                                <MapPin size={18} className="text-[#1e75ff]" />
-                            </div>
-                            <h3 className="text-sm font-bold text-[var(--color-text)]">No spots reported yet</h3>
-                            <p className="text-[11px] text-[var(--color-text-secondary)] mt-1">Be the first to help your neighbors find parking here</p>
-                        </div>
-                    </div>
-                )}
 
                 <div className="w-full flex flex-col gap-2 pointer-events-auto mt-auto pb-16 px-4">
                     <div className="flex justify-end max-w-[380px] mx-auto w-full mb-2">
