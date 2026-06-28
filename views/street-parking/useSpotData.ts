@@ -42,7 +42,7 @@ export function useSpotData({ userId, searchCenter, searchRadius, showFree, show
             const now = Date.now();
             const spots = snapshot.docs
                 .map(d => ({ id: d.id, ...d.data() } as any))
-                .filter(s => s.expiresAt?.toMillis() > now && s.status !== 'occupied');
+                .filter(s => s.expiresAt?.toMillis() > now && s.status !== 'occupied' && (s.status !== 'interested' || s.finderId === userId || s.interestedUserId === userId));
             setActiveSpots(spots);
 
             const mappedFree: MapItem[] = spots.map(s => ({
