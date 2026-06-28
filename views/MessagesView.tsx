@@ -43,51 +43,47 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
     }
   };
 
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [actionToast, setActionToast] = useState('');
+
+  const showToast = (msg: string) => { setActionToast(msg); setTimeout(() => setActionToast(''), 3000); };
+
   const handleBlockUser = async () => {
     if (!activeConversation) return;
     const otherUserId = activeConversation.otherUser.id;
-    const otherUserName = userProfilesCache[otherUserId]?.name || activeConversation.otherUser.name;
-    if (window.confirm(`Are you sure you want to block ${otherUserName}?`)) {
-      try {
-        const userRef = doc(db, "users", user.id);
-        const currentBlocked = user.blockedUsers || [];
-        if (!currentBlocked.includes(otherUserId)) {
-          await updateDoc(userRef, {
-            blockedUsers: [...currentBlocked, otherUserId]
-          });
-        }
-        alert(`${otherUserName} has been blocked.`);
-        setActiveConversationId(null);
-      } catch (e) {
-        console.error("Error blocking user:", e);
-        alert("Failed to block user.");
+    try {
+      const currentBlocked = user.blockedUsers || [];
+      if (!currentBlocked.includes(otherUserId)) {
+        await updateDoc(doc(db, "users", user.id), {
+          blockedUsers: [...currentBlocked, otherUserId]
+        });
       }
+      showToast('User blocked');
+      setActiveConversationId(null);
+    } catch (e) {
+      console.error("Error blocking user:", e);
+      showToast('Failed to block user');
     }
   };
 
-  const handleReportUser = async () => {
-    if (!activeConversation) return;
+  const handleReportUser = async (reason: string) => {
+    if (!activeConversation || !reason.trim()) return;
     const otherUserId = activeConversation.otherUser.id;
-    const otherUserName = userProfilesCache[otherUserId]?.name || activeConversation.otherUser.name;
-    const reason = window.prompt(`Please enter the reason for reporting ${otherUserName}:`);
-    if (reason === null) return;
-    if (!reason.trim()) {
-      alert("Reason cannot be empty.");
-      return;
-    }
-    
     try {
       await addDoc(collection(db, "reports"), {
         reporterId: user.id,
         reportedUserId: otherUserId,
-        reportedUserName: otherUserName,
+        type: 'behavior',
         reason: reason.trim(),
-        timestamp: serverTimestamp()
+        status: 'pending',
+        conversationId: activeConversationId,
+        createdAt: serverTimestamp()
       });
-      alert("Thank you. The user has been reported and our moderation team will review this.");
+      showToast('Report submitted. Thank you.');
+      setShowReportModal(false);
     } catch (e) {
       console.error("Error reporting user:", e);
-      alert("Failed to submit report.");
+      showToast('Failed to submit report');
     }
   };
 
@@ -336,14 +332,14 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
                   >
                     Delete Chat
                   </button>
-                  <button 
+                  <button
                     onClick={() => { setIsMenuOpen(false); handleBlockUser(); }}
                     className="w-full text-left px-4 py-3 text-sm text-[var(--color-text)] hover:bg-white/5 flex items-center gap-2 transition-colors font-medium"
                   >
                     Block User
                   </button>
-                  <button 
-                    onClick={() => { setIsMenuOpen(false); handleReportUser(); }}
+                  <button
+                    onClick={() => { setIsMenuOpen(false); setShowReportModal(true); }}
                     className="w-full text-left px-4 py-3 text-sm text-[var(--color-text)] hover:bg-white/5 flex items-center gap-2 transition-colors font-medium"
                   >
                     Report User
@@ -388,6 +384,33 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
                 {reply}
               </button>
             ))}
+          </div>
+        )}
+
+        {actionToast && (
+          <div className="px-4 py-2 bg-[var(--color-surface)] border-t border-[var(--color-border)]">
+            <p className="text-emerald-400 text-xs text-center font-semibold">{actionToast}</p>
+          </div>
+        )}
+
+        {showReportModal && (
+          <div className="absolute inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+            <div className="bg-[var(--color-surface)] rounded-3xl p-5 w-full max-w-sm border border-[var(--color-border)] shadow-2xl">
+              <h3 className="font-bold text-[var(--color-text)] mb-3">Report User</h3>
+              <p className="text-xs text-[var(--color-text-secondary)] mb-4">Why are you reporting this user?</p>
+              <div className="space-y-2">
+                {['Harassment or abuse', 'Inappropriate messages', 'Spam', 'Scam or fraud', 'Other'].map(reason => (
+                  <button key={reason} onClick={() => handleReportUser(reason)}
+                    className="w-full py-2.5 rounded-xl text-sm font-semibold bg-white/5 border border-[var(--color-border)] hover:bg-white/10 transition-all text-[var(--color-text)] text-left px-4">
+                    {reason}
+                  </button>
+                ))}
+              </div>
+              <button onClick={() => setShowReportModal(false)}
+                className="w-full mt-3 text-[var(--color-text-secondary)] text-sm text-center py-2">
+                Cancel
+              </button>
+            </div>
           </div>
         )}
 

@@ -49,6 +49,12 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /reports/{reportId} {
+      allow create: if signedIn();
+      allow read: if isAdmin();
+      allow update: if isAdmin();
+    }
+
     match /spotNotifications/{notifId} {
       allow read: if signedIn();
       allow create: if signedIn();

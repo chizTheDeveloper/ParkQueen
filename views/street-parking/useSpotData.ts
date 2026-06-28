@@ -7,6 +7,7 @@ import { getDistance, NYC_CENTER } from './utils';
 
 interface UseSpotDataOptions {
     userId: string | undefined;
+    blockedUsers?: string[];
     searchCenter: [number, number];
     searchRadius: number;
     showFree: boolean;
@@ -14,7 +15,7 @@ interface UseSpotDataOptions {
     showPublic: boolean;
 }
 
-export function useSpotData({ userId, searchCenter, searchRadius, showFree, showPaid, showPublic }: UseSpotDataOptions) {
+export function useSpotData({ userId, blockedUsers, searchCenter, searchRadius, showFree, showPaid, showPublic }: UseSpotDataOptions) {
     const [freeSpots, setFreeSpots] = useState<MapItem[]>([]);
     const [paidListings, setPaidListings] = useState<MapItem[]>([]);
     const [publicGarages, setPublicGarages] = useState<MapItem[]>([]);
@@ -42,7 +43,8 @@ export function useSpotData({ userId, searchCenter, searchRadius, showFree, show
             const now = Date.now();
             const spots = snapshot.docs
                 .map(d => ({ id: d.id, ...d.data() } as any))
-                .filter(s => s.expiresAt?.toMillis() > now && s.status !== 'occupied' && (s.status !== 'interested' || s.finderId === userId || s.interestedUserId === userId));
+                .filter(s => s.expiresAt?.toMillis() > now && s.status !== 'occupied' && (s.status !== 'interested' || s.finderId === userId || s.interestedUserId === userId))
+                .filter(s => !(blockedUsers || []).includes(s.finderId));
             setActiveSpots(spots);
 
             const mappedFree: MapItem[] = spots.map(s => ({

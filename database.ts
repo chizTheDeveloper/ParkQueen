@@ -23,7 +23,10 @@ export const saveUserProfile = async (profile: UserProfile) => {
     createdAt: serverTimestamp(),
     reputationScore: 0,
     currentStreak: 0,
-    tier: 'Newcomer'
+    tier: 'Newcomer',
+    moderationStatus: 'active',
+    reportCount: 0,
+    blockedUsers: []
   });
 
   return firebaseUser;

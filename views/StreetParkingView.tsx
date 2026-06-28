@@ -52,6 +52,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
     const spotData = useSpotData({
         userId: user?.id,
+        blockedUsers: user?.blockedUsers,
         searchCenter: searchCenter || NYC_CENTER,
         searchRadius,
         showFree,
