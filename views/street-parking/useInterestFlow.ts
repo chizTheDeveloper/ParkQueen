@@ -136,6 +136,30 @@ export function useInterestFlow({
         setSelectedItem(null);
     };
 
+    const handleCancelByClaimer = async () => {
+        if (!selectedItem || !user || !db) return;
+        const finderId = selectedItem.finderId;
+        if (finderId) {
+            await addDoc(collection(db, 'spotNotifications'), {
+                targetUserId: finderId,
+                type: 'claimer_cancelled',
+                message: 'The other driver changed their mind — your spot is available again',
+                createdAt: Timestamp.now(),
+            });
+        }
+        await updateDoc(doc(db, 'spots', selectedItem.id), {
+            status: 'available',
+            interestedUserId: null,
+            interestedUserName: null,
+            etaMinutes: null,
+            interestExpiresAt: null,
+        });
+        setTrackedItemId(null);
+        activeRouteDestinationRef.current = null;
+        if (mapRef.current) clearRoute(mapRef.current);
+        setSelectedItem(null);
+    };
+
     const handleDelayByFinder = async (extraMinutes = 3) => {
         if (!selectedItem || !db) return;
         const newExpiry = Timestamp.fromMillis(Date.now() + extraMinutes * 60000);
@@ -177,21 +201,6 @@ export function useInterestFlow({
         setSelectedItem(null);
     };
 
-    const handleTrackLocation = () => {
-        const spot = selectedItem || (freeSpots.length > 0 ? freeSpots[0] : null);
-        if (!spot) return;
-        if (trackedItemId === spot.id) {
-            setTrackedItemId(null);
-            activeRouteDestinationRef.current = null;
-            if (mapRef.current) clearRoute(mapRef.current);
-            return;
-        }
-        const dest: [number, number] = [spot.lng, spot.lat];
-        activeRouteDestinationRef.current = dest;
-        setTrackedItemId(spot.id);
-        if (mapRef.current) drawRoute(mapRef.current, userLocation || NYC_CENTER, dest);
-    };
-
     return {
         trackedItemId,
         isEtaPickerOpen,
@@ -203,10 +212,10 @@ export function useInterestFlow({
         driverNotification,
         handleExpressInterest,
         handleCancelByFinder,
+        handleCancelByClaimer,
         handleDelayByFinder,
         handleArrival,
         handleFeedback,
-        handleTrackLocation,
         getEstDriveMinutes,
         isWithinArrivalRange,
         ETA_OPTIONS,

@@ -610,14 +610,12 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                         user={user}
                         userLocation={userLocation}
                         spotAddress={spotAddress}
-                        trackedItemId={interestFlow.trackedItemId}
-                        onTrackLocation={interestFlow.handleTrackLocation}
                         onHeadingThere={() => interestFlow.setIsEtaPickerOpen(true)}
                         onEditSpot={(spot) => { setSelectedItem(spot); setSpotModalOpen(true); }}
                         onDeletePing={handleDeletePing}
                         onArrival={interestFlow.handleArrival}
                         onCancelByFinder={interestFlow.handleCancelByFinder}
-                        onDelayByFinder={interestFlow.handleDelayByFinder}
+                        onCancelByClaimer={interestFlow.handleCancelByClaimer}
                         onMessageUser={onMessageUser}
                         interestError={interestFlow.interestError}
                         estDriveMinutes={selectedItem ? interestFlow.getEstDriveMinutes(selectedItem) : null}
