@@ -6,20 +6,16 @@ import { getApp } from 'firebase/app';
 import { db } from '../firebase';
 import { ChevronLeft, Check, X, Loader2 } from 'lucide-react';
 
+import { moderateUsername } from '../utils/moderation';
+
 const USERNAME_REGEX = /^[a-zA-Z][a-zA-Z0-9_]*$/;
-const RESERVED = new Set(['admin','support','parqueen','parkqueen','system','moderator','official','help','info','contact','team','staff','root','null','undefined','test','api','www','app']);
-const PROFANITY = [/f+u+c+k/i,/s+h+[i1]+t/i,/a+[s$]+[s$]+h+o+l+e/i,/b+[i1]+t+c+h/i,/d+[i1]+c+k/i,/p+u+[s$]+[s$]+y/i,/c+u+n+t/i,/n+[i1]+g+g/i,/f+a+g/i,/w+h+o+r+e/i,/s+l+u+t/i,/r+e+t+a+r+d/i,/p+[o0]+r+n/i,/x+x+x/i,/n+[s$]+f+w/i];
 
 function validateUsername(val: string): string | null {
     if (val.length < 3) return 'At least 3 characters';
     if (val.length > 20) return '20 characters max';
     if (!USERNAME_REGEX.test(val)) return 'Letters, numbers, underscores only. Must start with a letter.';
     if (/__/.test(val)) return 'No consecutive underscores';
-    const lower = val.toLowerCase();
-    if (RESERVED.has(lower)) return 'This username is not available';
-    const cleaned = lower.replace(/@/g,'a').replace(/0/g,'o').replace(/1/g,'i').replace(/3/g,'e').replace(/\$/g,'s').replace(/5/g,'s').replace(/_/g,'');
-    for (const p of PROFANITY) { if (p.test(cleaned)) return 'This username is not allowed'; }
-    return null;
+    return moderateUsername(val);
 }
 
 export const EditProfileView = ({ onBack }) => {

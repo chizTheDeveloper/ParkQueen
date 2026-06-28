@@ -19,17 +19,7 @@ interface NameEntryViewProps {
 
 const USERNAME_REGEX = /^[a-zA-Z][a-zA-Z0-9_]*$/;
 
-const RESERVED = new Set(['admin','support','parqueen','parkqueen','system','moderator','official','help','info','contact','team','staff','root','null','undefined','test','api','www','app']);
-
-const PROFANITY = [/f+u+c+k/i,/s+h+[i1]+t/i,/a+[s$]+[s$]+h+o+l+e/i,/b+[i1]+t+c+h/i,/d+[i1]+c+k/i,/p+u+[s$]+[s$]+y/i,/c+u+n+t/i,/n+[i1]+g+g/i,/f+a+g/i,/w+h+o+r+e/i,/s+l+u+t/i,/r+e+t+a+r+d/i,/p+[o0]+r+n/i,/x+x+x/i,/n+[s$]+f+w/i];
-
-function checkContent(val: string): string | null {
-    const lower = val.toLowerCase();
-    if (RESERVED.has(lower)) return 'This username is not available';
-    const cleaned = lower.replace(/@/g,'a').replace(/0/g,'o').replace(/1/g,'i').replace(/3/g,'e').replace(/\$/g,'s').replace(/5/g,'s').replace(/_/g,'');
-    for (const p of PROFANITY) { if (p.test(cleaned)) return 'This username is not allowed'; }
-    return null;
-}
+import { moderateUsername } from '../utils/moderation';
 
 export const NameEntryView: React.FC<NameEntryViewProps> = ({ onComplete }) => {
     const [username, setUsername] = useState('');
@@ -59,7 +49,7 @@ export const NameEntryView: React.FC<NameEntryViewProps> = ({ onComplete }) => {
             return;
         }
 
-        const contentError = checkContent(username.trim());
+        const contentError = moderateUsername(username.trim());
         if (contentError) {
             setAvailability('invalid');
             setError(contentError);

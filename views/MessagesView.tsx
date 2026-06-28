@@ -3,6 +3,7 @@ import { Send, ChevronLeft, MoreVertical, Sparkles, ArrowLeft, SquarePen, MapPin
 import { generateSmartReplies } from '../services/geminiService';
 import { collection, query, where, onSnapshot, addDoc, doc, setDoc, orderBy, serverTimestamp, getDocs, getDoc, writeBatch, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import { moderateMessage } from '../utils/moderation';
 
 interface MessagesViewProps {
   user: any;
@@ -15,6 +16,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [inputText, setInputText] = useState('');
+  const [moderationError, setModerationError] = useState('');
   const [smartReplies, setSmartReplies] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [userProfilesCache, setUserProfilesCache] = useState<Record<string, { name: string; avatarUrl: string | null }>>({});
@@ -263,7 +265,15 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
   // 5. Send message
   const handleSend = async (text: string) => {
     if (!text.trim() || !activeConversationId || !user || !db) return;
-    
+    setModerationError('');
+
+    const blocked = moderateMessage(text.trim());
+    if (blocked) {
+        setModerationError(blocked);
+        setTimeout(() => setModerationError(''), 4000);
+        return;
+    }
+
     localStorage.setItem(`lastReadChat_${activeConversationId}`, Date.now().toString());
     const chatRef = doc(db, "chats", activeConversationId);
     const messagesRef = collection(db, "chats", activeConversationId, "messages");
@@ -378,6 +388,12 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
                 {reply}
               </button>
             ))}
+          </div>
+        )}
+
+        {moderationError && (
+          <div className="px-4 py-2 bg-red-500/10 border-t border-red-500/20">
+            <p className="text-red-400 text-xs text-center">{moderationError}</p>
           </div>
         )}
 

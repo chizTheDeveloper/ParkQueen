@@ -246,25 +246,112 @@ exports.moderateAvatarUpload = onObjectFinalized(
 );
 
 // 7) Validate and claim a username
+// --- Shared Moderation System ---
+
 const RESERVED_USERNAMES = new Set([
   "admin", "support", "parqueen", "parkqueen", "system", "moderator",
   "official", "help", "info", "contact", "team", "staff", "root",
-  "null", "undefined", "test", "api", "www", "app",
+  "null", "undefined", "test", "api", "www", "app", "mod", "owner",
+  "ceo", "founder", "parking", "driver", "police", "nypd", "nyc",
 ]);
 
-const PROFANITY_PATTERNS = [
-  /f+u+c+k/i, /s+h+[i1]+t/i, /a+[s$]+[s$]+h+o+l+e/i, /b+[i1]+t+c+h/i,
-  /d+[i1]+c+k/i, /p+u+[s$]+[s$]+y/i, /c+u+n+t/i, /n+[i1]+g+g/i,
-  /f+a+g/i, /w+h+o+r+e/i, /s+l+u+t/i, /r+e+t+a+r+d/i,
-  /p+[o0]+r+n/i, /x+x+x/i, /n+[s$]+f+w/i,
+const BANNED_WORDS = new Set([
+  // English profanity
+  "fuck","shit","asshole","bitch","dick","pussy","cunt","damn","bastard","piss",
+  "cock","tits","boobs","arse","bollocks","bugger","wanker","twat","prick","slut",
+  "whore","skank","hoe","thot",
+  // Slurs & hate speech
+  "nigger","nigga","nigg","negro","chink","spic","wetback","kike","gook","raghead",
+  "towelhead","cracker","honky","gringo","beaner","coon","darkie","jap","paki",
+  "faggot","fag","dyke","tranny","shemale","retard","retarded","tard",
+  // Sexual/explicit
+  "porn","porno","xxx","nsfw","hentai","milf","dildo","blowjob","handjob",
+  "cumshot","orgasm","penis","vagina","clitoris","anus","anal","fellatio",
+  // Violence
+  "killyou","killyourself","kys","rape","molest","murder","terrorist","bomb",
+  // Spanish profanity (NYC relevance)
+  "puta","mierda","coño","verga","pendejo","cabron","chingada","culero","maricon",
+]);
+
+function normalizeText(str) {
+  return str.toLowerCase()
+    .replace(/@/g, 'a').replace(/0/g, 'o').replace(/1/g, 'i').replace(/!/g, 'i')
+    .replace(/3/g, 'e').replace(/\$/g, 's').replace(/5/g, 's').replace(/7/g, 't')
+    .replace(/4/g, 'a').replace(/8/g, 'b').replace(/9/g, 'g')
+    .replace(/[_\-.\s]/g, '');
+}
+
+const CONTACT_PATTERNS = [
+  /\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b/,  // phone numbers
+  /\b\d{7,}\b/,                            // 7+ consecutive digits
+  /\b[\w.+-]+@[\w-]+\.[\w.]+\b/,          // email
+  /https?:\/\/\S+/i,                       // URLs
+  /\bwww\.\S+/i,                           // www links
+  /\b\S+\.(com|net|org|io|co|app|me|info)\b/i,  // bare domains
+  /\b(instagram|snapchat|tiktok|whatsapp|telegram|signal|venmo|cashapp|zelle|paypal)\b/i,  // platform names
+  /\b(my\s*(ig|insta|snap|tik\s*tok|number|cell|phone))\b/i,  // "my ig/snap" patterns
+  /\b(add\s*me|hit\s*me\s*up|dm\s*me|text\s*me|call\s*me)\b/i,  // solicitation patterns
 ];
 
-function normalizeForProfanity(str) {
-  return str.toLowerCase()
-    .replace(/@/g, 'a').replace(/0/g, 'o').replace(/1/g, 'i')
-    .replace(/3/g, 'e').replace(/\$/g, 's').replace(/5/g, 's')
-    .replace(/[_]/g, '');
+function checkBannedWords(text) {
+  const normalized = normalizeText(text);
+  // Check each banned word as a substring of the normalized text
+  for (const word of BANNED_WORDS) {
+    if (normalized.includes(word)) return true;
+  }
+  return false;
 }
+
+function checkContactInfo(text) {
+  for (const pattern of CONTACT_PATTERNS) {
+    if (pattern.test(text)) return true;
+  }
+  return false;
+}
+
+// Shared moderation callable
+exports.moderateContent = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Sign in first.");
+    const { text, type } = request.data || {};
+    if (!text || !type) throw new HttpsError("invalid-argument", "Text and type required.");
+
+    const uid = request.auth.uid;
+    let blocked = false;
+    let reason = null;
+
+    // Banned words check (both usernames and messages)
+    if (checkBannedWords(text)) {
+      blocked = true;
+      reason = 'inappropriate_content';
+    }
+
+    // Contact info check (messages only)
+    if (!blocked && type === 'message' && checkContactInfo(text)) {
+      blocked = true;
+      reason = 'contact_info';
+    }
+
+    // Reserved words check (usernames only)
+    if (!blocked && type === 'username' && RESERVED_USERNAMES.has(text.toLowerCase())) {
+      blocked = true;
+      reason = 'reserved';
+    }
+
+    // Log moderation check
+    await db.collection("moderationLog").add({
+      userId: uid,
+      text: text.substring(0, 200),
+      type,
+      blocked,
+      reason,
+      timestamp: Timestamp.now(),
+    });
+
+    return { allowed: !blocked };
+  }
+);
 
 exports.claimUsername = onCall(
   { region: "us-central1" },
@@ -286,11 +373,8 @@ exports.claimUsername = onCall(
     // Reserved check
     if (RESERVED_USERNAMES.has(normalized)) throw new HttpsError("invalid-argument", "This username is not available.");
 
-    // Profanity check
-    const cleaned = normalizeForProfanity(normalized);
-    for (const pattern of PROFANITY_PATTERNS) {
-      if (pattern.test(cleaned)) throw new HttpsError("invalid-argument", "This username is not allowed.");
-    }
+    // Profanity check using shared system
+    if (checkBannedWords(trimmed)) throw new HttpsError("invalid-argument", "This username is not available.");
 
     const uid = request.auth.uid;
     const usernameRef = db.collection("usernames").doc(normalized);
