@@ -301,15 +301,26 @@ exports.claimUsername = onCall(
         const existing = await tx.get(usernameRef);
         if (existing.exists) throw new HttpsError("already-exists", "Username is already taken.");
 
-        // Release old username if user had one
         const userDoc = await tx.get(userRef);
-        if (userDoc.exists && userDoc.data().username) {
-          const oldNormalized = userDoc.data().username.toLowerCase();
+        const userData = userDoc.exists ? userDoc.data() : {};
+
+        // Enforce 30-day cooldown (skip for generated usernames starting with user_)
+        if (userData.usernameChangedAt && userData.username && !userData.username.startsWith('user_')) {
+          const lastChanged = userData.usernameChangedAt.toMillis();
+          const daysSince = (Date.now() - lastChanged) / (1000 * 60 * 60 * 24);
+          if (daysSince < 30) {
+            throw new HttpsError("failed-precondition", `You can change your username again in ${Math.ceil(30 - daysSince)} days.`);
+          }
+        }
+
+        // Release old username if user had one
+        if (userData.username) {
+          const oldNormalized = userData.username.toLowerCase();
           tx.delete(db.collection("usernames").doc(oldNormalized));
         }
 
         tx.set(usernameRef, { uid, claimedAt: Timestamp.now() });
-        tx.update(userRef, { username: trimmed });
+        tx.update(userRef, { username: trimmed, usernameChangedAt: Timestamp.now() });
       });
     } catch (e) {
       if (e.code === "already-exists") throw e;
