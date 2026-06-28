@@ -27,7 +27,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
     const [selectedItem, setSelectedItem] = useState<any | null>(null);
     const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
-    const [searchCenter, setSearchCenter] = useState<[number, number]>(NYC_CENTER);
+    const [searchCenter, setSearchCenter] = useState<[number, number] | null>(null);
+    const [mapReady, setMapReady] = useState(false);
     const [searchRadius] = useState<number>(2000);
 
     const [showFree, setShowFree] = useState(true);
@@ -51,7 +52,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
     const spotData = useSpotData({
         userId: user?.id,
-        searchCenter,
+        searchCenter: searchCenter || NYC_CENTER,
         searchRadius,
         showFree,
         showPaid,
@@ -71,13 +72,14 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         activeRouteDestinationRef,
     });
 
-    const spotCount = spotData.radiusFilteredItems.length;
+    const otherSpots = spotData.radiusFilteredItems.filter(s => s.finderId !== user?.id);
+    const spotCount = otherSpots.length;
 
     const nearestSpot = useMemo(() => {
         if (!userLocation || spotData.freeSpots.length === 0) return null;
         let closest: any = null;
         let minDist = Infinity;
-        spotData.freeSpots.forEach(s => {
+        spotData.freeSpots.filter(s => s.finderId !== user?.id).forEach(s => {
             const d = getDistance(userLocation[1], userLocation[0], s.lat, s.lng);
             if (d < minDist) { minDist = d; closest = s; }
         });
@@ -127,76 +129,87 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         }
     }, [spotData.freeSpots, spotData.paidListings, selectedItem?.id]);
 
-    // Map initialization
+    // Get initial GPS fix, then create map centered on real location
     useEffect(() => {
-        if (!mapContainerRef.current || mapRef.current) return;
+        if (!mapContainerRef.current) return;
         if (!MAPBOX_TOKEN) {
             console.error("VITE_MAPBOX_TOKEN is not set");
         } else {
             mapboxgl.accessToken = MAPBOX_TOKEN;
         }
-        const isDark = document.documentElement.classList.contains('dark');
-        const map = new mapboxgl.Map({ container: mapContainerRef.current, style: `mapbox://styles/mapbox/${isDark ? 'dark' : 'light'}-v11`, center: NYC_CENTER, zoom: 14, attributionControl: false, interactive: true });
-        mapRef.current = map;
 
-        map.on('load', () => { map.resize(); });
+        let cancelled = false;
+        let watchId: number | undefined;
 
-        let moveEndTimeout: ReturnType<typeof setTimeout> | undefined;
-        map.on('moveend', () => {
-            if (moveEndTimeout) clearTimeout(moveEndTimeout);
-            moveEndTimeout = setTimeout(() => {
-                const center = map.getCenter();
-                setSearchCenter([center.lng, center.lat]);
-            }, 400);
-        });
+        const initMap = (center: [number, number]) => {
+            if (cancelled || mapRef.current) return;
+            const isDark = document.documentElement.classList.contains('dark');
+            const map = new mapboxgl.Map({ container: mapContainerRef.current!, style: `mapbox://styles/mapbox/${isDark ? 'dark' : 'light'}-v11`, center, zoom: 16, attributionControl: false, interactive: true });
+            mapRef.current = map;
+            setSearchCenter(center);
+            setMapReady(true);
 
-        return () => {
-            if (moveEndTimeout) clearTimeout(moveEndTimeout);
-            map.remove();
-            mapRef.current = null;
+            map.on('load', () => { map.resize(); });
+
+            let moveEndTimeout: ReturnType<typeof setTimeout> | undefined;
+            map.on('moveend', () => {
+                if (moveEndTimeout) clearTimeout(moveEndTimeout);
+                moveEndTimeout = setTimeout(() => {
+                    const c = map.getCenter();
+                    setSearchCenter([c.lng, c.lat]);
+                }, 400);
+            });
         };
-    }, []);
 
-    // Geolocation watch
-    useEffect(() => {
-        if (!navigator.geolocation) {
-            console.warn("Geolocation is not supported by your browser.");
-            return;
+        // Try to get location first, fall back to NYC after 5s
+        const fallbackTimer = setTimeout(() => {
+            if (!mapRef.current) initMap(NYC_CENTER);
+        }, 5000);
+
+        if (navigator.geolocation) {
+            watchId = navigator.geolocation.watchPosition(
+                (position) => {
+                    const { longitude, latitude } = position.coords;
+                    const newLocation: [number, number] = [longitude, latitude];
+                    setUserLocation(newLocation);
+
+                    if (!mapRef.current) {
+                        clearTimeout(fallbackTimer);
+                        initMap(newLocation);
+                    } else {
+                        if (activeRouteDestinationRef.current) {
+                            drawRoute(mapRef.current, newLocation, activeRouteDestinationRef.current);
+                        }
+                    }
+
+                    try {
+                        const newGeohash = geofire.geohashForLocation([latitude, longitude]);
+                        const newPrefix = newGeohash.substring(0, 5);
+                        const currentPrefix = userRef.current?.lastGeohash?.substring(0, 5);
+                        if (userRef.current && db && newPrefix !== currentPrefix) {
+                            updateDoc(doc(db, 'users', userRef.current.id), { lastGeohash: newGeohash }).catch(e => console.warn('Failed to update lastGeohash', e));
+                        }
+                    } catch (err) {
+                        console.error("Geohash generation error:", err);
+                    }
+                },
+                () => {
+                    clearTimeout(fallbackTimer);
+                    if (!mapRef.current) initMap(NYC_CENTER);
+                },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+            );
+        } else {
+            clearTimeout(fallbackTimer);
+            initMap(NYC_CENTER);
         }
 
-        let isInitialLocation = true;
-
-        const watchId = navigator.geolocation.watchPosition(
-            (position) => {
-                const { longitude, latitude } = position.coords;
-                const newLocation: [number, number] = [longitude, latitude];
-                setUserLocation(newLocation);
-
-                if (activeRouteDestinationRef.current && mapRef.current) {
-                    drawRoute(mapRef.current, newLocation, activeRouteDestinationRef.current);
-                }
-
-                try {
-                    const newGeohash = geofire.geohashForLocation([latitude, longitude]);
-                    const newPrefix = newGeohash.substring(0, 5);
-                    const currentPrefix = userRef.current?.lastGeohash?.substring(0, 5);
-                    if (userRef.current && db && newPrefix !== currentPrefix) {
-                        updateDoc(doc(db, 'users', userRef.current.id), { lastGeohash: newGeohash }).catch(e => console.warn('Failed to update lastGeohash', e));
-                    }
-                } catch (err) {
-                    console.error("Geohash generation error:", err);
-                }
-
-                if (isInitialLocation && mapRef.current) {
-                    mapRef.current.flyTo({ center: newLocation, zoom: 16 });
-                    isInitialLocation = false;
-                }
-            },
-            (error) => console.error("Error watching position:", error),
-            { enableHighAccuracy: true, timeout: 30000, maximumAge: 0, distanceFilter: 10 }
-        );
-
-        return () => { navigator.geolocation.clearWatch(watchId); };
+        return () => {
+            cancelled = true;
+            clearTimeout(fallbackTimer);
+            if (watchId !== undefined) navigator.geolocation.clearWatch(watchId);
+            if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; }
+        };
     }, []);
 
     // Marker rendering
@@ -541,6 +554,12 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             })()}
 
             <div ref={mapContainerRef} className="sp-map" onClick={() => setSelectedItem(null)} />
+
+            {!mapReady && (
+                <div className="absolute inset-0 z-20 bg-[var(--color-bg)] flex items-center justify-center">
+                    <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
+                </div>
+            )}
 
             <div className="map-blue-tint-color" />
             <div className="map-blue-tint-overlay" />
