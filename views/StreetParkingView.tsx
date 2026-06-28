@@ -57,6 +57,9 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         showPublic,
     });
 
+    const itemsRef = useRef<MapItem[]>([]);
+    itemsRef.current = spotData.radiusFilteredItems;
+
     const interestFlow = useInterestFlow({
         selectedItem,
         setSelectedItem,
@@ -237,7 +240,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
             marker.getElement().addEventListener('click', (e) => {
                 e.stopPropagation();
-                setSelectedItem(item);
+                const fresh = itemsRef.current.find(i => i.id === item.id) || item;
+                setSelectedItem(fresh);
                 map.flyTo({ center: lngLat, zoom: 16 });
             });
 
