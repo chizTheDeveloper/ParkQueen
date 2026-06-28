@@ -320,7 +320,7 @@ exports.claimUsername = onCall(
         }
 
         tx.set(usernameRef, { uid, claimedAt: Timestamp.now() });
-        tx.update(userRef, { username: trimmed, usernameChangedAt: Timestamp.now() });
+        tx.set(userRef, { username: trimmed, usernameChangedAt: Timestamp.now() }, { merge: true });
       });
     } catch (e) {
       if (e.code) throw e;
