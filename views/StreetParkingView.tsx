@@ -14,6 +14,7 @@ import { useUnreadMessages } from './street-parking/useUnreadMessages';
 import { useSpotData } from './street-parking/useSpotData';
 import { useInterestFlow } from './street-parking/useInterestFlow';
 import { SpotDetailsCard } from './street-parking/SpotDetailsCard';
+import { BottomSheet } from './street-parking/BottomSheet';
 import { HeaderBar } from './street-parking/HeaderBar';
 
 
@@ -460,52 +461,63 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 spotAddress={spotAddress}
             />
 
-            {/* ETA picker modal */}
-            {interestFlow.isEtaPickerOpen && (
-                <div className="absolute inset-0 z-30 bg-black/60 backdrop-blur-md flex items-center justify-center p-4">
-                    <div className="bg-[var(--color-glass)] backdrop-blur-xl rounded-3xl p-6 w-full max-w-sm text-[var(--color-text)] border border-[var(--color-border)] shadow-2xl">
-                        <div className="flex justify-between items-center mb-4">
-                            <h3 className="font-bold text-sm">How soon can you get there?</h3>
-                            <button onClick={() => interestFlow.setIsEtaPickerOpen(false)}>
-                                <X size={18} className="text-[var(--color-text-secondary)]" />
-                            </button>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                            {interestFlow.ETA_OPTIONS.map(min => (
-                                <button key={min} onClick={() => interestFlow.handleExpressInterest(min)}
-                                    className="py-3 rounded-2xl font-bold text-sm transition-all active:scale-95 text-white"
-                                    style={{ background: 'linear-gradient(90deg, #378ADD, #1D9E75)' }}>
-                                    {min} min
-                                </button>
-                            ))}
-                        </div>
-                        {interestFlow.interestError && (
-                            <p className="text-red-400 text-xs mt-3 text-center">{interestFlow.interestError}</p>
-                        )}
-                    </div>
+            {/* Spot details bottom sheet */}
+            <BottomSheet isOpen={!!selectedItem && !isSpotModalOpen} onClose={() => setSelectedItem(null)}>
+                <SpotDetailsCard
+                    selectedItem={selectedItem}
+                    freeSpots={spotData.freeSpots}
+                    user={user}
+                    userLocation={userLocation}
+                    spotAddress={spotAddress}
+                    onHeadingThere={() => interestFlow.setIsEtaPickerOpen(true)}
+                    onEditSpot={(spot) => { setSelectedItem(spot); setSpotModalOpen(true); }}
+                    onDeletePing={handleDeletePing}
+                    onArrival={interestFlow.handleArrival}
+                    onCancelByFinder={interestFlow.handleCancelByFinder}
+                    onCancelByClaimer={interestFlow.handleCancelByClaimer}
+                    onMessageUser={onMessageUser}
+                    interestError={interestFlow.interestError}
+                    estDriveMinutes={selectedItem ? interestFlow.getEstDriveMinutes(selectedItem) : null}
+                    isWithinArrivalRange={selectedItem ? interestFlow.isWithinArrivalRange(selectedItem) : false}
+                    maxEtaMinutes={interestFlow.MAX_ETA_MINUTES}
+                />
+            </BottomSheet>
+
+            {/* ETA picker */}
+            <BottomSheet isOpen={interestFlow.isEtaPickerOpen} onClose={() => interestFlow.setIsEtaPickerOpen(false)}>
+                <h3 className="font-bold text-[var(--color-text)] text-center mb-4">How soon can you get there?</h3>
+                <div className="grid grid-cols-2 gap-2">
+                    {interestFlow.ETA_OPTIONS.map(min => (
+                        <button key={min} onClick={() => interestFlow.handleExpressInterest(min)}
+                            className="py-3 rounded-2xl font-bold text-sm transition-all active:scale-95 text-white"
+                            style={{ background: 'linear-gradient(90deg, #378ADD, #1D9E75)' }}>
+                            {min} min
+                        </button>
+                    ))}
                 </div>
-            )}
+                {interestFlow.interestError && (
+                    <p className="text-red-400 text-xs mt-3 text-center">{interestFlow.interestError}</p>
+                )}
+            </BottomSheet>
 
             {/* Post-arrival feedback */}
-            {interestFlow.showFeedback && (
-                <div className="absolute inset-0 z-30 bg-black/60 backdrop-blur-md flex items-center justify-center p-4">
-                    <div className="bg-[var(--color-glass)] backdrop-blur-xl rounded-3xl p-6 w-full max-w-sm text-[var(--color-text)] border border-[var(--color-border)] shadow-2xl text-center">
-                        <div className="w-12 h-12 rounded-full bg-green-500/15 flex items-center justify-center mx-auto mb-3">
-                            <Check size={24} className="text-green-400" />
-                        </div>
-                        <h3 className="font-bold text-lg mb-1">You've arrived!</h3>
-                        <p className="text-xs text-[var(--color-text-secondary)] mb-4">How was the experience?</p>
-                        <div className="space-y-2">
-                            {['Thank the driver', 'Spot wasn\'t available', 'Other'].map(opt => (
-                                <button key={opt} onClick={() => interestFlow.handleFeedback(opt)}
-                                    className="w-full py-2.5 rounded-xl text-sm font-semibold bg-white/5 border border-[var(--color-border)] hover:bg-white/10 transition-all">
-                                    {opt}
-                                </button>
-                            ))}
-                        </div>
+            <BottomSheet isOpen={interestFlow.showFeedback} onClose={() => interestFlow.handleFeedback('Dismissed')}>
+                <div className="text-center">
+                    <div className="w-12 h-12 rounded-full bg-green-500/15 flex items-center justify-center mx-auto mb-3">
+                        <Check size={24} className="text-green-400" />
+                    </div>
+                    <h3 className="font-bold text-lg text-[var(--color-text)] mb-1">You've arrived!</h3>
+                    <p className="text-xs text-[var(--color-text-secondary)] mb-4">How was the experience?</p>
+                    <div className="space-y-2">
+                        {['Thank the driver', 'Spot wasn\'t available', 'Other'].map(opt => (
+                            <button key={opt} onClick={() => interestFlow.handleFeedback(opt)}
+                                className="w-full py-2.5 rounded-xl text-sm font-semibold bg-white/5 border border-[var(--color-border)] hover:bg-white/10 transition-all text-[var(--color-text)]">
+                                {opt}
+                            </button>
+                        ))}
                     </div>
                 </div>
-            )}
+            </BottomSheet>
 
             {/* Finder notification: someone is heading to their spot */}
             {(() => {
@@ -608,24 +620,6 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                             <Locate size={18} className="text-[#1e75ff]" />
                         </button>
                     </div>
-                    <SpotDetailsCard
-                        selectedItem={selectedItem}
-                        freeSpots={spotData.freeSpots}
-                        user={user}
-                        userLocation={userLocation}
-                        spotAddress={spotAddress}
-                        onHeadingThere={() => interestFlow.setIsEtaPickerOpen(true)}
-                        onEditSpot={(spot) => { setSelectedItem(spot); setSpotModalOpen(true); }}
-                        onDeletePing={handleDeletePing}
-                        onArrival={interestFlow.handleArrival}
-                        onCancelByFinder={interestFlow.handleCancelByFinder}
-                        onCancelByClaimer={interestFlow.handleCancelByClaimer}
-                        onMessageUser={onMessageUser}
-                        interestError={interestFlow.interestError}
-                        estDriveMinutes={selectedItem ? interestFlow.getEstDriveMinutes(selectedItem) : null}
-                        isWithinArrivalRange={selectedItem ? interestFlow.isWithinArrivalRange(selectedItem) : false}
-                        maxEtaMinutes={interestFlow.MAX_ETA_MINUTES}
-                    />
 
                     {nearestSpot && !selectedItem && (
                         <button

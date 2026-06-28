@@ -96,7 +96,7 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
     };
 
     return (
-        <div className="w-full max-w-[380px] mx-auto bg-[var(--color-glass)] backdrop-blur-xl border border-[var(--color-border)] rounded-3xl p-3.5 shadow-2xl transition-all">
+        <div>
             <div className="flex items-center gap-3">
                 <div className={`w-14 h-14 rounded-2xl ${isScheduled && spotStatus === 'available' ? 'bg-yellow-500' : 'bg-[#1e75ff]'} flex flex-col items-center justify-center text-white shadow-lg shrink-0`}>
                     <span className="font-extrabold text-lg">P</span>
