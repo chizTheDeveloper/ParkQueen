@@ -100,7 +100,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
             </div>
             <h2 className="text-xl font-extrabold text-[var(--color-text)]">{user.username || user.fullName || "User"}</h2>
             {user.username?.startsWith('user_') && (
-              <button onClick={() => setView(AppView.EDIT_PROFILE)} className="text-amber-400 text-xs font-semibold mt-1 hover:underline">
+              <button onClick={() => setView(AppView.EDIT_PROFILE)} className="text-[#1e75ff] text-xs font-semibold mt-1 underline" style={{ textShadow: '0 1px 2px rgba(0,0,0,0.5)' }}>
                 Complete your profile
               </button>
             )}

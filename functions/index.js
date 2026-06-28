@@ -323,7 +323,7 @@ exports.claimUsername = onCall(
         tx.update(userRef, { username: trimmed, usernameChangedAt: Timestamp.now() });
       });
     } catch (e) {
-      if (e.code === "already-exists") throw e;
+      if (e.code) throw e;
       console.error("Username claim error:", e);
       throw new HttpsError("internal", "Failed to claim username.");
     }
