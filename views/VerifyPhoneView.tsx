@@ -40,6 +40,23 @@ export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({ phone, confirm
         if (value && index < 5) {
             inputRefs.current[index + 1]?.focus();
         }
+        if (value && next.every(d => d !== '') && !verifying) {
+            setTimeout(() => autoVerify(next.join('')), 100);
+        }
+    };
+
+    const autoVerify = async (code: string) => {
+        setError('');
+        setVerifying(true);
+        try {
+            await confirmation.confirm(code);
+            onVerify(confirmation);
+        } catch (e: any) {
+            console.error('OTP verification failed:', e);
+            setError(e.code === 'auth/invalid-verification-code' ? 'Invalid code. Please check and try again.' : (e.message || 'Verification failed.'));
+        } finally {
+            setVerifying(false);
+        }
     };
 
     const handleKeyDown = (index: number, e: React.KeyboardEvent) => {

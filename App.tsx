@@ -147,7 +147,7 @@ export default function App() {
   const handleNameComplete = async (username: string) => {
     const digits = phone.replace(/\D/g, '');
     try {
-      await saveUserProfile({ fullName: username, phone: digits, username });
+      await saveUserProfile({ fullName: '', phone: digits, username });
       setCurrentView(AppView.MAP);
     } catch (error: any) {
       console.error("Failed to save profile: ", error);
