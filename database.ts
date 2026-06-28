@@ -26,7 +26,8 @@ export const saveUserProfile = async (profile: UserProfile) => {
     tier: 'Newcomer',
     moderationStatus: 'active',
     reportCount: 0,
-    blockedUsers: []
+    blockedUsers: [],
+    notificationRadius: 1
   });
 
   return firebaseUser;

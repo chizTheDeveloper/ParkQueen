@@ -95,6 +95,16 @@ exports.incrementTotalSpotsPinged = onDocumentCreated(
   }
 );
 
+// Haversine distance in miles
+function haversineDistMiles(lat1, lon1, lat2, lon2) {
+  const R = 3958.8;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 // 3) Geofenced Notifications for Nearby Users
 exports.notifyNearbyUsers = onDocumentCreated(
   {
@@ -106,9 +116,8 @@ exports.notifyNearbyUsers = onDocumentCreated(
     if (!spotData || !spotData.geohash) return;
 
     const spotGeohash = spotData.geohash;
-    
-    // Find users within roughly ~2km radius (5 characters of geohash)
-    const prefix = spotGeohash.substring(0, 5);
+    // 4-char prefix ≈ 20km coarse filter, then precise distance check
+    const prefix = spotGeohash.substring(0, 4);
 
     try {
       const neighborsSnap = await db.collection("users")
@@ -119,22 +128,32 @@ exports.notifyNearbyUsers = onDocumentCreated(
       const messages = [];
       neighborsSnap.forEach(userDoc => {
           const userData = userDoc.data();
-          // Don't notify the finder, only notify users with an FCM token who haven't disabled notifications
-          if (userData.id !== spotData.finderId && userData.fcmToken && userData.notificationsEnabled !== false) {
-              messages.push({
-                  token: userData.fcmToken,
-                  notification: {
-                      title: "👑 New Spot Near You!",
-                      body: `Someone just left a spot nearby.`
-                  },
-                  data: { spotId: event.params.spotId, lat: String(spotData.lat), lng: String(spotData.lng) }
-              });
-          }
+          if (userData.id === spotData.finderId) return;
+          if (!userData.fcmToken) return;
+          if (userData.notificationsEnabled === false) return;
+
+          // Precise distance check against user's notification radius
+          if (!userData.lastGeohash) return;
+          const geofire = require("geofire-common");
+          const [userLat, userLng] = geofire.geohashToLocation(userData.lastGeohash);
+          const distMiles = haversineDistMiles(userLat, userLng, spotData.lat, spotData.lng);
+          const userRadius = userData.notificationRadius || 1;
+          if (distMiles > userRadius) return;
+
+          const distLabel = distMiles < 0.1 ? 'right next to you' : '~' + distMiles.toFixed(1) + ' mi away';
+          messages.push({
+              token: userData.fcmToken,
+              notification: {
+                  title: "👑 New Spot Near You!",
+                  body: "Someone just left a spot " + distLabel + "."
+              },
+              data: { spotId: event.params.spotId, lat: String(spotData.lat), lng: String(spotData.lng) }
+          });
       });
 
       if (messages.length > 0) {
           const response = await getMessaging().sendEach(messages);
-          console.log(`Geofence push: ${response.successCount} sent, ${response.failureCount} failed.`);
+          console.log("Geofence push: " + response.successCount + " sent, " + response.failureCount + " failed.");
       }
     } catch (error) {
       console.error("Error in notifyNearbyUsers:", error);

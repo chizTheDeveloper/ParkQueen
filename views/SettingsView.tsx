@@ -24,6 +24,7 @@ const Toggle = ({ checked, onChange }: { checked: boolean; onChange: (v: boolean
 
 export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBack, onLogout, onDeleteAccount, theme, toggleTheme }) => {
     const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(user?.notificationsEnabled ?? true);
+    const [notificationRadius, setNotificationRadius] = useState<number>(user?.notificationRadius ?? 1);
     const [sharePreciseLocation, setSharePreciseLocation] = useState<boolean>(user?.sharePreciseLocation ?? true);
     const [emailStep, setEmailStep] = useState<'view' | 'input' | 'otp'>('view');
     const [emailDraft, setEmailDraft] = useState(user?.email || '');
@@ -193,6 +194,27 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                                     </div>
                                 </div>
                                 <Toggle checked={notificationsEnabled} onChange={(v) => { setNotificationsEnabled(v); updatePref('notificationsEnabled', v); }} />
+                            </div>
+                            <div className="w-full p-4">
+                                <div className="flex items-center gap-3.5 mb-3">
+                                    <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><MapPin size={18} /></div>
+                                    <div>
+                                        <h4 className="font-bold text-[var(--color-text)] text-sm">Notification radius</h4>
+                                        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Only alert for spots within this distance</p>
+                                    </div>
+                                </div>
+                                <div className="flex gap-1.5 ml-[46px]">
+                                    {[0.5, 1, 2, 5].map(r => (
+                                        <button key={r} onClick={() => { setNotificationRadius(r); updatePref('notificationRadius', r); }}
+                                            className={`flex-1 py-1.5 rounded-xl text-[11px] font-bold transition-all ${
+                                                notificationRadius === r
+                                                    ? 'bg-[#1e75ff] text-white'
+                                                    : 'bg-white/5 border border-[var(--color-border)] text-[var(--color-text-secondary)]'
+                                            }`}>
+                                            {r} mi
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
                             <div className="w-full p-4 flex items-center justify-between">
                                 <div className="flex items-center gap-3.5">
