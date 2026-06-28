@@ -40,6 +40,11 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /usernames/{usernameId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
     match /spotNotifications/{notifId} {
       allow read: if signedIn();
       allow create: if signedIn();

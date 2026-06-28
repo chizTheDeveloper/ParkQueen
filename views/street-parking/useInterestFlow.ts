@@ -105,7 +105,7 @@ export function useInterestFlow({
                 tx.update(spotRef, {
                     status: 'interested',
                     interestedUserId: user.id,
-                    interestedUserName: user.fullName || 'Someone',
+                    interestedUserName: user.username || user.fullName || 'Someone',
                     etaMinutes,
                     interestExpiresAt: Timestamp.fromMillis(Date.now() + (etaMinutes + 3) * 60000),
                 });

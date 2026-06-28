@@ -244,3 +244,79 @@ exports.moderateAvatarUpload = onObjectFinalized(
     }
   }
 );
+
+// 7) Validate and claim a username
+const RESERVED_USERNAMES = new Set([
+  "admin", "support", "parqueen", "parkqueen", "system", "moderator",
+  "official", "help", "info", "contact", "team", "staff", "root",
+  "null", "undefined", "test", "api", "www", "app",
+]);
+
+const PROFANITY_PATTERNS = [
+  /f+u+c+k/i, /s+h+[i1]+t/i, /a+[s$]+[s$]+h+o+l+e/i, /b+[i1]+t+c+h/i,
+  /d+[i1]+c+k/i, /p+u+[s$]+[s$]+y/i, /c+u+n+t/i, /n+[i1]+g+g/i,
+  /f+a+g/i, /w+h+o+r+e/i, /s+l+u+t/i, /r+e+t+a+r+d/i,
+  /p+[o0]+r+n/i, /x+x+x/i, /n+[s$]+f+w/i,
+];
+
+function normalizeForProfanity(str) {
+  return str.toLowerCase()
+    .replace(/@/g, 'a').replace(/0/g, 'o').replace(/1/g, 'i')
+    .replace(/3/g, 'e').replace(/\$/g, 's').replace(/5/g, 's')
+    .replace(/[_]/g, '');
+}
+
+exports.claimUsername = onCall(
+  { region: "us-central1" },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Sign in first.");
+
+    const username = request.data?.username;
+    if (!username || typeof username !== "string") throw new HttpsError("invalid-argument", "Username required.");
+
+    // Validation rules
+    const trimmed = username.trim();
+    if (trimmed.length < 3) throw new HttpsError("invalid-argument", "Username must be at least 3 characters.");
+    if (trimmed.length > 20) throw new HttpsError("invalid-argument", "Username must be 20 characters or less.");
+    if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(trimmed)) throw new HttpsError("invalid-argument", "Username must start with a letter and contain only letters, numbers, and underscores.");
+    if (/__/.test(trimmed)) throw new HttpsError("invalid-argument", "Username cannot contain consecutive underscores.");
+
+    const normalized = trimmed.toLowerCase();
+
+    // Reserved check
+    if (RESERVED_USERNAMES.has(normalized)) throw new HttpsError("invalid-argument", "This username is not available.");
+
+    // Profanity check
+    const cleaned = normalizeForProfanity(normalized);
+    for (const pattern of PROFANITY_PATTERNS) {
+      if (pattern.test(cleaned)) throw new HttpsError("invalid-argument", "This username is not allowed.");
+    }
+
+    const uid = request.auth.uid;
+    const usernameRef = db.collection("usernames").doc(normalized);
+    const userRef = db.collection("users").doc(uid);
+
+    try {
+      await db.runTransaction(async (tx) => {
+        const existing = await tx.get(usernameRef);
+        if (existing.exists) throw new HttpsError("already-exists", "Username is already taken.");
+
+        // Release old username if user had one
+        const userDoc = await tx.get(userRef);
+        if (userDoc.exists && userDoc.data().username) {
+          const oldNormalized = userDoc.data().username.toLowerCase();
+          tx.delete(db.collection("usernames").doc(oldNormalized));
+        }
+
+        tx.set(usernameRef, { uid, claimedAt: Timestamp.now() });
+        tx.update(userRef, { username: trimmed });
+      });
+    } catch (e) {
+      if (e.code === "already-exists") throw e;
+      console.error("Username claim error:", e);
+      throw new HttpsError("internal", "Failed to claim username.");
+    }
+
+    return { success: true, username: trimmed };
+  }
+);

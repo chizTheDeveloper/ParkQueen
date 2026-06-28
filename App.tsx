@@ -144,10 +144,10 @@ export default function App() {
     setCurrentView(AppView.VERIFY_PHONE);
   };
 
-  const handleNameComplete = async (fullName: string) => {
+  const handleNameComplete = async (username: string) => {
     const digits = phone.replace(/\D/g, '');
     try {
-      await saveUserProfile({ fullName, phone: digits });
+      await saveUserProfile({ fullName: username, phone: digits, username });
       setCurrentView(AppView.MAP);
     } catch (error: any) {
       console.error("Failed to save profile: ", error);

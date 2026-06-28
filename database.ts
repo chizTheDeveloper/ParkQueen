@@ -4,6 +4,7 @@ import { doc, setDoc, updateDoc, deleteDoc, serverTimestamp } from "firebase/fir
 
 interface UserProfile {
   fullName: string;
+  username?: string;
   phone?: string;
   email?: string;
   dob?: string;

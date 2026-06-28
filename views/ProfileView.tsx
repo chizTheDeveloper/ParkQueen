@@ -98,7 +98,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
               </button>
               <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" className="hidden" />
             </div>
-            <h2 className="text-xl font-extrabold text-[var(--color-text)]">{user.fullName || "Chi Chima"}</h2>
+            <h2 className="text-xl font-extrabold text-[var(--color-text)]">{user.username || user.fullName || "User"}</h2>
             <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{user.email || ""}</p>
             {uploadStatus && (
               <p className={`text-xs mt-2 font-semibold ${uploadStatus.includes('couldn') ? 'text-red-400' : 'text-blue-400'}`}>{uploadStatus}</p>
