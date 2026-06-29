@@ -4,6 +4,7 @@ import { doc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { ChevronLeft, Edit, Clock, FileText, Shield, Info, Camera, Settings } from 'lucide-react';
 import { AppView } from '../types';
+import { getNextTitle } from '../utils/crowns';
 
 export const ProfileView = ({ user, onBack, setView }) => {
   const [isUploading, setIsUploading] = useState(false);
@@ -104,10 +105,52 @@ export const ProfileView = ({ user, onBack, setView }) => {
                 Complete your profile
               </button>
             )}
-            <p className="text-sm font-semibold text-[#38bdf8] mt-1">{user.title || 'Newcomer'}</p>
-            {(user.crowns || 0) > 0 && (
-              <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">👑 {user.crowns} Crown{user.crowns !== 1 ? 's' : ''}</p>
-            )}
+            <p className="text-xs text-[var(--color-text-secondary)] mt-1">
+              <span className="font-semibold text-[#38bdf8]">{user.title || 'Newcomer'}</span>
+              {(() => {
+                const ts = user.createdAt;
+                if (!ts) return null;
+                const d = typeof ts.toDate === 'function' ? ts.toDate() : new Date(ts);
+                return <span> · Joined {d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>;
+              })()}
+            </p>
+
+            <p className="text-sm font-bold text-[var(--color-text)] mt-2.5">👑 {user.crowns || 0} Crown{(user.crowns || 0) !== 1 ? 's' : ''}</p>
+
+            <p className="text-[10px] text-[var(--color-text-secondary)] mt-0.5">
+              {(user.crowns || 0) === 0
+                ? 'Ping a parking spot to earn your first Crowns.'
+                : (user.crowns || 0) < 10
+                ? 'Help another driver to become a Trusted Driver.'
+                : (user.crowns || 0) < 50
+                ? 'Keep helping your community.'
+                : 'You\'re making a real difference for drivers.'}
+            </p>
+
+            {(() => {
+              const crowns = user.crowns || 0;
+              const next = getNextTitle(crowns);
+              if (!next) return null;
+              const prevThreshold = (() => {
+                const thresholds = [0, 10, 50, 150, 400, 750, 1500, 3000];
+                for (let i = thresholds.length - 1; i >= 0; i--) {
+                  if (crowns >= thresholds[i]) return thresholds[i];
+                }
+                return 0;
+              })();
+              const nextThreshold = crowns + next.crownsNeeded;
+              const range = nextThreshold - prevThreshold;
+              const progress = range > 0 ? ((crowns - prevThreshold) / range) * 100 : 0;
+              return (
+                <div className="w-full max-w-[220px] mt-2.5">
+                  <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-[#1e75ff] to-[#38bdf8] rounded-full transition-all" style={{ width: `${Math.min(progress, 100)}%` }} />
+                  </div>
+                  <p className="text-[10px] text-[var(--color-text-secondary)] mt-1">{next.crownsNeeded} Crown{next.crownsNeeded !== 1 ? 's' : ''} until {next.title}</p>
+                </div>
+              );
+            })()}
+
             {uploadStatus && (
               <p className={`text-xs mt-2 font-semibold ${uploadStatus.includes('couldn') ? 'text-red-400' : 'text-blue-400'}`}>{uploadStatus}</p>
             )}
