@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { doc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
-import { ChevronLeft, Edit, Clock, Shield, Info, Camera, Trophy, Flame, Star, Settings } from 'lucide-react';
+import { ChevronLeft, Edit, Clock, FileText, Shield, Info, Camera, Trophy, Flame, Star, Settings } from 'lucide-react';
 import { AppView } from '../types';
 
 export const ProfileView = ({ user, onBack, setView }) => {
