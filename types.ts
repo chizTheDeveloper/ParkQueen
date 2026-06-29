@@ -35,4 +35,5 @@ export interface StreetSpot {
   interestedUserName?: string | null;
   etaMinutes?: number | null;
   interestExpiresAt?: any;
+  originSpotId?: string | null;
 }

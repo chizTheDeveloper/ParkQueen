@@ -63,7 +63,8 @@ service cloud.firestore {
 
     match /spotFeedback/{feedbackId} {
       allow create: if signedIn();
-      allow read: if false;
+      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+      allow update: if signedIn() && resource.data.userId == request.auth.uid;
     }
 
     match /chats/{chatId} {

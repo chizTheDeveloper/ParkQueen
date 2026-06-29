@@ -17,6 +17,9 @@ export interface MapItem {
     interestedUserName?: string | null;
     etaMinutes?: number | null;
     interestExpiresAt?: any;
+    address?: string;
+    originSpotId?: string | null;
+    geohash?: string;
     rawSpot?: any;
 }
 
