@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, ChevronLeft, MoreVertical, Sparkles, ArrowLeft, SquarePen, MapPin, MessageSquare } from 'lucide-react';
+import { Send, ChevronLeft, MoreVertical, Sparkles, ArrowLeft, MapPin, MessageSquare } from 'lucide-react';
 import { generateSmartReplies } from '../services/geminiService';
 import { collection, query, where, onSnapshot, addDoc, doc, setDoc, orderBy, serverTimestamp, getDocs, getDoc, writeBatch, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -459,9 +459,6 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
              <p className="text-xs text-[var(--color-text-secondary)]">Stay updated with your parking community</p>
            </div>
          </div>
-         <button className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] text-[#38bdf8] hover:bg-white/10 transition-all shrink-0">
-           <SquarePen size={18} />
-         </button>
        </div>
 
        {/* Conversation List */}
