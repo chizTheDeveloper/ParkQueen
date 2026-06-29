@@ -191,6 +191,15 @@ All deployed to `us-central1`, Node.js 20, Firebase Functions v5 (v2 API):
 - **Empty state:** "No parking activity near [destination] right now" with Explore button still available
 - **One-shot Firestore query** against `spots` collection filtered by distance (1 mile radius) — NOT a live listener
 
+### Crowns & Titles
+- **Crowns** replace the old reputation/streak/tier system — earned by contributing to the community
+- **Crown values:** driver gets +1 on successful park, finder gets +2 for helping
+- **Awarded server-side** via `awardCrowns` Cloud Function triggered on `spotFeedback` creation with `outcome: 'success'`
+- **Title progression:** Newcomer (0) → Trusted Driver (10) → Street Scout (50) → Neighborhood Guide (150) → Parking Expert (400) → Block Captain (750) → Parking Veteran (1500) → Urban Legend (3000)
+- **Profile header** shows username → title → crown count (crowns hidden at zero)
+- **Title unlock celebration** — toast notification when user earns a new title
+- **Title thresholds** defined in `utils/crowns.ts` (client) and `functions/index.js` (server) — must stay in sync
+
 ### Parking History
 - **Accessible from Profile** → "Parking Space" row navigates to `ActivitiesView`
 - **Unified timeline** merging two data sources: `spots` (as finder) and `spotFeedback` (as driver)
@@ -638,6 +647,7 @@ The deployed app is at: https://parkqueen-46475363-ccf36.web.app
 | `firebaseConfig.ts` | Firebase app init, auth, db, FCM exports |
 | `index.html` | Tailwind config, importmap (Firebase SDK versions), inline styles |
 | `index.css` | CSS custom properties (light/dark theme), glass effects, ping-glow animation |
+| `utils/crowns.ts` | Title thresholds and lookup functions (getTitleForCrowns, getNextTitle) |
 | `utils/moderation.ts` | Shared banned word list, normalization, contact info patterns, `moderateUsername()`, `moderateMessage()` |
 | `functions/index.js` | All 9 Cloud Functions |
 | `functions/.env` | SENDGRID_API_KEY (not in git, see Section 9) |
