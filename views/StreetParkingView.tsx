@@ -15,6 +15,7 @@ import { useSpotData } from './street-parking/useSpotData';
 import { useInterestFlow } from './street-parking/useInterestFlow';
 import { SpotDetailsCard } from './street-parking/SpotDetailsCard';
 import { BottomSheet } from './street-parking/BottomSheet';
+import { HandoffFlow } from './street-parking/HandoffFlow';
 import { HeaderBar } from './street-parking/HeaderBar';
 
 
@@ -125,7 +126,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             return;
         }
         // Spot no longer in any data source (occupied/expired/deleted) — clear selection
-        if (!interestFlow.showFeedback) {
+        if (!interestFlow.handoffStep) {
             setSelectedItem(null);
         }
     }, [spotData.freeSpots, spotData.paidListings, selectedItem?.id]);
@@ -514,23 +515,17 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 )}
             </BottomSheet>
 
-            {/* Post-arrival feedback */}
-            <BottomSheet isOpen={interestFlow.showFeedback} onClose={() => interestFlow.handleFeedback('Dismissed')}>
-                <div className="text-center">
-                    <div className="w-12 h-12 rounded-full bg-green-500/15 flex items-center justify-center mx-auto mb-3">
-                        <Check size={24} className="text-green-400" />
-                    </div>
-                    <h3 className="font-bold text-lg text-[var(--color-text)] mb-1">You've arrived!</h3>
-                    <p className="text-xs text-[var(--color-text-secondary)] mb-4">How was the experience?</p>
-                    <div className="space-y-2">
-                        {['Thank the driver', 'Spot wasn\'t available', 'Other'].map(opt => (
-                            <button key={opt} onClick={() => interestFlow.handleFeedback(opt)}
-                                className="w-full py-2.5 rounded-xl text-sm font-semibold bg-white/5 border border-[var(--color-border)] hover:bg-white/10 transition-all text-[var(--color-text)]">
-                                {opt}
-                            </button>
-                        ))}
-                    </div>
-                </div>
+            {/* Post-arrival handoff flow */}
+            <BottomSheet isOpen={interestFlow.handoffStep !== null} onClose={interestFlow.handleSkipDeparture}>
+                {interestFlow.handoffStep && (
+                    <HandoffFlow
+                        step={interestFlow.handoffStep}
+                        onOutcome={interestFlow.handleHandoffOutcome}
+                        onFailureReason={interestFlow.handleFailureReason}
+                        onDeparturePing={interestFlow.handleDeparturePing}
+                        onSkip={interestFlow.handleSkipDeparture}
+                    />
+                )}
             </BottomSheet>
 
             {/* Finder notification: someone is heading to their spot */}
