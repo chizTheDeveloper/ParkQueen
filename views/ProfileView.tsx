@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { doc, updateDoc, onSnapshot } from 'firebase/firestore';
+import { doc, updateDoc, onSnapshot, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { ChevronLeft, Edit, Clock, FileText, Shield, Info, Camera, Settings } from 'lucide-react';
 import { AppView } from '../types';
@@ -10,6 +10,50 @@ export const ProfileView = ({ user, onBack, setView }) => {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [recentActivity, setRecentActivity] = useState<{ id: string; icon: string; text: string; timeAgo: string }[]>([]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const fetchActivity = async () => {
+      const now = Date.now();
+      const fmt = (ms: number) => {
+        const min = Math.round((now - ms) / 60000);
+        if (min < 1) return 'Just now';
+        if (min < 60) return `${min} min ago`;
+        const hr = Math.round(min / 60);
+        if (hr < 24) return `${hr} hr ago`;
+        return `${Math.round(hr / 24)}d ago`;
+      };
+
+      const items: { id: string; icon: string; text: string; ts: number }[] = [];
+
+      const spotsSnap = await getDocs(query(collection(db, 'spots'), where('finderId', '==', user.id)));
+      spotsSnap.docs.forEach(d => {
+        const s = d.data();
+        const ts = s.reportedAt?.toMillis?.() || 0;
+        if (s.status === 'occupied') {
+          items.push({ id: `f-${d.id}`, icon: '👑', text: 'Helped a driver find parking (+2 Crowns)', ts });
+        } else if (s.pingMode === 'later') {
+          items.push({ id: `f-${d.id}`, icon: '🟡', text: 'Created a leaving later ping', ts });
+        } else {
+          items.push({ id: `f-${d.id}`, icon: '📍', text: 'Pinged a parking spot', ts });
+        }
+      });
+
+      const fbSnap = await getDocs(query(collection(db, 'spotFeedback'), where('userId', '==', user.id)));
+      fbSnap.docs.forEach(d => {
+        const f = d.data();
+        const ts = f.createdAt?.toMillis?.() || 0;
+        if (f.outcome === 'success') {
+          items.push({ id: `d-${d.id}`, icon: '🚗', text: 'Successfully parked using a ping (+1 Crown)', ts });
+        }
+      });
+
+      items.sort((a, b) => b.ts - a.ts);
+      setRecentActivity(items.slice(0, 3).map(i => ({ id: i.id, icon: i.icon, text: i.text, timeAgo: fmt(i.ts) })));
+    };
+    fetchActivity();
+  }, [user?.id]);
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -158,65 +202,34 @@ export const ProfileView = ({ user, onBack, setView }) => {
 
           {/* List Items Groups */}
           <div className="space-y-6">
-            {/* Parking Details Group */}
+            {/* Recent Activity */}
             <div>
-              <h3 className="font-bold text-[var(--color-text-secondary)] text-xs uppercase tracking-wider mb-2.5 px-1">Parking Details</h3>
-              <div className="bg-[var(--color-card)] border border-[var(--color-border)] backdrop-blur-md rounded-2xl divide-y divide-[var(--color-border)] overflow-hidden">
-                {/* Parking Space row */}
-                <button 
+              <h3 className="font-bold text-[var(--color-text-secondary)] text-xs uppercase tracking-wider mb-2.5 px-1">Recent Activity</h3>
+              <div className="bg-[var(--color-card)] border border-[var(--color-border)] backdrop-blur-md rounded-2xl overflow-hidden">
+                {recentActivity.length === 0 ? (
+                  <div className="p-4 text-center">
+                    <p className="text-xs text-[var(--color-text-secondary)]">No recent activity yet</p>
+                    <p className="text-[10px] text-[var(--color-text-secondary)] mt-0.5">Start by pinging a parking spot</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-[var(--color-border)]">
+                    {recentActivity.map(item => (
+                      <div key={item.id} className="px-4 py-3 flex items-center gap-3">
+                        <span className="text-base shrink-0">{item.icon}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-[var(--color-text)] truncate">{item.text}</p>
+                          <p className="text-[10px] text-[var(--color-text-secondary)] mt-0.5">{item.timeAgo}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button
                   onClick={() => setView(AppView.PARKING_SPACE)}
-                  className="w-full p-4 flex items-center justify-between text-left hover:bg-[#0b2240]/40 transition-colors"
+                  className="w-full py-2.5 text-center text-[11px] font-semibold text-[#38bdf8] border-t border-[var(--color-border)] hover:bg-white/5 transition-colors"
                 >
-                  <div className="flex items-center gap-3.5">
-                    <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0">
-                      <Clock size={18} />
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-[var(--color-text)] text-sm">Parking History</h4>
-                      <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">View your recent parking activity</p>
-                    </div>
-                  </div>
-                  <ChevronLeft size={16} className="text-[var(--color-text-secondary)] rotate-180" />
+                  View All Activity
                 </button>
-
-                {/* Listings row - Disabled for now as per client feedback */}
-                {/*
-                <button 
-                  onClick={() => setView(AppView.GARAGE_LIST)}
-                  className="w-full p-4 flex items-center justify-between text-left hover:bg-[#0b2240]/40 transition-colors"
-                >
-                  <div className="flex items-center gap-3.5">
-                    <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0">
-                      <List size={18} />
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-[var(--color-text)] text-sm">Rentals & Listings</h4>
-                      <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Rent or share private spots</p>
-                    </div>
-                  </div>
-                  <ChevronLeft size={16} className="text-[var(--color-text-secondary)] rotate-180" />
-                </button>
-                */}
-
-                {/* Host Dashboard row - Disabled for now as per client feedback */}
-                {/*
-                <button 
-                  onClick={() => setView(AppView.HOST_DASHBOARD)}
-                  className="w-full p-4 flex items-center justify-between text-left hover:bg-[#0b2240]/40 transition-colors"
-                >
-                  <div className="flex items-center gap-3.5">
-                    <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0">
-                      <LayoutDashboard size={18} />
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-[var(--color-text)] text-sm">Host Dashboard</h4>
-                      <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Manage earnings & list spots</p>
-                    </div>
-                  </div>
-                  <ChevronLeft size={16} className="text-[var(--color-text-secondary)] rotate-180" />
-                </button>
-                */}
-
               </div>
             </div>
 
