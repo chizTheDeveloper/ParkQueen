@@ -62,6 +62,9 @@ export function useSpotData({ userId, blockedUsers, searchCenter, searchRadius, 
                 interestedUserName: s.interestedUserName,
                 etaMinutes: s.etaMinutes,
                 interestExpiresAt: s.interestExpiresAt,
+                address: s.address || '',
+                geohash: s.geohash || '',
+                originSpotId: s.originSpotId || null,
                 rawSpot: s
             }));
             setFreeSpots(mappedFree);
