@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { db } from '../../firebase';
 import { doc, updateDoc, deleteDoc, runTransaction, Timestamp, collection, query, where, getDocs, addDoc, onSnapshot, orderBy, limit } from 'firebase/firestore';
 import { MapItem } from './types';
@@ -26,7 +26,11 @@ export function useInterestFlow({
     const [trackedItemId, setTrackedItemId] = useState<string | null>(null);
     const [isEtaPickerOpen, setIsEtaPickerOpen] = useState(false);
     const [interestError, setInterestError] = useState<string | null>(null);
-    const [showFeedback, setShowFeedback] = useState(false);
+    const [handoffStep, setHandoffStep] = useState<'outcome' | 'celebration' | 'failure_reason' | null>(null);
+    const handoffSpotRef = useRef<{
+        id: string; lat: number; lng: number; address?: string;
+        finderId: string; finderName: string; geohash?: string;
+    } | null>(null);
     const [finderToast, setFinderToast] = useState<string | null>(null);
     const [driverNotification, setDriverNotification] = useState<string | null>(null);
 
@@ -50,6 +54,10 @@ export function useInterestFlow({
                         activeRouteDestinationRef.current = null;
                         if (mapRef.current) clearRoute(mapRef.current);
                         setSelectedItem(null);
+                    }
+                    if (data.type === 'handoff_success') {
+                        setFinderToast(data.message);
+                        setTimeout(() => setFinderToast(null), 6000);
                     }
                     change.doc.ref.delete().catch(() => {});
                 }
@@ -181,23 +189,101 @@ export function useInterestFlow({
 
     const handleArrival = async () => {
         if (!selectedItem || !user || !db) return;
+        // Capture spot data before marking occupied
+        handoffSpotRef.current = {
+            id: selectedItem.id,
+            lat: selectedItem.lat,
+            lng: selectedItem.lng,
+            address: selectedItem.title || selectedItem.address,
+            finderId: selectedItem.finderId,
+            finderName: selectedItem.finderName,
+            geohash: selectedItem.geohash,
+        };
         await updateDoc(doc(db, 'spots', selectedItem.id), { status: 'occupied' });
         setTrackedItemId(null);
         activeRouteDestinationRef.current = null;
         if (mapRef.current) clearRoute(mapRef.current);
-        setShowFeedback(true);
+        setHandoffStep('outcome');
     };
 
-    const handleFeedback = async (feedback: string) => {
-        if (!selectedItem || !user) return;
+    const handleHandoffOutcome = async (outcome: 'success' | 'failed') => {
+        const spotSnap = handoffSpotRef.current;
+        if (!spotSnap || !user) return;
+
         await addDoc(collection(db, 'spotFeedback'), {
-            spotId: selectedItem.id,
+            spotId: spotSnap.id,
             userId: user.id,
-            finderId: selectedItem.finderId,
-            feedback,
+            finderId: spotSnap.finderId,
+            outcome,
+            failureReason: null,
             createdAt: Timestamp.now(),
         });
-        setShowFeedback(false);
+
+        if (outcome === 'success') {
+            await addDoc(collection(db, 'spotNotifications'), {
+                targetUserId: spotSnap.finderId,
+                type: 'handoff_success',
+                message: 'Your parking ping helped another driver find parking!',
+                createdAt: Timestamp.now(),
+            });
+            setHandoffStep('celebration');
+        } else {
+            setHandoffStep('failure_reason');
+        }
+    };
+
+    const handleFailureReason = async (reason: string) => {
+        const spotSnap = handoffSpotRef.current;
+        if (!spotSnap || !user) return;
+
+        const q = query(
+            collection(db, 'spotFeedback'),
+            where('spotId', '==', spotSnap.id),
+            where('userId', '==', user.id),
+            orderBy('createdAt', 'desc'),
+            limit(1)
+        );
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+            await updateDoc(snap.docs[0].ref, { failureReason: reason });
+        }
+
+        setHandoffStep(null);
+        handoffSpotRef.current = null;
+        setSelectedItem(null);
+    };
+
+    const handleDeparturePing = async (durationMinutes: number) => {
+        const spotSnap = handoffSpotRef.current;
+        if (!spotSnap || !user) return;
+
+        const now = Date.now();
+        const reportedAt = Timestamp.fromMillis(now + durationMinutes * 60000);
+        const expiresAt = Timestamp.fromMillis(now + durationMinutes * 60000 + 3600000);
+
+        await addDoc(collection(db, 'spots'), {
+            lat: spotSnap.lat,
+            lng: spotSnap.lng,
+            type: 'free',
+            status: 'available',
+            finderId: user.id,
+            finderName: user.username || user.fullName || 'Anonymous',
+            pingMode: 'later',
+            reportedAt,
+            expiresAt,
+            geohash: spotSnap.geohash || '',
+            address: spotSnap.address || '',
+            originSpotId: spotSnap.id,
+        });
+
+        setHandoffStep(null);
+        handoffSpotRef.current = null;
+        setSelectedItem(null);
+    };
+
+    const handleSkipDeparture = () => {
+        setHandoffStep(null);
+        handoffSpotRef.current = null;
         setSelectedItem(null);
     };
 
@@ -207,7 +293,7 @@ export function useInterestFlow({
         setIsEtaPickerOpen,
         interestError,
         setInterestError,
-        showFeedback,
+        handoffStep,
         finderToast,
         driverNotification,
         handleExpressInterest,
@@ -215,7 +301,10 @@ export function useInterestFlow({
         handleCancelByClaimer,
         handleDelayByFinder,
         handleArrival,
-        handleFeedback,
+        handleHandoffOutcome,
+        handleFailureReason,
+        handleDeparturePing,
+        handleSkipDeparture,
         getEstDriveMinutes,
         isWithinArrivalRange,
         ETA_OPTIONS,
