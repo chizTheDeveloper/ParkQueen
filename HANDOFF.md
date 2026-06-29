@@ -183,6 +183,14 @@ All deployed to `us-central1`, Node.js 20, Firebase Functions v5 (v2 API):
 - **Nearest spot preview strip** with distance + time ago (excludes own pings)
 - **Locate-me button** repositioned above Ping Parking button
 
+### Parking Activity Explorer (Search)
+- **Search bar** placeholder "Check parking near..." (was "Search location...")
+- **Destination preview** — selecting a geocode result shows a bottom sheet with parking activity stats instead of immediately moving the map
+- **Activity stats shown:** active pings count, leaving-later pings count, most recent ping time
+- **"Explore [destination] area"** button animates map to the searched location
+- **Empty state:** "No parking activity near [destination] right now" with Explore button still available
+- **One-shot Firestore query** against `spots` collection filtered by distance (1 mile radius) — NOT a live listener
+
 ### Onboarding
 - **3-screen value proposition** slides with full-bleed images, gradient overlay, swipe/tap to advance
 - **First-launch only** (localStorage flag `hasSeenOnboarding`)
@@ -313,6 +321,68 @@ createdAt: Timestamp
 
 ---
 
+## 5b. Current Data Model (Flexible / Subject to Change)
+
+This section is intentionally NOT a fixed schema.
+
+ParQueen is currently in active experimentation phase, so data structures may evolve.
+
+---
+
+### Observed Collections (Current Implementation)
+
+#### parkingSpots
+Represents real-world parking locations shown on the map.
+
+Fields may include:
+- lat
+- lng
+- geohash
+- status
+
+#### parkingEvents
+Represents driver interaction lifecycle:
+- arrival
+- success / failure decision
+- connection to finder
+
+Used primarily for:
+- handoff tracking
+- analytics
+- system state transitions
+
+#### departurePings
+Represents future availability created after successful parking.
+
+These generate yellow map pins and act as supply signals.
+
+Fields may vary as UX evolves.
+
+#### users
+User profiles including:
+- username
+- notificationRadius
+- basic stats
+
+#### notifications
+Event-driven messages sent to users:
+- finder rewards
+- parking success updates
+- system alerts
+
+### Important Note
+
+These structures are evolving.
+
+Do NOT assume strict schema enforcement when implementing features.
+
+Prefer:
+- flexibility
+- minimal coupling
+- iteration speed over rigidity
+
+---
+
 ## 6. Cloud Functions (Detail)
 
 ### cleanupExpiredSpotsHourly
@@ -371,46 +441,141 @@ createdAt: Timestamp
 
 ---
 
-## 7. Current Notification System
+## 7. Firestore Security Rules
 
-See Section 2 "Notification System" and Section 6 "notifyNearbyUsers" for full details.
+All rules require `signedIn()` (i.e., `request.auth != null`) unless noted. An `isAdmin()` helper checks `request.auth.token.admin == true` (custom claim).
 
-Key points:
-- Geohash prefix (4 chars) as coarse DB query filter
-- Haversine distance calculation for precise filtering
-- Per-user `notificationRadius` preference (0.5/1/2/5 miles)
-- Finder always excluded
-- `notificationsEnabled === false` users excluded
-- Notification body includes distance ("~0.3 mi away" or "right next to you")
-- In-app foreground push rendered as toast (not alert)
-- Real-time spot notifications (cancel/delay) via separate `spotNotifications` collection + onSnapshot
+| Collection | Read | Write | Notes |
+|---|---|---|---|
+| `users/{userId}` | Any signed-in user | Owner only (`auth.uid == userId`) | Users can read each other's profiles (for chat, spot details) |
+| `spots/{spotId}` | Any signed-in user | Create: owner (`finderId == auth.uid`). Delete: owner. Update: any signed-in user. | Update is open so the claimer can set interest fields |
+| `usernames/{id}` | Any signed-in user | Server only (`allow write: if false`) | Claimed via `claimUsername` Cloud Function |
+| `chats/{chatId}` + `messages` | Any signed-in user | Any signed-in user | No participant check — relies on client-side filtering |
+| `reports/{reportId}` | Admin only | Create: any signed-in user. Update: admin only. | Users submit reports; admins review |
+| `moderationLog/{logId}` | Server only | Server only | Audit trail, no client access |
+| `emailVerificationCodes/{uid}` | Server only | Server only | Managed by Cloud Functions |
+| `avatarModeration/{userId}` | Owner only | Server only | Vision SafeSearch results |
+| `spotNotifications/{notifId}` | Any signed-in user | Create/delete: any signed-in user | Real-time cancel/delay messages |
+| `spotFeedback/{feedbackId}` | Nobody | Create: any signed-in user | Write-only from client |
+| `stats/{docId}` | Admin only | Server only | Aggregate counters |
+| `listings/{listingId}` | Public (no auth) | Any signed-in user | Legacy garage rental collection |
+
+**Security notes:**
+- `spots` update is broadly permissive — any authenticated user can update any spot. This is intentional for the claim flow but means a malicious user could modify someone else's spot fields.
+- `chats` has no participant-level restriction — any signed-in user could theoretically read/write any chat if they know the chat ID. The sorted-UID chat ID convention provides obscurity, not security.
+- `spotNotifications` has no target-user restriction — any signed-in user can create/delete any notification doc.
 
 ---
 
-## 8. Known Issues
+## 8. Inactive & Placeholder Views
+
+Several `AppView` enum values and their views exist in the codebase but are **not part of the active product flow**:
+
+| View | File | Status |
+|---|---|---|
+| `AI_ASSISTANT` | `views/AssistantView.tsx` | Routed in App.tsx, accessible via nav. Uses `@google/genai` (Gemini) client-side for parking sign analysis. Requires `API_KEY` env var (not currently set in production). |
+| `GARAGE_LIST` | `views/GarageRentalView.tsx` | Routed. Legacy garage rental feature with un-converted dark-mode classes. Hidden from main nav. |
+| `HOST_DASHBOARD` | `views/HostDashboardView.tsx` | Routed. Companion to garage rentals. Not actively used. |
+| `ADMIN_DASHBOARD` | `views/AdminDashboardView.tsx` | Routed. Only shown when `isAdmin` custom claim is true. No admin users currently exist. |
+| `PARKING_SPACE` | `views/ActivitiesView.tsx` | Routed. Accessible from Profile. Parking history/activity — exists but no data feeds it yet. |
+| `SPLASH` | `views/SplashView.tsx` | **Dead code** — not imported or referenced. Should be deleted. |
+| N/A | `views/LoginView.tsx` | **Dead code** — not imported or referenced. Should be deleted. |
+
+### Gemini AI Usage
+- **Smart replies in chat** (`services/geminiService.ts`) — client-side `@google/genai` SDK generates suggested replies when the last message in a conversation is from the other user. Used in `MessagesView.tsx`. Requires `API_KEY` env var.
+- **Parking sign analysis** (`AssistantView.tsx`) — uses same Gemini service. Not prominently featured.
+- Gemini is **not** used in any Cloud Function — it's entirely client-side.
+
+---
+
+## 9. Development Setup
+
+### Prerequisites
+- Node.js 20+ (required by Cloud Functions)
+- npm
+- Firebase CLI (`npm install -g firebase-tools`)
+- A Firebase project with Phone Auth, Firestore, Cloud Functions, Cloud Storage, and Cloud Messaging enabled
+
+### Initial Setup
+```bash
+# Clone and install
+git clone <repo-url>
+cd ParkQueen
+npm install
+cd functions && npm install && cd ..
+
+# Firebase login and project selection
+firebase login
+firebase use parkqueen-46475363-ccf36
+```
+
+### Environment Variables
+| Variable | Location | Purpose |
+|---|---|---|
+| `SENDGRID_API_KEY` | `functions/.env` | Email OTP delivery via SendGrid REST API |
+| `API_KEY` | Vite env (`.env` or `process.env`) | Gemini AI for smart replies and sign analysis (optional — app works without it) |
+| Mapbox token | Hardcoded in `StreetParkingView.tsx` | Map rendering |
+
+`functions/.env` is in `.gitignore`. Create it manually:
+```
+SENDGRID_API_KEY=SG.xxxxx
+```
+
+### Local Development
+```bash
+npm run dev          # Vite dev server (localhost:5173)
+```
+This connects to the **production** Firebase project (Firestore, Auth, Functions). There are no emulator configurations in use.
+
+### Build & Deploy
+```bash
+# Build frontend
+npm run build                    # outputs to dist/
+
+# Deploy everything (hosting + functions + firestore rules)
+firebase deploy --project parkqueen-46475363-ccf36
+
+# Deploy only hosting
+firebase deploy --only hosting --project parkqueen-46475363-ccf36
+
+# Deploy only functions
+firebase deploy --only functions --project parkqueen-46475363-ccf36
+
+# Deploy only firestore rules
+firebase deploy --only firestore:rules --project parkqueen-46475363-ccf36
+```
+
+The deployed app is at: https://parkqueen-46475363-ccf36.web.app
+
+### Firebase Project Alias
+`.firebaserc` maps the alias `"ParQueen App"` to project `parkqueen-46475363-ccf36`. Using `--project` explicitly is recommended over the alias.
+
+---
+
+## 10. Known Issues
 
 ### High Priority
-- **Stale tasks in task list** — the task tracking system has accumulated old completed tasks from prior features. Clean up on next session start.
 - **`useHoldFlow.ts` still exists on disk** — deprecated, no longer imported anywhere. Should be deleted.
-- **`LoginView.tsx` still exists on disk** — no longer imported or referenced. Should be deleted.
-- **`SplashView.tsx` still exists on disk** — unused. Should be deleted.
+- **`LoginView.tsx` and `SplashView.tsx` still exist on disk** — not imported or referenced. Should be deleted (see Section 8).
 
 ### Medium Priority
 - **Map style doesn't swap dynamically when theme changes** — style is set at map initialization. Toggling theme while on the map screen doesn't change the Mapbox style until the next app load. Would need `map.setStyle()` + re-add custom layers.
 - **Scunthorpe problem** — the profanity substring filter may false-positive on legitimate names containing profanity substrings (e.g., "Dickens", "Hancock"). No allowlist exists yet.
 - **GarageRentalView has un-converted dark-mode classes** — this view is disabled/hidden but still has `bg-dark-900` etc. classes that aren't theme-aware. Not visible to users.
+- **`chats` security rules too permissive** — any authenticated user can read/write any chat. Should add participant-level checks (see Section 7).
 
 ### Low Priority
 - **`package-lock.json` has been modified but never committed** — shows up in every `git status`. Harmless but noisy.
-- **`functions/.env` contains SendGrid API key** — it's in `.gitignore` but worth noting for deployment documentation.
 - **Vite CJS deprecation warning** on every build — cosmetic, doesn't affect functionality.
 
 ---
 
-## 9. Future Roadmap
+## 11. Future Roadmap
 
 ### Discussed and Designed (specs exist)
 - **Notification debouncing** — skip if user was notified within last 60 seconds (prevents spam from rapid nearby pings)
+- **Search Phase 2** — add parking success rate (from handoff outcome data) and activity level label to destination preview
+- **Search Phase 3** — "Notify me when someone pings near [destination]" (location subscriptions), historical trends, busy times, frequently searched locations
 
 ### Discussed but Not Designed
 - **Reputation system** — track successful parking handoffs, display reputation score
@@ -430,7 +595,7 @@ Key points:
 
 ---
 
-## 10. Technical Debt
+## 12. Technical Debt
 
 - **StreetParkingView.tsx is ~700+ lines** — the largest file, handles map init, geolocation, spot creation, marker rendering, address resolution, and UI overlays. Would benefit from extracting more into hooks (map init, address resolution).
 - **Duplicate profanity/moderation lists** — the banned word list exists in both `functions/index.js` (server) and `utils/moderation.ts` (client). They should stay in sync but are maintained separately.
@@ -441,7 +606,7 @@ Key points:
 
 ---
 
-## 11. Development Principles
+## 13. Development Principles
 
 1. **Discuss UX before implementation.** Every major feature started with a product discussion where assumptions were challenged. Don't skip this step.
 2. **Fix root causes, not symptoms.** When three bugs share one root cause (e.g., the Manhattan flash / false empty state / self-notification all traced to `searchCenter` initializing from NYC_CENTER), fix the underlying problem once.
@@ -454,7 +619,7 @@ Key points:
 
 ---
 
-## 12. Important Files
+## 14. Important Files
 
 | File | Responsibility |
 |---|---|
@@ -466,8 +631,10 @@ Key points:
 | `index.css` | CSS custom properties (light/dark theme), glass effects, ping-glow animation |
 | `utils/moderation.ts` | Shared banned word list, normalization, contact info patterns, `moderateUsername()`, `moderateMessage()` |
 | `functions/index.js` | All 9 Cloud Functions |
-| `functions/.env` | SENDGRID_API_KEY (not in git) |
-| `firestore.rules` | Security rules for all collections |
+| `functions/.env` | SENDGRID_API_KEY (not in git, see Section 9) |
+| `firestore.rules` | Security rules for all collections (see Section 7) |
+| `services/geminiService.ts` | Client-side Gemini AI for smart replies + sign analysis |
+| `.firebaserc` | Firebase project alias mapping |
 | **Views:** | |
 | `views/StreetParkingView.tsx` | Main map screen — map init, GPS, markers, spot creation, overlays |
 | `views/street-parking/SpotDetailsCard.tsx` | State-driven spot interaction card (inside BottomSheet) |
@@ -476,6 +643,7 @@ Key points:
 | `views/street-parking/useInterestFlow.ts` | Claim/interest flow logic (express interest, cancel, arrive, feedback) |
 | `views/street-parking/useSpotData.ts` | Firestore spot listener, radius filtering, blocked user filtering |
 | `views/street-parking/utils.ts` | `createMarkerElement`, `getDistance`, `drawRoute`, `clearRoute` |
+| `views/street-parking/ParkingActivitySheet.tsx` | Destination parking activity preview (search result bottom sheet) |
 | `views/street-parking/TimePicker.tsx` | Hour/minute/AM-PM picker for scheduled departure |
 | `views/ProfileView.tsx` | Profile screen (avatar, stats, navigation) |
 | `views/SettingsView.tsx` | Settings (toggles, email, notification radius, danger zone) |
@@ -488,7 +656,7 @@ Key points:
 
 ---
 
-## 13. Next Recommended Tasks
+## 15. Next Recommended Tasks
 
 1. **Delete dead files** — `useHoldFlow.ts`, `LoginView.tsx`, `SplashView.tsx` are unused. Clean them up.
 2. **Commit `package-lock.json`** — it's been modified for the entire session and shows in every `git status`.
@@ -501,10 +669,10 @@ Key points:
 
 ---
 
-## 14. Advice for the Next Claude Code Session
+## 16. Advice for the Next Claude Code Session
 
 ### Deployment Pattern
-The user expects `commit → merge to main → push → build → deploy` as one atomic operation. The Firebase project ID is `parkqueen-46475363-ccf36`. Hosting deploys from `dist/`. Functions deploy from `functions/`. Always deploy with `--project parkqueen-46475363-ccf36`.
+The user expects `commit → merge to main → push → build → deploy` as one atomic operation. See Section 9 for full build/deploy commands. Always use `--project parkqueen-46475363-ccf36`.
 
 ### Firebase SDK Version
 All Firebase imports must resolve to **10.8.0**. The importmap in `index.html` pins explicit paths for `firebase/app`, `firebase/auth`, `firebase/firestore`, `firebase/messaging`, `firebase/storage`, `firebase/functions`. The catch-all `firebase/` also points to 10.8.0. A version mismatch between these caused a critical auth bug (phone auth "operation-not-allowed") that took significant debugging to identify.
@@ -522,7 +690,7 @@ All Firebase imports must resolve to **10.8.0**. The importmap in `index.html` p
 - **Marker click closures** — markers capture `item` at creation time. Use `itemsRef.current` (a ref holding latest `radiusFilteredItems`) to read fresh data on click.
 - **`onCall` Cloud Functions need public IAM** — v2 `onCall` functions require the Cloud Run service to allow unauthenticated invocations. The user has Cloud Functions Admin role but deployment may still fail on IAM if the role was revoked.
 - **The `useEffect` sync for `selectedItem`** clears the selection when a spot disappears from data (occupied/expired/deleted), but skips clearing if `interestFlow.showFeedback` is true (so the feedback prompt retains the spot reference).
-- **`functions/.env`** is not in git. It contains the SendGrid API key (SENDGRID_API_KEY). This file must exist in `functions/` for email OTP to work. The key can be retrieved from the SendGrid dashboard or Firebase Console secret manager.
+- **`functions/.env`** — see Section 9 for env var setup. Must exist in `functions/` for email OTP to work.
 
 ### Active Plugins
 - **Ponytail** (full mode) — enforces laziest working solution
