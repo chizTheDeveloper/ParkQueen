@@ -77,7 +77,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
           {/* User Info & Avatar */}
           <div className="flex flex-col items-center text-center mb-6">
             <div className="relative mb-3.5 group">
-              <div className="w-24 h-24 rounded-full border-4 border-[#1e75ff] overflow-hidden shrink-0 relative bg-[var(--color-card)] flex items-center justify-center text-[var(--color-text-secondary)]">
+              <div className="w-[98px] h-[98px] rounded-full border-4 border-[#1e75ff] overflow-hidden shrink-0 relative bg-[var(--color-card)] flex items-center justify-center text-[var(--color-text-secondary)]">
                 {user.avatarUrl ? (
                   <img src={user.avatarUrl} alt="Profile" className="w-full h-full object-cover" />
                 ) : (
@@ -91,7 +91,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
               </div>
               <button
                 onClick={triggerUpload}
-                className="absolute bottom-1 right-1 w-8 h-8 rounded-full bg-[#1e75ff] border-2 border-[var(--color-bg)] flex items-center justify-center text-white cursor-pointer hover:bg-blue-600 transition-colors shadow-md"
+                className="absolute bottom-1 right-1 w-[31px] h-[31px] rounded-full bg-[#1e75ff] border-2 border-[var(--color-bg)] flex items-center justify-center text-white cursor-pointer hover:bg-blue-600 transition-colors shadow-md"
                 aria-label="Upload photo"
               >
                 <Edit size={14} />
