@@ -191,6 +191,15 @@ All deployed to `us-central1`, Node.js 20, Firebase Functions v5 (v2 API):
 - **Empty state:** "No parking activity near [destination] right now" with Explore button still available
 - **One-shot Firestore query** against `spots` collection filtered by distance (1 mile radius) — NOT a live listener
 
+### Parking History
+- **Accessible from Profile** → "Parking Space" row navigates to `ActivitiesView`
+- **Unified timeline** merging two data sources: `spots` (as finder) and `spotFeedback` (as driver)
+- **Status labels:** Parked (success), Unsuccessful (failed), Helped a driver (occupied finder ping), Active, Expired
+- **Role indicators:** blue icon for "You pinged", green for "You parked"
+- **Pagination:** last 20 items with "Load more" button, client-side cursor
+- **Privacy:** spotFeedback reads restricted to creator via Firestore rules
+- **No new collections** — queries existing data only (Phase 1 approach)
+
 ### Onboarding
 - **3-screen value proposition** slides with full-bleed images, gradient overlay, swipe/tap to advance
 - **First-launch only** (localStorage flag `hasSeenOnboarding`)
