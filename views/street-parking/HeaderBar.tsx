@@ -17,7 +17,7 @@ interface HeaderBarProps {
     unreadMessagesCount: number;
     pendingUpdatesCount: number;
     setPendingUpdatesCount: (n: number) => void;
-    mapRef: React.RefObject<mapboxgl.Map | null>;
+    onSelectResult: (result: any) => void;
 }
 
 const UserAvatar = ({ user, onClick }: { user: any; onClick: () => void }) => {
@@ -60,7 +60,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
     unreadMessagesCount,
     pendingUpdatesCount,
     setPendingUpdatesCount,
-    mapRef,
+    onSelectResult,
 }) => {
     return (
         <header style={{ paddingTop: 'env(safe-area-inset-top)' }} className="w-full flex flex-col gap-1.5 pointer-events-auto">
@@ -72,7 +72,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                     <input
                         ref={inputRef}
                         type="text"
-                        placeholder="Search location..."
+                        placeholder="Check parking near..."
                         className="bg-transparent border-none outline-none text-[var(--color-text)] text-[14px] w-full placeholder-[var(--color-text-secondary)] font-medium"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
@@ -132,17 +132,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                             <button
                                 key={r.id}
                                 onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => {
-                                    setSearchQuery(r.place_name);
-                                    setSearchOpen(false);
-                                    setResults([]);
-
-                                    mapRef.current?.easeTo({
-                                        center: r.center,
-                                        zoom: 14,
-                                        duration: 800,
-                                    });
-                                }}
+                                onClick={() => onSelectResult(r)}
                                 className="w-full text-left px-3 py-2 hover:bg-white/5 rounded-xl transition-colors"
                             >
                                 <div className="text-[var(--color-text)] font-medium text-xs">{r.text}</div>
