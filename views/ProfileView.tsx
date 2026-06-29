@@ -89,12 +89,12 @@ export const ProfileView = ({ user, onBack, setView }) => {
                   </div>
                 )}
               </div>
-              <button 
-                onClick={triggerUpload} 
-                className="absolute bottom-0 right-0 w-7.5 h-7.5 rounded-full bg-[#1e75ff] border-2 border-[var(--color-bg)] flex items-center justify-center text-white cursor-pointer hover:bg-blue-600 transition-colors shadow-md"
+              <button
+                onClick={triggerUpload}
+                className="absolute bottom-1 right-1 w-8 h-8 rounded-full bg-[#1e75ff] border-2 border-[var(--color-bg)] flex items-center justify-center text-white cursor-pointer hover:bg-blue-600 transition-colors shadow-md"
                 aria-label="Upload photo"
               >
-                <Edit size={12} />
+                <Edit size={14} />
               </button>
               <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" className="hidden" />
             </div>
