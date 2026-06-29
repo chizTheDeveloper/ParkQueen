@@ -7,6 +7,11 @@ export function useSearch() {
     const [results, setResults] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
     const abortRef = useRef<AbortController | null>(null);
+    const [selectedDestination, setSelectedDestination] = useState<{
+        name: string;
+        fullName: string;
+        center: [number, number];
+    } | null>(null);
 
     useEffect(() => {
         if (!searchOpen || searchQuery.trim().length < 2) {
@@ -53,6 +58,22 @@ export function useSearch() {
         inputRef.current?.blur();
     };
 
+    const handleSelectResult = (result: any) => {
+        setSelectedDestination({
+            name: result.text,
+            fullName: result.place_name,
+            center: result.center as [number, number],
+        });
+        setSearchQuery('');
+        setResults([]);
+        setSearchOpen(false);
+        inputRef.current?.blur();
+    };
+
+    const clearDestination = () => {
+        setSelectedDestination(null);
+    };
+
     return {
         inputRef,
         searchQuery,
@@ -63,5 +84,8 @@ export function useSearch() {
         setResults,
         loading,
         handleCancelSearch,
+        selectedDestination,
+        handleSelectResult,
+        clearDestination,
     };
 }
