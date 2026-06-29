@@ -74,7 +74,7 @@ export const HandoffFlow: React.FC<HandoffFlowProps> = ({
                 </div>
                 <button
                     onClick={onSkip}
-                    className="w-full py-2.5 rounded-xl text-xs font-semibold bg-white/5 border border-[var(--color-border)] hover:bg-white/10 transition-all text-[var(--color-text-secondary)]"
+                    className="w-full py-2.5 rounded-xl text-xs font-semibold bg-white/5 border border-[var(--color-border)] hover:bg-white/10 transition-all text-[var(--color-text)]"
                 >
                     Skip
                 </button>
