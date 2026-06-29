@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { doc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
-import { ChevronLeft, Edit, FileText, Shield, Info, Camera, Trophy, Flame, Star, Settings } from 'lucide-react';
+import { ChevronLeft, Edit, Clock, Shield, Info, Camera, Trophy, Flame, Star, Settings } from 'lucide-react';
 import { AppView } from '../types';
 
 export const ProfileView = ({ user, onBack, setView }) => {
@@ -159,11 +159,11 @@ export const ProfileView = ({ user, onBack, setView }) => {
                 >
                   <div className="flex items-center gap-3.5">
                     <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0">
-                      <FileText size={18} />
+                      <Clock size={18} />
                     </div>
                     <div>
-                      <h4 className="font-bold text-[var(--color-text)] text-sm">Parking Space</h4>
-                      <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Manage your parking</p>
+                      <h4 className="font-bold text-[var(--color-text)] text-sm">Parking History</h4>
+                      <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">View your recent parking activity</p>
                     </div>
                   </div>
                   <ChevronLeft size={16} className="text-[var(--color-text-secondary)] rotate-180" />
