@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { doc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
-import { ChevronLeft, Edit, Clock, FileText, Shield, Info, Camera, Trophy, Flame, Star, Settings } from 'lucide-react';
+import { ChevronLeft, Edit, Clock, FileText, Shield, Info, Camera, Settings } from 'lucide-react';
 import { AppView } from '../types';
 
 export const ProfileView = ({ user, onBack, setView }) => {
@@ -104,46 +104,13 @@ export const ProfileView = ({ user, onBack, setView }) => {
                 Complete your profile
               </button>
             )}
-            <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{user.email || ""}</p>
+            <p className="text-sm font-semibold text-[#38bdf8] mt-1">{user.title || 'Newcomer'}</p>
+            {(user.crowns || 0) > 0 && (
+              <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">👑 {user.crowns} Crown{user.crowns !== 1 ? 's' : ''}</p>
+            )}
             {uploadStatus && (
               <p className={`text-xs mt-2 font-semibold ${uploadStatus.includes('couldn') ? 'text-red-400' : 'text-blue-400'}`}>{uploadStatus}</p>
             )}
-          </div>
-
-          {/* Gamification Stats */}
-          <div className="grid grid-cols-3 bg-[var(--color-card)] border border-[var(--color-border)] backdrop-blur-md rounded-2xl p-4 mb-6 text-center">
-            {/* Reputation */}
-            <div className="flex flex-col items-center justify-center">
-              <div className="w-9 h-9 rounded-full bg-yellow-500/10 flex items-center justify-center text-yellow-500 mb-1.5 shrink-0">
-                <Trophy size={18} />
-              </div>
-              <span className="font-extrabold text-base text-[var(--color-text)]">{user.reputationScore || 0}</span>
-              <span className="text-[9px] text-[var(--color-text-secondary)] uppercase tracking-wider font-semibold mt-0.5">Reputation</span>
-            </div>
-            
-            {/* Divider */}
-            <div className="w-px h-12 bg-[var(--color-border)] self-center" />
-
-            {/* Streak */}
-            <div className="flex flex-col items-center justify-center">
-              <div className="w-9 h-9 rounded-full bg-orange-500/10 flex items-center justify-center text-orange-500 mb-1.5 shrink-0">
-                <Flame size={18} />
-              </div>
-              <span className="font-extrabold text-base text-[var(--color-text)]">{user.currentStreak || 0}</span>
-              <span className="text-[9px] text-[var(--color-text-secondary)] uppercase tracking-wider font-semibold mt-0.5">Streak</span>
-            </div>
-
-            {/* Divider */}
-            <div className="w-px h-12 bg-[var(--color-border)] self-center" />
-
-            {/* Tier */}
-            <div className="flex flex-col items-center justify-center">
-              <div className="w-9 h-9 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500 mb-1.5 shrink-0">
-                <Star size={18} />
-              </div>
-              <span className="font-extrabold text-base text-[#1e75ff]">{user.tier || 'Newcomer'}</span>
-              <span className="text-[9px] text-[var(--color-text-secondary)] uppercase tracking-wider font-semibold mt-0.5">Tier</span>
-            </div>
           </div>
 
           {/* List Items Groups */}
