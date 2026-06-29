@@ -13,6 +13,25 @@ initializeApp();
 const db = getFirestore();
 const sendgridApiKey = defineString("SENDGRID_API_KEY");
 
+// Crown title thresholds (must match client-side utils/crowns.ts)
+const TITLE_THRESHOLDS = [
+    { crowns: 0, title: 'Newcomer' },
+    { crowns: 10, title: 'Trusted Driver' },
+    { crowns: 50, title: 'Street Scout' },
+    { crowns: 150, title: 'Neighborhood Guide' },
+    { crowns: 400, title: 'Parking Expert' },
+    { crowns: 750, title: 'Block Captain' },
+    { crowns: 1500, title: 'Parking Veteran' },
+    { crowns: 3000, title: 'Urban Legend' },
+];
+
+function getTitleForCrowns(crowns) {
+    for (let i = TITLE_THRESHOLDS.length - 1; i >= 0; i--) {
+        if (crowns >= TITLE_THRESHOLDS[i].crowns) return TITLE_THRESHOLDS[i].title;
+    }
+    return 'Newcomer';
+}
+
 // 1) Delete expired spots every hour
 exports.cleanupExpiredSpotsHourly = onSchedule(
   {
@@ -432,5 +451,42 @@ exports.claimUsername = onCall(
     }
 
     return { success: true, username: trimmed };
+  }
+);
+
+// 10) Award crowns on successful parking handoff
+exports.awardCrowns = onDocumentCreated(
+  {
+    document: "spotFeedback/{feedbackId}",
+    region: "us-central1",
+  },
+  async (event) => {
+    const data = event.data?.data();
+    if (!data || data.outcome !== 'success') return;
+
+    const driverId = data.userId;
+    const finderId = data.finderId;
+    if (!driverId || !finderId || driverId === finderId) return;
+
+    const batch = db.batch();
+
+    const driverRef = db.doc(`users/${driverId}`);
+    const driverSnap = await driverRef.get();
+    const driverCrowns = (driverSnap.data()?.crowns || 0) + 1;
+    batch.update(driverRef, {
+        crowns: FieldValue.increment(1),
+        title: getTitleForCrowns(driverCrowns),
+    });
+
+    const finderRef = db.doc(`users/${finderId}`);
+    const finderSnap = await finderRef.get();
+    const finderCrowns = (finderSnap.data()?.crowns || 0) + 2;
+    batch.update(finderRef, {
+        crowns: FieldValue.increment(2),
+        title: getTitleForCrowns(finderCrowns),
+    });
+
+    await batch.commit();
+    console.log(`Crowns awarded: driver ${driverId} +1 (${driverCrowns}), finder ${finderId} +2 (${finderCrowns})`);
   }
 );
