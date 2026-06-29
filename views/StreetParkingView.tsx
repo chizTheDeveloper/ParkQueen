@@ -16,6 +16,7 @@ import { useInterestFlow } from './street-parking/useInterestFlow';
 import { SpotDetailsCard } from './street-parking/SpotDetailsCard';
 import { BottomSheet } from './street-parking/BottomSheet';
 import { HandoffFlow } from './street-parking/HandoffFlow';
+import { ParkingActivitySheet } from './street-parking/ParkingActivitySheet';
 import { HeaderBar } from './street-parking/HeaderBar';
 
 
@@ -528,6 +529,23 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 )}
             </BottomSheet>
 
+            {/* Parking Activity Explorer */}
+            {search.selectedDestination && (
+                <ParkingActivitySheet
+                    destination={search.selectedDestination}
+                    onExplore={() => {
+                        const dest = search.selectedDestination!;
+                        mapRef.current?.easeTo({
+                            center: dest.center,
+                            zoom: 14,
+                            duration: 800,
+                        });
+                        search.clearDestination();
+                    }}
+                    onDismiss={search.clearDestination}
+                />
+            )}
+
             {/* Finder notification: someone is heading to their spot */}
             {(() => {
                 const interestedSpot = spotData.freeSpots.find(s => s.finderId === user?.id && s.status === 'interested');
@@ -598,7 +616,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     unreadMessagesCount={unreadMessagesCount}
                     pendingUpdatesCount={spotData.pendingUpdatesCount}
                     setPendingUpdatesCount={spotData.setPendingUpdatesCount}
-                    mapRef={mapRef}
+                    onSelectResult={search.handleSelectResult}
                 />
 
                 {spotCount > 0 && (
