@@ -619,7 +619,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     onSelectResult={search.handleSelectResult}
                 />
 
-                {spotCount > 0 && (
+                {spotCount > 0 && !search.searchOpen && (
                     <div className="w-full max-w-[380px] mx-auto mt-1 pointer-events-auto">
                         <div className="inline-flex items-center gap-1.5 bg-[var(--color-card)] backdrop-blur-xl border border-emerald-500/20 rounded-full px-2.5 py-1 text-[10px] font-semibold text-emerald-400 shadow-md">
                             <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
