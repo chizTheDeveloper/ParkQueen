@@ -1,4 +1,4 @@
-import React, { useState, useEffect, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import SplashScreen from './assets/splash_screen.svg';
 import { OnboardingView } from './views/OnboardingView';
 
@@ -45,6 +45,8 @@ export default function App() {
   });
   const [activeChatContext, setActiveChatContext] = useState<{ userId: string; context: string } | null>(null);
   const [pushToast, setPushToast] = useState<{ title: string; body: string } | null>(null);
+  const [titleUnlock, setTitleUnlock] = useState<string | null>(null);
+  const prevTitleRef = useRef<string | null>(null);
   const [phone, setPhone] = useState('');
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
 
@@ -82,7 +84,14 @@ export default function App() {
         // Listen for profile data changes
         userProfileUnsubscribe = onSnapshot(userDocRef, (userDoc) => {
           if (userDoc.exists()) {
-            setUser({ id: userDoc.id, ...userDoc.data() });
+            const userData = userDoc.data();
+            setUser({ id: userDoc.id, ...userData });
+            const newTitle = userData.title || 'Newcomer';
+            if (prevTitleRef.current && prevTitleRef.current !== newTitle && newTitle !== 'Newcomer') {
+              setTitleUnlock(newTitle);
+              setTimeout(() => setTitleUnlock(null), 5000);
+            }
+            prevTitleRef.current = newTitle;
           } else {
             setUser({ id: firebaseUser.uid });
           }
@@ -339,6 +348,14 @@ export default function App() {
             </div>
             <button onClick={() => setPushToast(null)} className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)] shrink-0 text-lg">&times;</button>
           </div>
+        </div>
+      )}
+
+      {titleUnlock && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-[var(--color-glass)] backdrop-blur-xl border border-yellow-500/30 rounded-2xl px-6 py-4 shadow-2xl text-center pointer-events-none">
+          <div className="text-3xl mb-1">👑</div>
+          <p className="text-sm font-bold text-[var(--color-text)]">New Title Unlocked!</p>
+          <p className="text-base font-extrabold text-yellow-400 mt-0.5">{titleUnlock}</p>
         </div>
       )}
     </div>
