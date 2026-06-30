@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { ChevronLeft, ChevronDown, Car, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronDown, Trash2 } from 'lucide-react';
+import { VehicleIcon } from '../utils/vehicleIcon';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 
@@ -92,8 +93,8 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
 
           {/* Live Preview Card */}
           <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl px-4 py-4 flex items-center gap-3.5">
-            <div className="w-11 h-11 rounded-xl bg-[#1e75ff]/10 flex items-center justify-center text-[#38bdf8] shrink-0">
-              <Car size={22} />
+            <div className="w-11 h-11 rounded-xl bg-[#1e75ff]/10 flex items-center justify-center shrink-0">
+              <VehicleIcon type={type} color={color} size={22} />
             </div>
             <div>
               {showPreview ? (

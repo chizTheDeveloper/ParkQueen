@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { doc, updateDoc, onSnapshot, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
-import { ChevronLeft, ChevronRight, Edit, Clock, FileText, Shield, Info, Settings, Crown, Car, MapPin } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Edit, Clock, FileText, Shield, Info, Settings, Crown, MapPin } from 'lucide-react';
+import { VehicleIcon } from '../utils/vehicleIcon';
 import { AppView } from '../types';
 import { getNextTitle } from '../utils/crowns';
 
@@ -57,7 +58,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
   const activityIcon = (key: string) => {
     const map: Record<string, { icon: React.ReactNode; bg: string; color: string }> = {
       crown: { icon: <Crown size={13} />, bg: 'bg-yellow-400/15', color: 'text-yellow-400' },
-      car:   { icon: <Car size={13} />,   bg: 'bg-green-400/15',  color: 'text-green-400' },
+      car:   { icon: <VehicleIcon type={user?.vehicleType} color={user?.vehicleColor} size={13} />, bg: 'bg-green-400/15', color: 'text-green-400' },
       pin:   { icon: <MapPin size={13} />, bg: 'bg-[#1e75ff]/15', color: 'text-[#38bdf8]' },
       clock: { icon: <Clock size={13} />, bg: 'bg-orange-400/15', color: 'text-orange-400' },
     };
@@ -263,8 +264,8 @@ export const ProfileView = ({ user, onBack, setView }) => {
                 className="w-full px-4 py-3.5 flex items-center justify-between text-left hover:bg-white/5 active:bg-white/10 transition-colors"
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-[#1e75ff]/10 flex items-center justify-center text-[#38bdf8] shrink-0">
-                    <Car size={18} />
+                  <div className="w-9 h-9 rounded-xl bg-[#1e75ff]/10 flex items-center justify-center shrink-0">
+                    <VehicleIcon type={user.vehicleType} color={user.vehicleColor} size={18} />
                   </div>
                   <div>
                     {user.vehicleBrand || user.vehicleColor || user.vehicleType ? (
