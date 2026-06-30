@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronLeft, MapPin, Clock, ChevronDown, Handshake, SquareParking } from 'lucide-react';
+import { ChevronLeft, MapPin, Clock, ChevronDown, Handshake, ParkingSquare } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, where, getDocs, orderBy, limit, startAfter, Timestamp } from 'firebase/firestore';
 
@@ -153,7 +153,7 @@ export const ActivitiesView = ({ user, onBack }: { user: any; onBack: () => void
           {items.map(item => (
             <div key={item.id} className="bg-[var(--color-card)] border border-[var(--color-border)] backdrop-blur-md rounded-2xl p-3.5 flex items-center gap-3.5">
               <div className={`p-2 rounded-xl shrink-0 ${item.role === 'finder' ? 'bg-yellow-400/15 text-yellow-400' : 'bg-green-500/10 text-green-400'}`}>
-                {item.role === 'finder' ? <Handshake size={18} /> : <SquareParking size={18} />}
+                {item.role === 'finder' ? <Handshake size={18} /> : <ParkingSquare size={18} />}
               </div>
               <div className="flex-1 min-w-0">
                 <h3 className="font-semibold text-sm text-[var(--color-text)] truncate">{item.address}</h3>

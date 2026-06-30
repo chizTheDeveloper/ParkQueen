@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { doc, updateDoc, onSnapshot, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
-import { ChevronLeft, ChevronRight, Edit, Clock, FileText, Shield, Info, Settings, Crown, MapPin, Handshake, SquareParking } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Edit, Clock, FileText, Shield, Info, Settings, Crown, MapPin, Handshake, ParkingSquare } from 'lucide-react';
 import { VehicleIcon } from '../utils/vehicleIcon';
 import { AppView } from '../types';
 import { getNextTitle } from '../utils/crowns';
@@ -58,7 +58,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
   const activityIcon = (key: string) => {
     const map: Record<string, { icon: React.ReactNode; bg: string; color: string }> = {
       handshake: { icon: <Handshake size={13} />, bg: 'bg-yellow-400/15', color: 'text-yellow-400' },
-      parking:   { icon: <SquareParking size={13} />, bg: 'bg-green-400/15', color: 'text-green-400' },
+      parking:   { icon: <ParkingSquare size={13} />, bg: 'bg-green-400/15', color: 'text-green-400' },
       pin:       { icon: <MapPin size={13} />, bg: 'bg-[#1e75ff]/15', color: 'text-[#38bdf8]' },
       clock:     { icon: <Clock size={13} />, bg: 'bg-orange-400/15', color: 'text-orange-400' },
     };
