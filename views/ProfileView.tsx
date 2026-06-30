@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { doc, updateDoc, onSnapshot, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
-import { ChevronLeft, ChevronRight, Edit, Clock, FileText, Shield, Info, Settings, Crown, MapPin } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Edit, Clock, FileText, Shield, Info, Settings, Crown, MapPin, Handshake, SquareParking } from 'lucide-react';
 import { VehicleIcon } from '../utils/vehicleIcon';
 import { AppView } from '../types';
 import { getNextTitle } from '../utils/crowns';
@@ -34,7 +34,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
         const ts = s.reportedAt?.toMillis?.() || 0;
         const addr = s.address || '';
         if (s.status === 'occupied') {
-          items.push({ id: `f-${d.id}`, icon: 'crown', action: 'Helped Driver', address: addr, reward: '+2', ts });
+          items.push({ id: `f-${d.id}`, icon: 'handshake', action: 'Helped Driver', address: addr, reward: '+2', ts });
         } else if (s.pingMode === 'later') {
           items.push({ id: `f-${d.id}`, icon: 'clock', action: 'Leaving Later', address: addr, reward: null, ts });
         } else {
@@ -46,7 +46,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
       fbSnap.docs.forEach(d => {
         const f = d.data();
         const ts = f.createdAt?.toMillis?.() || 0;
-        items.push({ id: `d-${d.id}`, icon: 'car', action: 'Parked', address: f.address || '', reward: '+1', ts });
+        items.push({ id: `d-${d.id}`, icon: 'parking', action: 'Parked', address: f.address || '', reward: '+1', ts });
       });
 
       items.sort((a, b) => b.ts - a.ts);
@@ -57,10 +57,10 @@ export const ProfileView = ({ user, onBack, setView }) => {
 
   const activityIcon = (key: string) => {
     const map: Record<string, { icon: React.ReactNode; bg: string; color: string }> = {
-      crown: { icon: <Crown size={13} />, bg: 'bg-yellow-400/15', color: 'text-yellow-400' },
-      car:   { icon: <VehicleIcon type={user?.vehicleType} color={user?.vehicleColor} size={16} />, bg: '', color: '' },
-      pin:   { icon: <MapPin size={13} />, bg: 'bg-[#1e75ff]/15', color: 'text-[#38bdf8]' },
-      clock: { icon: <Clock size={13} />, bg: 'bg-orange-400/15', color: 'text-orange-400' },
+      handshake: { icon: <Handshake size={13} />, bg: 'bg-yellow-400/15', color: 'text-yellow-400' },
+      parking:   { icon: <SquareParking size={13} />, bg: 'bg-green-400/15', color: 'text-green-400' },
+      pin:       { icon: <MapPin size={13} />, bg: 'bg-[#1e75ff]/15', color: 'text-[#38bdf8]' },
+      clock:     { icon: <Clock size={13} />, bg: 'bg-orange-400/15', color: 'text-orange-400' },
     };
     const m = map[key] || map['pin'];
     return (
