@@ -10,7 +10,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [recentActivity, setRecentActivity] = useState<{ id: string; icon: string; text: string; timeAgo: string }[]>([]);
+  const [recentActivity, setRecentActivity] = useState<{ id: string; icon: string; action: string; address: string; timeAgo: string; reward: string | null }[]>([]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -25,18 +25,19 @@ export const ProfileView = ({ user, onBack, setView }) => {
         return `${Math.round(hr / 24)}d ago`;
       };
 
-      const items: { id: string; icon: string; text: string; ts: number }[] = [];
+      const items: { id: string; icon: string; action: string; address: string; reward: string | null; ts: number }[] = [];
 
       const spotsSnap = await getDocs(query(collection(db, 'spots'), where('finderId', '==', user.id)));
       spotsSnap.docs.forEach(d => {
         const s = d.data();
         const ts = s.reportedAt?.toMillis?.() || 0;
+        const addr = s.address || '';
         if (s.status === 'occupied') {
-          items.push({ id: `f-${d.id}`, icon: '👑', text: 'Helped a driver find parking (+2 Crowns)', ts });
+          items.push({ id: `f-${d.id}`, icon: '👑', action: 'Helped Driver', address: addr, reward: '+2 👑', ts });
         } else if (s.pingMode === 'later') {
-          items.push({ id: `f-${d.id}`, icon: '🟡', text: 'Created a leaving later ping', ts });
+          items.push({ id: `f-${d.id}`, icon: '🟡', action: 'Leaving Later', address: addr, reward: null, ts });
         } else {
-          items.push({ id: `f-${d.id}`, icon: '📍', text: 'Pinged a parking spot', ts });
+          items.push({ id: `f-${d.id}`, icon: '📍', action: 'Pinged Spot', address: addr, reward: null, ts });
         }
       });
 
@@ -44,13 +45,11 @@ export const ProfileView = ({ user, onBack, setView }) => {
       fbSnap.docs.forEach(d => {
         const f = d.data();
         const ts = f.createdAt?.toMillis?.() || 0;
-        if (f.outcome === 'success') {
-          items.push({ id: `d-${d.id}`, icon: '🚗', text: 'Successfully parked using a ping (+1 Crown)', ts });
-        }
+        items.push({ id: `d-${d.id}`, icon: '🚗', action: 'Parked', address: f.address || '', reward: '+1 👑', ts });
       });
 
       items.sort((a, b) => b.ts - a.ts);
-      setRecentActivity(items.slice(0, 3).map(i => ({ id: i.id, icon: i.icon, text: i.text, timeAgo: fmt(i.ts) })));
+      setRecentActivity(items.slice(0, 3).map(i => ({ id: i.id, icon: i.icon, action: i.action, address: i.address, reward: i.reward, timeAgo: fmt(i.ts) })));
     };
     fetchActivity();
   }, [user?.id]);
@@ -214,12 +213,14 @@ export const ProfileView = ({ user, onBack, setView }) => {
                 ) : (
                   <div className="divide-y divide-[var(--color-border)]">
                     {recentActivity.map(item => (
-                      <div key={item.id} className="px-4 py-3 flex items-center gap-3">
+                      <div key={item.id} className="px-4 py-3 flex items-center gap-2.5">
                         <span className="text-base shrink-0">{item.icon}</span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-semibold text-[var(--color-text)] truncate">{item.text}</p>
-                          <p className="text-[10px] text-[var(--color-text-secondary)] mt-0.5">{item.timeAgo}</p>
-                        </div>
+                        <p className="flex-1 text-xs font-semibold text-[var(--color-text)] truncate">
+                          {item.action}
+                          {item.address ? <span className="text-[var(--color-text-secondary)] font-normal"> · {item.address}</span> : null}
+                          <span className="text-[var(--color-text-secondary)] font-normal"> · {item.timeAgo}</span>
+                        </p>
+                        {item.reward && <span className="text-xs font-bold text-yellow-400 shrink-0">{item.reward}</span>}
                       </div>
                     ))}
                   </div>
