@@ -10,13 +10,13 @@
   --color-overlay: rgba(255, 255, 255, 0.04);
 }
 .dark {
-  --color-bg: #07162c;
-  --color-surface: #0c1b30;
+  --color-bg: #050d1c;
+  --color-surface: #091728;
   --color-text: #ffffff;
   --color-text-secondary: rgba(255, 255, 255, 0.55);
   --color-border: rgba(255, 255, 255, 0.1);
-  --color-card: rgba(7, 22, 44, 0.6);
-  --color-glass: rgba(7, 22, 44, 0.85);
+  --color-card: rgba(5, 13, 28, 0.6);
+  --color-glass: rgba(5, 13, 28, 0.85);
   --color-glass-border: rgba(255, 255, 255, 0.1);
   --color-overlay: rgba(255, 255, 255, 0.04);
 }
@@ -141,7 +141,7 @@ html, body, #root {
 .map-blue-tint-soft {
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle at center, rgba(30, 117, 255, 0.03) 0%, rgba(7, 20, 38, 0.25) 100%);
+  background: radial-gradient(circle at center, rgba(30, 117, 255, 0.03) 0%, rgba(5, 13, 28, 0.25) 100%);
   pointer-events: none;
   z-index: 1;
 }

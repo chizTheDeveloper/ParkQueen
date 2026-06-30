@@ -2,7 +2,7 @@ import React from 'react';
 import { Car, Bus } from 'lucide-react';
 
 const COLOR_HEX: Record<string, string> = {
-  Black:  '#1C1C1E',
+  Black:  '#6e6e76',
   White:  '#F2F2F7',
   Silver: '#AEAEB2',
   Gray:   '#636366',

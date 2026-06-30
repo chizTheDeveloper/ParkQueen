@@ -121,11 +121,11 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
               <select
                 value={brand}
                 onChange={e => setBrand(e.target.value)}
-                className="w-full appearance-none text-[var(--color-text)] py-3.5 pr-8 text-sm focus:outline-none focus:bg-[#0d1b2e]"
-                style={{ background: '#0d1b2e', colorScheme: 'dark' }}
+                className="w-full appearance-none text-[var(--color-text)] py-3.5 pr-8 text-sm focus:outline-none focus:bg-[#050d1c]"
+                style={{ background: '#050d1c', colorScheme: 'dark' }}
               >
-                <option value="" style={{ background: '#0d1b2e' }}>Select brand...</option>
-                {BRANDS.map(b => <option key={b} value={b} style={{ background: '#0d1b2e' }}>{b}</option>)}
+                <option value="" style={{ background: '#050d1c' }}>Select brand...</option>
+                {BRANDS.map(b => <option key={b} value={b} style={{ background: '#050d1c' }}>{b}</option>)}
               </select>
               <ChevronDown size={15} className="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--color-text-secondary)] pointer-events-none" />
             </div>
