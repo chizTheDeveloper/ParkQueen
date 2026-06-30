@@ -18,28 +18,19 @@ const COLOR_HEX: Record<string, string> = {
 };
 
 export const getVehicleHex = (colorName?: string): string =>
-  (colorName && COLOR_HEX[colorName]) || '';
+  (colorName && COLOR_HEX[colorName]) || '#38bdf8';
 
-// Icon is always white — container background carries the color
+// Icon stroke = selected color, container is always a neutral mid-tone
 export const VehicleIcon = ({
   type,
+  color,
   size = 18,
 }: {
   type?: string;
-  color?: string; // accepted but unused — kept for call-site compatibility
+  color?: string;
   size?: number;
 }) => {
-  if (type === 'Van' || type === 'Minivan') return <Bus size={size} color="white" />;
-  return <Car size={size} color="white" />;
+  const hex = getVehicleHex(color);
+  if (type === 'Van' || type === 'Minivan') return <Bus size={size} color={hex} />;
+  return <Car size={size} color={hex} />;
 };
-
-// Returns inline style props for the icon container div
-export const vehicleContainerStyle = (colorName?: string): React.CSSProperties => {
-  const hex = getVehicleHex(colorName);
-  if (!hex) return { background: 'rgba(56,189,248,0.1)' }; // default sky blue tint
-  return { background: `${hex}33` }; // selected color at ~20% opacity
-};
-
-// Returns extra className for White (needs a visible border)
-export const vehicleContainerBorder = (colorName?: string): string =>
-  colorName === 'White' ? 'border border-white/25' : '';

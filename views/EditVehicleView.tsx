@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ChevronLeft, ChevronDown, Trash2 } from 'lucide-react';
-import { VehicleIcon, vehicleContainerStyle, vehicleContainerBorder } from '../utils/vehicleIcon';
+import { VehicleIcon } from '../utils/vehicleIcon';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 
@@ -93,7 +93,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
 
           {/* Live Preview Card */}
           <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl px-4 py-4 flex items-center gap-3.5">
-            <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${vehicleContainerBorder(color)}`} style={vehicleContainerStyle(color)}>
+            <div className="w-11 h-11 rounded-xl bg-white/15 flex items-center justify-center shrink-0">
               <VehicleIcon type={type} color={color} size={22} />
             </div>
             <div>
@@ -123,8 +123,8 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
               <select
                 value={brand}
                 onChange={e => setBrand(e.target.value)}
-                className="w-full appearance-none text-[var(--color-text)] py-3.5 pr-8 text-sm focus:outline-none"
-                style={{ background: '#0d1b2e' }}
+                className="w-full appearance-none text-[var(--color-text)] py-3.5 pr-8 text-sm focus:outline-none focus:bg-[#0d1b2e]"
+                style={{ background: '#0d1b2e', colorScheme: 'dark' }}
               >
                 <option value="" style={{ background: '#0d1b2e' }}>Select brand...</option>
                 {BRANDS.map(b => <option key={b} value={b} style={{ background: '#0d1b2e' }}>{b}</option>)}
