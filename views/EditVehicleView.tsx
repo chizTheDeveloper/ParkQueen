@@ -93,7 +93,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
 
           {/* Live Preview Card */}
           <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl px-4 py-4 flex items-center gap-3.5">
-            <div className="w-11 h-11 rounded-xl bg-white/15 flex items-center justify-center shrink-0">
+            <div className="w-11 h-11 rounded-xl bg-white/30 flex items-center justify-center shrink-0">
               <VehicleIcon type={type} color={color} size={22} />
             </div>
             <div>
