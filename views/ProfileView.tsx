@@ -58,7 +58,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
   const activityIcon = (key: string) => {
     const map: Record<string, { icon: React.ReactNode; bg: string; color: string }> = {
       crown: { icon: <Crown size={13} />, bg: 'bg-yellow-400/15', color: 'text-yellow-400' },
-      car:   { icon: <VehicleIcon type={user?.vehicleType} color={user?.vehicleColor} size={13} />, bg: 'bg-white/30', color: '' },
+      car:   { icon: <VehicleIcon type={user?.vehicleType} color={user?.vehicleColor} size={16} />, bg: '', color: '' },
       pin:   { icon: <MapPin size={13} />, bg: 'bg-[#1e75ff]/15', color: 'text-[#38bdf8]' },
       clock: { icon: <Clock size={13} />, bg: 'bg-orange-400/15', color: 'text-orange-400' },
     };
@@ -264,8 +264,8 @@ export const ProfileView = ({ user, onBack, setView }) => {
                 className="w-full px-4 py-3.5 flex items-center justify-between text-left hover:bg-white/5 active:bg-white/10 transition-colors"
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-white/30 flex items-center justify-center shrink-0">
-                    <VehicleIcon type={user.vehicleType} color={user.vehicleColor} size={18} />
+                  <div className="shrink-0 flex items-center justify-center w-9">
+                    <VehicleIcon type={user.vehicleType} color={user.vehicleColor} size={24} />
                   </div>
                   <div>
                     {user.vehicleBrand || user.vehicleColor || user.vehicleType ? (
