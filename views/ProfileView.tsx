@@ -235,6 +235,30 @@ export const ProfileView = ({ user, onBack, setView }) => {
             </div>
 
             {/* General Details Group */}
+            {/* Vehicle Card */}
+            <div className="bg-[var(--color-card)] border border-[var(--color-border)] backdrop-blur-md rounded-2xl overflow-hidden">
+              <button
+                onClick={() => setView(AppView.EDIT_VEHICLE)}
+                className="w-full p-4 flex items-center justify-between text-left hover:bg-white/5 transition-colors"
+              >
+                <div>
+                  <p className="text-xs font-bold text-[var(--color-text-secondary)] uppercase tracking-wider mb-1">Vehicle</p>
+                  {user.vehicleBrand || user.vehicleColor || user.vehicleType ? (
+                    <p className="text-sm font-semibold text-[var(--color-text)]">
+                      🚗 {[user.vehicleColor, user.vehicleBrand].filter(Boolean).join(' ')}
+                      {user.vehicleType ? <span className="text-[var(--color-text-secondary)] font-normal"> • {user.vehicleType}</span> : null}
+                    </p>
+                  ) : (
+                    <>
+                      <p className="text-sm font-semibold text-[var(--color-text)]">No vehicle added</p>
+                      <p className="text-[11px] text-[var(--color-text-secondary)] mt-0.5">Add your vehicle to help drivers identify you</p>
+                    </>
+                  )}
+                </div>
+                <ChevronLeft size={16} className="text-[var(--color-text-secondary)] rotate-180 shrink-0" />
+              </button>
+            </div>
+
             <div>
               <h3 className="font-bold text-[var(--color-text-secondary)] text-xs uppercase tracking-wider mb-2.5 px-1">General Details</h3>
               <div className="bg-[var(--color-card)] border border-[var(--color-border)] backdrop-blur-md rounded-2xl divide-y divide-[var(--color-border)] overflow-hidden">

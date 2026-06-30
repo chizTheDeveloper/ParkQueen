@@ -22,6 +22,7 @@ const EditProfileView = lazy(() => import('./views/EditProfileView').then(m => (
 const SettingsView = lazy(() => import('./views/SettingsView').then(m => ({ default: m.SettingsView })));
 const AdminDashboardView = lazy(() => import('./views/AdminDashboardView').then(m => ({ default: m.AdminDashboardView })));
 const ActivitiesView = lazy(() => import('./views/ActivitiesView').then(m => ({ default: m.ActivitiesView })));
+const EditVehicleView = lazy(() => import('./views/EditVehicleView').then(m => ({ default: m.EditVehicleView })));
 const PrivacyPolicyView = lazy(() => import('./views/PrivacyPolicyView').then(m => ({ default: m.PrivacyPolicyView })));
 const TermsOfUseView = lazy(() => import('./views/TermsOfUseView').then(m => ({ default: m.TermsOfUseView })));
 const ContactUsView = lazy(() => import('./views/ContactUsView').then(m => ({ default: m.ContactUsView })));
@@ -38,6 +39,7 @@ import { getFCM } from './firebaseConfig';
 
 export default function App() {
   const [currentView, setCurrentView] = useState(AppView.CREATE_ACCOUNT);
+  const [vehicleOnboarding, setVehicleOnboarding] = useState(false);
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useState(() => {
@@ -157,7 +159,8 @@ export default function App() {
     const digits = phone.replace(/\D/g, '');
     try {
       await saveUserProfile({ fullName: '', phone: digits, username });
-      setCurrentView(AppView.MAP);
+      setVehicleOnboarding(true);
+      setCurrentView(AppView.EDIT_VEHICLE);
     } catch (error: any) {
       console.error("Failed to save profile: ", error);
       alert(error.message || "Failed to save profile.");
@@ -319,6 +322,8 @@ export default function App() {
         return <TermsOfUseView onBack={() => setCurrentView(AppView.PROFILE)} />;
       case AppView.CONTACT_US:
         return <ContactUsView onBack={() => setCurrentView(AppView.PROFILE)} />;
+      case AppView.EDIT_VEHICLE:
+        return <EditVehicleView user={user} onBack={() => { setVehicleOnboarding(false); setCurrentView(vehicleOnboarding ? AppView.MAP : AppView.PROFILE); }} isOnboarding={vehicleOnboarding} onSkip={() => { setVehicleOnboarding(false); setCurrentView(AppView.MAP); }} />;
       default:
         return <CreateAccountView onContinue={handleCreateAccount} />;
     }
