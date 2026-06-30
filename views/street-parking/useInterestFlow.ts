@@ -216,6 +216,7 @@ export function useInterestFlow({
             finderId: spotSnap.finderId,
             outcome,
             failureReason: null,
+            address: spotSnap.address || '',
             createdAt: Timestamp.now(),
         });
 
