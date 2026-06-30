@@ -1,5 +1,5 @@
 import React from 'react';
-import { Car, Truck, Bus } from 'lucide-react';
+import { Car, Bus } from 'lucide-react';
 
 const COLOR_HEX: Record<string, string> = {
   Black:  '#1C1C1E',
@@ -30,7 +30,7 @@ export const VehicleIcon = ({
   size?: number;
 }) => {
   const hex = getVehicleHex(color);
-  if (type === 'Pickup Truck') return <Truck size={size} color={hex} />;
+  if (type === 'Pickup Truck') return <Car size={size} color={hex} />;
   if (type === 'Van' || type === 'Minivan') return <Bus size={size} color={hex} />;
   return <Car size={size} color={hex} />;
 };
