@@ -7,6 +7,14 @@ import mapboxgl from 'mapbox-gl';
 import * as geofire from 'geofire-common';
 
 import { MAPBOX_TOKEN, NYC_CENTER, createMarkerElement, clearRoute, drawRoute, getDistance } from './street-parking/utils';
+
+const reverseGeocode = async (lng: number, lat: number): Promise<string> => {
+    try {
+        const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?types=address&limit=1&access_token=${MAPBOX_TOKEN}`);
+        const json = await res.json();
+        return json.features?.[0]?.place_name?.split(',')[0] || '';
+    } catch { return ''; }
+};
 import { MapItem, MapViewProps } from './street-parking/types';
 import { SpotModal } from './street-parking/SpotModal';
 import { useSearch } from './street-parking/useSearch';
@@ -355,6 +363,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     pingMode: departureTime ? 'later' : 'now',
                     reportedAt,
                     expiresAt,
+                    address: await reverseGeocode(selectedItem.lng, selectedItem.lat),
                 };
                 batch.set(newSpotRef, newSpotData);
                 await batch.commit();
@@ -398,7 +407,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     pingMode: departureTime ? 'later' : 'now',
                     reportedAt,
                     expiresAt,
-                    geohash: geofire.geohashForLocation([userLocation[1], userLocation[0]])
+                    geohash: geofire.geohashForLocation([userLocation[1], userLocation[0]]),
+                    address: await reverseGeocode(userLocation[0], userLocation[1]),
                 };
                 setShowPingConfirmation(true);
                 setTimeout(() => setShowPingConfirmation(false), 4000);
@@ -411,7 +421,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     });
             } else {
                 navigator.geolocation.getCurrentPosition(
-                    (position) => {
+                    async (position) => {
                         const location: [number, number] = [position.coords.longitude, position.coords.latitude];
                         const geohash = geofire.geohashForLocation([location[1], location[0]]);
 
@@ -425,7 +435,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                             pingMode: departureTime ? 'later' : 'now',
                             reportedAt,
                             expiresAt,
-                            geohash
+                            geohash,
+                            address: await reverseGeocode(location[0], location[1]),
                         };
                         setShowPingConfirmation(true);
                         setTimeout(() => setShowPingConfirmation(false), 4000);
