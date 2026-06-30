@@ -3,7 +3,7 @@ import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { doc, updateDoc, onSnapshot, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { ChevronLeft, ChevronRight, Edit, Clock, FileText, Shield, Info, Settings, Crown, MapPin } from 'lucide-react';
-import { VehicleIcon } from '../utils/vehicleIcon';
+import { VehicleIcon, vehicleContainerStyle, vehicleContainerBorder } from '../utils/vehicleIcon';
 import { AppView } from '../types';
 import { getNextTitle } from '../utils/crowns';
 
@@ -56,15 +56,15 @@ export const ProfileView = ({ user, onBack, setView }) => {
   }, [user?.id]);
 
   const activityIcon = (key: string) => {
-    const map: Record<string, { icon: React.ReactNode; bg: string; color: string }> = {
+    const map: Record<string, { icon: React.ReactNode; bg: string; color: string; style?: React.CSSProperties; extraClass?: string }> = {
       crown: { icon: <Crown size={13} />, bg: 'bg-yellow-400/15', color: 'text-yellow-400' },
-      car:   { icon: <VehicleIcon type={user?.vehicleType} color={user?.vehicleColor} size={13} />, bg: 'bg-green-400/15', color: 'text-green-400' },
+      car:   { icon: <VehicleIcon type={user?.vehicleType} size={13} />, bg: '', color: '', style: vehicleContainerStyle(user?.vehicleColor), extraClass: vehicleContainerBorder(user?.vehicleColor) },
       pin:   { icon: <MapPin size={13} />, bg: 'bg-[#1e75ff]/15', color: 'text-[#38bdf8]' },
       clock: { icon: <Clock size={13} />, bg: 'bg-orange-400/15', color: 'text-orange-400' },
     };
     const m = map[key] || map['pin'];
     return (
-      <div className={`w-7 h-7 rounded-lg ${m.bg} ${m.color} flex items-center justify-center shrink-0`}>
+      <div className={`w-7 h-7 rounded-lg ${m.bg} ${m.color} ${m.extraClass || ''} flex items-center justify-center shrink-0`} style={m.style}>
         {m.icon}
       </div>
     );
@@ -264,7 +264,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
                 className="w-full px-4 py-3.5 flex items-center justify-between text-left hover:bg-white/5 active:bg-white/10 transition-colors"
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-[#1e75ff]/10 flex items-center justify-center shrink-0">
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${vehicleContainerBorder(user.vehicleColor)}`} style={vehicleContainerStyle(user.vehicleColor)}>
                     <VehicleIcon type={user.vehicleType} color={user.vehicleColor} size={18} />
                   </div>
                   <div>
