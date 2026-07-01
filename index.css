@@ -192,3 +192,21 @@ html, body, #root {
 .ping-text-fade {
   animation: ping-text-up 0.4s ease 0.35s both;
 }
+
+/* Map Pin Pulse Animation */
+@keyframes map-pin-ring {
+  0%   { transform: translate(-50%, -50%) scale(0.8); opacity: 0; }
+  15%  { opacity: 0.75; }
+  100% { transform: translate(-50%, -50%) scale(2.4); opacity: 0; }
+}
+.map-pin-pulse {
+  position: absolute;
+  top: 40%;
+  left: 50%;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: map-pin-ring 2s ease-out infinite;
+  animation-fill-mode: both;
+  opacity: 0;
+}
+.map-pin-pulse-2 { animation-delay: 0.7s; }

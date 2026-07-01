@@ -36,20 +36,46 @@ export const formatTimeLeft = (ms: number): string => {
     return `${hours} hour${hours === 1 ? "" : "s"} and ${minutes} minute${minutes === 1 ? "" : "s"}`;
 };
 
-export const createMarkerElement = (scheduled = false) => {
+export const createMarkerElement = (scheduled = false, reportedMs = 0) => {
     const el = document.createElement('div');
-    el.className = "flex flex-col items-center select-none";
-    el.style.zIndex = '10';
+    el.style.position = 'relative';
+    el.style.display = 'flex';
+    el.style.alignItems = 'center';
+    el.style.justifyContent = 'center';
     el.style.cursor = 'pointer';
+    el.style.zIndex = '10';
     el.dataset.scheduled = String(scheduled);
 
     const color = scheduled ? '#eab308' : '#1e75ff';
+    const size = scheduled ? 38 : 46;
+    const ageMs = reportedMs ? Date.now() - reportedMs : 0;
+    const isAging = ageMs > 15 * 60 * 1000;
+    const isFresh = reportedMs && ageMs < 5000;
+    const opacity = isAging ? '0.55' : '1';
+    const pulseDelay1 = isFresh ? '3s' : '0s';
+    const pulseDelay2 = isFresh ? '3.7s' : '0.7s';
+
+    // Parking icon: rounded square + bold P (matches SpotDetailsCard)
+    const pinIcon = scheduled
+        ? /* clock hands for "leaving later" */
+          `<circle cx="12" cy="9.5" r="3.5" fill="none" stroke="white" stroke-width="1.6"/>
+           <line x1="12" y1="7.5" x2="12" y2="9.5" stroke="white" stroke-width="1.6" stroke-linecap="round"/>
+           <line x1="12" y1="9.5" x2="13.5" y2="10.5" stroke="white" stroke-width="1.6" stroke-linecap="round"/>`
+        : /* parking P */
+          `<rect x="8.5" y="5.5" width="7" height="7" rx="1.5" fill="rgba(255,255,255,0.2)" stroke="rgba(255,255,255,0.5)" stroke-width="0.8"/>
+           <text x="12" y="11" font-size="5.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-weight="900" text-anchor="middle" fill="white">P</text>`;
+
+    const pulseRings = !scheduled ? `
+        <div class="map-pin-pulse" style="width:${size}px;height:${size}px;border:2px solid ${color};animation-delay:${pulseDelay1};"></div>
+        <div class="map-pin-pulse map-pin-pulse-2" style="width:${size}px;height:${size}px;border:2px solid ${color};animation-delay:${pulseDelay2};"></div>
+    ` : '';
 
     el.innerHTML = `
-        <div style="width: 32px; height: 32px; position: relative;" class="pointer-events-none">
-          <svg viewBox="0 0 24 24" fill="${color}" xmlns="http://www.w3.org/2000/svg" style="width: 100%; height: 100%; filter: drop-shadow(0px 3px 5px rgba(0,0,0,0.35));">
-            <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" stroke="#FFF" stroke-width="1.5"/>
-            <text x="12" y="11" font-size="8.5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-weight="900" text-anchor="middle" fill="white">P</text>
+        ${pulseRings}
+        <div style="width:${size}px;height:${size}px;position:relative;opacity:${opacity};pointer-events:none;">
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;filter:drop-shadow(0px 4px 10px rgba(0,0,0,0.5));">
+            <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="${color}" stroke="rgba(255,255,255,0.25)" stroke-width="0.5"/>
+            ${pinIcon}
           </svg>
         </div>
     `;

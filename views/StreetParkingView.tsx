@@ -258,8 +258,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 }
             }
 
-            const el = createMarkerElement(isScheduled);
-            const marker = new mapboxgl.Marker({ element: el, anchor: "center" })
+            const el = createMarkerElement(isScheduled, reportedMs);
+            const marker = new mapboxgl.Marker({ element: el, anchor: "bottom" })
                 .setLngLat(lngLat)
                 .addTo(map);
 
@@ -304,7 +304,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         if (mapRef.current && userLocation) {
             const el = document.createElement('div');
             el.style.zIndex = '5';
-            el.innerHTML = `<div class="relative flex items-center justify-center"><div class="absolute w-10 h-10 bg-blue-500/20 rounded-full animate-ping"></div><div class="absolute w-6 h-6 bg-blue-500/15 rounded-full animate-pulse"></div><div class="w-3.5 h-3.5 bg-blue-500 rounded-full border-2 border-white shadow-md"></div></div>`;
+            el.innerHTML = `<div class="relative flex items-center justify-center"><div class="absolute w-6 h-6 bg-blue-500/20 rounded-full"></div><div class="w-3.5 h-3.5 bg-blue-500 rounded-full border-2 border-white shadow-md"></div></div>`;
             userMarkerRef.current = new mapboxgl.Marker(el).setLngLat(userLocation).addTo(mapRef.current);
         }
     }, [userLocation]);
