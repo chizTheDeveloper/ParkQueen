@@ -110,7 +110,7 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                     <button
                         onClick={handleSetTime}
                         className="w-full mt-6 font-bold py-3.5 rounded-full flex items-center justify-center gap-2 text-white active:scale-95 transition-transform"
-                        style={{ background: 'linear-gradient(90deg, #378ADD, #1D9E75)' }}
+                        style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}
                     >
                         <MapPin size={18} />
                         <span>{isEditing ? 'Confirm' : 'Ping'}</span>
@@ -128,7 +128,7 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                     <button
                         onClick={() => { setPingType('later'); setView('main'); }}
                         className="w-full font-bold py-3.5 rounded-full text-white active:scale-95 transition-transform"
-                        style={{ background: 'linear-gradient(90deg, #378ADD, #1D9E75)' }}
+                        style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}
                     >
                         Set Time
                     </button>

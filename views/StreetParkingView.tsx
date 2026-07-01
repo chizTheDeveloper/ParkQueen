@@ -718,7 +718,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                 }}
                                 disabled={!user}
                                 className="relative mx-auto h-[52px] rounded-full px-14 active:scale-95 text-white disabled:opacity-50 transition-transform duration-200 ping-glow"
-                                style={{ background: hasActivePing ? 'linear-gradient(90deg, #1e75ff, #0ea5e9)' : 'linear-gradient(90deg, #378ADD, #1D9E75)', minWidth: '250px' }}
+                                style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)', minWidth: '250px' }}
                             >
                                 <MapPin size={24} className="absolute left-9 top-1/2 -translate-y-1/2" />
                                 <span className="text-[19px] font-bold absolute top-1/2 -translate-y-1/2 whitespace-nowrap" style={{ left: 'calc(50% + 12px)', transform: 'translate(-50%, -50%)' }}>
