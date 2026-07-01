@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ChevronLeft, Edit, Mail, Bell, MapPin, Moon, LogOut, Trash2, Check } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Edit, Mail, Bell, MapPin, Moon, LogOut, Trash2, Check, Navigation, ScanLine } from 'lucide-react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getApp } from 'firebase/app';
@@ -82,7 +82,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
         if (e.key === 'Backspace' && !otpDigits[index] && index > 0) otpRefs.current[index - 1]?.focus();
     };
 
-    const updatePref = (field: string, value: boolean) => {
+    const updatePref = (field: string, value: boolean | number) => {
         if (user?.id) {
             updateDoc(doc(db, 'users', user.id), { [field]: value }).catch(e => console.warn(`Failed to update ${field}`, e));
         }
@@ -91,32 +91,42 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
     return (
         <div className="min-h-full bg-[var(--color-bg)] text-[var(--color-text)] pt-4 pb-20 px-4">
             <div className="max-w-md mx-auto flex flex-col">
-                <div className="flex items-center gap-4 mb-6">
-                    <button onClick={onBack} className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] text-[var(--color-text)] hover:bg-white/10 transition-all shrink-0">
+
+                {/* Header */}
+                <div className="flex items-center justify-between mb-4">
+                    <button onClick={onBack} className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] text-[var(--color-text)] hover:bg-white/10 active:scale-95 transition-all shrink-0">
                         <ChevronLeft size={20} />
                     </button>
                     <h2 className="text-xl font-bold text-[var(--color-text)] tracking-wide">Settings</h2>
+                    <div className="w-10" />
                 </div>
 
-                <div className="space-y-6">
+                <div className="space-y-3">
+
                     {/* Account */}
-                    <div>
-                        <h3 className="font-bold text-[var(--color-text-secondary)] text-xs uppercase tracking-wider mb-2.5 px-1">Account</h3>
-                        <div className="bg-[var(--color-card)] border border-[var(--color-border)] backdrop-blur-md rounded-2xl divide-y divide-[var(--color-border)] overflow-hidden">
-                            <button onClick={() => setView(AppView.EDIT_PROFILE)} className="w-full p-4 flex items-center justify-between text-left hover:bg-[#0b2240]/40 transition-colors">
+                    <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl overflow-hidden">
+                        <div className="px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]">
+                            <p className="text-xs font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">Account</p>
+                        </div>
+                        <div className="divide-y divide-[var(--color-border)]">
+
+                            {/* Edit Profile */}
+                            <button onClick={() => setView(AppView.EDIT_PROFILE)} className="w-full p-4 flex items-center justify-between text-left hover:bg-white/5 active:bg-white/10 transition-colors">
                                 <div className="flex items-center gap-3.5">
                                     <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><Edit size={18} /></div>
                                     <div>
                                         <h4 className="font-bold text-[var(--color-text)] text-sm">Edit profile</h4>
-                                        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Update your information</p>
+                                        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Update your name and photo</p>
                                     </div>
                                 </div>
-                                <ChevronLeft size={16} className="text-[var(--color-text-secondary)] rotate-180" />
+                                <ChevronRight size={16} className="text-[var(--color-text-secondary)]" />
                             </button>
+
+                            {/* Email */}
                             <div className="w-full p-4">
                                 {emailStep === 'otp' ? (
                                     <div>
-                                        <div className="flex items-center gap-3.5 mb-3">
+                                        <div className="flex items-center gap-3.5 mb-4">
                                             <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><Mail size={18} /></div>
                                             <div>
                                                 <h4 className="font-bold text-[var(--color-text)] text-sm">Enter code</h4>
@@ -127,19 +137,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                                             {otpDigits.map((d, i) => (
                                                 <input key={i} ref={el => { otpRefs.current[i] = el; }} type="text" inputMode="numeric" maxLength={1} value={d}
                                                     onChange={e => handleOtpChange(i, e.target.value)} onKeyDown={e => handleOtpKeyDown(i, e)}
-                                                    className="w-10 h-12 bg-white/5 border border-[var(--color-border)] rounded-xl text-center text-[var(--color-text)] text-lg font-bold outline-none focus:border-blue-500 transition-all"
+                                                    className="w-10 h-12 bg-white/5 border border-[var(--color-border)] rounded-xl text-center text-[var(--color-text)] text-lg font-bold outline-none focus:border-[#1e75ff] transition-all"
                                                     autoFocus={i === 0} />
                                             ))}
                                         </div>
                                         {emailError && <p className="text-red-400 text-xs text-center mb-2">{emailError}</p>}
-                                        <div className="flex items-center justify-between">
-                                            <button onClick={() => setEmailStep('input')} className="text-[var(--color-text-secondary)] text-xs">Back</button>
+                                        <div className="flex items-center justify-between mb-3">
+                                            <button onClick={() => setEmailStep('input')} className="text-[var(--color-text-secondary)] text-xs hover:text-[var(--color-text)] transition-colors">Back</button>
                                             <p className="text-xs text-[var(--color-text-secondary)]">
-                                                {otpCooldown > 0 ? `Resend in ${otpCooldown}s` : <button onClick={handleSendEmailOTP} className="text-blue-400 font-semibold">Resend</button>}
+                                                {otpCooldown > 0 ? `Resend in ${otpCooldown}s` : <button onClick={handleSendEmailOTP} className="text-[#38bdf8] font-semibold">Resend</button>}
                                             </p>
                                         </div>
                                         <button onClick={handleVerifyEmailOTP} disabled={otpDigits.some(d => !d) || emailSending}
-                                            className="w-full mt-3 py-2.5 rounded-xl font-bold text-white text-sm active:scale-95 transition-transform disabled:opacity-40"
+                                            className="w-full py-2.5 rounded-xl font-bold text-white text-sm active:scale-95 transition-transform disabled:opacity-40"
                                             style={{ background: 'linear-gradient(90deg, #378ADD, #1D9E75)' }}>
                                             {emailSending ? 'Verifying...' : 'Verify'}
                                         </button>
@@ -149,7 +159,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                                         <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><Mail size={18} /></div>
                                         <div className="flex-1">
                                             <input type="email" value={emailDraft} onChange={(e) => setEmailDraft(e.target.value)} placeholder="you@example.com"
-                                                className="w-full bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-[var(--color-text)] text-sm outline-none focus:border-[#1e75ff] transition-all" autoFocus />
+                                                className="w-full bg-white/5 border border-[var(--color-border)] rounded-xl px-3 py-2 text-[var(--color-text)] text-sm outline-none focus:border-[#1e75ff] transition-all" autoFocus />
                                             {emailError && <p className="text-red-400 text-xs mt-1">{emailError}</p>}
                                         </div>
                                         <button onClick={handleSendEmailOTP} disabled={!emailDraft.includes('@') || emailSending}
@@ -174,7 +184,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                                                 </div>
                                             </div>
                                         </div>
-                                        <ChevronLeft size={16} className="text-[var(--color-text-secondary)] rotate-180" />
+                                        <ChevronRight size={16} className="text-[var(--color-text-secondary)]" />
                                     </button>
                                 )}
                             </div>
@@ -182,9 +192,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                     </div>
 
                     {/* Preferences */}
-                    <div>
-                        <h3 className="font-bold text-[var(--color-text-secondary)] text-xs uppercase tracking-wider mb-2.5 px-1">Preferences</h3>
-                        <div className="bg-[var(--color-card)] border border-[var(--color-border)] backdrop-blur-md rounded-2xl divide-y divide-[var(--color-border)] overflow-hidden">
+                    <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl overflow-hidden">
+                        <div className="px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]">
+                            <p className="text-xs font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">Preferences</p>
+                        </div>
+                        <div className="divide-y divide-[var(--color-border)]">
+
+                            {/* Notifications toggle */}
                             <div className="w-full p-4 flex items-center justify-between">
                                 <div className="flex items-center gap-3.5">
                                     <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><Bell size={18} /></div>
@@ -195,44 +209,49 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                                 </div>
                                 <Toggle checked={notificationsEnabled} onChange={(v) => { setNotificationsEnabled(v); updatePref('notificationsEnabled', v); }} />
                             </div>
+
+                            {/* Notification radius */}
                             <div className="w-full p-4">
                                 <div className="flex items-center gap-3.5 mb-3">
-                                    <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><MapPin size={18} /></div>
+                                    <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><ScanLine size={18} /></div>
                                     <div>
                                         <h4 className="font-bold text-[var(--color-text)] text-sm">Notification radius</h4>
                                         <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Only alert for spots within this distance</p>
                                     </div>
                                 </div>
-                                <div className="flex gap-1.5 ml-[46px]">
+                                <div className="flex gap-2">
                                     {[0.5, 1, 2, 5].map(r => (
                                         <button key={r} onClick={() => { setNotificationRadius(r); updatePref('notificationRadius', r); }}
-                                            className={`flex-1 py-1.5 rounded-xl text-[11px] font-bold transition-all ${
+                                            className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 ${
                                                 notificationRadius === r
                                                     ? 'bg-[#1e75ff] text-white'
-                                                    : 'bg-white/5 border border-[var(--color-border)] text-[var(--color-text-secondary)]'
+                                                    : 'bg-white/5 border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-white/10'
                                             }`}>
                                             {r} mi
                                         </button>
                                     ))}
                                 </div>
                             </div>
+
+                            {/* Share precise location */}
                             <div className="w-full p-4 flex items-center justify-between">
                                 <div className="flex items-center gap-3.5">
-                                    <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><MapPin size={18} /></div>
+                                    <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><Navigation size={18} /></div>
                                     <div>
-                                        <h4 className="font-bold text-[var(--color-text)] text-sm">Share precise location</h4>
+                                        <h4 className="font-bold text-[var(--color-text)] text-sm">Precise location</h4>
                                         <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Used for nearby spot detection</p>
                                     </div>
                                 </div>
-                                {/* ponytail: sharePreciseLocation needs checking in StreetParkingView's geolocation watch when wired up */}
                                 <Toggle checked={sharePreciseLocation} onChange={(v) => { setSharePreciseLocation(v); updatePref('sharePreciseLocation', v); }} />
                             </div>
+
+                            {/* Dark theme */}
                             <div className="w-full p-4 flex items-center justify-between">
                                 <div className="flex items-center gap-3.5">
                                     <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><Moon size={18} /></div>
                                     <div>
                                         <h4 className="font-bold text-[var(--color-text)] text-sm">Dark theme</h4>
-                                        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{theme === 'dark' ? 'On' : 'Off'}</p>
+                                        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Easier on the eyes at night</p>
                                     </div>
                                 </div>
                                 <Toggle checked={theme === 'dark'} onChange={toggleTheme} />
@@ -240,20 +259,33 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                         </div>
                     </div>
 
-                    {/* Danger Zone */}
-                    <div>
-                        <h3 className="font-bold text-[var(--color-text-secondary)] text-xs uppercase tracking-wider mb-2.5 px-1">Danger Zone</h3>
-                        <div className="space-y-3">
-                            <button onClick={onLogout} className="w-full border border-[#1e75ff]/30 bg-transparent text-[#38bdf8] hover:bg-[#1e75ff]/10 active:scale-95 font-bold py-3.5 rounded-xl flex items-center justify-center gap-2.5 transition-all text-sm">
-                                <LogOut size={16} />
-                                <span>Log out</span>
+                    {/* Account Actions */}
+                    <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl overflow-hidden">
+                        <div className="px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]">
+                            <p className="text-xs font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">Account Actions</p>
+                        </div>
+                        <div className="divide-y divide-[var(--color-border)]">
+                            <button onClick={onLogout} className="w-full px-4 py-3.5 flex items-center gap-3 text-left hover:bg-white/5 active:bg-white/10 transition-colors">
+                                <div className="w-9 h-9 rounded-xl bg-[#1e75ff]/10 flex items-center justify-center text-[#38bdf8] shrink-0">
+                                    <LogOut size={17} />
+                                </div>
+                                <div>
+                                    <p className="text-sm font-semibold text-[#38bdf8]">Log out</p>
+                                    <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Sign out of your account</p>
+                                </div>
                             </button>
-                            <button onClick={onDeleteAccount} className="w-full border border-red-500/30 bg-transparent text-red-500 hover:bg-red-500/10 active:scale-95 font-bold py-3.5 rounded-xl flex items-center justify-center gap-2.5 transition-all text-sm">
-                                <Trash2 size={16} />
-                                <span>Delete account</span>
+                            <button onClick={onDeleteAccount} className="w-full px-4 py-3.5 flex items-center gap-3 text-left hover:bg-white/5 active:bg-white/10 transition-colors">
+                                <div className="w-9 h-9 rounded-xl bg-red-500/10 flex items-center justify-center text-red-400 shrink-0">
+                                    <Trash2 size={17} />
+                                </div>
+                                <div>
+                                    <p className="text-sm font-semibold text-red-400">Delete account</p>
+                                    <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Permanently remove your data</p>
+                                </div>
                             </button>
                         </div>
                     </div>
+
                 </div>
             </div>
         </div>
