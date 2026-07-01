@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { MessageSquare, MapPin, Clock, Navigation, Car } from 'lucide-react';
 import { MapItem } from './types';
 import { getDistance, formatTimeLeft } from './utils';
-import { getVehicleHex } from '../../utils/vehicleIcon';
+import { getVehicleHex, VehicleIcon } from '../../utils/vehicleIcon';
 import { db } from '../../firebase';
 import { doc, setDoc, addDoc, collection, serverTimestamp } from 'firebase/firestore';
 
@@ -86,10 +86,11 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
     // For others, read from the denormalized spot fields (written at ping creation time).
     const vehicleColor = isFinder ? (user?.vehicleColor || selectedItem.finderVehicleColor) : selectedItem.finderVehicleColor;
     const vehicleType = isFinder ? (user?.vehicleType || selectedItem.finderVehicleType) : selectedItem.finderVehicleType;
+    const vehicleBrand = isFinder ? (user?.vehicleBrand || selectedItem.finderVehicleBrand) : selectedItem.finderVehicleBrand;
 
     const vehicleHex = getVehicleHex(vehicleColor);
-    const hasVehicle = vehicleType || vehicleColor;
-    const vehicleLabel = [vehicleColor, vehicleType].filter(Boolean).join(' ');
+    const hasVehicle = vehicleType || vehicleColor || vehicleBrand;
+    const vehicleLabel = [vehicleColor, vehicleBrand, vehicleType].filter(Boolean).join(' · ');
 
     // Finder initial avatar
     const finderName = selectedItem.finderName || 'Driver';
@@ -124,7 +125,7 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                     {/* Vehicle info */}
                     {hasVehicle ? (
                         <div className="flex items-center gap-1.5 mt-0.5">
-                            <span className="w-2.5 h-2.5 rounded-full shrink-0 border border-white/20" style={{ background: vehicleHex }} />
+                            <VehicleIcon type={vehicleType} color={vehicleColor} size={13} />
                             <span className="text-[11px] text-[var(--color-text-secondary)] truncate">{vehicleLabel}</span>
                         </div>
                     ) : (
