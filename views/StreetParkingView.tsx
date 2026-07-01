@@ -562,17 +562,23 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 const interestedSpot = spotData.freeSpots.find(s => s.finderId === user?.id && s.status === 'interested');
                 if (!interestedSpot || selectedItem?.id === interestedSpot.id) return null;
                 return (
-                    <div className="absolute top-24 left-1/2 -translate-x-1/2 w-[90%] max-w-[360px] z-50 bg-[var(--color-glass)] border border-[var(--color-border)] backdrop-blur-xl rounded-2xl p-4 shadow-2xl text-[var(--color-text)] pointer-events-auto flex flex-col gap-3">
-                        <div className="flex items-center gap-2 text-blue-400">
-                            <Bell size={16} className="animate-bounce" />
-                            <span className="text-xs font-bold uppercase tracking-wider">Someone is heading there!</span>
+                    <div className="absolute top-24 left-1/2 -translate-x-1/2 w-[90%] max-w-[360px] z-50 backdrop-blur-xl rounded-2xl shadow-2xl pointer-events-auto overflow-hidden"
+                        style={{ background: 'linear-gradient(135deg, rgba(30,117,255,0.18), rgba(29,158,117,0.12))', border: '1px solid rgba(30,117,255,0.35)' }}>
+                        <div className="px-4 pt-4 pb-3 flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'linear-gradient(135deg, #1e75ff, #1D9E75)' }}>
+                                <Bell size={18} className="text-white animate-bounce" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <p className="text-xs font-extrabold text-white uppercase tracking-wider">Someone is heading there!</p>
+                                <p className="text-[11px] text-white/70 mt-0.5 truncate">
+                                    <strong className="text-white/90">{interestedSpot.interestedUserName || 'Someone'}</strong> · ETA ~{interestedSpot.etaMinutes} min
+                                </p>
+                            </div>
                         </div>
-                        <p className="text-[11px] text-[var(--color-text-secondary)] leading-relaxed">
-                            <strong>{interestedSpot.interestedUserName || 'Someone'}</strong> is heading to your spot at <strong>{interestedSpot.title}</strong>, ETA ~{interestedSpot.etaMinutes} min.
-                        </p>
                         <button onClick={() => setSelectedItem(interestedSpot)}
-                            className="w-full bg-[#1e75ff] hover:bg-blue-600 font-bold py-1.5 rounded-xl text-xs transition-colors text-white">
-                            View
+                            className="w-full py-2.5 text-xs font-bold text-white/90 hover:text-white border-t transition-colors"
+                            style={{ borderColor: 'rgba(30,117,255,0.25)', background: 'rgba(30,117,255,0.15)' }}>
+                            View Spot Details →
                         </button>
                     </div>
                 );
@@ -591,9 +597,23 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             <div className="map-blue-tint-soft" />
 
             {showPingConfirmation && (
-                <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 bg-[var(--color-glass)] backdrop-blur-xl border border-emerald-500/30 text-[var(--color-text)] font-semibold py-3 px-5 rounded-2xl flex items-center gap-2.5 shadow-2xl">
-                    <div className="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0"><Check size={14} className="text-emerald-400" /></div>
-                    <span className="text-sm">Spot pinged! Nearby drivers will be notified</span>
+                <div className="absolute inset-0 z-50 flex items-start justify-center pt-28 pointer-events-none">
+                    <div className="ping-celebration flex flex-col items-center gap-5">
+                        <div className="relative flex items-center justify-center">
+                            <div className="ping-ring" />
+                            <div className="ping-ring ping-ring-2" />
+                            <div className="ping-ring ping-ring-3" />
+                            <img
+                                src="/Parqueen_Logo.png"
+                                alt="ParkQueen"
+                                className="ping-logo-drop relative z-10 w-20 h-20 object-contain drop-shadow-2xl"
+                            />
+                        </div>
+                        <div className="ping-text-fade text-center">
+                            <p className="text-2xl font-extrabold text-white tracking-tight drop-shadow-lg">Spot Pinged!</p>
+                            <p className="text-sm text-white/70 mt-1 font-medium">Nearby drivers will be notified</p>
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -630,12 +650,24 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     onSelectResult={search.handleSelectResult}
                 />
 
-                {spotCount > 0 && !search.searchOpen && (
+                {!search.searchOpen && (
                     <div className="w-full max-w-[380px] mx-auto mt-1 pointer-events-auto">
-                        <div className="inline-flex items-center gap-1.5 bg-[var(--color-card)] backdrop-blur-xl border border-emerald-500/20 rounded-full px-2.5 py-1 text-[10px] font-semibold text-emerald-400 shadow-md">
-                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                            {spotCount} free spot{spotCount !== 1 ? 's' : ''} nearby
-                        </div>
+                        {spotCount > 0 ? (
+                            <div className="inline-flex items-center gap-1.5 bg-[var(--color-card)] backdrop-blur-xl border border-emerald-500/20 rounded-full px-2.5 py-1 text-[10px] font-semibold text-emerald-400 shadow-md">
+                                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                {spotCount} free spot{spotCount !== 1 ? 's' : ''} nearby
+                            </div>
+                        ) : mapReady && spotData.activeSpots.length === 0 && (
+                            <div className="bg-[var(--color-card)] backdrop-blur-xl border border-[var(--color-border)] rounded-2xl px-4 py-3 shadow-xl flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-xl bg-[#1e75ff]/15 border border-[#1e75ff]/25 flex items-center justify-center shrink-0">
+                                    <MapPin size={15} className="text-[#38bdf8]" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-bold text-[var(--color-text)]">No spots pinged nearby</p>
+                                    <p className="text-[10px] text-[var(--color-text-secondary)] mt-0.5">Leaving soon? Be the first to ping one!</p>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -644,7 +676,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     <div className="flex justify-end max-w-[380px] mx-auto w-full mb-2">
                         <button
                             onClick={handleLocateMe}
-                            className="w-10 h-10 rounded-full glass-button flex items-center justify-center shadow-lg transition-transform active:scale-90"
+                            className="w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-all active:scale-90 bg-[var(--color-card)] backdrop-blur-xl border border-[#1e75ff]/40 hover:border-[#1e75ff]/70 hover:bg-[#1e75ff]/10"
                             title="Locate Me"
                         >
                             <Locate size={18} className="text-[#1e75ff]" />
@@ -671,18 +703,30 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                         </button>
                     )}
 
-                    <button
-                        onClick={() => {
-                            setSelectedItem(null);
-                            setSpotModalOpen(true);
-                        }}
-                        disabled={!user}
-                        className="relative mx-auto h-[52px] rounded-full px-14 active:scale-95 text-white disabled:opacity-50 transition-transform duration-200 ping-glow"
-                        style={{ background: 'linear-gradient(90deg, #378ADD, #1D9E75)', minWidth: '250px' }}
-                    >
-                        <MapPin size={24} className="absolute left-9 top-1/2 -translate-y-1/2" />
-                        <span className="text-[19px] font-bold absolute top-1/2 -translate-y-1/2 whitespace-nowrap" style={{ left: 'calc(50% + 12px)', transform: 'translate(-50%, -50%)' }}>Ping Parking</span>
-                    </button>
+                    {(() => {
+                        const myPing = spotData.activeSpots[0];
+                        const hasActivePing = !!myPing;
+                        return (
+                            <button
+                                onClick={() => {
+                                    if (hasActivePing) {
+                                        setSelectedItem(myPing);
+                                    } else {
+                                        setSelectedItem(null);
+                                        setSpotModalOpen(true);
+                                    }
+                                }}
+                                disabled={!user}
+                                className="relative mx-auto h-[52px] rounded-full px-14 active:scale-95 text-white disabled:opacity-50 transition-transform duration-200 ping-glow"
+                                style={{ background: hasActivePing ? 'linear-gradient(90deg, #1e75ff, #0ea5e9)' : 'linear-gradient(90deg, #378ADD, #1D9E75)', minWidth: '250px' }}
+                            >
+                                <MapPin size={24} className="absolute left-9 top-1/2 -translate-y-1/2" />
+                                <span className="text-[19px] font-bold absolute top-1/2 -translate-y-1/2 whitespace-nowrap" style={{ left: 'calc(50% + 12px)', transform: 'translate(-50%, -50%)' }}>
+                                    {hasActivePing ? 'My Active Ping' : 'Ping Parking'}
+                                </span>
+                            </button>
+                        );
+                    })()}
 
                 </div>
             </div>

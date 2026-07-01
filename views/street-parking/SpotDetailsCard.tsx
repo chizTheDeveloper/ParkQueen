@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { MessageSquare, Check } from 'lucide-react';
+import { MessageSquare, Check, ParkingSquare } from 'lucide-react';
 import { MapItem } from './types';
 import { getDistance, formatTimeLeft } from './utils';
 import { db } from '../../firebase';
@@ -98,9 +98,9 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
     return (
         <div>
             <div className="flex items-center gap-3">
-                <div className={`w-14 h-14 rounded-2xl ${isScheduled && spotStatus === 'available' ? 'bg-yellow-500' : 'bg-[#1e75ff]'} flex flex-col items-center justify-center text-white shadow-lg shrink-0`}>
-                    <span className="font-extrabold text-lg">P</span>
-                    {distanceText && <span className="text-[9px] font-medium">{distanceText}</span>}
+                <div className={`w-14 h-14 rounded-2xl flex flex-col items-center justify-center shadow-lg shrink-0 ${isScheduled && spotStatus === 'available' ? 'bg-yellow-500/15 border border-yellow-500/30' : 'bg-[#1e75ff]/15 border border-[#1e75ff]/30'}`}>
+                    <ParkingSquare size={26} className={isScheduled && spotStatus === 'available' ? 'text-yellow-400' : 'text-[#38bdf8]'} />
+                    {distanceText && <span className={`text-[9px] font-bold mt-0.5 ${isScheduled && spotStatus === 'available' ? 'text-yellow-400' : 'text-[#38bdf8]'}`}>{distanceText}</span>}
                 </div>
                 <div className="flex-1 min-w-0">
                     <span className="text-[9px] font-bold text-[#38bdf8] uppercase tracking-wider">| Free Parking</span>

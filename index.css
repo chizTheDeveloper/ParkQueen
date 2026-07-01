@@ -146,3 +146,49 @@ html, body, #root {
   z-index: 1;
 }
 
+
+/* Ping Celebration Animation */
+@keyframes ping-drop {
+  0%   { transform: translateY(-24px) scale(0.6); opacity: 0; }
+  65%  { transform: translateY(4px) scale(1.08); opacity: 1; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+@keyframes ping-ring-expand {
+  0%   { transform: scale(0.4); opacity: 0.7; }
+  100% { transform: scale(3.2); opacity: 0; }
+}
+
+@keyframes ping-text-up {
+  0%   { transform: translateY(10px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes ping-celebration-fade {
+  0%   { opacity: 1; }
+  65%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.ping-celebration {
+  animation: ping-celebration-fade 3s ease forwards;
+}
+
+.ping-logo-drop {
+  animation: ping-drop 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.ping-ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 1.5px solid #38bdf8;
+  width: 88px;
+  height: 88px;
+  animation: ping-ring-expand 1.8s ease-out infinite;
+}
+.ping-ring-2 { animation-delay: 0.5s; }
+.ping-ring-3 { animation-delay: 1s; }
+
+.ping-text-fade {
+  animation: ping-text-up 0.4s ease 0.35s both;
+}

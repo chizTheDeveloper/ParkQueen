@@ -80,14 +80,15 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                     />
                 </div>
 
-                <div className="flex items-center gap-0.5">
+                <div className="flex items-center gap-1">
                     <button
                         type="button"
-                        aria-label="Scanner"
+                        aria-label="AI Sign Scanner"
                         onClick={() => setView(AppView.AI_ASSISTANT)}
-                        className="p-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-overlay)] rounded-full transition-colors shrink-0"
+                        className="flex items-center gap-1 bg-[#1e75ff]/15 border border-[#1e75ff]/30 rounded-full px-2 py-1 text-[#38bdf8] hover:bg-[#1e75ff]/25 active:scale-95 transition-all shrink-0"
                     >
-                        <Camera size={20} />
+                        <Camera size={13} />
+                        <span className="text-[10px] font-bold tracking-wide">AI</span>
                     </button>
 
                     <button
@@ -97,7 +98,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                         className="p-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-overlay)] rounded-full transition-colors relative shrink-0"
                     >
                         <div className="relative">
-                            <MessageSquare size={20} />
+                            <MessageSquare size={17} />
                             {unreadMessagesCount > 0 && (
                                 <span className="absolute -top-0.5 -right-0.5 bg-[#1e75ff] w-1.5 h-1.5 rounded-full animate-pulse shadow-md" />
                             )}
@@ -116,7 +117,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                         className="p-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-overlay)] rounded-full transition-colors relative shrink-0"
                     >
                         <div className="relative">
-                            <Bell size={20} />
+                            <Bell size={17} />
                             {pendingUpdatesCount > 0 && (
                                 <span className="absolute -top-0.5 -right-0.5 bg-[#1e75ff] w-1.5 h-1.5 rounded-full animate-pulse shadow-md" />
                             )}
