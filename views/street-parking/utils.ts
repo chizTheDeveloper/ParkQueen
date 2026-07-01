@@ -44,6 +44,7 @@ export const createMarkerElement = (scheduled = false, reportedMs = 0) => {
     el.style.justifyContent = 'center';
     el.style.cursor = 'pointer';
     el.style.zIndex = '10';
+    el.style.overflow = 'visible';
     el.dataset.scheduled = String(scheduled);
 
     const color = scheduled ? '#eab308' : '#1e75ff';
@@ -65,14 +66,15 @@ export const createMarkerElement = (scheduled = false, reportedMs = 0) => {
           `<rect x="8.5" y="5.5" width="7" height="7" rx="1.5" fill="rgba(255,255,255,0.2)" stroke="rgba(255,255,255,0.5)" stroke-width="0.8"/>
            <text x="12" y="11" font-size="5.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-weight="900" text-anchor="middle" fill="white">P</text>`;
 
+    // Rings live outside the sized pin wrapper so they never affect offsetHeight
     const pulseRings = !scheduled ? `
-        <div class="map-pin-pulse" style="width:${size}px;height:${size}px;border:2px solid ${color};animation-delay:${pulseDelay1};"></div>
-        <div class="map-pin-pulse map-pin-pulse-2" style="width:${size}px;height:${size}px;border:2px solid ${color};animation-delay:${pulseDelay2};"></div>
+        <div class="map-pin-pulse" style="width:${size}px;height:${size}px;border:2px solid ${color};animation-delay:${pulseDelay1};position:absolute;top:40%;left:50%;"></div>
+        <div class="map-pin-pulse" style="width:${size}px;height:${size}px;border:2px solid ${color};animation-delay:${pulseDelay2};position:absolute;top:40%;left:50%;"></div>
     ` : '';
 
     el.innerHTML = `
         ${pulseRings}
-        <div style="width:${size}px;height:${size}px;position:relative;opacity:${opacity};pointer-events:none;">
+        <div style="width:${size}px;height:${size}px;flex-shrink:0;opacity:${opacity};pointer-events:none;">
           <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;filter:drop-shadow(0px 4px 10px rgba(0,0,0,0.5));">
             <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="${color}" stroke="rgba(255,255,255,0.25)" stroke-width="0.5"/>
             ${pinIcon}
