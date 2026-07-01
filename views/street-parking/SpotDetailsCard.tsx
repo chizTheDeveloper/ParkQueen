@@ -227,17 +227,45 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                 )}
 
                 {state === 'my_ping_claimed' && (
-                    <div className="flex flex-1 gap-2">
-                        <button onClick={onCancelByFinder}
-                            className="flex-1 border border-red-500/50 hover:bg-red-500/10 text-red-400 font-bold py-2 rounded-xl transition-all text-[12px] active:scale-95">
-                            Cancel Ping
-                        </button>
-                        <button onClick={() => setShowQuickReplies(!showQuickReplies)}
-                            className="flex-1 text-white font-bold py-2 rounded-xl flex items-center justify-center gap-1.5 transition-all text-[12px] active:scale-95"
-                            style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}>
-                            <MessageSquare size={13} />
-                            Message
-                        </button>
+                    <div className="flex-1">
+                        {/* Claimer info — Uber-style "driver on the way" */}
+                        <div className="flex items-center gap-3 mb-3 p-3 rounded-2xl bg-[#1e75ff]/08 border border-[#1e75ff]/20">
+                            <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-white font-bold text-sm"
+                                style={{ background: 'linear-gradient(135deg, #1e75ff, #0ea5e9)' }}>
+                                {(selectedItem.interestedUserName || 'S').charAt(0).toUpperCase()}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <p className="text-sm font-bold text-[var(--color-text)] truncate">{selectedItem.interestedUserName || 'Someone'}</p>
+                                {(() => {
+                                    const vc = selectedItem.interestedUserVehicleColor;
+                                    const vt = selectedItem.interestedUserVehicleType;
+                                    const vb = selectedItem.interestedUserVehicleBrand;
+                                    const label = [vc, vb, vt].filter(Boolean).join(' · ');
+                                    return label ? (
+                                        <div className="flex items-center gap-1.5 mt-0.5">
+                                            <VehicleIcon type={vt} color={vc} size={12} />
+                                            <span className="text-[11px] text-[var(--color-text-secondary)] truncate">{label}</span>
+                                        </div>
+                                    ) : null;
+                                })()}
+                            </div>
+                            <div className="text-right shrink-0">
+                                <p className="text-lg font-extrabold text-[var(--color-text)]">~{selectedItem.etaMinutes}</p>
+                                <p className="text-[9px] font-bold text-[#38bdf8] uppercase tracking-wide -mt-0.5">min away</p>
+                            </div>
+                        </div>
+                        <div className="flex gap-2">
+                            <button onClick={() => setShowQuickReplies(!showQuickReplies)}
+                                className="flex-1 text-white font-bold py-2.5 rounded-xl flex items-center justify-center gap-1.5 transition-all text-[12px] active:scale-95"
+                                style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}>
+                                <MessageSquare size={13} />
+                                Message
+                            </button>
+                            <button onClick={onCancelByFinder}
+                                className="px-4 border border-red-500/40 hover:bg-red-500/10 text-red-400 font-bold py-2.5 rounded-xl transition-all text-[12px] active:scale-95">
+                                Cancel
+                            </button>
+                        </div>
                     </div>
                 )}
 

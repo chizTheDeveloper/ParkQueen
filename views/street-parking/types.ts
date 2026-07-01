@@ -18,6 +18,9 @@ export interface MapItem {
     finderVehicleBrand?: string | null;
     interestedUserId?: string | null;
     interestedUserName?: string | null;
+    interestedUserVehicleColor?: string | null;
+    interestedUserVehicleType?: string | null;
+    interestedUserVehicleBrand?: string | null;
     etaMinutes?: number | null;
     interestExpiresAt?: any;
     address?: string;

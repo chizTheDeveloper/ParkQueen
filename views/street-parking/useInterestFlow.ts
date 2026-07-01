@@ -114,6 +114,9 @@ export function useInterestFlow({
                     status: 'interested',
                     interestedUserId: user.id,
                     interestedUserName: user.username || user.fullName || 'Someone',
+                    interestedUserVehicleColor: user.vehicleColor || null,
+                    interestedUserVehicleType: user.vehicleType || null,
+                    interestedUserVehicleBrand: user.vehicleBrand || null,
                     etaMinutes,
                     interestExpiresAt: Timestamp.fromMillis(Date.now() + (etaMinutes + 3) * 60000),
                 });

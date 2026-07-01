@@ -521,19 +521,59 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
             {/* ETA picker */}
             <BottomSheet isOpen={interestFlow.isEtaPickerOpen} onClose={() => interestFlow.setIsEtaPickerOpen(false)}>
-                <h3 className="font-bold text-[var(--color-text)] text-center mb-4">How soon can you get there?</h3>
-                <div className="grid grid-cols-2 gap-2">
-                    {interestFlow.ETA_OPTIONS.map(min => (
+                {/* Spot recap */}
+                {selectedItem && (
+                    <div className="flex items-center gap-2.5 mb-5 px-1">
+                        <div className="w-8 h-8 rounded-xl bg-[#1e75ff]/15 border border-[#1e75ff]/25 flex items-center justify-center shrink-0">
+                            <MapPin size={14} className="text-[#38bdf8]" />
+                        </div>
+                        <div className="min-w-0">
+                            <p className="text-[11px] font-bold text-[var(--color-text)] truncate">{selectedItem.address || selectedItem.title || 'Street Parking Spot'}</p>
+                            <p className="text-[10px] text-[var(--color-text-secondary)] mt-0.5">
+                                {(() => {
+                                    const dep = selectedItem.reportedAt ? (typeof selectedItem.reportedAt.toDate === 'function' ? selectedItem.reportedAt.toDate() : new Date(selectedItem.reportedAt)) : null;
+                                    const isScheduled = dep && dep.getTime() > Date.now() + 60_000;
+                                    return isScheduled ? `Available at ${dep.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Leaving now';
+                                })()}
+                            </p>
+                        </div>
+                    </div>
+                )}
+
+                <p className="text-base font-bold text-[var(--color-text)] mb-1">How soon can you get there?</p>
+                <p className="text-[11px] text-[var(--color-text-secondary)] mb-4">The parker will hold the spot based on your ETA.</p>
+
+                <div className="grid grid-cols-2 gap-2.5 mb-3">
+                    {[
+                        { min: 2, label: 'Just around the corner' },
+                        { min: 5, label: 'A few minutes out' },
+                        { min: 8, label: 'On my way' },
+                        { min: 10, label: 'Give me a bit' },
+                    ].map(({ min, label }) => (
                         <button key={min} onClick={() => interestFlow.handleExpressInterest(min)}
-                            className="py-3 rounded-2xl font-bold text-sm transition-all active:scale-95 text-white"
-                            style={{ background: 'linear-gradient(90deg, #378ADD, #1D9E75)' }}>
-                            {min} min
+                            className="flex flex-col items-center py-4 rounded-2xl border transition-all active:scale-95 bg-[var(--color-card)] border-[var(--color-border)] hover:border-[#1e75ff]/40 hover:bg-[#1e75ff]/5"
+                        >
+                            <span className="text-2xl font-extrabold text-[var(--color-text)]">{min}</span>
+                            <span className="text-[10px] font-bold text-[#38bdf8] uppercase tracking-wide mt-0.5">min</span>
+                            <span className="text-[10px] text-[var(--color-text-secondary)] mt-1.5 px-2 text-center leading-tight">{label}</span>
                         </button>
                     ))}
                 </div>
+
+                <button onClick={() => interestFlow.handleExpressInterest(1)}
+                    className="w-full py-3 rounded-2xl font-bold text-sm text-white active:scale-95 transition-transform mb-2"
+                    style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}>
+                    I'm already there
+                </button>
+
                 {interestFlow.interestError && (
-                    <p className="text-red-400 text-xs mt-3 text-center">{interestFlow.interestError}</p>
+                    <p className="text-red-400 text-xs mt-1 text-center">{interestFlow.interestError}</p>
                 )}
+
+                <button onClick={() => interestFlow.setIsEtaPickerOpen(false)}
+                    className="w-full text-center text-[11px] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors mt-1 py-1">
+                    Cancel
+                </button>
             </BottomSheet>
 
             {/* Post-arrival handoff flow */}
@@ -570,26 +610,29 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             {(() => {
                 const interestedSpot = spotData.freeSpots.find(s => s.finderId === user?.id && s.status === 'interested');
                 if (!interestedSpot || selectedItem?.id === interestedSpot.id) return null;
+                const name = interestedSpot.interestedUserName || 'Someone';
+                const initial = name.charAt(0).toUpperCase();
                 return (
-                    <div className="absolute top-24 left-1/2 -translate-x-1/2 w-[90%] max-w-[360px] z-50 backdrop-blur-xl rounded-2xl shadow-2xl pointer-events-auto overflow-hidden"
-                        style={{ background: 'linear-gradient(135deg, rgba(30,117,255,0.18), rgba(29,158,117,0.12))', border: '1px solid rgba(30,117,255,0.35)' }}>
-                        <div className="px-4 pt-4 pb-3 flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'linear-gradient(135deg, #1e75ff, #1D9E75)' }}>
-                                <Bell size={18} className="text-white animate-bounce" />
+                    <button
+                        onClick={() => setSelectedItem(interestedSpot)}
+                        className="absolute top-24 left-1/2 -translate-x-1/2 w-[90%] max-w-[360px] z-50 backdrop-blur-xl rounded-2xl shadow-2xl pointer-events-auto overflow-hidden active:scale-[0.98] transition-transform text-left"
+                        style={{ background: 'rgba(5,13,28,0.82)', border: '1px solid rgba(30,117,255,0.3)' }}
+                    >
+                        <div className="px-4 py-3.5 flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-white font-bold text-sm"
+                                style={{ background: 'linear-gradient(135deg, #1e75ff, #0ea5e9)' }}>
+                                {initial}
                             </div>
                             <div className="flex-1 min-w-0">
-                                <p className="text-xs font-extrabold text-white uppercase tracking-wider">Someone is heading there!</p>
-                                <p className="text-[11px] text-white/70 mt-0.5 truncate">
-                                    <strong className="text-white/90">{interestedSpot.interestedUserName || 'Someone'}</strong> · ETA ~{interestedSpot.etaMinutes} min
-                                </p>
+                                <p className="text-[11px] font-semibold text-[#38bdf8] uppercase tracking-wider mb-0.5">On their way to your spot</p>
+                                <p className="text-sm font-bold text-white truncate">{name}</p>
+                                {interestedSpot.etaMinutes && (
+                                    <p className="text-[11px] text-white/55 mt-0.5">ETA ~{interestedSpot.etaMinutes} min · Tap to see details</p>
+                                )}
                             </div>
+                            <ChevronRight size={16} className="text-white/30 shrink-0" />
                         </div>
-                        <button onClick={() => setSelectedItem(interestedSpot)}
-                            className="w-full py-2.5 text-xs font-bold text-white/90 hover:text-white border-t transition-colors"
-                            style={{ borderColor: 'rgba(30,117,255,0.25)', background: 'rgba(30,117,255,0.15)' }}>
-                            View Spot Details →
-                        </button>
-                    </div>
+                    </button>
                 );
             })()}
 
