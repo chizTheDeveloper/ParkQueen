@@ -13,6 +13,9 @@ export interface MapItem {
     expiresAt?: any;
     finderId?: string;
     finderName?: string;
+    finderVehicleColor?: string | null;
+    finderVehicleType?: string | null;
+    finderVehicleBrand?: string | null;
     interestedUserId?: string | null;
     interestedUserName?: string | null;
     etaMinutes?: number | null;

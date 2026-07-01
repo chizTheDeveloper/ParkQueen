@@ -1,0 +1,2 @@
+- [Spot vs Ping modeling](project_spot-vs-ping-modeling.md) — spots collection conflates physical location and time-based event; split when location-aggregation features arrive
+- [Firestore error handling debt](project_firestore-error-handling-debt.md) — systemic bare awaits with no try/catch or atomic writes; single refactor pass needed before more handlers are added

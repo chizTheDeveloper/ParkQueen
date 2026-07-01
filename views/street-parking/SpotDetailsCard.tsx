@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { MessageSquare, Check, ParkingSquare } from 'lucide-react';
+import { MessageSquare, MapPin, Clock, Navigation, Car } from 'lucide-react';
 import { MapItem } from './types';
 import { getDistance, formatTimeLeft } from './utils';
+import { getVehicleHex } from '../../utils/vehicleIcon';
 import { db } from '../../firebase';
 import { doc, setDoc, addDoc, collection, serverTimestamp } from 'firebase/firestore';
 
@@ -51,7 +52,6 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
     const isInterestedUser = user?.id === selectedItem.interestedUserId;
     const spotStatus = selectedItem.status;
 
-    // Determine which state we're in
     type CardState = 'available' | 'my_claim' | 'my_ping_available' | 'my_ping_claimed' | 'third_party';
     let state: CardState;
     if (isFinder && spotStatus === 'interested') state = 'my_ping_claimed';
@@ -59,19 +59,6 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
     else if (isInterestedUser && spotStatus === 'interested') state = 'my_claim';
     else if (spotStatus === 'available') state = 'available';
     else state = 'third_party';
-
-    let subText = '';
-    if (state === 'available') {
-        subText = isScheduled ? `Available at ${departureText}` : `Departure: Leaving Now • Expires: ${formatTimeLeft(timeLeftMs)}`;
-    } else if (state === 'my_claim') {
-        subText = isWithinArrivalRange ? 'You\'re here — confirm arrival' : `${distanceText ? distanceText + ' away • ' : ''}Get within 200ft to confirm`;
-    } else if (state === 'my_ping_available') {
-        subText = isScheduled ? `Available at ${departureText}` : `Departure: Leaving Now • Expires: ${formatTimeLeft(timeLeftMs)}`;
-    } else if (state === 'my_ping_claimed') {
-        subText = `Someone is heading there, ETA ~${selectedItem.etaMinutes || '?'} min`;
-    } else {
-        subText = 'Someone is heading there';
-    }
 
     const sendQuickReply = async (text: string) => {
         if (!user || !selectedItem.interestedUserId) return;
@@ -95,33 +82,86 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
         setTimeout(() => setMessageSent(false), 2000);
     };
 
+    // For the finder's own ping, read vehicle info from the live user object (always current).
+    // For others, read from the denormalized spot fields (written at ping creation time).
+    const vehicleColor = isFinder ? (user?.vehicleColor || selectedItem.finderVehicleColor) : selectedItem.finderVehicleColor;
+    const vehicleType = isFinder ? (user?.vehicleType || selectedItem.finderVehicleType) : selectedItem.finderVehicleType;
+
+    const vehicleHex = getVehicleHex(vehicleColor);
+    const hasVehicle = vehicleType || vehicleColor;
+    const vehicleLabel = [vehicleColor, vehicleType].filter(Boolean).join(' ');
+
+    // Finder initial avatar
+    const finderName = selectedItem.finderName || 'Driver';
+    const finderInitial = finderName.charAt(0).toUpperCase();
+
+    // Status badge config
+    const badgeConfig = state === 'my_claim'
+        ? { label: 'En Route', color: 'text-blue-400 bg-blue-500/10 border-blue-500/20' }
+        : spotStatus === 'available' && isScheduled
+        ? { label: 'Soon', color: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20' }
+        : spotStatus === 'available'
+        ? { label: 'Free', color: 'text-green-400 bg-green-500/10 border-green-500/20' }
+        : { label: 'Reserved', color: 'text-amber-400 bg-amber-500/10 border-amber-500/20' };
+
     return (
         <div>
-            <div className="flex items-center gap-3">
-                <div className={`w-14 h-14 rounded-2xl flex flex-col items-center justify-center shadow-lg shrink-0 ${isScheduled && spotStatus === 'available' ? 'bg-yellow-500/15 border border-yellow-500/30' : 'bg-[#1e75ff]/15 border border-[#1e75ff]/30'}`}>
-                    <ParkingSquare size={26} className={isScheduled && spotStatus === 'available' ? 'text-yellow-400' : 'text-[#38bdf8]'} />
-                    {distanceText && <span className={`text-[9px] font-bold mt-0.5 ${isScheduled && spotStatus === 'available' ? 'text-yellow-400' : 'text-[#38bdf8]'}`}>{distanceText}</span>}
+            {/* Hero: finder info + vehicle */}
+            <div className="flex items-center gap-3 mb-3">
+                {/* Avatar */}
+                <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 text-white font-bold text-base"
+                    style={{ background: 'linear-gradient(135deg, #1e75ff, #0ea5e9)' }}>
+                    {finderInitial}
                 </div>
+
                 <div className="flex-1 min-w-0">
-                    <span className="text-[9px] font-bold text-[#38bdf8] uppercase tracking-wider">| Free Parking</span>
-                    <h3 className="text-sm font-bold text-[var(--color-text)] truncate mt-0.5">{selectedItem.title || spotAddress || 'Street Parking Spot'}</h3>
-                    <p className="text-[11px] text-[var(--color-text-secondary)] mt-0.5 truncate">{subText}</p>
+                    <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-bold text-[var(--color-text)] truncate">{finderName}</span>
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md border ${badgeConfig.color}`}>
+                            {badgeConfig.label}
+                        </span>
+                    </div>
+                    {/* Vehicle info */}
+                    {hasVehicle ? (
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="w-2.5 h-2.5 rounded-full shrink-0 border border-white/20" style={{ background: vehicleHex }} />
+                            <span className="text-[11px] text-[var(--color-text-secondary)] truncate">{vehicleLabel}</span>
+                        </div>
+                    ) : (
+                        <span className="text-[11px] text-[var(--color-text-secondary)]">No vehicle info</span>
+                    )}
                 </div>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg ${
-                    state === 'my_claim' ? 'text-blue-400 bg-blue-500/10 border border-blue-500/20'
-                    : spotStatus === 'available' && isScheduled ? 'text-yellow-400 bg-yellow-500/10 border border-yellow-500/20'
-                    : spotStatus === 'available' ? 'text-green-400 bg-green-500/10 border border-green-500/20'
-                    : 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
-                }`}>
-                    {state === 'my_claim' ? 'En Route' : spotStatus === 'available' && isScheduled ? 'Soon' : spotStatus === 'available' ? 'Free' : 'Reserved'}
-                </span>
             </div>
 
-            {interestError && <p className="text-red-400 text-xs mt-2 text-center">{interestError}</p>}
-            {messageSent && <p className="text-emerald-400 text-xs mt-2 text-center font-semibold">Message sent</p>}
+            {/* Location + status strip */}
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[var(--color-bg)]/50 border border-[var(--color-border)] mb-3">
+                <MapPin size={13} className="text-[#38bdf8] shrink-0" />
+                <span className="text-[11px] font-semibold text-[var(--color-text)] truncate flex-1">
+                    {selectedItem.title || spotAddress || 'Street Parking Spot'}
+                </span>
+                {distanceText && (
+                    <span className="text-[10px] font-bold text-[var(--color-text-secondary)] shrink-0">{distanceText}</span>
+                )}
+            </div>
+
+            {/* Time strip */}
+            <div className="flex items-center gap-3 px-3 py-2 rounded-xl bg-[var(--color-bg)]/50 border border-[var(--color-border)] mb-3">
+                <Clock size={13} className={isScheduled ? 'text-yellow-400 shrink-0' : 'text-green-400 shrink-0'} />
+                <span className="text-[11px] font-semibold text-[var(--color-text)]">
+                    {isScheduled ? `Leaving at ${departureText}` : 'Leaving Now'}
+                </span>
+                {timeLeftMs > 0 && (
+                    <span className="ml-auto text-[10px] text-[var(--color-text-secondary)] shrink-0">
+                        {formatTimeLeft(timeLeftMs)} left
+                    </span>
+                )}
+            </div>
+
+            {interestError && <p className="text-red-400 text-xs mb-2 text-center">{interestError}</p>}
+            {messageSent && <p className="text-emerald-400 text-xs mb-2 text-center font-semibold">Message sent</p>}
 
             {showQuickReplies && (
-                <div className="mt-2.5 pt-2.5 border-t border-[var(--color-border)] grid grid-cols-2 gap-1.5">
+                <div className="mb-3 grid grid-cols-2 gap-1.5">
                     {QUICK_REPLIES.map(msg => (
                         <button key={msg} onClick={() => sendQuickReply(msg)}
                             className="bg-white/5 border border-[var(--color-border)] hover:bg-white/10 text-[var(--color-text)] font-semibold py-2 px-2 rounded-xl text-[10px] transition-all active:scale-95">
@@ -131,14 +171,13 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                 </div>
             )}
 
-            <div className="flex gap-2 mt-2.5 pt-2.5 border-t border-[var(--color-border)]">
-
-                {/* State A: Available spot, I'm a stranger */}
+            {/* Action buttons */}
+            <div className="flex gap-2">
                 {state === 'available' && (
                     <>
-                        <button onClick={() => onMessageUser(selectedItem.finderId, `Spot pinged by ${selectedItem.finderName}`)}
-                            className="bg-white/10 hover:bg-white/20 text-[var(--color-text)] p-1.5 rounded-xl flex items-center justify-center transition-all shadow-md shrink-0">
-                            <MessageSquare size={14} />
+                        <button onClick={() => onMessageUser(selectedItem.finderId, `Spot pinged by ${finderName}`)}
+                            className="bg-white/10 hover:bg-white/20 text-[var(--color-text)] p-2.5 rounded-xl flex items-center justify-center transition-all shadow-md shrink-0 active:scale-95">
+                            <MessageSquare size={16} />
                         </button>
                         {estDriveMinutes !== null && estDriveMinutes > maxEtaMinutes ? (
                             <span className="flex-1 text-[10px] text-[var(--color-text-secondary)] self-center text-center">
@@ -146,25 +185,25 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                             </span>
                         ) : (
                             <button onClick={onHeadingThere}
-                                className="flex-1 font-bold py-2 rounded-xl transition-all text-[12px] shadow-md active:scale-95 text-white"
-                                style={{ background: 'linear-gradient(90deg, #378ADD, #1D9E75)' }}>
+                                className="flex-1 font-bold py-2.5 rounded-xl transition-all text-[13px] shadow-md active:scale-95 text-white flex items-center justify-center gap-1.5"
+                                style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}>
+                                <Navigation size={14} />
                                 I'm heading there
                             </button>
                         )}
                     </>
                 )}
 
-                {/* State B: My active claim */}
                 {state === 'my_claim' && (
                     <>
                         <button onClick={onArrival} disabled={!isWithinArrivalRange}
-                            className="flex-1 font-bold py-2 rounded-xl transition-all text-[12px] shadow-md active:scale-95 text-white disabled:opacity-40"
-                            style={{ background: 'linear-gradient(90deg, #378ADD, #1D9E75)' }}>
+                            className="flex-1 font-bold py-2.5 rounded-xl transition-all text-[13px] shadow-md active:scale-95 text-white disabled:opacity-40"
+                            style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}>
                             {isWithinArrivalRange ? "I've arrived" : "Get closer to confirm"}
                         </button>
-                        <button onClick={() => onMessageUser(selectedItem.finderId, `Spot pinged by ${selectedItem.finderName}`)}
-                            className="bg-white/10 hover:bg-white/20 text-[var(--color-text)] p-1.5 rounded-xl flex items-center justify-center transition-all shadow-md shrink-0">
-                            <MessageSquare size={14} />
+                        <button onClick={() => onMessageUser(selectedItem.finderId, `Spot pinged by ${finderName}`)}
+                            className="bg-white/10 hover:bg-white/20 text-[var(--color-text)] p-2.5 rounded-xl flex items-center justify-center transition-all shadow-md shrink-0 active:scale-95">
+                            <MessageSquare size={16} />
                         </button>
                         <button onClick={onCancelByClaimer}
                             className="text-[var(--color-text-secondary)] hover:text-red-400 text-[11px] font-semibold px-2 transition-colors">
@@ -173,38 +212,36 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                     </>
                 )}
 
-                {/* State C: My own ping, available */}
                 {state === 'my_ping_available' && (
-                    <div className="flex flex-1 gap-1.5">
+                    <div className="flex flex-1 gap-2">
                         <button onClick={() => onEditSpot(selectedItem)}
-                            className="flex-1 bg-blue-600/50 hover:bg-blue-600 text-white font-bold py-1.5 rounded-xl transition-all text-[11px]">
+                            className="flex-1 bg-blue-600/50 hover:bg-blue-600 text-white font-bold py-2 rounded-xl transition-all text-[12px] active:scale-95">
                             Edit
                         </button>
                         <button onClick={onDeletePing}
-                            className="flex-1 border border-red-500/50 hover:bg-red-500/10 text-red-400 font-bold py-1.5 rounded-xl transition-all text-[11px]">
+                            className="flex-1 border border-red-500/50 hover:bg-red-500/10 text-red-400 font-bold py-2 rounded-xl transition-all text-[12px] active:scale-95">
                             Delete
                         </button>
                     </div>
                 )}
 
-                {/* State D: My own ping, someone heading here */}
                 {state === 'my_ping_claimed' && (
-                    <div className="flex flex-1 gap-1.5">
+                    <div className="flex flex-1 gap-2">
                         <button onClick={onCancelByFinder}
-                            className="flex-1 border border-red-500/50 hover:bg-red-500/10 text-red-400 font-bold py-1.5 rounded-xl transition-all text-[11px]">
+                            className="flex-1 border border-red-500/50 hover:bg-red-500/10 text-red-400 font-bold py-2 rounded-xl transition-all text-[12px] active:scale-95">
                             Cancel Ping
                         </button>
                         <button onClick={() => setShowQuickReplies(!showQuickReplies)}
-                            className="flex-1 bg-[#1e75ff] hover:bg-blue-600 text-white font-bold py-1.5 rounded-xl flex items-center justify-center gap-1 transition-all text-[11px]">
-                            <MessageSquare size={12} />
+                            className="flex-1 text-white font-bold py-2 rounded-xl flex items-center justify-center gap-1.5 transition-all text-[12px] active:scale-95"
+                            style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}>
+                            <MessageSquare size={13} />
                             Message
                         </button>
                     </div>
                 )}
 
-                {/* State E: Third party viewing claimed spot (shouldn't normally show due to hiding) */}
                 {state === 'third_party' && (
-                    <span className="flex-1 text-[10px] font-bold text-amber-400 self-center text-center px-2 py-0.5 bg-amber-500/10 rounded-lg">
+                    <span className="flex-1 text-[10px] font-bold text-amber-400 self-center text-center px-2 py-1 bg-amber-500/10 rounded-xl border border-amber-500/20">
                         Someone is heading there
                     </span>
                 )}
