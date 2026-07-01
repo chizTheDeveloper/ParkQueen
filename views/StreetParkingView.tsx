@@ -657,7 +657,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                 <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                                 {spotCount} free spot{spotCount !== 1 ? 's' : ''} nearby
                             </div>
-                        ) : mapReady && spotData.activeSpots.length === 0 && (
+                        ) : mapReady && !spotData.activeSpots.find(s => s.finderId === user?.id) && (
                             <div className="bg-[var(--color-card)] backdrop-blur-xl border border-[var(--color-border)] rounded-2xl px-4 py-3 shadow-xl flex items-center gap-3">
                                 <div className="w-8 h-8 rounded-xl bg-[#1e75ff]/15 border border-[#1e75ff]/25 flex items-center justify-center shrink-0">
                                     <MapPin size={15} className="text-[#38bdf8]" />
@@ -704,7 +704,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     )}
 
                     {(() => {
-                        const myPing = spotData.activeSpots[0];
+                        const myPing = spotData.activeSpots.find(s => s.finderId === user?.id);
                         const hasActivePing = !!myPing;
                         return (
                             <button
