@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MapPin, Zap, Clock, Check } from 'lucide-react';
+import { MapPin, Zap, Clock, Check, X, ChevronLeft } from 'lucide-react';
 import { StreetSpot } from '../../types';
 import { TimePicker } from './TimePicker';
 import { BottomSheet } from './BottomSheet';
@@ -42,15 +42,24 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
     return (
         <BottomSheet isOpen={isOpen} onClose={onClose}>
             {view === 'main' ? (
-                <>
+                <div className="relative">
+                    <button
+                        onClick={onClose}
+                        aria-label="Close"
+                        className="absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center bg-[var(--color-overlay)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-white/10 transition-colors z-10"
+                    >
+                        <X size={16} />
+                    </button>
+
                     <div className="flex flex-col items-center text-center mb-6">
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-600 to-cyan-500 flex items-center justify-center mb-3">
-                            <MapPin size={18} className="text-white" />
-                        </div>
+                        <img src="/Parqueen_Logo.png" alt="ParkQueen" className="w-12 h-12 object-contain mb-3 drop-shadow-lg" />
                         <h2 className="text-lg font-bold text-[var(--color-text)] leading-snug">
                             {isEditing ? 'Edit spot' : 'When are you leaving?'}
                         </h2>
-                        <p className="text-[12px] text-[var(--color-text-secondary)] mt-1">{spotAddress || 'Locating...'}</p>
+                        <div className="flex items-center gap-1.5 mt-2 px-3 py-1.5 rounded-xl bg-[#1e75ff]/10 border border-[#1e75ff]/20 max-w-full">
+                            <MapPin size={12} className="text-[#38bdf8] shrink-0" />
+                            <p className="text-[12px] font-semibold text-[var(--color-text)] truncate">{spotAddress || 'Locating...'}</p>
+                        </div>
                     </div>
 
                     <div className="space-y-3">
@@ -58,8 +67,8 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                             onClick={() => setPingType('now')}
                             className={`w-full rounded-2xl p-3.5 flex items-center gap-3 transition-all ${
                                 pingType === 'now'
-                                    ? 'bg-blue-500/15 border border-blue-400/40'
-                                    : 'bg-[var(--color-overlay)] border border-[var(--color-border)] hover:bg-white/8'
+                                    ? 'bg-blue-500/15 border border-blue-400/40 shadow-md'
+                                    : 'bg-[var(--color-card)] border border-[var(--color-border)] hover:bg-white/8'
                             }`}
                         >
                             <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
@@ -82,8 +91,8 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                             onClick={() => { setPingType('later'); setView('timePicker'); }}
                             className={`w-full rounded-2xl p-3.5 flex items-center gap-3 transition-all ${
                                 pingType === 'later'
-                                    ? 'bg-blue-500/15 border border-blue-400/40'
-                                    : 'bg-[var(--color-overlay)] border border-[var(--color-border)] hover:bg-white/8'
+                                    ? 'bg-blue-500/15 border border-blue-400/40 shadow-md'
+                                    : 'bg-[var(--color-card)] border border-[var(--color-border)] hover:bg-white/8'
                             }`}
                         >
                             <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
@@ -115,12 +124,21 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                         <MapPin size={18} />
                         <span>{isEditing ? 'Confirm' : 'Ping'}</span>
                     </button>
-                </>
+                </div>
             ) : (
                 <>
-                    <div className="flex flex-col items-center text-center mb-6">
-                        <Clock size={28} className="text-blue-400 mb-2" />
-                        <h2 className="text-lg font-bold text-[var(--color-text)]">Set departure time</h2>
+                    <div className="flex items-center mb-6">
+                        <button
+                            onClick={() => setView('main')}
+                            aria-label="Back"
+                            className="w-8 h-8 rounded-full flex items-center justify-center bg-[var(--color-overlay)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-white/10 transition-colors shrink-0"
+                        >
+                            <ChevronLeft size={16} />
+                        </button>
+                        <div className="flex-1 flex flex-col items-center text-center -ml-8">
+                            <Clock size={22} className="text-blue-400 mb-1" />
+                            <h2 className="text-base font-bold text-[var(--color-text)]">Set departure time</h2>
+                        </div>
                     </div>
                     <div className="mb-6">
                         <TimePicker initialTime={departureTime} onTimeChange={setDepartureTime} />
@@ -131,9 +149,6 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                         style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}
                     >
                         Set Time
-                    </button>
-                    <button onClick={() => setView('main')} className="w-full text-center mt-3 text-[var(--color-text-secondary)] hover:text-[var(--color-text)] text-sm transition-colors">
-                        Cancel
                     </button>
                 </>
             )}
