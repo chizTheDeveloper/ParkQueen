@@ -3,6 +3,7 @@ import { db } from '../../firebase';
 import { doc, updateDoc, deleteDoc, runTransaction, Timestamp, collection, query, where, getDocs, addDoc, onSnapshot, orderBy, limit } from 'firebase/firestore';
 import { MapItem } from './types';
 import { getDistance, drawRoute, clearRoute, NYC_CENTER } from './utils';
+import { getTitleForCrowns } from '../../utils/crowns';
 
 interface UseInterestFlowOptions {
     selectedItem: any;
@@ -26,6 +27,8 @@ export function useInterestFlow({
     const [trackedItemId, setTrackedItemId] = useState<string | null>(null);
     const [isEtaPickerOpen, setIsEtaPickerOpen] = useState(false);
     const [interestError, setInterestError] = useState<string | null>(null);
+    const lastWrittenEtaRef = useRef<number | null>(null);
+    const etaWriteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [handoffStep, setHandoffStep] = useState<'outcome' | 'celebration' | 'failure_reason' | null>(null);
     const handoffSpotRef = useRef<{
         id: string; lat: number; lng: number; address?: string;
@@ -65,6 +68,28 @@ export function useInterestFlow({
         });
         return () => unsub();
     }, [user?.id]);
+
+    // Dynamic ETA: debounce-write claimer's estimated drive time back to Firestore
+    useEffect(() => {
+        if (!trackedItemId || !userLocation || !db) return;
+        const spot = freeSpots.find(s => s.id === trackedItemId);
+        if (!spot) return;
+
+        const km = getDistance(userLocation[1], userLocation[0], spot.lat, spot.lng);
+        const estMinutes = Math.max(1, Math.ceil((km / 25) * 60));
+
+        if (lastWrittenEtaRef.current !== null && Math.abs(estMinutes - lastWrittenEtaRef.current) < 1) return;
+
+        if (etaWriteTimerRef.current) clearTimeout(etaWriteTimerRef.current);
+        etaWriteTimerRef.current = setTimeout(async () => {
+            try {
+                await updateDoc(doc(db, 'spots', trackedItemId), { etaMinutes: estMinutes });
+                lastWrittenEtaRef.current = estMinutes;
+            } catch {}
+        }, 30_000);
+
+        return () => { if (etaWriteTimerRef.current) clearTimeout(etaWriteTimerRef.current); };
+    }, [trackedItemId, userLocation, freeSpots]);
 
     const getEstDriveMinutes = (spot: MapItem): number | null => {
         if (!userLocation) return null;
@@ -117,6 +142,7 @@ export function useInterestFlow({
                     interestedUserVehicleColor: user.vehicleColor || null,
                     interestedUserVehicleType: user.vehicleType || null,
                     interestedUserVehicleBrand: user.vehicleBrand || null,
+                    interestedUserTitle: getTitleForCrowns(user.crowns || 0),
                     etaMinutes,
                     interestExpiresAt: Timestamp.fromMillis(Date.now() + (etaMinutes + 3) * 60000),
                 });

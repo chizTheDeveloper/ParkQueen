@@ -36,6 +36,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const activeRouteDestinationRef = useRef<[number, number] | null>(null);
 
     const [selectedItem, setSelectedItem] = useState<any | null>(null);
+    const [selectedItemManageMode, setSelectedItemManageMode] = useState(false);
     const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
     const [searchCenter, setSearchCenter] = useState<[number, number] | null>(null);
     const [mapReady, setMapReady] = useState(false);
@@ -498,7 +499,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             />
 
             {/* Spot details bottom sheet */}
-            <BottomSheet isOpen={!!selectedItem && !isSpotModalOpen} onClose={() => setSelectedItem(null)}>
+            <BottomSheet isOpen={!!selectedItem && !isSpotModalOpen} onClose={() => { setSelectedItem(null); setSelectedItemManageMode(false); }}>
                 <SpotDetailsCard
                     selectedItem={selectedItem}
                     freeSpots={spotData.freeSpots}
@@ -516,6 +517,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     estDriveMinutes={selectedItem ? interestFlow.getEstDriveMinutes(selectedItem) : null}
                     isWithinArrivalRange={selectedItem ? interestFlow.isWithinArrivalRange(selectedItem) : false}
                     maxEtaMinutes={interestFlow.MAX_ETA_MINUTES}
+                    manageMode={selectedItemManageMode}
                 />
             </BottomSheet>
 
@@ -614,7 +616,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 const initial = name.charAt(0).toUpperCase();
                 return (
                     <button
-                        onClick={() => setSelectedItem(interestedSpot)}
+                        onClick={() => { setSelectedItem(interestedSpot); setSelectedItemManageMode(false); }}
                         className="absolute top-24 left-1/2 -translate-x-1/2 w-[90%] max-w-[360px] z-50 backdrop-blur-xl rounded-2xl shadow-2xl pointer-events-auto overflow-hidden active:scale-[0.98] transition-transform text-left"
                         style={{ background: 'rgba(5,13,28,0.82)', border: '1px solid rgba(30,117,255,0.3)' }}
                     >
@@ -762,6 +764,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                 onClick={() => {
                                     if (hasActivePing) {
                                         setSelectedItem(myPing);
+                                        setSelectedItemManageMode(true);
                                     } else {
                                         setSelectedItem(null);
                                         setSpotModalOpen(true);

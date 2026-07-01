@@ -25,16 +25,18 @@ interface SpotDetailsCardProps {
     estDriveMinutes: number | null;
     isWithinArrivalRange: boolean;
     maxEtaMinutes: number;
+    manageMode?: boolean;
 }
 
 export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
     selectedItem, freeSpots, user, userLocation, spotAddress,
     onHeadingThere, onEditSpot, onDeletePing, onArrival,
     onCancelByFinder, onCancelByClaimer, onMessageUser,
-    interestError, estDriveMinutes, isWithinArrivalRange, maxEtaMinutes,
+    interestError, estDriveMinutes, isWithinArrivalRange, maxEtaMinutes, manageMode = false,
 }) => {
     const [showQuickReplies, setShowQuickReplies] = useState(false);
     const [messageSent, setMessageSent] = useState(false);
+    const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
     if (!selectedItem) return null;
 
@@ -54,7 +56,7 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
 
     type CardState = 'available' | 'my_claim' | 'my_ping_available' | 'my_ping_claimed' | 'third_party';
     let state: CardState;
-    if (isFinder && spotStatus === 'interested') state = 'my_ping_claimed';
+    if (isFinder && spotStatus === 'interested' && !manageMode) state = 'my_ping_claimed';
     else if (isFinder) state = 'my_ping_available';
     else if (isInterestedUser && spotStatus === 'interested') state = 'my_claim';
     else if (spotStatus === 'available') state = 'available';
@@ -104,6 +106,116 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
         : spotStatus === 'available'
         ? { label: 'Free', color: 'text-green-400 bg-green-500/10 border-green-500/20' }
         : { label: 'Reserved', color: 'text-amber-400 bg-amber-500/10 border-amber-500/20' };
+
+    // Claimer view — full takeover, vehicle info is the hero
+    if (state === 'my_ping_claimed') {
+        const vc = selectedItem.interestedUserVehicleColor;
+        const vt = selectedItem.interestedUserVehicleType;
+        const vb = selectedItem.interestedUserVehicleBrand;
+        const claimerName = selectedItem.interestedUserName || 'Someone';
+        const claimerInitial = claimerName.charAt(0).toUpperCase();
+        const vehicleHexClaimer = getVehicleHex(vc);
+        const hasClaimerVehicle = vc || vt || vb;
+
+        return (
+            <div>
+                {/* Label */}
+                <p className="text-[11px] font-bold text-[#38bdf8] uppercase tracking-widest text-center mb-4">On their way to your spot</p>
+
+                {/* Avatar + name + ETA */}
+                <div className="flex items-center gap-3 mb-4">
+                    <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 text-white font-bold text-xl"
+                        style={{ background: 'linear-gradient(135deg, #1e75ff, #0ea5e9)' }}>
+                        {claimerInitial}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <p className="text-lg font-extrabold text-[var(--color-text)] truncate">{claimerName}</p>
+                        {selectedItem.interestedUserTitle && (
+                            <p className="text-[11px] font-semibold text-[#38bdf8] mt-0.5">{selectedItem.interestedUserTitle}</p>
+                        )}
+                    </div>
+                    <div className="text-right shrink-0">
+                        <p className="text-3xl font-extrabold text-[var(--color-text)]">{selectedItem.etaMinutes}</p>
+                        <p className="text-[9px] font-bold text-[#38bdf8] uppercase tracking-wide">min away</p>
+                        <p className="text-[8px] text-[var(--color-text-secondary)] mt-0.5">est. arrival</p>
+                    </div>
+                </div>
+
+                {/* Vehicle hero — what to look out for */}
+                <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] p-4 mb-4">
+                    <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-3">Look out for</p>
+                    {hasClaimerVehicle ? (
+                        <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 border border-white/10"
+                                style={{ background: vehicleHexClaimer + '33' }}>
+                                <VehicleIcon type={vt} color={vc} size={26} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <p className="text-base font-extrabold text-[var(--color-text)] truncate">
+                                    {[vc, vb].filter(Boolean).join(' ') || vt}
+                                </p>
+                                {vt && (vc || vb) && (
+                                    <p className="text-sm text-[var(--color-text-secondary)]">{vt}</p>
+                                )}
+                            </div>
+                        </div>
+                    ) : (
+                        <p className="text-sm text-[var(--color-text-secondary)]">No vehicle info provided</p>
+                    )}
+                </div>
+
+                {messageSent && <p className="text-emerald-400 text-xs mb-2 text-center font-semibold">Message sent</p>}
+                {showQuickReplies && (
+                    <div className="mb-3 grid grid-cols-2 gap-1.5">
+                        {QUICK_REPLIES.map(msg => (
+                            <button key={msg} onClick={() => sendQuickReply(msg)}
+                                className="bg-white/5 border border-[var(--color-border)] hover:bg-white/10 text-[var(--color-text)] font-semibold py-2 px-2 rounded-xl text-[10px] transition-all active:scale-95">
+                                {msg}
+                            </button>
+                        ))}
+                    </div>
+                )}
+
+                <div className="flex gap-2">
+                    <button onClick={() => setShowCancelConfirm(true)}
+                        className="px-4 border border-red-500/40 hover:bg-red-500/10 text-red-400 font-bold py-3 rounded-xl transition-all text-[13px] active:scale-95">
+                        Cancel
+                    </button>
+                    <button onClick={() => setShowQuickReplies(!showQuickReplies)}
+                        className="flex-1 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 transition-all text-[13px] active:scale-95"
+                        style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}>
+                        <MessageSquare size={14} />
+                        Message
+                    </button>
+                </div>
+
+                {/* Cancel confirmation overlay */}
+                {showCancelConfirm && (
+                    <div className="fixed inset-0 z-50 flex items-end justify-center p-4 pb-8" style={{ background: 'rgba(0,0,0,0.6)' }}
+                        onClick={() => setShowCancelConfirm(false)}>
+                        <div className="w-full max-w-sm rounded-3xl p-6 shadow-2xl"
+                            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
+                            onClick={e => e.stopPropagation()}>
+                            <p className="text-base font-extrabold text-[var(--color-text)] mb-2">Cancel your spot?</p>
+                            <p className="text-sm text-[var(--color-text-secondary)] mb-6 leading-relaxed">
+                                If you cancel, your spot goes back to available and {selectedItem.interestedUserName || 'the driver'} will be notified that it's no longer reserved.
+                            </p>
+                            <div className="flex gap-3">
+                                <button onClick={() => setShowCancelConfirm(false)}
+                                    className="flex-1 border border-[var(--color-border)] text-[var(--color-text)] font-bold py-3 rounded-2xl text-[13px] active:scale-95 transition-all">
+                                    Keep it
+                                </button>
+                                <button onClick={() => { setShowCancelConfirm(false); onCancelByFinder(); }}
+                                    className="flex-1 bg-red-500/15 border border-red-500/40 text-red-400 font-bold py-3 rounded-2xl text-[13px] active:scale-95 transition-all">
+                                    Yes, cancel
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+    }
 
     return (
         <div>
@@ -226,48 +338,6 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                     </div>
                 )}
 
-                {state === 'my_ping_claimed' && (
-                    <div className="flex-1">
-                        {/* Claimer info — Uber-style "driver on the way" */}
-                        <div className="flex items-center gap-3 mb-3 p-3 rounded-2xl bg-[#1e75ff]/08 border border-[#1e75ff]/20">
-                            <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-white font-bold text-sm"
-                                style={{ background: 'linear-gradient(135deg, #1e75ff, #0ea5e9)' }}>
-                                {(selectedItem.interestedUserName || 'S').charAt(0).toUpperCase()}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <p className="text-sm font-bold text-[var(--color-text)] truncate">{selectedItem.interestedUserName || 'Someone'}</p>
-                                {(() => {
-                                    const vc = selectedItem.interestedUserVehicleColor;
-                                    const vt = selectedItem.interestedUserVehicleType;
-                                    const vb = selectedItem.interestedUserVehicleBrand;
-                                    const label = [vc, vb, vt].filter(Boolean).join(' · ');
-                                    return label ? (
-                                        <div className="flex items-center gap-1.5 mt-0.5">
-                                            <VehicleIcon type={vt} color={vc} size={12} />
-                                            <span className="text-[11px] text-[var(--color-text-secondary)] truncate">{label}</span>
-                                        </div>
-                                    ) : null;
-                                })()}
-                            </div>
-                            <div className="text-right shrink-0">
-                                <p className="text-lg font-extrabold text-[var(--color-text)]">~{selectedItem.etaMinutes}</p>
-                                <p className="text-[9px] font-bold text-[#38bdf8] uppercase tracking-wide -mt-0.5">min away</p>
-                            </div>
-                        </div>
-                        <div className="flex gap-2">
-                            <button onClick={() => setShowQuickReplies(!showQuickReplies)}
-                                className="flex-1 text-white font-bold py-2.5 rounded-xl flex items-center justify-center gap-1.5 transition-all text-[12px] active:scale-95"
-                                style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}>
-                                <MessageSquare size={13} />
-                                Message
-                            </button>
-                            <button onClick={onCancelByFinder}
-                                className="px-4 border border-red-500/40 hover:bg-red-500/10 text-red-400 font-bold py-2.5 rounded-xl transition-all text-[12px] active:scale-95">
-                                Cancel
-                            </button>
-                        </div>
-                    </div>
-                )}
 
                 {state === 'third_party' && (
                     <span className="flex-1 text-[10px] font-bold text-amber-400 self-center text-center px-2 py-1 bg-amber-500/10 rounded-xl border border-amber-500/20">

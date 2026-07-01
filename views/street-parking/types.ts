@@ -21,6 +21,7 @@ export interface MapItem {
     interestedUserVehicleColor?: string | null;
     interestedUserVehicleType?: string | null;
     interestedUserVehicleBrand?: string | null;
+    interestedUserTitle?: string | null;
     etaMinutes?: number | null;
     interestExpiresAt?: any;
     address?: string;
