@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { AppView } from '../types';
-import { MapPin, Check, Locate, X, Bell, Clock } from 'lucide-react';
+import { MapPin, Check, Locate, X, Bell, Clock, ChevronRight } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, addDoc, Timestamp, doc, deleteDoc, writeBatch, updateDoc, getDocs, where, query } from 'firebase/firestore';
 import mapboxgl from 'mapbox-gl';
@@ -695,20 +695,19 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     {nearestSpot && !selectedItem && (
                         <button
                             onClick={() => setSelectedItem(nearestSpot.spot)}
-                            className="w-full max-w-[380px] mx-auto bg-[var(--color-glass)] backdrop-blur-xl border border-[var(--color-border)] rounded-2xl px-3.5 py-2.5 flex items-center gap-3 shadow-lg"
+                            className="nearest-spot-chip mx-auto flex items-center gap-2 px-3.5 py-2 rounded-full border border-white/15 active:scale-95 transition-transform"
+                            style={{ backdropFilter: 'blur(12px)', background: 'rgba(255,255,255,0.06)' }}
                         >
-                            <div className="w-8 h-8 rounded-xl bg-[#1e75ff]/15 flex items-center justify-center shrink-0">
-                                <MapPin size={14} className="text-[#1e75ff]" />
-                            </div>
-                            <div className="flex-1 min-w-0 text-left">
-                                <div className="text-[11px] font-bold text-[var(--color-text)] truncate">Nearest spot · {nearestSpot.distText}</div>
-                                {nearestSpot.timeAgo && (
-                                    <div className="text-[10px] text-[var(--color-text-secondary)] flex items-center gap-1 mt-0.5">
-                                        <Clock size={9} />
-                                        Reported {nearestSpot.timeAgo}
-                                    </div>
-                                )}
-                            </div>
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#1e75ff] shrink-0" />
+                            <span className="text-[12px] font-semibold text-[var(--color-text)] whitespace-nowrap">
+                                {nearestSpot.distText}
+                                {nearestSpot.spot.reportedAt && (() => {
+                                    const dep = typeof nearestSpot.spot.reportedAt.toDate === 'function' ? nearestSpot.spot.reportedAt.toDate() : new Date(nearestSpot.spot.reportedAt);
+                                    const isScheduled = dep.getTime() > Date.now() + 60_000;
+                                    return <span className="text-[#38bdf8]"> · {isScheduled ? `Available ${dep.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Leaving now'}</span>;
+                                })()}
+                            </span>
+                            <ChevronRight size={12} className="text-[var(--color-text-secondary)] shrink-0" />
                         </button>
                     )}
 
