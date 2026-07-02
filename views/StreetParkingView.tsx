@@ -749,13 +749,24 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     <div className="px-4 py-3">
                                         <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-1">Time</p>
                                         <div className="flex items-center gap-2">
-                                            <input
-                                                type="time"
-                                                id="pq-reminder-time"
-                                                className="flex-1 min-w-0 bg-transparent text-sm font-semibold text-white focus:outline-none"
-                                                style={{ colorScheme: 'dark' }}
-                                                autoFocus
-                                            />
+                                            <div className="flex items-center gap-1 flex-1 min-w-0">
+                                                <input
+                                                    type="number"
+                                                    id="pq-reminder-hour"
+                                                    min={1} max={12}
+                                                    placeholder="12"
+                                                    className="w-10 bg-transparent text-sm font-semibold text-white text-center focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                                                    autoFocus
+                                                />
+                                                <span className="text-sm font-bold text-[var(--color-text-secondary)]">:</span>
+                                                <input
+                                                    type="number"
+                                                    id="pq-reminder-minute"
+                                                    min={0} max={59}
+                                                    placeholder="00"
+                                                    className="w-10 bg-transparent text-sm font-semibold text-white text-center focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                                                />
+                                            </div>
                                             <div className="flex rounded-lg overflow-hidden border border-[var(--color-border)] shrink-0">
                                                 {(['AM', 'PM'] as const).map(period => (
                                                     <button key={period} type="button"
@@ -781,10 +792,10 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     <button
                                         onClick={() => {
                                             const dateEl = document.getElementById('pq-reminder-date') as HTMLInputElement;
-                                            const timeEl = document.getElementById('pq-reminder-time') as HTMLInputElement;
-                                            if (!timeEl.value) return;
-                                            const [hRaw, m] = timeEl.value.split(':').map(Number);
-                                            // Reconcile 12h display with AM/PM selection
+                                            const hourEl = document.getElementById('pq-reminder-hour') as HTMLInputElement;
+                                            const minEl = document.getElementById('pq-reminder-minute') as HTMLInputElement;
+                                            const hRaw = parseInt(hourEl.value) || 12;
+                                            const m = parseInt(minEl.value) || 0;
                                             let h = hRaw % 12;
                                             if (reminderAmPm === 'PM') h += 12;
                                             const dateStr = dateEl.value || new Date().toISOString().split('T')[0];
