@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { db } from '../../firebase';
-import { doc, updateDoc, deleteDoc, runTransaction, Timestamp, collection, query, where, getDocs, addDoc, onSnapshot, orderBy, limit } from 'firebase/firestore';
+import { doc, updateDoc, deleteDoc, runTransaction, Timestamp, collection, query, where, getDocs, addDoc, onSnapshot, orderBy, limit, increment } from 'firebase/firestore';
 import { MapItem } from './types';
 import { getDistance, drawRoute, clearRoute, NYC_CENTER } from './utils';
 import { getTitleForCrowns } from '../../utils/crowns';
@@ -16,9 +16,9 @@ interface UseInterestFlowOptions {
 }
 
 const MAX_ETA_MINUTES = 7;
+const MAX_CLAIM_MINUTES = 15;
 const ARRIVAL_DISTANCE_KM = 0.015; // ~50 feet
 const ETA_OPTIONS = [2, 5, 8, 10];
-// ponytail: straight-line km to estimated driving minutes at ~25 km/h city speed
 const kmToEstMinutes = (km: number) => Math.ceil((km / 25) * 60);
 
 export function useInterestFlow({
@@ -28,7 +28,10 @@ export function useInterestFlow({
     const [interestError, setInterestError] = useState<string | null>(null);
     const lastWrittenEtaRef = useRef<number | null>(null);
     const etaWriteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const expiryWarnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [handoffStep, setHandoffStep] = useState<'outcome' | 'celebration' | 'failure_reason' | null>(null);
+    const [handoffFinderName, setHandoffFinderName] = useState<string | null>(null);
+    const [handoffAddress, setHandoffAddress] = useState<string>('');
     const handoffSpotRef = useRef<{
         id: string; lat: number; lng: number; address?: string;
         finderId: string; finderName: string; geohash?: string;
@@ -90,6 +93,28 @@ export function useInterestFlow({
         return () => { if (etaWriteTimerRef.current) clearTimeout(etaWriteTimerRef.current); };
     }, [trackedItemId, userLocation, freeSpots]);
 
+    // Pre-expiry warning: notify claimer 2 minutes before claim expires
+    useEffect(() => {
+        if (expiryWarnTimerRef.current) clearTimeout(expiryWarnTimerRef.current);
+        if (!trackedItemId) return;
+        const spot = freeSpots.find(s => s.id === trackedItemId);
+        if (!spot?.interestExpiresAt) return;
+
+        const expiresMs = typeof spot.interestExpiresAt.toMillis === 'function'
+            ? spot.interestExpiresAt.toMillis()
+            : new Date(spot.interestExpiresAt).getTime();
+
+        const delay = expiresMs - 2 * 60 * 1000 - Date.now();
+        if (delay <= 0) return;
+
+        expiryWarnTimerRef.current = setTimeout(() => {
+            setDriverNotification("Your claim expires in 2 minutes — still heading there?");
+            setTimeout(() => setDriverNotification(null), 8000);
+        }, delay);
+
+        return () => { if (expiryWarnTimerRef.current) clearTimeout(expiryWarnTimerRef.current); };
+    }, [trackedItemId, freeSpots]);
+
     const getEstDriveMinutes = (spot: MapItem): number | null => {
         if (!userLocation) return null;
         const km = getDistance(userLocation[1], userLocation[0], spot.lat, spot.lng);
@@ -133,6 +158,8 @@ export function useInterestFlow({
                 const data = fresh.data();
                 if (data.status !== 'available') throw new Error("Someone already got this spot");
 
+                const claimMinutes = Math.min(etaMinutes + 5, MAX_CLAIM_MINUTES);
+
                 tx.update(spotRef, {
                     status: 'interested',
                     interestedUserId: user.id,
@@ -142,11 +169,10 @@ export function useInterestFlow({
                     interestedUserVehicleBrand: user.vehicleBrand || null,
                     interestedUserTitle: getTitleForCrowns(user.crowns || 0),
                     etaMinutes,
-                    interestExpiresAt: Timestamp.fromMillis(Date.now() + (etaMinutes + 3) * 60000),
+                    interestExpiresAt: Timestamp.fromMillis(Date.now() + claimMinutes * 60000),
                 });
             });
 
-            // Start route tracking
             const dest: [number, number] = [spot.lng, spot.lat];
             activeRouteDestinationRef.current = dest;
             setTrackedItemId(spot.id);
@@ -156,14 +182,18 @@ export function useInterestFlow({
         }
     };
 
-    const handleCancelByFinder = async () => {
+    const handleCancelByFinder = async (reason: string) => {
         if (!selectedItem || !db) return;
         const interestedId = selectedItem.interestedUserId;
         if (interestedId) {
+            const messages: Record<string, string> = {
+                "Can't wait anymore": "The driver couldn't wait any longer — your claim has been released.",
+                "Spot no longer available": "The spot is no longer available.",
+            };
             await addDoc(collection(db, 'spotNotifications'), {
                 targetUserId: interestedId,
                 type: 'cancelled',
-                message: "The driver isn't leaving anymore",
+                message: messages[reason] ?? "The driver had to cancel.",
                 createdAt: Timestamp.now(),
             });
         }
@@ -171,14 +201,52 @@ export function useInterestFlow({
         setSelectedItem(null);
     };
 
-    const handleCancelByClaimer = async () => {
+    // Finder confirms the claimer arrived — triggers success flow without requiring claimer's tap
+    const handleFinderConfirmsArrival = async () => {
+        if (!selectedItem || !user || !db) return;
+        const claimerId = selectedItem.interestedUserId;
+        const claimerName = selectedItem.interestedUserName || 'the driver';
+
+        await updateDoc(doc(db, 'spots', selectedItem.id), { status: 'occupied' });
+
+        await addDoc(collection(db, 'spotFeedback'), {
+            spotId: selectedItem.id,
+            userId: claimerId,
+            finderId: user.id,
+            outcome: 'success',
+            failureReason: null,
+            address: selectedItem.title || selectedItem.address || '',
+            confirmedByFinder: true,
+            createdAt: Timestamp.now(),
+        });
+
+        if (claimerId) {
+            await addDoc(collection(db, 'spotNotifications'), {
+                targetUserId: claimerId,
+                type: 'handoff_success',
+                message: `${user.username || 'The driver'} confirmed you're parked — +1 Crown earned!`,
+                createdAt: Timestamp.now(),
+            });
+        }
+
+        setFinderToast(`Nice one! ${claimerName} is parked. +2 Crowns earned.`);
+        setTimeout(() => setFinderToast(null), 6000);
+        setSelectedItem(null);
+    };
+
+    const handleCancelByClaimer = async (reason: string) => {
         if (!selectedItem || !user || !db) return;
         const finderId = selectedItem.finderId;
         if (finderId) {
+            const messages: Record<string, string> = {
+                "Found parking elsewhere": "The driver found parking elsewhere — your spot is available again.",
+                "Traffic is too heavy": "The driver got stuck in traffic — your spot is available again.",
+                "Changed my mind": "The driver changed their mind — your spot is available again.",
+            };
             await addDoc(collection(db, 'spotNotifications'), {
                 targetUserId: finderId,
                 type: 'claimer_cancelled',
-                message: 'The other driver changed their mind — your spot is available again',
+                message: messages[reason] ?? "The other driver canceled — your spot is available again.",
                 createdAt: Timestamp.now(),
             });
         }
@@ -216,7 +284,6 @@ export function useInterestFlow({
 
     const handleArrival = async () => {
         if (!selectedItem || !user || !db) return;
-        // Capture spot data before marking occupied
         handoffSpotRef.current = {
             id: selectedItem.id,
             lat: selectedItem.lat,
@@ -226,6 +293,8 @@ export function useInterestFlow({
             finderName: selectedItem.finderName,
             geohash: selectedItem.geohash,
         };
+        setHandoffFinderName(selectedItem.finderName || null);
+        setHandoffAddress(selectedItem.title || selectedItem.address || '');
         await updateDoc(doc(db, 'spots', selectedItem.id), { status: 'occupied' });
         setTrackedItemId(null);
         activeRouteDestinationRef.current = null;
@@ -251,8 +320,18 @@ export function useInterestFlow({
             await addDoc(collection(db, 'spotNotifications'), {
                 targetUserId: spotSnap.finderId,
                 type: 'handoff_success',
-                message: 'Your parking ping helped another driver find parking!',
+                message: `${user.username || 'Someone'} parked in your spot — +2 Crowns earned!`,
                 createdAt: Timestamp.now(),
+            });
+            // Save last parked location and track claim count for reciprocity nudge
+            await updateDoc(doc(db, 'users', user.id), {
+                lastParkedLocation: {
+                    lat: spotSnap.lat,
+                    lng: spotSnap.lng,
+                    address: spotSnap.address || '',
+                    savedAt: Timestamp.now(),
+                },
+                claimCount: increment(1),
             });
             setHandoffStep('celebration');
         } else {
@@ -277,6 +356,8 @@ export function useInterestFlow({
         }
 
         setHandoffStep(null);
+        setHandoffFinderName(null);
+        setHandoffAddress('');
         handoffSpotRef.current = null;
         setSelectedItem(null);
     };
@@ -305,12 +386,16 @@ export function useInterestFlow({
         });
 
         setHandoffStep(null);
+        setHandoffFinderName(null);
+        setHandoffAddress('');
         handoffSpotRef.current = null;
         setSelectedItem(null);
     };
 
     const handleSkipDeparture = () => {
         setHandoffStep(null);
+        setHandoffFinderName(null);
+        setHandoffAddress('');
         handoffSpotRef.current = null;
         setSelectedItem(null);
     };
@@ -320,11 +405,14 @@ export function useInterestFlow({
         interestError,
         setInterestError,
         handoffStep,
+        handoffFinderName,
+        handoffAddress,
         finderToast,
         driverNotification,
         handleExpressInterest,
         handleCancelByFinder,
         handleCancelByClaimer,
+        handleFinderConfirmsArrival,
         handleDelayByFinder,
         handleArrival,
         handleHandoffOutcome,

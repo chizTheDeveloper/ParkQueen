@@ -21,9 +21,10 @@ interface HeaderBarProps {
 }
 
 const UserAvatar = ({ user, onClick }: { user: any; onClick: () => void }) => {
-    const initials = (user?.fullName || '?')
+    const initials = (user?.fullName || user?.username || 'PQ')
         .split(' ')
         .map((w: string) => w[0])
+        .filter(Boolean)
         .slice(0, 2)
         .join('')
         .toUpperCase();

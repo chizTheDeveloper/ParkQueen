@@ -20,9 +20,11 @@ interface SpotDetailsCardProps {
     onEditSpot: (spot: any) => void;
     onDeletePing: () => void;
     onArrival: () => void;
-    onCancelByFinder: () => void;
-    onCancelByClaimer: () => void;
+    onCancelByFinder: (reason: string) => void;
+    onCancelByClaimer: (reason: string) => void;
+    onDriverArrived: () => void;
     onMessageUser: (userId: string, context: string) => void;
+    nearbyInterestCount?: number;
     interestError: string | null;
     estDriveMinutes: number | null;
     isWithinArrivalRange: boolean;
@@ -33,12 +35,13 @@ interface SpotDetailsCardProps {
 export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
     selectedItem, freeSpots, user, userLocation, spotAddress,
     onHeadingThere, onEditSpot, onDeletePing, onArrival,
-    onCancelByFinder, onCancelByClaimer, onMessageUser,
-    interestError, estDriveMinutes, isWithinArrivalRange, maxEtaMinutes, manageMode = false,
+    onCancelByFinder, onCancelByClaimer, onDriverArrived, onMessageUser,
+    nearbyInterestCount = 0, interestError, estDriveMinutes, isWithinArrivalRange, maxEtaMinutes, manageMode = false,
 }) => {
     const [showQuickReplies, setShowQuickReplies] = useState(false);
     const [messageSent, setMessageSent] = useState(false);
-    const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+    const [showClaimerReasons, setShowClaimerReasons] = useState(false);
+    const [showFinderReasons, setShowFinderReasons] = useState(false);
 
     if (!selectedItem) return null;
 
@@ -172,21 +175,39 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                     </div>
                 )}
 
-                <div className="flex gap-2">
-                    <button onClick={onCancelByClaimer}
-                        className="px-4 border border-red-500/40 hover:bg-red-500/10 text-red-400 font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95">
-                        Cancel
-                    </button>
-                    <button onClick={() => setShowQuickReplies(!showQuickReplies)}
-                        className="p-3.5 rounded-2xl bg-white/10 hover:bg-white/20 text-[var(--color-text)] flex items-center justify-center transition-all shrink-0 active:scale-95">
-                        <MessageSquare size={16} />
-                    </button>
-                    <button onClick={onArrival} disabled={!isWithinArrivalRange}
-                        className="flex-1 font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95 text-white disabled:opacity-40"
-                        style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}>
-                        {isWithinArrivalRange ? "I've arrived" : "Get closer"}
-                    </button>
-                </div>
+                {showClaimerReasons ? (
+                    <div>
+                        <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest text-center mb-3">Why are you canceling?</p>
+                        <div className="space-y-2 mb-2">
+                            {["Found parking elsewhere", "Traffic is too heavy", "Changed my mind"].map(reason => (
+                                <button key={reason} onClick={() => onCancelByClaimer(reason)}
+                                    className="w-full py-3 px-4 rounded-2xl text-sm font-semibold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 transition-all active:scale-95 text-[var(--color-text)] text-left">
+                                    {reason}
+                                </button>
+                            ))}
+                        </div>
+                        <button onClick={() => setShowClaimerReasons(false)}
+                            className="w-full py-2.5 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-all">
+                            ← Back
+                        </button>
+                    </div>
+                ) : (
+                    <div className="flex gap-2">
+                        <button onClick={() => setShowClaimerReasons(true)}
+                            className="px-4 border border-red-500/40 hover:bg-red-500/10 text-red-400 font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95">
+                            Cancel
+                        </button>
+                        <button onClick={() => setShowQuickReplies(!showQuickReplies)}
+                            className="p-3.5 rounded-2xl bg-white/10 hover:bg-white/20 text-[var(--color-text)] flex items-center justify-center transition-all shrink-0 active:scale-95">
+                            <MessageSquare size={16} />
+                        </button>
+                        <button onClick={onArrival} disabled={!isWithinArrivalRange}
+                            className="flex-1 font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95 text-white disabled:opacity-40"
+                            style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}>
+                            {isWithinArrivalRange ? "I've arrived" : "Get closer"}
+                        </button>
+                    </div>
+                )}
             </div>
         );
     }
@@ -266,41 +287,38 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                     </div>
                 )}
 
-                <div className="flex gap-2">
-                    <button onClick={() => setShowCancelConfirm(true)}
-                        className="px-4 border border-red-500/40 hover:bg-red-500/10 text-red-400 font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95">
-                        Cancel
-                    </button>
-                    <button onClick={() => setShowQuickReplies(!showQuickReplies)}
-                        className="flex-1 text-white font-bold py-3.5 rounded-2xl flex items-center justify-center gap-1.5 transition-all text-sm active:scale-95"
-                        style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}>
-                        <MessageSquare size={14} />
-                        Message
-                    </button>
-                </div>
-
-                {/* Cancel confirmation overlay */}
-                {showCancelConfirm && (
-                    <div className="fixed inset-0 z-50 flex items-end justify-center p-4 pb-8" style={{ background: 'rgba(0,0,0,0.6)' }}
-                        onClick={() => setShowCancelConfirm(false)}>
-                        <div className="w-full max-w-sm rounded-3xl p-6 shadow-2xl"
-                            style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
-                            onClick={e => e.stopPropagation()}>
-                            <p className="text-base font-extrabold text-[var(--color-text)] mb-2">Cancel your spot?</p>
-                            <p className="text-sm text-[var(--color-text-secondary)] mb-6 leading-relaxed">
-                                If you cancel, your spot goes back to available and {selectedItem.interestedUserName || 'the driver'} will be notified that it's no longer reserved.
-                            </p>
-                            <div className="flex gap-3">
-                                <button onClick={() => setShowCancelConfirm(false)}
-                                    className="flex-1 border border-[var(--color-border)] text-[var(--color-text)] font-bold py-3 rounded-2xl text-[13px] active:scale-95 transition-all">
-                                    Keep it
+                {showFinderReasons ? (
+                    <div>
+                        <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest text-center mb-3">What's happening?</p>
+                        <div className="space-y-2 mb-2">
+                            <button onClick={onDriverArrived}
+                                className="w-full py-3 px-4 rounded-2xl text-sm font-semibold border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/15 transition-all active:scale-95 text-emerald-400 text-left">
+                                The driver arrived ✓
+                            </button>
+                            {["Can't wait anymore", "Spot no longer available"].map(reason => (
+                                <button key={reason} onClick={() => onCancelByFinder(reason)}
+                                    className="w-full py-3 px-4 rounded-2xl text-sm font-semibold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 transition-all active:scale-95 text-[var(--color-text)] text-left">
+                                    {reason}
                                 </button>
-                                <button onClick={() => { setShowCancelConfirm(false); onCancelByFinder(); }}
-                                    className="flex-1 bg-red-500/15 border border-red-500/40 text-red-400 font-bold py-3 rounded-2xl text-[13px] active:scale-95 transition-all">
-                                    Yes, cancel
-                                </button>
-                            </div>
+                            ))}
                         </div>
+                        <button onClick={() => setShowFinderReasons(false)}
+                            className="w-full py-2.5 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-all">
+                            ← Back
+                        </button>
+                    </div>
+                ) : (
+                    <div className="flex gap-2">
+                        <button onClick={() => setShowFinderReasons(true)}
+                            className="px-4 border border-red-500/40 hover:bg-red-500/10 text-red-400 font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95">
+                            Cancel
+                        </button>
+                        <button onClick={() => setShowQuickReplies(!showQuickReplies)}
+                            className="flex-1 text-white font-bold py-3.5 rounded-2xl flex items-center justify-center gap-1.5 transition-all text-sm active:scale-95"
+                            style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}>
+                            <MessageSquare size={14} />
+                            Message
+                        </button>
                     </div>
                 )}
             </div>

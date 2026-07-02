@@ -116,7 +116,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                                     <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><Edit size={18} /></div>
                                     <div>
                                         <h4 className="font-bold text-[var(--color-text)] text-sm">Edit profile</h4>
-                                        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Update your name and photo</p>
+                                        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Update your name, username and more</p>
                                     </div>
                                 </div>
                                 <ChevronRight size={16} className="text-[var(--color-text-secondary)]" />

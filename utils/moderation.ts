@@ -5,7 +5,7 @@ const RESERVED = new Set([
 ]);
 
 const BANNED_WORDS = new Set([
-    'fuck','shit','asshole','bitch','dick','pussy','cunt','damn','bastard','piss',
+    'fuck','fuk','fuq','fvck','shit','asshole','bitch','dick','pussy','cunt','damn','bastard','piss',
     'cock','tits','boobs','arse','bollocks','bugger','wanker','twat','prick','slut',
     'whore','skank','hoe','thot',
     'nigger','nigga','nigg','negro','chink','spic','wetback','kike','gook','raghead',
@@ -14,22 +14,47 @@ const BANNED_WORDS = new Set([
     'porn','porno','xxx','nsfw','hentai','milf','dildo','blowjob','handjob',
     'cumshot','orgasm','penis','vagina','clitoris','anus','anal','fellatio',
     'killyou','killyourself','kys','rape','molest','murder','terrorist','bomb',
-    'puta','mierda','coño','verga','pendejo','cabron','chingada','culero','maricon',
+    'puta','mierda','cono','verga','pendejo','cabron','chingada','culero','maricon',
 ]);
+
+// Banned only as an exact full username (avoids false positives like "cassandra")
+const BANNED_EXACT = new Set(['ass','fuk','fuq','cum','pee','poo']);
+
+// Banned when they appear at the start OR end of a username (catches "bigass", "asshat", "bigcock")
+const BANNED_AFFIXES = ['ass','cock','dick','tit','cum','piss','shit','fuck','cunt','slut','whore'];
 
 function normalize(str: string): string {
     return str.toLowerCase()
-        .replace(/@/g, 'a').replace(/0/g, 'o').replace(/1/g, 'i').replace(/!/g, 'i')
-        .replace(/3/g, 'e').replace(/\$/g, 's').replace(/5/g, 's').replace(/7/g, 't')
-        .replace(/4/g, 'a').replace(/8/g, 'b').replace(/9/g, 'g')
+        .replace(/@/g, 'a')
+        .replace(/0/g, 'o')
+        .replace(/1/g, 'i')
+        .replace(/!/g, 'i')
+        .replace(/3/g, 'e')
+        .replace(/\$/g, 's')
+        .replace(/5/g, 's')
+        .replace(/7/g, 't')
+        .replace(/4/g, 'a')
+        .replace(/8/g, 'b')
+        .replace(/9/g, 'g')
         .replace(/[_\-.\s]/g, '');
 }
 
 export function checkBannedWords(text: string): boolean {
     const cleaned = normalize(text);
+
+    // Substring match — catches compound dirty words that are clearly bad in any position
     for (const word of BANNED_WORDS) {
         if (cleaned.includes(word)) return true;
     }
+
+    // Exact match — catches standalone words that are fine as substrings (e.g. "ass" in "cassandra")
+    if (BANNED_EXACT.has(cleaned)) return true;
+
+    // Affix match — catches compound usernames like "bigass", "asshat", "bigcock"
+    for (const affix of BANNED_AFFIXES) {
+        if (cleaned.startsWith(affix) || cleaned.endsWith(affix)) return true;
+    }
+
     return false;
 }
 
