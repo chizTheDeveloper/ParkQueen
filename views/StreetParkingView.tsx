@@ -109,6 +109,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const [showDepartureSheet, setShowDepartureSheet] = useState(false);
     const [parkedDuration, setParkedDuration] = useState('');
     const [showCustomReminder, setShowCustomReminder] = useState(false);
+    const [reminderAmPm, setReminderAmPm] = useState<'AM' | 'PM'>(new Date().getHours() < 12 ? 'AM' : 'PM');
     const reminderSlots = useMemo(() => {
         const now = new Date();
         const start = new Date(now);
@@ -747,13 +748,28 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     </div>
                                     <div className="px-4 py-3">
                                         <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-1">Time</p>
-                                        <input
-                                            type="time"
-                                            id="pq-reminder-time"
-                                            className="w-full bg-transparent text-sm font-semibold text-white focus:outline-none"
-                                            style={{ colorScheme: 'dark' }}
-                                            autoFocus
-                                        />
+                                        <div className="flex items-center gap-2">
+                                            <input
+                                                type="time"
+                                                id="pq-reminder-time"
+                                                className="flex-1 min-w-0 bg-transparent text-sm font-semibold text-white focus:outline-none"
+                                                style={{ colorScheme: 'dark' }}
+                                                autoFocus
+                                            />
+                                            <div className="flex rounded-lg overflow-hidden border border-[var(--color-border)] shrink-0">
+                                                {(['AM', 'PM'] as const).map(period => (
+                                                    <button key={period} type="button"
+                                                        onClick={() => setReminderAmPm(period)}
+                                                        className={`px-2.5 py-1 text-xs font-bold transition-colors ${
+                                                            reminderAmPm === period
+                                                                ? 'bg-[#1e75ff] text-white'
+                                                                : 'bg-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text)]'
+                                                        }`}>
+                                                        {period}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                                 <div className="h-px bg-[var(--color-border)]" />
@@ -767,8 +783,12 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                             const dateEl = document.getElementById('pq-reminder-date') as HTMLInputElement;
                                             const timeEl = document.getElementById('pq-reminder-time') as HTMLInputElement;
                                             if (!timeEl.value) return;
+                                            const [hRaw, m] = timeEl.value.split(':').map(Number);
+                                            // Reconcile 12h display with AM/PM selection
+                                            let h = hRaw % 12;
+                                            if (reminderAmPm === 'PM') h += 12;
                                             const dateStr = dateEl.value || new Date().toISOString().split('T')[0];
-                                            const target = new Date(`${dateStr}T${timeEl.value}`);
+                                            const target = new Date(`${dateStr}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`);
                                             const minutes = Math.round((target.getTime() - Date.now()) / 60000);
                                             if (minutes > 0) {
                                                 parkingTimer.startTimer(minutes, savedSpot!.address || '', () => setShowDepartureSheet(true));
