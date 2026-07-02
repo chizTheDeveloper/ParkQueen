@@ -238,7 +238,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
                         />
                       </div>
                       <div className="flex items-center justify-center gap-1.5 mt-2">
-                        <Crown size={13} className="text-yellow-400 drop-shadow-[0_0_6px_rgba(250,204,21,0.6)]" />
+                        <Crown size={13} className="text-yellow-400" />
                         <p className="text-xs text-[var(--color-text-secondary)]">
                           <span className="font-bold text-[var(--color-text)]">{next.crownsNeeded}</span> crowns until{' '}
                           <span className="font-bold" style={{ color: TIER_VISUALS[next.tier].textColor }}>{next.title}</span>
