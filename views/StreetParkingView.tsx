@@ -757,6 +757,18 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                                     placeholder="12"
                                                     className="w-10 bg-transparent text-sm font-semibold text-white text-center focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
                                                     autoFocus
+                                                    onChange={(e) => {
+                                                        const v = parseInt(e.target.value);
+                                                        if (isNaN(v)) return;
+                                                        if (v > 12) e.target.value = '12';
+                                                        if (v < 1) e.target.value = '1';
+                                                    }}
+                                                    onKeyDown={(e) => {
+                                                        // block minus and any digit that would make value > 2 chars
+                                                        if (e.key === '-') e.preventDefault();
+                                                        const cur = (e.target as HTMLInputElement).value;
+                                                        if (cur.length >= 2 && e.key.length === 1 && /\d/.test(e.key)) e.preventDefault();
+                                                    }}
                                                 />
                                                 <span className="text-sm font-bold text-[var(--color-text-secondary)]">:</span>
                                                 <input
@@ -765,6 +777,17 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                                     min={0} max={59}
                                                     placeholder="00"
                                                     className="w-10 bg-transparent text-sm font-semibold text-white text-center focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                                                    onChange={(e) => {
+                                                        const v = parseInt(e.target.value);
+                                                        if (isNaN(v)) return;
+                                                        if (v > 59) e.target.value = '59';
+                                                        if (v < 0) e.target.value = '0';
+                                                    }}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === '-') e.preventDefault();
+                                                        const cur = (e.target as HTMLInputElement).value;
+                                                        if (cur.length >= 2 && e.key.length === 1 && /\d/.test(e.key)) e.preventDefault();
+                                                    }}
                                                 />
                                             </div>
                                             <div className="flex rounded-lg overflow-hidden border border-[var(--color-border)] shrink-0">
