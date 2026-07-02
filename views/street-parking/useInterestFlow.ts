@@ -25,7 +25,6 @@ export function useInterestFlow({
     selectedItem, setSelectedItem, user, freeSpots, userLocation, mapRef, activeRouteDestinationRef
 }: UseInterestFlowOptions) {
     const [trackedItemId, setTrackedItemId] = useState<string | null>(null);
-    const [isEtaPickerOpen, setIsEtaPickerOpen] = useState(false);
     const [interestError, setInterestError] = useState<string | null>(null);
     const lastWrittenEtaRef = useRef<number | null>(null);
     const etaWriteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -113,7 +112,6 @@ export function useInterestFlow({
         const spot = selectedItem;
         if (!spot || !user || !db) return;
         setInterestError(null);
-        setIsEtaPickerOpen(false);
 
         const estMinutes = getEstDriveMinutes(spot);
         if (estMinutes !== null && estMinutes > MAX_ETA_MINUTES) {
@@ -319,8 +317,6 @@ export function useInterestFlow({
 
     return {
         trackedItemId,
-        isEtaPickerOpen,
-        setIsEtaPickerOpen,
         interestError,
         setInterestError,
         handoffStep,

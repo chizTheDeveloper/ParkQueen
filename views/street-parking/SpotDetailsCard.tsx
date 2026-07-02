@@ -169,7 +169,7 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                     <div className="mb-3 grid grid-cols-2 gap-1.5">
                         {QUICK_REPLIES.map(msg => (
                             <button key={msg} onClick={() => sendQuickReply(msg)}
-                                className="bg-white/5 border border-[var(--color-border)] hover:bg-white/10 text-[var(--color-text)] font-semibold py-2 px-2 rounded-xl text-[10px] transition-all active:scale-95">
+                                className="bg-white/5 border border-[var(--color-border)] hover:bg-white/10 text-[var(--color-text)] font-semibold py-2.5 px-2 rounded-2xl text-xs transition-all active:scale-95">
                                 {msg}
                             </button>
                         ))}
@@ -178,11 +178,11 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
 
                 <div className="flex gap-2">
                     <button onClick={() => setShowCancelConfirm(true)}
-                        className="px-4 border border-red-500/40 hover:bg-red-500/10 text-red-400 font-bold py-3 rounded-xl transition-all text-[13px] active:scale-95">
+                        className="px-4 border border-red-500/40 hover:bg-red-500/10 text-red-400 font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95">
                         Cancel
                     </button>
                     <button onClick={() => setShowQuickReplies(!showQuickReplies)}
-                        className="flex-1 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-1.5 transition-all text-[13px] active:scale-95"
+                        className="flex-1 text-white font-bold py-3.5 rounded-2xl flex items-center justify-center gap-1.5 transition-all text-sm active:scale-95"
                         style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}>
                         <MessageSquare size={14} />
                         Message
@@ -234,14 +234,19 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                             {badgeConfig.label}
                         </span>
                     </div>
-                    {/* Vehicle info */}
-                    {hasVehicle ? (
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                            <VehicleIcon type={vehicleType} color={vehicleColor} size={13} />
-                            <span className="text-[11px] text-[var(--color-text-secondary)] truncate">{vehicleLabel}</span>
-                        </div>
+                    {state === 'available' ? (
+                        selectedItem.finderTitle && (
+                            <span className="text-[11px] font-semibold text-[#38bdf8] mt-0.5 block">{selectedItem.finderTitle}</span>
+                        )
                     ) : (
-                        <span className="text-[11px] text-[var(--color-text-secondary)]">No vehicle info</span>
+                        hasVehicle ? (
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                                <VehicleIcon type={vehicleType} color={vehicleColor} size={13} />
+                                <span className="text-[11px] text-[var(--color-text-secondary)] truncate">{vehicleLabel}</span>
+                            </div>
+                        ) : (
+                            <span className="text-[11px] text-[var(--color-text-secondary)]">No vehicle info</span>
+                        )
                     )}
                 </div>
             </div>
@@ -277,7 +282,7 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                 <div className="mb-3 grid grid-cols-2 gap-1.5">
                     {QUICK_REPLIES.map(msg => (
                         <button key={msg} onClick={() => sendQuickReply(msg)}
-                            className="bg-white/5 border border-[var(--color-border)] hover:bg-white/10 text-[var(--color-text)] font-semibold py-2 px-2 rounded-xl text-[10px] transition-all active:scale-95">
+                            className="bg-white/5 border border-[var(--color-border)] hover:bg-white/10 text-[var(--color-text)] font-semibold py-2.5 px-2 rounded-2xl text-xs transition-all active:scale-95">
                             {msg}
                         </button>
                     ))}
@@ -289,16 +294,16 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                 {state === 'available' && (
                     <>
                         <button onClick={() => onMessageUser(selectedItem.finderId, `Spot pinged by ${finderName}`)}
-                            className="bg-white/10 hover:bg-white/20 text-[var(--color-text)] p-2.5 rounded-xl flex items-center justify-center transition-all shadow-md shrink-0 active:scale-95">
+                            className="bg-white/10 hover:bg-white/20 text-[var(--color-text)] p-3 rounded-2xl flex items-center justify-center transition-all shrink-0 active:scale-95">
                             <MessageSquare size={16} />
                         </button>
                         {estDriveMinutes !== null && estDriveMinutes > maxEtaMinutes ? (
-                            <span className="flex-1 text-[10px] text-[var(--color-text-secondary)] self-center text-center">
+                            <span className="flex-1 text-xs text-[var(--color-text-secondary)] self-center text-center">
                                 Too far (~{estDriveMinutes} min drive)
                             </span>
                         ) : (
                             <button onClick={onHeadingThere}
-                                className="flex-1 font-bold py-2.5 rounded-xl transition-all text-[13px] shadow-md active:scale-95 text-white flex items-center justify-center gap-1.5"
+                                className="flex-1 font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95 text-white flex items-center justify-center gap-1.5"
                                 style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}>
                                 <Navigation size={14} />
                                 I'm heading there
@@ -310,16 +315,16 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                 {state === 'my_claim' && (
                     <>
                         <button onClick={onArrival} disabled={!isWithinArrivalRange}
-                            className="flex-1 font-bold py-2.5 rounded-xl transition-all text-[13px] shadow-md active:scale-95 text-white disabled:opacity-40"
+                            className="flex-1 font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95 text-white disabled:opacity-40"
                             style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}>
                             {isWithinArrivalRange ? "I've arrived" : "Get closer to confirm"}
                         </button>
                         <button onClick={() => onMessageUser(selectedItem.finderId, `Spot pinged by ${finderName}`)}
-                            className="bg-white/10 hover:bg-white/20 text-[var(--color-text)] p-2.5 rounded-xl flex items-center justify-center transition-all shadow-md shrink-0 active:scale-95">
+                            className="bg-white/10 hover:bg-white/20 text-[var(--color-text)] p-3 rounded-2xl flex items-center justify-center transition-all shrink-0 active:scale-95">
                             <MessageSquare size={16} />
                         </button>
                         <button onClick={onCancelByClaimer}
-                            className="text-[var(--color-text-secondary)] hover:text-red-400 text-[11px] font-semibold px-2 transition-colors">
+                            className="text-[var(--color-text-secondary)] hover:text-red-400 text-sm font-semibold px-2 transition-colors">
                             Cancel
                         </button>
                     </>
@@ -328,19 +333,18 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                 {state === 'my_ping_available' && (
                     <div className="flex flex-1 gap-2">
                         <button onClick={() => onEditSpot(selectedItem)}
-                            className="flex-1 bg-blue-600/50 hover:bg-blue-600 text-white font-bold py-2 rounded-xl transition-all text-[12px] active:scale-95">
+                            className="flex-1 bg-blue-600/50 hover:bg-blue-600 text-white font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95">
                             Edit
                         </button>
                         <button onClick={onDeletePing}
-                            className="flex-1 border border-red-500/50 hover:bg-red-500/10 text-red-400 font-bold py-2 rounded-xl transition-all text-[12px] active:scale-95">
+                            className="flex-1 border border-red-500/50 hover:bg-red-500/10 text-red-400 font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95">
                             Delete
                         </button>
                     </div>
                 )}
 
-
                 {state === 'third_party' && (
-                    <span className="flex-1 text-[10px] font-bold text-amber-400 self-center text-center px-2 py-1 bg-amber-500/10 rounded-xl border border-amber-500/20">
+                    <span className="flex-1 text-xs font-bold text-amber-400 self-center text-center px-2 py-1 bg-amber-500/10 rounded-2xl border border-amber-500/20">
                         Someone is heading there
                     </span>
                 )}

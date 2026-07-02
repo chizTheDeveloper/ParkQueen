@@ -7,6 +7,7 @@ import mapboxgl from 'mapbox-gl';
 import * as geofire from 'geofire-common';
 
 import { MAPBOX_TOKEN, NYC_CENTER, createMarkerElement, clearRoute, drawRoute, getDistance } from './street-parking/utils';
+import { getTitleForCrowns } from '../utils/crowns';
 
 const reverseGeocode = async (lng: number, lat: number): Promise<string> => {
     try {
@@ -361,6 +362,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     status: 'available',
                     finderId: user.id,
                     finderName: user.username || user.fullName || 'Anonymous',
+                    finderTitle: getTitleForCrowns(user.crowns || 0),
                     finderVehicleColor: user.vehicleColor || null,
                     finderVehicleType: user.vehicleType || null,
                     finderVehicleBrand: user.vehicleBrand || null,
@@ -408,6 +410,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     status: 'available',
                     finderId: user.id,
                     finderName: user.username || user.fullName || 'Anonymous',
+                    finderTitle: getTitleForCrowns(user.crowns || 0),
                     finderVehicleColor: user.vehicleColor || null,
                     finderVehicleType: user.vehicleType || null,
                     finderVehicleBrand: user.vehicleBrand || null,
@@ -506,7 +509,10 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     user={user}
                     userLocation={userLocation}
                     spotAddress={spotAddress}
-                    onHeadingThere={() => interestFlow.setIsEtaPickerOpen(true)}
+                    onHeadingThere={() => {
+                        const eta = selectedItem ? interestFlow.getEstDriveMinutes(selectedItem) : null;
+                        interestFlow.handleExpressInterest(eta ?? 5);
+                    }}
                     onEditSpot={(spot) => { setSelectedItem(spot); setSpotModalOpen(true); }}
                     onDeletePing={handleDeletePing}
                     onArrival={interestFlow.handleArrival}
@@ -521,62 +527,6 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 />
             </BottomSheet>
 
-            {/* ETA picker */}
-            <BottomSheet isOpen={interestFlow.isEtaPickerOpen} onClose={() => interestFlow.setIsEtaPickerOpen(false)}>
-                {/* Spot recap */}
-                {selectedItem && (
-                    <div className="flex items-center gap-2.5 mb-5 px-1">
-                        <div className="w-8 h-8 rounded-xl bg-[#1e75ff]/15 border border-[#1e75ff]/25 flex items-center justify-center shrink-0">
-                            <MapPin size={14} className="text-[#38bdf8]" />
-                        </div>
-                        <div className="min-w-0">
-                            <p className="text-[11px] font-bold text-[var(--color-text)] truncate">{selectedItem.address || selectedItem.title || 'Street Parking Spot'}</p>
-                            <p className="text-[10px] text-[var(--color-text-secondary)] mt-0.5">
-                                {(() => {
-                                    const dep = selectedItem.reportedAt ? (typeof selectedItem.reportedAt.toDate === 'function' ? selectedItem.reportedAt.toDate() : new Date(selectedItem.reportedAt)) : null;
-                                    const isScheduled = dep && dep.getTime() > Date.now() + 60_000;
-                                    return isScheduled ? `Available at ${dep.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Leaving now';
-                                })()}
-                            </p>
-                        </div>
-                    </div>
-                )}
-
-                <p className="text-base font-bold text-[var(--color-text)] mb-1">How soon can you get there?</p>
-                <p className="text-[11px] text-[var(--color-text-secondary)] mb-4">The parker will hold the spot based on your ETA.</p>
-
-                <div className="grid grid-cols-2 gap-2.5 mb-3">
-                    {[
-                        { min: 2, label: 'Just around the corner' },
-                        { min: 5, label: 'A few minutes out' },
-                        { min: 8, label: 'On my way' },
-                        { min: 10, label: 'Give me a bit' },
-                    ].map(({ min, label }) => (
-                        <button key={min} onClick={() => interestFlow.handleExpressInterest(min)}
-                            className="flex flex-col items-center py-4 rounded-2xl border transition-all active:scale-95 bg-[var(--color-card)] border-[var(--color-border)] hover:border-[#1e75ff]/40 hover:bg-[#1e75ff]/5"
-                        >
-                            <span className="text-2xl font-extrabold text-[var(--color-text)]">{min}</span>
-                            <span className="text-[10px] font-bold text-[#38bdf8] uppercase tracking-wide mt-0.5">min</span>
-                            <span className="text-[10px] text-[var(--color-text-secondary)] mt-1.5 px-2 text-center leading-tight">{label}</span>
-                        </button>
-                    ))}
-                </div>
-
-                <button onClick={() => interestFlow.handleExpressInterest(1)}
-                    className="w-full py-3 rounded-2xl font-bold text-sm text-white active:scale-95 transition-transform mb-2"
-                    style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}>
-                    I'm already there
-                </button>
-
-                {interestFlow.interestError && (
-                    <p className="text-red-400 text-xs mt-1 text-center">{interestFlow.interestError}</p>
-                )}
-
-                <button onClick={() => interestFlow.setIsEtaPickerOpen(false)}
-                    className="w-full text-center text-[11px] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors mt-1 py-1">
-                    Cancel
-                </button>
-            </BottomSheet>
 
             {/* Post-arrival handoff flow */}
             <BottomSheet isOpen={interestFlow.handoffStep !== null} onClose={interestFlow.handleSkipDeparture}>
