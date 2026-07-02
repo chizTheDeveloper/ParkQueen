@@ -1072,29 +1072,6 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
                 <div className="w-full flex flex-col gap-2 pointer-events-auto mt-auto pb-16 px-4">
 
-                    {/* My Car navigation bubble — visible whenever a session is active */}
-                    {savedSpot && myCarDistanceLabel && !search.searchOpen && (
-                        <button
-                            onClick={() => {
-                                if (mapRef.current) {
-                                    mapRef.current.flyTo({ center: [savedSpot.lng, savedSpot.lat], zoom: 17, duration: 800 });
-                                }
-                                setTimeout(() => setShowSessionSheet(true), 600);
-                            }}
-                            className="max-w-[380px] mx-auto w-full flex items-center gap-3 px-4 py-3 rounded-2xl shadow-lg active:scale-[0.98] transition-transform"
-                            style={{ background: isNearSavedSpot ? 'rgba(16,185,129,0.15)' : 'rgba(30,117,255,0.12)', border: `1px solid ${isNearSavedSpot ? 'rgba(16,185,129,0.35)' : 'rgba(30,117,255,0.3)'}`, backdropFilter: 'blur(12px)' }}>
-                            <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
-                                style={{ background: isNearSavedSpot ? 'rgba(16,185,129,0.2)' : 'linear-gradient(135deg,#1e75ff,#0ea5e9)' }}>
-                                <VehicleIcon type={user?.vehicleType} color={user?.vehicleColor} size={16} />
-                            </div>
-                            <div className="flex-1 min-w-0 text-left">
-                                <p className="text-xs font-bold text-[var(--color-text)]">My Car</p>
-                                <p className={`text-[11px] font-semibold ${isNearSavedSpot ? 'text-emerald-400' : 'text-[#38bdf8]'}`}>{myCarDistanceLabel}</p>
-                            </div>
-                            <ChevronRight size={14} className="text-[var(--color-text-secondary)] shrink-0" />
-                        </button>
-                    )}
-
                     {/* Car (toggle) + Locate stacked vertically on the right */}
                     <div className="flex flex-col items-end gap-2 max-w-[380px] mx-auto w-full mb-2">
                         {userLocation && (
@@ -1157,12 +1134,18 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     {(() => {
                         const myPing = spotData.activeSpots.find(s => s.finderId === user?.id);
                         const hasActivePing = !!myPing;
+                        const isMyCarMode = !!savedSpot && !hasActivePing;
                         return (
                             <button
                                 onClick={() => {
                                     if (hasActivePing) {
                                         setSelectedItem(myPing);
                                         setSelectedItemManageMode(true);
+                                    } else if (isMyCarMode) {
+                                        if (mapRef.current) {
+                                            mapRef.current.flyTo({ center: [savedSpot.lng, savedSpot.lat], zoom: 17, duration: 800 });
+                                        }
+                                        setTimeout(() => setShowSessionSheet(true), 600);
                                     } else {
                                         setSelectedItem(null);
                                         setSpotModalOpen(true);
@@ -1172,10 +1155,29 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                 className="relative mx-auto h-[52px] rounded-full px-14 active:scale-95 text-white disabled:opacity-50 transition-transform duration-200 ping-glow"
                                 style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)', minWidth: '250px' }}
                             >
-                                <MapPin size={24} className="absolute left-9 top-1/2 -translate-y-1/2" />
-                                <span className="text-[19px] font-bold absolute top-1/2 -translate-y-1/2 whitespace-nowrap" style={{ left: 'calc(50% + 12px)', transform: 'translate(-50%, -50%)' }}>
-                                    {hasActivePing ? 'My Active Ping' : 'Ping Parking'}
-                                </span>
+                                {isMyCarMode ? (
+                                    <>
+                                        <div className="absolute left-8 top-1/2 -translate-y-1/2">
+                                            <VehicleIcon type={user?.vehicleType} color="White" size={22} />
+                                        </div>
+                                        <div className="absolute top-1/2 -translate-y-1/2 text-left" style={{ left: 'calc(50% + 14px)', transform: 'translate(-50%, -50%)' }}>
+                                            <p className="text-[17px] font-bold leading-tight whitespace-nowrap">My Car</p>
+                                            {myCarDistanceLabel && myCarDistanceLabel !== "You're here" && (
+                                                <p className="text-[10px] font-semibold text-white/70 whitespace-nowrap -mt-0.5">{myCarDistanceLabel}</p>
+                                            )}
+                                            {myCarDistanceLabel === "You're here" && (
+                                                <p className="text-[10px] font-semibold text-emerald-300 whitespace-nowrap -mt-0.5">You're here</p>
+                                            )}
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <MapPin size={24} className="absolute left-9 top-1/2 -translate-y-1/2" />
+                                        <span className="text-[19px] font-bold absolute top-1/2 -translate-y-1/2 whitespace-nowrap" style={{ left: 'calc(50% + 12px)', transform: 'translate(-50%, -50%)' }}>
+                                            {hasActivePing ? 'My Active Ping' : 'Ping Parking'}
+                                        </span>
+                                    </>
+                                )}
                             </button>
                         );
                     })()}
