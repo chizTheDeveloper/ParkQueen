@@ -203,7 +203,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
                         })()}
                       </div>
                       <div className="flex items-center gap-1 text-sm font-bold text-[var(--color-text)]">
-                        <Crown size={14} className="text-yellow-400 drop-shadow-[0_0_6px_rgba(250,204,21,0.6)]" />
+                        <Crown size={14} className="text-yellow-400" />
                         <span>{crowns} Crown{crowns !== 1 ? 's' : ''}</span>
                       </div>
                     </div>
