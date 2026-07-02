@@ -160,6 +160,10 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         parkingTimer.clearTimer();
         setShowSessionSheet(false);
         setShowDepartureSheet(false);
+        setShowCustomReminder(false);
+        setReminderHour('');
+        setReminderMinute('');
+        setReminderAmPm(new Date().getHours() < 12 ? 'AM' : 'PM');
         if (lastParkedMarkerRef.current) {
             lastParkedMarkerRef.current.remove();
             lastParkedMarkerRef.current = null;
@@ -761,6 +765,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                                     maxLength={2}
                                                     autoFocus
                                                     className="w-7 bg-transparent text-sm font-semibold text-white text-center focus:outline-none"
+                                                    onFocus={(e) => e.target.select()}
                                                     onChange={(e) => {
                                                         const raw = e.target.value.replace(/\D/g, '');
                                                         if (!raw) { setReminderHour(''); return; }
@@ -783,6 +788,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                                     value={reminderMinute}
                                                     maxLength={2}
                                                     className="w-7 bg-transparent text-sm font-semibold text-white text-center focus:outline-none"
+                                                    onFocus={(e) => e.target.select()}
                                                     onChange={(e) => {
                                                         const raw = e.target.value.replace(/\D/g, '');
                                                         if (!raw) { setReminderMinute(''); return; }
