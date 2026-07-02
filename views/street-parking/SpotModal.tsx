@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MapPin, Zap, Clock, Check, ChevronLeft } from 'lucide-react';
+import { MapPin, Zap, Clock, Check, ChevronLeft, Users } from 'lucide-react';
 import { StreetSpot } from '../../types';
 import { TimePicker } from './TimePicker';
 import { BottomSheet } from './BottomSheet';
@@ -10,9 +10,10 @@ interface SpotModalProps {
     onSave: (departure: Date | null) => void;
     spot?: StreetSpot | null;
     spotAddress?: string;
+    user?: any;
 }
 
-export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, spot, spotAddress }) => {
+export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, spot, spotAddress, user }) => {
     const [view, setView] = useState<'main' | 'timePicker'>('main');
     const [departureTime, setDepartureTime] = useState(new Date());
     const [pingType, setPingType] = useState<'now' | 'later'>('now');
@@ -53,6 +54,16 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                             <p className="text-[12px] font-semibold text-[var(--color-text)] truncate">{spotAddress || 'Locating...'}</p>
                         </div>
                     </div>
+
+                    {/* Reciprocity nudge — shown when user has claimed before and is creating a new ping */}
+                    {!isEditing && (user?.claimCount ?? 0) > 0 && (
+                        <div className="flex items-center gap-2.5 mb-5 px-3.5 py-3 rounded-2xl bg-[#1e75ff]/10 border border-[#1e75ff]/20">
+                            <Users size={15} className="text-[#38bdf8] shrink-0" />
+                            <p className="text-xs font-semibold text-[#38bdf8]">
+                                You've claimed {user.claimCount} spot{user.claimCount !== 1 ? 's' : ''} — thanks for giving back!
+                            </p>
+                        </div>
+                    )}
 
                     <div className="space-y-3">
                         <button

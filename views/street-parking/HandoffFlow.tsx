@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Car, CheckCircle2, XCircle, Users, MapPin, Clock, HelpCircle, Crown } from 'lucide-react';
+import { Car, CheckCircle2, XCircle, Users, MapPin, Clock, HelpCircle, Crown, Bell } from 'lucide-react';
 
 const FAILURE_REASONS = [
     { label: 'Someone else got it', icon: Users },
@@ -15,18 +15,28 @@ const DURATION_OPTIONS = [
     { label: '4 hr', minutes: 240 },
 ];
 
+const TIMER_OPTIONS = [
+    { label: '30 min', minutes: 30 },
+    { label: '1 hr', minutes: 60 },
+    { label: '2 hr', minutes: 120 },
+    { label: '4 hr', minutes: 240 },
+];
+
 interface HandoffFlowProps {
     step: 'outcome' | 'celebration' | 'failure_reason';
+    finderName?: string | null;
     onOutcome: (outcome: 'success' | 'failed') => void;
     onFailureReason: (reason: string) => void;
     onDeparturePing: (durationMinutes: number) => void;
+    onSetTimer: (minutes: number) => void;
     onSkip: () => void;
 }
 
 export const HandoffFlow: React.FC<HandoffFlowProps> = ({
-    step, onOutcome, onFailureReason, onDeparturePing, onSkip,
+    step, finderName, onOutcome, onFailureReason, onDeparturePing, onSetTimer, onSkip,
 }) => {
     const [submitted, setSubmitted] = useState(false);
+    const [timerSet, setTimerSet] = useState(false);
 
     if (step === 'outcome') {
         return (
@@ -69,34 +79,61 @@ export const HandoffFlow: React.FC<HandoffFlowProps> = ({
         return (
             <div>
                 {/* Hero success card */}
-                <div className="rounded-3xl p-5 mb-4 text-center relative overflow-hidden"
+                <div className="rounded-3xl p-5 mb-5 text-center relative overflow-hidden"
                     style={{ background: 'linear-gradient(135deg, #1e75ff18, #0ea5e918)', border: '1.5px solid #1e75ff33' }}>
-                    {/* Glow rings */}
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                         <div className="w-32 h-32 rounded-full opacity-10" style={{ background: 'radial-gradient(circle, #1e75ff, transparent)' }} />
                     </div>
-
                     <div className="flex justify-center mb-3 relative">
                         <div className="w-20 h-20 rounded-3xl flex items-center justify-center"
                             style={{ background: 'linear-gradient(135deg, #1e75ff, #0ea5e9)' }}>
                             <Car size={36} className="text-white" />
                         </div>
                     </div>
-
                     <h3 className="font-extrabold text-2xl text-[var(--color-text)] mb-1">You're parked!</h3>
-                    <p className="text-sm text-[var(--color-text-secondary)]">Nice find. You helped keep the streets moving.</p>
-
-                    {/* Crown teaser */}
+                    <p className="text-sm text-[var(--color-text-secondary)]">
+                        {finderName
+                            ? `${finderName} helped you find this spot. Keep the cycle going.`
+                            : 'Someone helped you find this spot. Keep the cycle going.'}
+                    </p>
                     <div className="flex items-center justify-center gap-1.5 mt-3">
                         <Crown size={13} className="text-yellow-400" />
                         <p className="text-[11px] font-bold text-yellow-400">+1 Crown earned</p>
                     </div>
                 </div>
 
-                {/* Departure question */}
-                <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest text-center mb-3">Know when you'll be leaving?</p>
-                <p className="text-[10px] text-[var(--color-text-secondary)] text-center mb-3">Help the next driver find this spot</p>
+                {/* Parking reminder timer */}
+                <div className="mb-5">
+                    <div className="flex items-center gap-1.5 mb-2">
+                        <Bell size={12} className="text-[var(--color-text-secondary)]" />
+                        <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest">Set a parking reminder</p>
+                    </div>
+                    {timerSet ? (
+                        <div className="flex items-center justify-center gap-2 py-2.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20">
+                            <CheckCircle2 size={14} className="text-emerald-400" />
+                            <p className="text-xs font-semibold text-emerald-400">Reminder set — we'll alert you in time</p>
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-4 gap-2">
+                            {TIMER_OPTIONS.map(opt => (
+                                <button
+                                    key={opt.minutes}
+                                    onClick={() => { onSetTimer(opt.minutes); setTimerSet(true); }}
+                                    className="py-3 rounded-2xl text-xs font-bold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 transition-all active:scale-95 text-[var(--color-text)]"
+                                >
+                                    {opt.label}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
 
+                {/* Pay it forward — departure ping */}
+                <div className="flex items-center gap-1.5 mb-2">
+                    <Users size={12} className="text-[var(--color-text-secondary)]" />
+                    <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest">Pay it forward</p>
+                </div>
+                <p className="text-[11px] text-[var(--color-text-secondary)] mb-3">When are you leaving? Help the next driver find this spot.</p>
                 <div className="grid grid-cols-4 gap-2 mb-3">
                     {DURATION_OPTIONS.map(opt => (
                         <button

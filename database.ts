@@ -1,6 +1,7 @@
 import { auth, db } from './firebaseConfig';
-import { signOut, deleteUser as deleteFirebaseUser, updateProfile } from 'firebase/auth';
-import { doc, setDoc, updateDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
+import { signOut, updateProfile } from 'firebase/auth';
+import { doc, setDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { getFunctions, httpsCallable } from 'firebase/functions';
 
 interface UserProfile {
   fullName: string;
@@ -41,8 +42,8 @@ export const updateUser = async (userId: string, data: Record<string, any>) => {
 };
 
 export const deleteUser = async () => {
-  const user = auth.currentUser;
-  if (!user) throw new Error("No user is currently signed in.");
-  await deleteDoc(doc(db, "users", user.uid));
-  await deleteFirebaseUser(user);
+  if (!auth.currentUser) throw new Error("No user is currently signed in.");
+  const fn = httpsCallable(getFunctions(undefined, 'us-central1'), 'deleteAccount');
+  await fn();
+  await signOut(auth);
 };

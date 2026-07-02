@@ -80,7 +80,13 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
           <h2 className="text-xl font-bold text-[var(--color-text)] tracking-wide">
             {isOnboarding ? 'Add Your Vehicle' : 'My Vehicle'}
           </h2>
-          <div className="w-10" />
+          {isOnboarding && onSkip ? (
+            <button onClick={onSkip} className="text-sm font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors px-1">
+              Skip
+            </button>
+          ) : (
+            <div className="w-10" />
+          )}
         </div>
 
         {isOnboarding && (
@@ -121,11 +127,11 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
               <select
                 value={brand}
                 onChange={e => setBrand(e.target.value)}
-                className="w-full appearance-none text-[var(--color-text)] py-3.5 pr-8 text-sm focus:outline-none focus:bg-[#050d1c]"
-                style={{ background: '#050d1c', colorScheme: 'dark' }}
+                className="w-full appearance-none text-[var(--color-text)] py-3.5 pr-8 text-sm focus:outline-none dark:[color-scheme:dark]"
+                style={{ backgroundColor: 'var(--color-card)' }}
               >
-                <option value="" style={{ background: '#050d1c' }}>Select brand...</option>
-                {BRANDS.map(b => <option key={b} value={b} style={{ background: '#050d1c' }}>{b}</option>)}
+                <option value="">Select brand...</option>
+                {BRANDS.map(b => <option key={b} value={b}>{b}</option>)}
               </select>
               <ChevronDown size={15} className="absolute right-4 top-1/2 -translate-y-1/2 text-[var(--color-text-secondary)] pointer-events-none" />
             </div>
@@ -192,15 +198,6 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
             {saving ? 'Saving...' : 'Save Vehicle'}
           </button>
 
-          {/* Onboarding skip */}
-          {isOnboarding && (
-            <button
-              onClick={onSkip}
-              className="w-full py-3 text-center text-sm text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors"
-            >
-              Skip for now
-            </button>
-          )}
 
           {/* Remove vehicle — only when editing and vehicle exists */}
           {!isOnboarding && hasVehicle && (

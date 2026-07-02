@@ -490,3 +490,24 @@ exports.awardCrowns = onDocumentCreated(
     console.log(`Crowns awarded: driver ${driverId} +1 (${driverCrowns}), finder ${finderId} +2 (${finderCrowns})`);
   }
 );
+
+// Delete account — Admin SDK bypasses the client-side reauthentication requirement
+exports.deleteAccount = onCall(async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) throw new HttpsError('unauthenticated', 'Must be signed in.');
+
+    const auth = getAuth();
+    const batch = db.batch();
+
+    // Remove Firestore user doc
+    batch.delete(db.doc(`users/${uid}`));
+
+    // Remove username reservation if one exists
+    const usernameSnap = await db.collection('usernames').where('uid', '==', uid).get();
+    usernameSnap.forEach(d => batch.delete(d.ref));
+
+    await batch.commit();
+
+    // Delete the Auth account last — after Firestore cleanup
+    await auth.deleteUser(uid);
+});

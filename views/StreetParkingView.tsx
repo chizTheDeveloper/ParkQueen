@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { AppView } from '../types';
-import { MapPin, Check, Locate, X, Bell, Clock, ChevronRight } from 'lucide-react';
+import { MapPin, Check, Locate, X, Bell, Clock, ChevronRight, Users, Car, Navigation } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, addDoc, Timestamp, doc, deleteDoc, writeBatch, updateDoc, getDocs, where, query } from 'firebase/firestore';
 import mapboxgl from 'mapbox-gl';
@@ -27,6 +27,7 @@ import { BottomSheet } from './street-parking/BottomSheet';
 import { HandoffFlow } from './street-parking/HandoffFlow';
 import { ParkingActivitySheet } from './street-parking/ParkingActivitySheet';
 import { HeaderBar } from './street-parking/HeaderBar';
+import { useParkingTimer } from './street-parking/useParkingTimer';
 
 
 export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }) => {
@@ -34,6 +35,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const mapRef = useRef<mapboxgl.Map | null>(null);
     const allMarkersRef = useRef<Record<string, mapboxgl.Marker>>({});
     const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
+    const lastParkedMarkerRef = useRef<mapboxgl.Marker | null>(null);
     const activeRouteDestinationRef = useRef<[number, number] | null>(null);
 
     const [selectedItem, setSelectedItem] = useState<any | null>(null);
@@ -85,8 +87,77 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         activeRouteDestinationRef,
     });
 
+    const parkingTimer = useParkingTimer();
+
+    const SAVED_SPOT_KEY = 'pq_saved_spot';
+    type SavedSpot = { lat: number; lng: number; address: string; savedAt: number };
+
+    const [savedSpot, setSavedSpot] = useState<SavedSpot | null>(() => {
+        try {
+            const s: SavedSpot | null = JSON.parse(localStorage.getItem(SAVED_SPOT_KEY) || 'null');
+            if (!s) return null;
+            // Auto-expire after 24 hours if no timer was set
+            if (Date.now() - s.savedAt > 24 * 60 * 60 * 1000) {
+                localStorage.removeItem(SAVED_SPOT_KEY);
+                return null;
+            }
+            return s;
+        } catch { return null; }
+    });
+    const [showSessionSheet, setShowSessionSheet] = useState(false);
+    const [showDepartureSheet, setShowDepartureSheet] = useState(false);
+    const [parkedDuration, setParkedDuration] = useState('');
+    const parkedSheetSetterRef = useRef<(() => void) | null>(null);
+    parkedSheetSetterRef.current = () => setShowSessionSheet(true);
+
+    // Live duration counter for active session
+    useEffect(() => {
+        if (!savedSpot) { setParkedDuration(''); return; }
+        const update = () => {
+            const mins = Math.floor((Date.now() - savedSpot.savedAt) / 60000);
+            if (mins < 1) setParkedDuration('Just parked');
+            else if (mins < 60) setParkedDuration(`${mins}m`);
+            else setParkedDuration(`${Math.floor(mins / 60)}h ${mins % 60}m`);
+        };
+        update();
+        const id = setInterval(update, 60000);
+        return () => clearInterval(id);
+    }, [savedSpot?.savedAt]);
+
+    const saveMySpot = async () => {
+        if (!userLocation) return;
+        const [lng, lat] = userLocation;
+        const address = await reverseGeocode(lng, lat);
+        const spot: SavedSpot = { lat, lng, address, savedAt: Date.now() };
+        localStorage.setItem(SAVED_SPOT_KEY, JSON.stringify(spot));
+        setSavedSpot(spot);
+        setShowSessionSheet(true);
+    };
+
+    const endSession = () => {
+        localStorage.removeItem(SAVED_SPOT_KEY);
+        setSavedSpot(null);
+        parkingTimer.clearTimer();
+        setShowSessionSheet(false);
+        setShowDepartureSheet(false);
+        if (lastParkedMarkerRef.current) {
+            lastParkedMarkerRef.current.remove();
+            lastParkedMarkerRef.current = null;
+        }
+    };
+
+    // Proximity check — are we back at the car?
+    const isNearSavedSpot = savedSpot && userLocation
+        ? getDistance(userLocation[1], userLocation[0], savedSpot.lat, savedSpot.lng) < 0.05
+        : false;
+
     const otherSpots = spotData.radiusFilteredItems.filter(s => s.finderId !== user?.id);
     const spotCount = otherSpots.length;
+
+    // Count active claim sessions nearby — proxy for demand, shown to finders
+    const nearbyInterestCount = spotData.freeSpots.filter(
+        s => s.status === 'interested' && s.interestedUserId !== user?.id
+    ).length;
 
     const nearestSpot = useMemo(() => {
         if (!userLocation || spotData.freeSpots.length === 0) return null;
@@ -225,56 +296,115 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         };
     }, []);
 
-    // Marker rendering
+    // Marker rendering with clustering for nearby spots
     useEffect(() => {
         if (!mapRef.current) return;
         const map = mapRef.current;
 
-        const nextIds = new Set(spotData.radiusFilteredItems.map(item => item.id));
-        const currentMarkers = allMarkersRef.current;
+        // Clear all markers and rebuild — clustering changes which IDs map to which markers
+        Object.values(allMarkersRef.current).forEach(m => m.remove());
+        allMarkersRef.current = {};
 
-        Object.keys(currentMarkers).forEach(id => {
-            if (!nextIds.has(id)) {
-                currentMarkers[id].remove();
-                delete currentMarkers[id];
-            }
-        });
+        const items = spotData.radiusFilteredItems;
+        const assigned = new Set<string>();
 
-        spotData.radiusFilteredItems.forEach(item => {
-            const lngLat: [number, number] = [item.lng, item.lat];
-            const reportedMs = item.reportedAt ? (typeof item.reportedAt.toMillis === 'function' ? item.reportedAt.toMillis() : typeof item.reportedAt.seconds === 'number' ? item.reportedAt.seconds * 1000 : 0) : 0;
-            const isScheduled = reportedMs > Date.now() + 60_000;
+        for (const item of items) {
+            if (assigned.has(item.id)) continue;
 
-            if (currentMarkers[item.id]) {
-                const existing = currentMarkers[item.id].getElement();
-                const wasScheduled = existing.dataset.scheduled === 'true';
-                if (wasScheduled !== isScheduled) {
-                    currentMarkers[item.id].remove();
-                    delete currentMarkers[item.id];
-                } else {
-                    const cur = currentMarkers[item.id].getLngLat();
-                    if (cur.lng !== item.lng || cur.lat !== item.lat) {
-                        currentMarkers[item.id].setLngLat(lngLat);
-                    }
-                    return;
+            // Find all spots within 30m
+            const group = [item];
+            assigned.add(item.id);
+            for (const other of items) {
+                if (assigned.has(other.id)) continue;
+                if (getDistance(item.lat, item.lng, other.lat, other.lng) < 0.03) {
+                    group.push(other);
+                    assigned.add(other.id);
                 }
             }
 
-            const el = createMarkerElement(isScheduled, reportedMs);
-            const marker = new mapboxgl.Marker({ element: el, anchor: "bottom" })
-                .setLngLat(lngLat)
-                .addTo(map);
+            const lngLat: [number, number] = [item.lng, item.lat];
 
-            marker.getElement().addEventListener('click', (e) => {
-                e.stopPropagation();
-                const fresh = itemsRef.current.find(i => i.id === item.id) || item;
-                setSelectedItem(fresh);
-                map.flyTo({ center: lngLat, zoom: 16 });
-            });
-
-            currentMarkers[item.id] = marker;
-        });
+            if (group.length === 1) {
+                const reportedMs = item.reportedAt
+                    ? (typeof item.reportedAt.toMillis === 'function' ? item.reportedAt.toMillis()
+                        : typeof item.reportedAt.seconds === 'number' ? item.reportedAt.seconds * 1000 : 0)
+                    : 0;
+                const isScheduled = reportedMs > Date.now() + 60_000;
+                const el = createMarkerElement(isScheduled, reportedMs);
+                const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
+                    .setLngLat(lngLat).addTo(map);
+                marker.getElement().addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const fresh = itemsRef.current.find(i => i.id === item.id) || item;
+                    setSelectedItem(fresh);
+                    map.flyTo({ center: lngLat, zoom: 16 });
+                });
+                allMarkersRef.current[item.id] = marker;
+            } else {
+                // Cluster badge — tap to zoom in and see individual pins
+                const clusterEl = document.createElement('div');
+                clusterEl.style.cssText = [
+                    'width:38px', 'height:38px', 'border-radius:50%',
+                    'background:#1e75ff', 'border:2.5px solid white',
+                    'box-shadow:0 2px 10px rgba(30,117,255,0.45)',
+                    'display:flex', 'align-items:center', 'justify-content:center',
+                    'color:white', 'font-weight:800', 'font-size:13px', 'cursor:pointer',
+                ].join(';');
+                clusterEl.textContent = String(group.length);
+                const marker = new mapboxgl.Marker({ element: clusterEl, anchor: 'center' })
+                    .setLngLat(lngLat).addTo(map);
+                marker.getElement().addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    map.flyTo({ center: lngLat, zoom: 19, duration: 600 });
+                });
+                allMarkersRef.current[item.id] = marker;
+            }
+        }
     }, [spotData.radiusFilteredItems]);
+
+    // Last parked location marker
+    useEffect(() => {
+        if (!mapRef.current || !mapReady) return;
+        if (lastParkedMarkerRef.current) {
+            lastParkedMarkerRef.current.remove();
+            lastParkedMarkerRef.current = null;
+        }
+        const loc = savedSpot;
+        if (!loc?.lat || !loc?.lng) return;
+
+        const el = document.createElement('div');
+        el.style.cssText = 'position:relative;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:10;overflow:visible';
+        el.innerHTML = `
+            <div style="width:46px;height:46px;flex-shrink:0;pointer-events:none;">
+              <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;filter:drop-shadow(0px 4px 10px rgba(30,117,255,0.5));">
+                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="#1e75ff"/>
+                <g transform="translate(12,10) scale(0.38) translate(-12,-12)">
+                  <path d="m2 4 3 12h14l3-12-6 5-4-5-4 5-6-5z" fill="none" stroke="#facc15" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+                  <line x1="5" y1="16" x2="19" y2="16" stroke="#facc15" stroke-width="2.2" stroke-linecap="round"/>
+                </g>
+              </svg>
+            </div>
+        `;
+        el.title = loc.address || 'Last parked here';
+
+        const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
+            .setLngLat([loc.lng, loc.lat])
+            .addTo(mapRef.current);
+
+        // Ensure wrapper sits above user location dot (z-index 5) — defer so DOM is ready
+        setTimeout(() => {
+            const wrapper = marker.getElement().parentElement;
+            if (wrapper) wrapper.style.zIndex = '10';
+        }, 0);
+
+        el.addEventListener('click', (e) => {
+            e.stopPropagation();
+            mapRef.current?.flyTo({ center: [loc.lng, loc.lat], zoom: 16 });
+            parkedSheetSetterRef.current?.();
+        });
+
+        lastParkedMarkerRef.current = marker;
+    }, [savedSpot?.savedAt, mapReady]);
 
     // Spot address resolution
     useEffect(() => {
@@ -499,6 +629,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 onSave={handleSaveSpot}
                 spot={selectedItem}
                 spotAddress={spotAddress}
+                user={user}
             />
 
             {/* Spot details bottom sheet */}
@@ -518,7 +649,9 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     onArrival={interestFlow.handleArrival}
                     onCancelByFinder={interestFlow.handleCancelByFinder}
                     onCancelByClaimer={interestFlow.handleCancelByClaimer}
+                    onDriverArrived={interestFlow.handleFinderConfirmsArrival}
                     onMessageUser={onMessageUser}
+                    nearbyInterestCount={nearbyInterestCount}
                     interestError={interestFlow.interestError}
                     estDriveMinutes={selectedItem ? interestFlow.getEstDriveMinutes(selectedItem) : null}
                     isWithinArrivalRange={selectedItem ? interestFlow.isWithinArrivalRange(selectedItem) : false}
@@ -528,14 +661,105 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             </BottomSheet>
 
 
+            {/* My Car — Parking Session sheet (personal only) */}
+            <BottomSheet isOpen={showSessionSheet} onClose={() => setShowSessionSheet(false)}>
+                {savedSpot && (
+                    <div>
+                        {/* Header */}
+                        <div className="flex items-center gap-3 mb-5">
+                            <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0"
+                                style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}>
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#facc15" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m2 4 3 12h14l3-12-6 5-4-5-4 5-6-5zm3 16h14"/></svg>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <p className="text-lg font-extrabold text-[var(--color-text)]">My Car</p>
+                                <p className="text-sm text-[var(--color-text-secondary)] truncate">{savedSpot.address || 'Location saved'}</p>
+                                <p className="text-xs text-[#38bdf8] font-semibold mt-0.5">Parked {parkedDuration}</p>
+                            </div>
+                        </div>
+
+                        {/* Navigate */}
+                        <a
+                            href={`https://www.google.com/maps/dir/?api=1&destination=${savedSpot.lat},${savedSpot.lng}`}
+                            target="_blank" rel="noopener noreferrer"
+                            className="w-full mb-3 py-3 rounded-2xl text-sm font-bold border border-[#1e75ff]/30 bg-[#1e75ff]/10 hover:bg-[#1e75ff]/15 transition-all active:scale-95 text-[#38bdf8] flex items-center justify-center gap-2">
+                            <Navigation size={15} />
+                            Navigate to my car
+                        </a>
+
+                        {/* Reminder */}
+                        <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-2">Reminder</p>
+                        {parkingTimer.timer ? (
+                            <div className="flex items-center gap-2.5 px-3 py-3 rounded-2xl bg-[#1e75ff]/10 border border-[#1e75ff]/20 mb-4">
+                                <Clock size={14} className="text-[#38bdf8] shrink-0" />
+                                <p className="text-xs font-semibold text-[#38bdf8] flex-1">{parkingTimer.minutesRemaining}m remaining</p>
+                                <button onClick={parkingTimer.clearTimer} className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors">
+                                    <X size={13} />
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-4 gap-2 mb-4">
+                                {[{ label: '30 min', minutes: 30 }, { label: '1 hr', minutes: 60 }, { label: '2 hr', minutes: 120 }, { label: '4 hr', minutes: 240 }].map(opt => (
+                                    <button key={opt.minutes}
+                                        onClick={() => parkingTimer.startTimer(opt.minutes, savedSpot.address || '', () => setShowDepartureSheet(true))}
+                                        className="py-3 rounded-2xl text-xs font-bold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 transition-all active:scale-95 text-[var(--color-text)]">
+                                        {opt.label}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* End session */}
+                        <button onClick={endSession}
+                            className="w-full py-2.5 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-red-400 transition-colors">
+                            End session
+                        </button>
+                    </div>
+                )}
+            </BottomSheet>
+
+            {/* Departure prompt — only appears at natural leaving moments */}
+            <BottomSheet isOpen={showDepartureSheet} onClose={() => setShowDepartureSheet(false)}>
+                {savedSpot && (
+                    <div className="text-center">
+                        <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
+                            style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}>
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#facc15" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m2 4 3 12h14l3-12-6 5-4-5-4 5-6-5zm3 16h14"/></svg>
+                        </div>
+                        <p className="text-xl font-extrabold text-[var(--color-text)] mb-1">Leaving this spot?</p>
+                        <p className="text-sm text-[var(--color-text-secondary)] mb-6">Help the next driver find it.</p>
+
+                        <button
+                            onClick={() => { endSession(); setSpotModalOpen(true); }}
+                            className="w-full py-3.5 rounded-full text-white font-bold text-sm flex items-center justify-center gap-2 active:scale-95 transition-transform mb-2"
+                            style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}>
+                            <MapPin size={16} />
+                            Leaving Now
+                        </button>
+                        <button
+                            onClick={() => { endSession(); setSpotModalOpen(true); }}
+                            className="w-full py-3 rounded-full text-sm font-bold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 transition-all active:scale-95 text-[var(--color-text)] flex items-center justify-center gap-2 mb-3">
+                            <Clock size={15} />
+                            Leaving Later
+                        </button>
+                        <button onClick={() => setShowDepartureSheet(false)}
+                            className="w-full py-2.5 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-all">
+                            Not yet
+                        </button>
+                    </div>
+                )}
+            </BottomSheet>
+
             {/* Post-arrival handoff flow */}
             <BottomSheet isOpen={interestFlow.handoffStep !== null} onClose={interestFlow.handleSkipDeparture}>
                 {interestFlow.handoffStep && (
                     <HandoffFlow
                         step={interestFlow.handoffStep}
+                        finderName={interestFlow.handoffFinderName}
                         onOutcome={interestFlow.handleHandoffOutcome}
                         onFailureReason={interestFlow.handleFailureReason}
                         onDeparturePing={interestFlow.handleDeparturePing}
+                        onSetTimer={(minutes) => parkingTimer.startTimer(minutes, interestFlow.handoffAddress)}
                         onSkip={interestFlow.handleSkipDeparture}
                     />
                 )}
@@ -657,9 +881,17 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 {!search.searchOpen && (
                     <div className="w-full max-w-[380px] mx-auto mt-1 pointer-events-auto">
                         {spotCount > 0 ? (
-                            <div className="inline-flex items-center gap-1.5 bg-[var(--color-card)] backdrop-blur-xl border border-emerald-500/20 rounded-full px-2.5 py-1 text-[10px] font-semibold text-emerald-400 shadow-md">
-                                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                                {spotCount} free spot{spotCount !== 1 ? 's' : ''} nearby
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                                <div className="inline-flex items-center gap-1.5 bg-[var(--color-card)] backdrop-blur-xl border border-emerald-500/20 rounded-full px-2.5 py-1 text-[10px] font-semibold text-emerald-400 shadow-md">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                    {spotCount} free spot{spotCount !== 1 ? 's' : ''} nearby
+                                </div>
+                                {nearbyInterestCount > 0 && (
+                                    <div className="inline-flex items-center gap-1.5 bg-[var(--color-card)] backdrop-blur-xl border border-[#1e75ff]/25 rounded-full px-2.5 py-1 text-[10px] font-semibold text-[#38bdf8] shadow-md">
+                                        <div className="w-1.5 h-1.5 rounded-full bg-[#38bdf8] animate-pulse" />
+                                        {nearbyInterestCount} en route
+                                    </div>
+                                )}
                             </div>
                         ) : mapReady && !spotData.activeSpots.find(s => s.finderId === user?.id) && (
                             <div className="bg-[var(--color-card)] backdrop-blur-xl border border-[var(--color-border)] rounded-2xl px-4 py-3 shadow-xl flex items-center gap-3">
@@ -677,7 +909,26 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
 
                 <div className="w-full flex flex-col gap-2 pointer-events-auto mt-auto pb-16 px-4">
-                    <div className="flex justify-end max-w-[380px] mx-auto w-full mb-2">
+
+                    {/* Car (toggle) + Locate stacked vertically on the right */}
+                    <div className="flex flex-col items-end gap-2 max-w-[380px] mx-auto w-full mb-2">
+                        {userLocation && (
+                            <button
+                                onClick={() => {
+                                    if (!savedSpot) saveMySpot();
+                                    else if (isNearSavedSpot) setShowDepartureSheet(true);
+                                    else setShowSessionSheet(true);
+                                }}
+                                title="My Car"
+                                className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-all active:scale-90 backdrop-blur-xl border ${
+                                    savedSpot
+                                        ? 'bg-[#1e75ff] border-[#1e75ff] hover:bg-[#1e75ff]/80'
+                                        : 'bg-[var(--color-card)] border-[#1e75ff]/40 hover:border-[#1e75ff]/70 hover:bg-[#1e75ff]/10'
+                                }`}
+                            >
+                                <Car size={17} className={savedSpot ? 'text-white' : 'text-[#1e75ff]'} />
+                            </button>
+                        )}
                         <button
                             onClick={handleLocateMe}
                             className="w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-all active:scale-90 bg-[var(--color-card)] backdrop-blur-xl border border-[#1e75ff]/40 hover:border-[#1e75ff]/70 hover:bg-[#1e75ff]/10"
@@ -686,6 +937,18 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                             <Locate size={18} className="text-[#1e75ff]" />
                         </button>
                     </div>
+
+                    {/* Timer chip — subtle indicator that a reminder is active */}
+                    {parkingTimer.timer && savedSpot && (
+                        <div className="max-w-[380px] mx-auto w-full pointer-events-auto">
+                            <button
+                                onClick={() => setShowSessionSheet(true)}
+                                className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-full bg-[var(--color-card)] backdrop-blur-xl border border-[#1e75ff]/20 shadow-md">
+                                <Clock size={11} className="text-[#38bdf8]" />
+                                <p className="text-[11px] font-semibold text-[#38bdf8]">{parkingTimer.minutesRemaining}m remaining · tap to view</p>
+                            </button>
+                        </div>
+                    )}
 
                     {nearestSpot && !selectedItem && (
                         <button
