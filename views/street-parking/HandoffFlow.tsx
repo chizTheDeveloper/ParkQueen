@@ -81,10 +81,6 @@ export const HandoffFlow: React.FC<HandoffFlowProps> = ({
                             style={{ background: 'linear-gradient(135deg, #1e75ff, #0ea5e9)' }}>
                             <Car size={36} className="text-white" />
                         </div>
-                        <div className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-emerald-500 flex items-center justify-center border-2"
-                            style={{ borderColor: 'var(--color-bg)' }}>
-                            <CheckCircle2 size={14} className="text-white" fill="white" />
-                        </div>
                     </div>
 
                     <h3 className="font-extrabold text-2xl text-[var(--color-text)] mb-1">You're parked!</h3>
