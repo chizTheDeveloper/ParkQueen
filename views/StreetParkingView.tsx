@@ -109,6 +109,13 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const [showDepartureSheet, setShowDepartureSheet] = useState(false);
     const [parkedDuration, setParkedDuration] = useState('');
     const [showCustomReminder, setShowCustomReminder] = useState(false);
+    const reminderSlots = useMemo(() => {
+        const now = new Date();
+        const start = new Date(now);
+        const rem = start.getMinutes() % 30;
+        start.setMinutes(start.getMinutes() + (rem === 0 ? 30 : 30 - rem), 0, 0);
+        return Array.from({ length: 10 }, (_, i) => new Date(start.getTime() + i * 30 * 60000));
+    }, [showCustomReminder]); // recalculate each time picker opens
     const parkedSheetSetterRef = useRef<(() => void) | null>(null);
     parkedSheetSetterRef.current = () => setShowSessionSheet(true);
     // Tracks whether SpotModal was opened from the departure flow —
@@ -724,58 +731,49 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     <X size={13} />
                                 </button>
                             </div>
-                        ) : showCustomReminder ? (() => {
-                            // Generate upcoming 30-min slots starting from the next boundary
-                            const now = new Date();
-                            const slotStart = new Date(now);
-                            const rem = slotStart.getMinutes() % 30;
-                            slotStart.setMinutes(slotStart.getMinutes() + (rem === 0 ? 30 : 30 - rem), 0, 0);
-                            const slots: Date[] = Array.from({ length: 10 }, (_, i) =>
-                                new Date(slotStart.getTime() + i * 30 * 60000)
-                            );
-                            const todayStr = now.toDateString();
-                            return (
-                                <div className="mb-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] overflow-hidden">
-                                    <div className="flex items-center justify-between px-4 pt-3 pb-2">
-                                        <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest">Pick a time</p>
-                                        <button onClick={() => setShowCustomReminder(false)}
-                                            className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors">
-                                            <X size={14} />
-                                        </button>
-                                    </div>
-                                    <div className="max-h-52 overflow-y-auto">
-                                        {slots.map((slot, i) => {
-                                            const isToday = slot.toDateString() === todayStr;
-                                            const prevSlot = slots[i - 1];
-                                            const showDayLabel = i === 0 || (prevSlot && prevSlot.toDateString() !== slot.toDateString());
-                                            const minsFromNow = Math.round((slot.getTime() - now.getTime()) / 60000);
-                                            const relLabel = minsFromNow < 60
-                                                ? `in ${minsFromNow} min`
-                                                : `in ${Math.floor(minsFromNow / 60)}h${minsFromNow % 60 ? ` ${minsFromNow % 60}m` : ''}`;
-                                            const timeLabel = slot.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-                                            return (
-                                                <React.Fragment key={slot.getTime()}>
-                                                    {showDayLabel && (
-                                                        <p className="px-4 py-1.5 text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest bg-white/5">
-                                                            {isToday ? 'Today' : 'Tomorrow'}
-                                                        </p>
-                                                    )}
-                                                    <button
-                                                        onClick={() => {
-                                                            parkingTimer.startTimer(minsFromNow, savedSpot.address || '', () => setShowDepartureSheet(true));
-                                                            setShowCustomReminder(false);
-                                                        }}
-                                                        className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 active:bg-white/10 transition-colors border-t border-[var(--color-border)]">
-                                                        <span className="text-sm font-bold text-[var(--color-text)]">{timeLabel}</span>
-                                                        <span className="text-xs text-[var(--color-text-secondary)]">{relLabel}</span>
-                                                    </button>
-                                                </React.Fragment>
-                                            );
-                                        })}
-                                    </div>
+                        ) : showCustomReminder ? (
+                            <div className="mb-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] overflow-hidden">
+                                <div className="flex items-center justify-between px-4 pt-3 pb-2">
+                                    <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest">Pick a time</p>
+                                    <button onClick={() => setShowCustomReminder(false)}
+                                        className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors">
+                                        <X size={14} />
+                                    </button>
                                 </div>
-                            );
-                        })() :
+                                <div className="max-h-52 overflow-y-auto">
+                                    {reminderSlots.map((slot, i) => {
+                                        const now = new Date();
+                                        const todayStr = now.toDateString();
+                                        const prev = reminderSlots[i - 1];
+                                        const showDayLabel = i === 0 || (prev && prev.toDateString() !== slot.toDateString());
+                                        const isToday = slot.toDateString() === todayStr;
+                                        const minsFromNow = Math.round((slot.getTime() - now.getTime()) / 60000);
+                                        const relLabel = minsFromNow < 60
+                                            ? `in ${minsFromNow} min`
+                                            : `in ${Math.floor(minsFromNow / 60)}h${minsFromNow % 60 ? ` ${minsFromNow % 60}m` : ''}`;
+                                        const timeLabel = slot.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+                                        return (
+                                            <React.Fragment key={slot.getTime()}>
+                                                {showDayLabel && (
+                                                    <p className="px-4 py-1.5 text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest bg-white/5">
+                                                        {isToday ? 'Today' : 'Tomorrow'}
+                                                    </p>
+                                                )}
+                                                <button
+                                                    onClick={() => {
+                                                        parkingTimer.startTimer(minsFromNow, savedSpot!.address || '', () => setShowDepartureSheet(true));
+                                                        setShowCustomReminder(false);
+                                                    }}
+                                                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 active:bg-white/10 transition-colors border-t border-[var(--color-border)]">
+                                                    <span className="text-sm font-bold text-[var(--color-text)]">{timeLabel}</span>
+                                                    <span className="text-xs text-[var(--color-text-secondary)]">{relLabel}</span>
+                                                </button>
+                                            </React.Fragment>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        ) :
                         ) : (
                             <div className="grid grid-cols-4 gap-2 mb-4">
                                 {[{ label: '15 min', minutes: 15 }, { label: '30 min', minutes: 30 }, { label: '1 hr', minutes: 60 }, { label: 'Custom…', minutes: -1 }].map(opt => (
