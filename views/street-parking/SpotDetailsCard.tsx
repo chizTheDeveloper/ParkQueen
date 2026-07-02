@@ -3,6 +3,8 @@ import { MessageSquare, MapPin, Clock, Navigation, Car } from 'lucide-react';
 import { MapItem } from './types';
 import { getDistance, formatTimeLeft } from './utils';
 import { getVehicleHex, VehicleIcon } from '../../utils/vehicleIcon';
+import { getTierForTitle, TIER_VISUALS } from '../../utils/crowns';
+import { CrownBadge } from '../../utils/CrownBadge';
 import { db } from '../../firebase';
 import { doc, setDoc, addDoc, collection, serverTimestamp } from 'firebase/firestore';
 
@@ -121,9 +123,15 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                     </div>
                     <div className="flex-1 min-w-0">
                         <p className="text-lg font-extrabold text-[var(--color-text)] truncate">{finderName}</p>
-                        {selectedItem.finderTitle && (
-                            <p className="text-[11px] font-semibold text-[#38bdf8] mt-0.5">{selectedItem.finderTitle}</p>
-                        )}
+                        {selectedItem.finderTitle && (() => {
+                            const ft = getTierForTitle(selectedItem.finderTitle);
+                            return (
+                                <div className="flex items-center gap-1 mt-0.5">
+                                    <CrownBadge tier={ft} size={11} />
+                                    <span className="text-[11px] font-semibold" style={{ color: TIER_VISUALS[ft].textColor }}>{selectedItem.finderTitle}</span>
+                                </div>
+                            );
+                        })()}
                     </div>
                 </div>
 
@@ -206,9 +214,15 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                     </div>
                     <div className="flex-1 min-w-0">
                         <p className="text-lg font-extrabold text-[var(--color-text)] truncate">{claimerName}</p>
-                        {selectedItem.interestedUserTitle && (
-                            <p className="text-[11px] font-semibold text-[#38bdf8] mt-0.5">{selectedItem.interestedUserTitle}</p>
-                        )}
+                        {selectedItem.interestedUserTitle && (() => {
+                            const ct = getTierForTitle(selectedItem.interestedUserTitle);
+                            return (
+                                <div className="flex items-center gap-1 mt-0.5">
+                                    <CrownBadge tier={ct} size={11} />
+                                    <span className="text-[11px] font-semibold" style={{ color: TIER_VISUALS[ct].textColor }}>{selectedItem.interestedUserTitle}</span>
+                                </div>
+                            );
+                        })()}
                     </div>
                     <div className="text-right shrink-0">
                         <p className="text-3xl font-extrabold text-[var(--color-text)]">{selectedItem.etaMinutes}</p>
@@ -306,9 +320,15 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                     </div>
                     <div className="flex-1 min-w-0">
                         <p className="text-lg font-extrabold text-[var(--color-text)] truncate">{finderName}</p>
-                        {selectedItem.finderTitle && (
-                            <p className="text-[11px] font-semibold text-[#38bdf8] mt-0.5">{selectedItem.finderTitle}</p>
-                        )}
+                        {selectedItem.finderTitle && (() => {
+                            const ft = getTierForTitle(selectedItem.finderTitle);
+                            return (
+                                <div className="flex items-center gap-1 mt-0.5">
+                                    <CrownBadge tier={ft} size={11} />
+                                    <span className="text-[11px] font-semibold" style={{ color: TIER_VISUALS[ft].textColor }}>{selectedItem.finderTitle}</span>
+                                </div>
+                            );
+                        })()}
                     </div>
                     <span className={`text-[10px] font-bold px-2 py-1 rounded-xl border shrink-0 ${badgeConfig.color}`}>
                         {badgeConfig.label}

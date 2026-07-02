@@ -5,7 +5,8 @@ import { db } from '../firebase';
 import { ChevronLeft, ChevronRight, Edit, Clock, FileText, Shield, Info, Settings, Crown, MapPin, Handshake, ParkingSquare } from 'lucide-react';
 import { VehicleIcon } from '../utils/vehicleIcon';
 import { AppView } from '../types';
-import { getNextTitle } from '../utils/crowns';
+import { getNextTitle, getTierForCrowns, TIER_VISUALS } from '../utils/crowns';
+import { CrownBadge } from '../utils/CrownBadge';
 
 export const ProfileView = ({ user, onBack, setView }) => {
   const [isUploading, setIsUploading] = useState(false);
@@ -182,44 +183,40 @@ export const ProfileView = ({ user, onBack, setView }) => {
                   </button>
                 )}
 
-                {/* Title + Joined */}
-                <div className="mt-2 flex items-center gap-1.5 flex-wrap justify-center">
-                  <span className="text-sm font-bold text-[#38bdf8]">{user.title || 'Newcomer'}</span>
-                  {(() => {
-                    const ts = user.createdAt;
-                    if (!ts) return null;
-                    const d = typeof ts.toDate === 'function' ? ts.toDate() : new Date(ts);
-                    return <span className="text-xs text-[var(--color-text-secondary)]">· Joined {d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>;
-                  })()}
-                </div>
+                {/* Crown badge + title */}
+                {(() => {
+                  const crowns = user.crowns || 0;
+                  const tier = getTierForCrowns(crowns);
+                  const visual = TIER_VISUALS[tier];
+                  return (
+                    <div className="mt-3 flex flex-col items-center gap-1.5">
+                      <CrownBadge tier={tier} size={40} />
+                      <div className="flex items-center gap-1.5 flex-wrap justify-center">
+                        <span className="text-sm font-bold" style={{ color: visual.textColor }}>
+                          {user.title || 'Newcomer'}
+                        </span>
+                        {(() => {
+                          const ts = user.createdAt;
+                          if (!ts) return null;
+                          const d = typeof ts.toDate === 'function' ? ts.toDate() : new Date(ts);
+                          return <span className="text-xs text-[var(--color-text-secondary)]">· Joined {d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>;
+                        })()}
+                      </div>
+                      <div className="flex items-center gap-1 text-sm font-bold text-[var(--color-text)]">
+                        <CrownBadge tier={tier} size={14} />
+                        <span>{crowns} Crown{crowns !== 1 ? 's' : ''}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
 
-                {/* Crown count with glow */}
-                <div className="mt-3 flex items-center gap-1.5">
-                  <Crown size={16} className="text-yellow-400 drop-shadow-[0_0_6px_rgba(250,204,21,0.6)]" />
-                  <span
-                    className="text-base font-bold text-[var(--color-text)]"
-                    style={{ textShadow: '0 0 12px rgba(250,204,21,0.25)' }}
-                  >
-                    {user.crowns || 0} Crown{(user.crowns || 0) !== 1 ? 's' : ''}
-                  </span>
-                </div>
-
-                {/* Motivational text */}
-                <p className="text-xs text-[var(--color-text-secondary)] mt-1 text-center">
-                  {(user.crowns || 0) === 0
-                    ? 'Ping a parking spot to earn your first Crowns.'
-                    : (user.crowns || 0) < 10
-                    ? 'Help another driver to become a Trusted Driver.'
-                    : (user.crowns || 0) < 50
-                    ? 'Keep helping your community.'
-                    : "You're making a real difference for drivers."}
-                </p>
-
-                {/* Progress bar */}
+                {/* Progress bar + next title */}
                 {(() => {
                   const crowns = user.crowns || 0;
                   const next = getNextTitle(crowns);
-                  if (!next) return null;
+                  if (!next) return (
+                    <p className="text-xs font-bold text-[#38bdf8] mt-2">Urban Legend — max rank achieved</p>
+                  );
                   const prevThreshold = (() => {
                     const thresholds = [0, 10, 50, 150, 400, 750, 1500, 3000];
                     for (let i = thresholds.length - 1; i >= 0; i--) {
@@ -227,21 +224,26 @@ export const ProfileView = ({ user, onBack, setView }) => {
                     }
                     return 0;
                   })();
-                  const nextThreshold = crowns + next.crownsNeeded;
-                  const range = nextThreshold - prevThreshold;
+                  const range = (crowns + next.crownsNeeded) - prevThreshold;
                   const progress = range > 0 ? ((crowns - prevThreshold) / range) * 100 : 0;
                   return (
-                    <div className="w-full max-w-[220px] mt-3">
+                    <div className="w-full max-w-[240px] mt-3">
                       <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
                         <div
-                          className="h-full bg-gradient-to-r from-[#1e75ff] to-[#38bdf8] rounded-full transition-all"
-                          style={{ width: `${Math.min(progress, 100)}%` }}
+                          className="h-full rounded-full transition-all"
+                          style={{
+                            width: `${Math.min(progress, 100)}%`,
+                            background: 'linear-gradient(90deg, #1e75ff, #38bdf8)',
+                          }}
                         />
                       </div>
-                      <p className="text-xs text-[var(--color-text-secondary)] mt-1.5 text-center">
-                        {next.crownsNeeded} Crown{next.crownsNeeded !== 1 ? 's' : ''} until{' '}
-                        <span className="text-[#38bdf8] font-semibold">{next.title}</span>
-                      </p>
+                      <div className="flex items-center justify-center gap-1.5 mt-2">
+                        <CrownBadge tier={next.tier} size={13} />
+                        <p className="text-xs text-[var(--color-text-secondary)]">
+                          <span className="font-bold text-[var(--color-text)]">{next.crownsNeeded}</span> crowns until{' '}
+                          <span className="font-bold" style={{ color: TIER_VISUALS[next.tier].textColor }}>{next.title}</span>
+                        </p>
+                      </div>
                     </div>
                   );
                 })()}
