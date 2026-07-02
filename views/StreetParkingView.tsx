@@ -7,6 +7,7 @@ import mapboxgl from 'mapbox-gl';
 import * as geofire from 'geofire-common';
 
 import { MAPBOX_TOKEN, NYC_CENTER, createMarkerElement, clearRoute, drawRoute, getDistance } from './street-parking/utils';
+import { VehicleIcon } from '../utils/vehicleIcon';
 import { getTitleForCrowns } from '../utils/crowns';
 
 const reverseGeocode = async (lng: number, lat: number): Promise<string> => {
@@ -120,8 +121,12 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         const update = () => {
             const mins = Math.floor((Date.now() - savedSpot.savedAt) / 60000);
             if (mins < 1) setParkedDuration('Just parked');
-            else if (mins < 60) setParkedDuration(`${mins}m`);
-            else setParkedDuration(`${Math.floor(mins / 60)}h ${mins % 60}m`);
+            else if (mins < 60) setParkedDuration(`${mins} ${mins === 1 ? 'minute' : 'minutes'}`);
+            else {
+                const h = Math.floor(mins / 60);
+                const m = mins % 60;
+                setParkedDuration(m === 0 ? `${h}h` : `${h}h ${m}m`);
+            }
         };
         update();
         const id = setInterval(update, 60000);
@@ -674,77 +679,105 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             <BottomSheet isOpen={showSessionSheet} onClose={() => { setShowSessionSheet(false); setShowCustomReminder(false); }}>
                 {savedSpot && (
                     <div>
-                        {/* Header — duration is the primary status */}
+                        {/* Header: vehicle icon | duration + address */}
                         <div className="flex items-center gap-4 mb-5">
                             <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0"
                                 style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}>
-                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#facc15" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m2 4 3 12h14l3-12-6 5-4-5-4 5-6-5zm3 16h14"/></svg>
+                                <VehicleIcon type={user?.vehicleType} color={user?.vehicleColor} size={26} />
                             </div>
                             <div className="flex-1 min-w-0">
                                 <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-0.5">My Car</p>
-                                <p className="text-2xl font-extrabold text-[var(--color-text)] leading-tight">{parkedDuration || 'Just parked'}</p>
-                                <p className="text-xs text-[var(--color-text-secondary)] truncate mt-0.5">{savedSpot.address || 'Location saved'}</p>
+                                <div className="flex items-baseline gap-2 flex-wrap">
+                                    <p className="text-2xl font-extrabold text-[var(--color-text)] leading-tight shrink-0">{parkedDuration || 'Just parked'}</p>
+                                    {savedSpot.address && (
+                                        <p className="text-sm font-bold text-white truncate">{savedSpot.address}</p>
+                                    )}
+                                </div>
                             </div>
                         </div>
 
-                        {/* Navigate */}
-                        <a
-                            href={`https://www.google.com/maps/dir/?api=1&destination=${savedSpot.lat},${savedSpot.lng}`}
-                            target="_blank" rel="noopener noreferrer"
+                        {/* Navigate in-app */}
+                        <button
+                            onClick={() => {
+                                if (!mapRef.current || !userLocation) return;
+                                const dest: [number, number] = [savedSpot.lng, savedSpot.lat];
+                                activeRouteDestinationRef.current = dest;
+                                drawRoute(mapRef.current, userLocation, dest);
+                                mapRef.current.flyTo({ center: dest, zoom: 16 });
+                                setShowSessionSheet(false);
+                            }}
                             className="w-full mb-4 py-3 rounded-2xl text-sm font-bold border border-[#1e75ff]/30 bg-[#1e75ff]/10 hover:bg-[#1e75ff]/15 transition-all active:scale-95 text-[#38bdf8] flex items-center justify-center gap-2">
                             <Navigation size={15} />
                             Navigate to my car
-                        </a>
+                        </button>
 
                         {/* Reminder */}
                         <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-2">Reminder</p>
                         {parkingTimer.timer ? (
                             <div className="flex items-center gap-2.5 px-3 py-3 rounded-2xl bg-[#1e75ff]/10 border border-[#1e75ff]/20 mb-4">
                                 <Clock size={14} className="text-[#38bdf8] shrink-0" />
-                                <p className="text-xs font-semibold text-[#38bdf8] flex-1">{parkingTimer.minutesRemaining}m remaining</p>
+                                <p className="text-xs font-semibold text-[#38bdf8] flex-1">{parkingTimer.minutesRemaining} min remaining</p>
                                 <button onClick={parkingTimer.clearTimer} className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors">
                                     <X size={13} />
                                 </button>
                             </div>
                         ) : showCustomReminder ? (
-                            <div className="flex items-center gap-2 mb-4">
-                                <input
-                                    type="time"
-                                    className="flex-1 py-3 px-3 rounded-2xl text-sm font-semibold border border-[var(--color-border)] bg-[var(--color-card)] text-[var(--color-text)] focus:outline-none focus:border-[#1e75ff]/60"
-                                    onChange={(e) => {
-                                        if (!e.target.value) return;
-                                        const [h, m] = e.target.value.split(':').map(Number);
-                                        const now = new Date();
-                                        const target = new Date();
-                                        target.setHours(h, m, 0, 0);
-                                        if (target <= now) target.setDate(target.getDate() + 1);
-                                        const minutes = Math.round((target.getTime() - now.getTime()) / 60000);
-                                        if (minutes > 0) {
-                                            parkingTimer.startTimer(minutes, savedSpot.address || '', () => setShowDepartureSheet(true));
-                                            setShowCustomReminder(false);
-                                        }
-                                    }}
-                                    autoFocus
-                                />
-                                <button onClick={() => setShowCustomReminder(false)}
-                                    className="p-3 rounded-2xl border border-[var(--color-border)] bg-white/5 text-[var(--color-text-secondary)]">
-                                    <X size={14} />
-                                </button>
+                            <div className="mb-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] overflow-hidden">
+                                {/* Date row */}
+                                <div className="px-4 pt-3 pb-1">
+                                    <label className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest">Date</label>
+                                    <input
+                                        type="date"
+                                        defaultValue={new Date().toISOString().split('T')[0]}
+                                        min={new Date().toISOString().split('T')[0]}
+                                        id="pq-reminder-date"
+                                        className="w-full mt-1 py-2 bg-transparent text-sm font-semibold text-[var(--color-text)] focus:outline-none"
+                                    />
+                                </div>
+                                <div className="h-px bg-[var(--color-border)]" />
+                                {/* Time row */}
+                                <div className="px-4 pt-1 pb-3">
+                                    <label className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest">Time</label>
+                                    <input
+                                        type="time"
+                                        id="pq-reminder-time"
+                                        className="w-full mt-1 py-2 bg-transparent text-sm font-semibold text-[var(--color-text)] focus:outline-none"
+                                        autoFocus
+                                    />
+                                </div>
+                                <div className="h-px bg-[var(--color-border)]" />
+                                <div className="flex">
+                                    <button onClick={() => setShowCustomReminder(false)}
+                                        className="flex-1 py-3 text-xs font-bold text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors border-r border-[var(--color-border)]">
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            const dateEl = document.getElementById('pq-reminder-date') as HTMLInputElement;
+                                            const timeEl = document.getElementById('pq-reminder-time') as HTMLInputElement;
+                                            if (!timeEl.value) return;
+                                            const dateStr = dateEl.value || new Date().toISOString().split('T')[0];
+                                            const target = new Date(`${dateStr}T${timeEl.value}`);
+                                            const minutes = Math.round((target.getTime() - Date.now()) / 60000);
+                                            if (minutes > 0) {
+                                                parkingTimer.startTimer(minutes, savedSpot.address || '', () => setShowDepartureSheet(true));
+                                                setShowCustomReminder(false);
+                                            }
+                                        }}
+                                        className="flex-1 py-3 text-xs font-bold text-[#38bdf8] hover:text-[#1e75ff] transition-colors">
+                                        Set Reminder
+                                    </button>
+                                </div>
                             </div>
                         ) : (
                             <div className="grid grid-cols-4 gap-2 mb-4">
-                                {[{ label: 'None', minutes: 0 }, { label: '30 min', minutes: 30 }, { label: '1 hr', minutes: 60 }, { label: 'Custom…', minutes: -1 }].map(opt => (
+                                {[{ label: '15 min', minutes: 15 }, { label: '30 min', minutes: 30 }, { label: '1 hr', minutes: 60 }, { label: 'Custom…', minutes: -1 }].map(opt => (
                                     <button key={opt.minutes}
                                         onClick={() => {
                                             if (opt.minutes === -1) { setShowCustomReminder(true); return; }
-                                            if (opt.minutes === 0) return; // "None" is just a label for context
                                             parkingTimer.startTimer(opt.minutes, savedSpot.address || '', () => setShowDepartureSheet(true));
                                         }}
-                                        className={`py-3 rounded-2xl text-xs font-bold border transition-all active:scale-95 ${
-                                            opt.minutes === 0
-                                                ? 'border-[var(--color-border)] bg-white/5 text-[var(--color-text-secondary)] cursor-default'
-                                                : 'border-[var(--color-border)] bg-white/5 hover:bg-white/10 text-[var(--color-text)]'
-                                        }`}>
+                                        className="py-3 rounded-2xl text-xs font-bold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 text-[var(--color-text)] transition-all active:scale-95">
                                         {opt.label}
                                     </button>
                                 ))}
