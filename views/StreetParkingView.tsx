@@ -175,6 +175,14 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         ? getDistance(userLocation[1], userLocation[0], savedSpot.lat, savedSpot.lng) < 0.05
         : false;
 
+    const myCarDistanceLabel = useMemo(() => {
+        if (!savedSpot || !userLocation) return null;
+        const km = getDistance(userLocation[1], userLocation[0], savedSpot.lat, savedSpot.lng);
+        if (km < 0.02) return "You're here";
+        if (km < 0.5) return `${Math.round(km * 3280.84)} ft away`;
+        return `${(km * 0.621371).toFixed(1)} mi away`;
+    }, [userLocation, savedSpot]);
+
     const otherSpots = spotData.radiusFilteredItems.filter(s => s.finderId !== user?.id);
     const spotCount = otherSpots.length;
 
@@ -1063,6 +1071,29 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
 
                 <div className="w-full flex flex-col gap-2 pointer-events-auto mt-auto pb-16 px-4">
+
+                    {/* My Car navigation bubble — visible whenever a session is active */}
+                    {savedSpot && myCarDistanceLabel && !search.searchOpen && (
+                        <button
+                            onClick={() => {
+                                if (mapRef.current) {
+                                    mapRef.current.flyTo({ center: [savedSpot.lng, savedSpot.lat], zoom: 17, duration: 800 });
+                                }
+                                setTimeout(() => setShowSessionSheet(true), 600);
+                            }}
+                            className="max-w-[380px] mx-auto w-full flex items-center gap-3 px-4 py-3 rounded-2xl shadow-lg active:scale-[0.98] transition-transform"
+                            style={{ background: isNearSavedSpot ? 'rgba(16,185,129,0.15)' : 'rgba(30,117,255,0.12)', border: `1px solid ${isNearSavedSpot ? 'rgba(16,185,129,0.35)' : 'rgba(30,117,255,0.3)'}`, backdropFilter: 'blur(12px)' }}>
+                            <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
+                                style={{ background: isNearSavedSpot ? 'rgba(16,185,129,0.2)' : 'linear-gradient(135deg,#1e75ff,#0ea5e9)' }}>
+                                <VehicleIcon type={user?.vehicleType} color={user?.vehicleColor} size={16} />
+                            </div>
+                            <div className="flex-1 min-w-0 text-left">
+                                <p className="text-xs font-bold text-[var(--color-text)]">My Car</p>
+                                <p className={`text-[11px] font-semibold ${isNearSavedSpot ? 'text-emerald-400' : 'text-[#38bdf8]'}`}>{myCarDistanceLabel}</p>
+                            </div>
+                            <ChevronRight size={14} className="text-[var(--color-text-secondary)] shrink-0" />
+                        </button>
+                    )}
 
                     {/* Car (toggle) + Locate stacked vertically on the right */}
                     <div className="flex flex-col items-end gap-2 max-w-[380px] mx-auto w-full mb-2">
