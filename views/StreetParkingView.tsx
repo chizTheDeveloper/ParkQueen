@@ -733,44 +733,51 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                             </div>
                         ) : showCustomReminder ? (
                             <div className="mb-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] overflow-hidden">
-                                <div className="flex items-center justify-between px-4 pt-3 pb-2">
-                                    <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest">Pick a time</p>
-                                    <button onClick={() => setShowCustomReminder(false)}
-                                        className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors">
-                                        <X size={14} />
-                                    </button>
+                                <div className="grid grid-cols-2 divide-x divide-[var(--color-border)]">
+                                    <div className="px-4 py-3">
+                                        <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-1">Date</p>
+                                        <input
+                                            type="date"
+                                            id="pq-reminder-date"
+                                            defaultValue={new Date().toISOString().split('T')[0]}
+                                            min={new Date().toISOString().split('T')[0]}
+                                            className="w-full bg-transparent text-sm font-semibold text-white focus:outline-none"
+                                            style={{ colorScheme: 'dark' }}
+                                        />
+                                    </div>
+                                    <div className="px-4 py-3">
+                                        <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-1">Time</p>
+                                        <input
+                                            type="time"
+                                            id="pq-reminder-time"
+                                            className="w-full bg-transparent text-sm font-semibold text-white focus:outline-none"
+                                            style={{ colorScheme: 'dark' }}
+                                            autoFocus
+                                        />
+                                    </div>
                                 </div>
-                                <div className="max-h-52 overflow-y-auto">
-                                    {reminderSlots.map((slot, i) => {
-                                        const now = new Date();
-                                        const todayStr = now.toDateString();
-                                        const prev = reminderSlots[i - 1];
-                                        const showDayLabel = i === 0 || (prev && prev.toDateString() !== slot.toDateString());
-                                        const isToday = slot.toDateString() === todayStr;
-                                        const minsFromNow = Math.round((slot.getTime() - now.getTime()) / 60000);
-                                        const relLabel = minsFromNow < 60
-                                            ? `in ${minsFromNow} min`
-                                            : `in ${Math.floor(minsFromNow / 60)}h${minsFromNow % 60 ? ` ${minsFromNow % 60}m` : ''}`;
-                                        const timeLabel = slot.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-                                        return (
-                                            <React.Fragment key={slot.getTime()}>
-                                                {showDayLabel && (
-                                                    <p className="px-4 py-1.5 text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest bg-white/5">
-                                                        {isToday ? 'Today' : 'Tomorrow'}
-                                                    </p>
-                                                )}
-                                                <button
-                                                    onClick={() => {
-                                                        parkingTimer.startTimer(minsFromNow, savedSpot!.address || '', () => setShowDepartureSheet(true));
-                                                        setShowCustomReminder(false);
-                                                    }}
-                                                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 active:bg-white/10 transition-colors border-t border-[var(--color-border)]">
-                                                    <span className="text-sm font-bold text-[var(--color-text)]">{timeLabel}</span>
-                                                    <span className="text-xs text-[var(--color-text-secondary)]">{relLabel}</span>
-                                                </button>
-                                            </React.Fragment>
-                                        );
-                                    })}
+                                <div className="h-px bg-[var(--color-border)]" />
+                                <div className="flex divide-x divide-[var(--color-border)]">
+                                    <button onClick={() => setShowCustomReminder(false)}
+                                        className="flex-1 py-3 text-xs font-bold text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors">
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            const dateEl = document.getElementById('pq-reminder-date') as HTMLInputElement;
+                                            const timeEl = document.getElementById('pq-reminder-time') as HTMLInputElement;
+                                            if (!timeEl.value) return;
+                                            const dateStr = dateEl.value || new Date().toISOString().split('T')[0];
+                                            const target = new Date(`${dateStr}T${timeEl.value}`);
+                                            const minutes = Math.round((target.getTime() - Date.now()) / 60000);
+                                            if (minutes > 0) {
+                                                parkingTimer.startTimer(minutes, savedSpot!.address || '', () => setShowDepartureSheet(true));
+                                                setShowCustomReminder(false);
+                                            }
+                                        }}
+                                        className="flex-1 py-3 text-xs font-bold text-[#38bdf8] hover:text-[#1e75ff] transition-colors">
+                                        Set Reminder
+                                    </button>
                                 </div>
                             </div>
                         ) : (
