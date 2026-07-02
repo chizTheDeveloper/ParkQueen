@@ -773,7 +773,6 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     })}
                                 </div>
                             </div>
-                        ) :
                         ) : (
                             <div className="grid grid-cols-4 gap-2 mb-4">
                                 {[{ label: '15 min', minutes: 15 }, { label: '30 min', minutes: 30 }, { label: '1 hr', minutes: 60 }, { label: 'Custom…', minutes: -1 }].map(opt => (
