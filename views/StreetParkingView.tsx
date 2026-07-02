@@ -110,6 +110,9 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const [parkedDuration, setParkedDuration] = useState('');
     const [showCustomReminder, setShowCustomReminder] = useState(false);
     const [reminderAmPm, setReminderAmPm] = useState<'AM' | 'PM'>(new Date().getHours() < 12 ? 'AM' : 'PM');
+    const [reminderHour, setReminderHour] = useState('');
+    const [reminderMinute, setReminderMinute] = useState('');
+    const reminderMinuteRef = useRef<HTMLInputElement>(null);
     const reminderSlots = useMemo(() => {
         const now = new Date();
         const start = new Date(now);
@@ -749,44 +752,43 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     <div className="px-4 py-3">
                                         <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-1">Time</p>
                                         <div className="flex items-center gap-2">
-                                            <div className="flex items-center gap-1 flex-1 min-w-0">
+                                            <div className="flex items-center gap-0.5 flex-1 min-w-0">
                                                 <input
-                                                    type="number"
-                                                    id="pq-reminder-hour"
-                                                    min={1} max={12}
+                                                    type="text"
+                                                    inputMode="numeric"
                                                     placeholder="12"
-                                                    className="w-10 bg-transparent text-sm font-semibold text-white text-center focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                                                    value={reminderHour}
+                                                    maxLength={2}
                                                     autoFocus
+                                                    className="w-7 bg-transparent text-sm font-semibold text-white text-center focus:outline-none"
                                                     onChange={(e) => {
-                                                        const v = parseInt(e.target.value);
-                                                        if (isNaN(v)) return;
-                                                        if (v > 12) e.target.value = '12';
-                                                        if (v < 1) e.target.value = '1';
-                                                    }}
-                                                    onKeyDown={(e) => {
-                                                        // block minus and any digit that would make value > 2 chars
-                                                        if (e.key === '-') e.preventDefault();
-                                                        const cur = (e.target as HTMLInputElement).value;
-                                                        if (cur.length >= 2 && e.key.length === 1 && /\d/.test(e.key)) e.preventDefault();
+                                                        const raw = e.target.value.replace(/\D/g, '');
+                                                        if (!raw) { setReminderHour(''); return; }
+                                                        const n = parseInt(raw);
+                                                        if (n > 12) { setReminderHour('12'); reminderMinuteRef.current?.focus(); return; }
+                                                        if (n === 0) { setReminderHour('1'); return; }
+                                                        setReminderHour(raw);
+                                                        // auto-advance: first digit 2-9 can't grow to a valid 2-digit hour
+                                                        if (raw.length === 2 || (raw.length === 1 && n >= 2)) {
+                                                            reminderMinuteRef.current?.focus();
+                                                        }
                                                     }}
                                                 />
-                                                <span className="text-sm font-bold text-[var(--color-text-secondary)]">:</span>
+                                                <span className="text-sm font-bold text-[var(--color-text-secondary)] select-none">:</span>
                                                 <input
-                                                    type="number"
-                                                    id="pq-reminder-minute"
-                                                    min={0} max={59}
+                                                    ref={reminderMinuteRef}
+                                                    type="text"
+                                                    inputMode="numeric"
                                                     placeholder="00"
-                                                    className="w-10 bg-transparent text-sm font-semibold text-white text-center focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none"
+                                                    value={reminderMinute}
+                                                    maxLength={2}
+                                                    className="w-7 bg-transparent text-sm font-semibold text-white text-center focus:outline-none"
                                                     onChange={(e) => {
-                                                        const v = parseInt(e.target.value);
-                                                        if (isNaN(v)) return;
-                                                        if (v > 59) e.target.value = '59';
-                                                        if (v < 0) e.target.value = '0';
-                                                    }}
-                                                    onKeyDown={(e) => {
-                                                        if (e.key === '-') e.preventDefault();
-                                                        const cur = (e.target as HTMLInputElement).value;
-                                                        if (cur.length >= 2 && e.key.length === 1 && /\d/.test(e.key)) e.preventDefault();
+                                                        const raw = e.target.value.replace(/\D/g, '');
+                                                        if (!raw) { setReminderMinute(''); return; }
+                                                        const n = parseInt(raw);
+                                                        if (n > 59) { setReminderMinute('59'); return; }
+                                                        setReminderMinute(raw);
                                                     }}
                                                 />
                                             </div>
@@ -815,10 +817,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     <button
                                         onClick={() => {
                                             const dateEl = document.getElementById('pq-reminder-date') as HTMLInputElement;
-                                            const hourEl = document.getElementById('pq-reminder-hour') as HTMLInputElement;
-                                            const minEl = document.getElementById('pq-reminder-minute') as HTMLInputElement;
-                                            const hRaw = parseInt(hourEl.value) || 12;
-                                            const m = parseInt(minEl.value) || 0;
+                                            const hRaw = parseInt(reminderHour) || 12;
+                                            const m = parseInt(reminderMinute) || 0;
                                             let h = hRaw % 12;
                                             if (reminderAmPm === 'PM') h += 12;
                                             const dateStr = dateEl.value || new Date().toISOString().split('T')[0];
@@ -839,7 +839,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                 {[{ label: '15 min', minutes: 15 }, { label: '30 min', minutes: 30 }, { label: '1 hr', minutes: 60 }, { label: 'Custom…', minutes: -1 }].map(opt => (
                                     <button key={opt.minutes}
                                         onClick={() => {
-                                            if (opt.minutes === -1) { setShowCustomReminder(true); return; }
+                                            if (opt.minutes === -1) { setReminderHour(''); setReminderMinute(''); setShowCustomReminder(true); return; }
                                             parkingTimer.startTimer(opt.minutes, savedSpot.address || '', () => setShowDepartureSheet(true));
                                         }}
                                         className="py-3 rounded-2xl text-xs font-bold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 text-[var(--color-text)] transition-all active:scale-95">
