@@ -203,7 +203,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
                         })()}
                       </div>
                       <div className="flex items-center gap-1 text-sm font-bold text-[var(--color-text)]">
-                        <CrownBadge tier={tier} size={14} />
+                        <Crown size={14} className="text-yellow-400 drop-shadow-[0_0_6px_rgba(250,204,21,0.6)]" />
                         <span>{crowns} Crown{crowns !== 1 ? 's' : ''}</span>
                       </div>
                     </div>
@@ -238,7 +238,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
                         />
                       </div>
                       <div className="flex items-center justify-center gap-1.5 mt-2">
-                        <CrownBadge tier={next.tier} size={13} />
+                        <Crown size={13} className="text-yellow-400 drop-shadow-[0_0_6px_rgba(250,204,21,0.6)]" />
                         <p className="text-xs text-[var(--color-text-secondary)]">
                           <span className="font-bold text-[var(--color-text)]">{next.crownsNeeded}</span> crowns until{' '}
                           <span className="font-bold" style={{ color: TIER_VISUALS[next.tier].textColor }}>{next.title}</span>
