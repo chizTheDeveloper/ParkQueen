@@ -16,7 +16,7 @@ interface UseInterestFlowOptions {
 }
 
 const MAX_ETA_MINUTES = 7;
-const ARRIVAL_DISTANCE_KM = 0.06; // ~200 feet
+const ARRIVAL_DISTANCE_KM = 0.015; // ~50 feet
 const ETA_OPTIONS = [2, 5, 8, 10];
 // ponytail: straight-line km to estimated driving minutes at ~25 km/h city speed
 const kmToEstMinutes = (km: number) => Math.ceil((km / 25) * 60);
