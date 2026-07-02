@@ -107,7 +107,83 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
         ? { label: 'Free', color: 'text-green-400 bg-green-500/10 border-green-500/20' }
         : { label: 'Reserved', color: 'text-amber-400 bg-amber-500/10 border-amber-500/20' };
 
-    // Claimer view — full takeover, vehicle info is the hero
+    // Claimer heading to spot — finder's vehicle is the hero
+    if (state === 'my_claim') {
+        return (
+            <div>
+                <p className="text-[11px] font-bold text-[#38bdf8] uppercase tracking-widest text-center mb-4">You're on your way</p>
+
+                {/* Finder avatar + name */}
+                <div className="flex items-center gap-3 mb-4">
+                    <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 text-white font-bold text-xl"
+                        style={{ background: 'linear-gradient(135deg, #1e75ff, #0ea5e9)' }}>
+                        {finderInitial}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <p className="text-lg font-extrabold text-[var(--color-text)] truncate">{finderName}</p>
+                        {selectedItem.finderTitle && (
+                            <p className="text-[11px] font-semibold text-[#38bdf8] mt-0.5">{selectedItem.finderTitle}</p>
+                        )}
+                    </div>
+                </div>
+
+                {/* Vehicle hero — what to look out for */}
+                <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] p-4 mb-4">
+                    <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-3">Look out for</p>
+                    {hasVehicle ? (
+                        <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 border border-white/10"
+                                style={{ background: vehicleHex + '33' }}>
+                                <VehicleIcon type={vehicleType} color={vehicleColor} size={26} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <p className="text-base font-extrabold text-[var(--color-text)] truncate">
+                                    {[vehicleColor, vehicleBrand].filter(Boolean).join(' ') || vehicleType}
+                                </p>
+                                {vehicleType && (vehicleColor || vehicleBrand) && (
+                                    <p className="text-sm text-[var(--color-text-secondary)]">{vehicleType}</p>
+                                )}
+                            </div>
+                        </div>
+                    ) : (
+                        <p className="text-sm text-[var(--color-text-secondary)]">No vehicle info provided</p>
+                    )}
+                </div>
+
+                {interestError && <p className="text-red-400 text-xs mb-2 text-center">{interestError}</p>}
+                {messageSent && <p className="text-emerald-400 text-xs mb-2 text-center font-semibold">Message sent</p>}
+
+                {showQuickReplies && (
+                    <div className="mb-3 grid grid-cols-2 gap-1.5">
+                        {QUICK_REPLIES.map(msg => (
+                            <button key={msg} onClick={() => sendQuickReply(msg)}
+                                className="bg-white/5 border border-[var(--color-border)] hover:bg-white/10 text-[var(--color-text)] font-semibold py-2.5 px-2 rounded-2xl text-xs transition-all active:scale-95">
+                                {msg}
+                            </button>
+                        ))}
+                    </div>
+                )}
+
+                <div className="flex gap-2">
+                    <button onClick={onCancelByClaimer}
+                        className="px-4 border border-red-500/40 hover:bg-red-500/10 text-red-400 font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95">
+                        Cancel
+                    </button>
+                    <button onClick={() => setShowQuickReplies(!showQuickReplies)}
+                        className="p-3.5 rounded-2xl bg-white/10 hover:bg-white/20 text-[var(--color-text)] flex items-center justify-center transition-all shrink-0 active:scale-95">
+                        <MessageSquare size={16} />
+                    </button>
+                    <button onClick={onArrival} disabled={!isWithinArrivalRange}
+                        className="flex-1 font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95 text-white disabled:opacity-40"
+                        style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}>
+                        {isWithinArrivalRange ? "I've arrived" : "Get closer"}
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    // Finder view — claimer's vehicle is the hero
     if (state === 'my_ping_claimed') {
         const vc = selectedItem.interestedUserVehicleColor;
         const vt = selectedItem.interestedUserVehicleType;
