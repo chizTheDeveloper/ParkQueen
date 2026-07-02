@@ -107,8 +107,12 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const [showSessionSheet, setShowSessionSheet] = useState(false);
     const [showDepartureSheet, setShowDepartureSheet] = useState(false);
     const [parkedDuration, setParkedDuration] = useState('');
+    const [showCustomReminder, setShowCustomReminder] = useState(false);
     const parkedSheetSetterRef = useRef<(() => void) | null>(null);
     parkedSheetSetterRef.current = () => setShowSessionSheet(true);
+    // Tracks whether SpotModal was opened from the departure flow —
+    // session only ends on successful ping, not on dismiss.
+    const isDepartureFlowRef = useRef(false);
 
     // Live duration counter for active session
     useEffect(() => {
@@ -471,6 +475,10 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         const onSaveSuccess = () => {
             setIsPinging(false);
             setSelectedItem(null);
+            if (isDepartureFlowRef.current) {
+                isDepartureFlowRef.current = false;
+                endSession();
+            }
         };
 
         const onSaveError = (error: any) => {
@@ -625,6 +633,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 onClose={() => {
                     setSpotModalOpen(false);
                     setSelectedItem(null);
+                    isDepartureFlowRef.current = false; // session stays alive if they back out
                 }}
                 onSave={handleSaveSpot}
                 spot={selectedItem}
@@ -662,19 +671,19 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
 
             {/* My Car — Parking Session sheet (personal only) */}
-            <BottomSheet isOpen={showSessionSheet} onClose={() => setShowSessionSheet(false)}>
+            <BottomSheet isOpen={showSessionSheet} onClose={() => { setShowSessionSheet(false); setShowCustomReminder(false); }}>
                 {savedSpot && (
                     <div>
-                        {/* Header */}
-                        <div className="flex items-center gap-3 mb-5">
+                        {/* Header — duration is the primary status */}
+                        <div className="flex items-center gap-4 mb-5">
                             <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0"
                                 style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}>
                                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#facc15" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m2 4 3 12h14l3-12-6 5-4-5-4 5-6-5zm3 16h14"/></svg>
                             </div>
                             <div className="flex-1 min-w-0">
-                                <p className="text-lg font-extrabold text-[var(--color-text)]">My Car</p>
-                                <p className="text-sm text-[var(--color-text-secondary)] truncate">{savedSpot.address || 'Location saved'}</p>
-                                <p className="text-xs text-[#38bdf8] font-semibold mt-0.5">Parked {parkedDuration}</p>
+                                <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-0.5">My Car</p>
+                                <p className="text-2xl font-extrabold text-[var(--color-text)] leading-tight">{parkedDuration || 'Just parked'}</p>
+                                <p className="text-xs text-[var(--color-text-secondary)] truncate mt-0.5">{savedSpot.address || 'Location saved'}</p>
                             </div>
                         </div>
 
@@ -682,7 +691,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                         <a
                             href={`https://www.google.com/maps/dir/?api=1&destination=${savedSpot.lat},${savedSpot.lng}`}
                             target="_blank" rel="noopener noreferrer"
-                            className="w-full mb-3 py-3 rounded-2xl text-sm font-bold border border-[#1e75ff]/30 bg-[#1e75ff]/10 hover:bg-[#1e75ff]/15 transition-all active:scale-95 text-[#38bdf8] flex items-center justify-center gap-2">
+                            className="w-full mb-4 py-3 rounded-2xl text-sm font-bold border border-[#1e75ff]/30 bg-[#1e75ff]/10 hover:bg-[#1e75ff]/15 transition-all active:scale-95 text-[#38bdf8] flex items-center justify-center gap-2">
                             <Navigation size={15} />
                             Navigate to my car
                         </a>
@@ -697,22 +706,55 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     <X size={13} />
                                 </button>
                             </div>
+                        ) : showCustomReminder ? (
+                            <div className="flex items-center gap-2 mb-4">
+                                <input
+                                    type="time"
+                                    className="flex-1 py-3 px-3 rounded-2xl text-sm font-semibold border border-[var(--color-border)] bg-[var(--color-card)] text-[var(--color-text)] focus:outline-none focus:border-[#1e75ff]/60"
+                                    onChange={(e) => {
+                                        if (!e.target.value) return;
+                                        const [h, m] = e.target.value.split(':').map(Number);
+                                        const now = new Date();
+                                        const target = new Date();
+                                        target.setHours(h, m, 0, 0);
+                                        if (target <= now) target.setDate(target.getDate() + 1);
+                                        const minutes = Math.round((target.getTime() - now.getTime()) / 60000);
+                                        if (minutes > 0) {
+                                            parkingTimer.startTimer(minutes, savedSpot.address || '', () => setShowDepartureSheet(true));
+                                            setShowCustomReminder(false);
+                                        }
+                                    }}
+                                    autoFocus
+                                />
+                                <button onClick={() => setShowCustomReminder(false)}
+                                    className="p-3 rounded-2xl border border-[var(--color-border)] bg-white/5 text-[var(--color-text-secondary)]">
+                                    <X size={14} />
+                                </button>
+                            </div>
                         ) : (
                             <div className="grid grid-cols-4 gap-2 mb-4">
-                                {[{ label: '30 min', minutes: 30 }, { label: '1 hr', minutes: 60 }, { label: '2 hr', minutes: 120 }, { label: '4 hr', minutes: 240 }].map(opt => (
+                                {[{ label: 'None', minutes: 0 }, { label: '30 min', minutes: 30 }, { label: '1 hr', minutes: 60 }, { label: 'Custom…', minutes: -1 }].map(opt => (
                                     <button key={opt.minutes}
-                                        onClick={() => parkingTimer.startTimer(opt.minutes, savedSpot.address || '', () => setShowDepartureSheet(true))}
-                                        className="py-3 rounded-2xl text-xs font-bold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 transition-all active:scale-95 text-[var(--color-text)]">
+                                        onClick={() => {
+                                            if (opt.minutes === -1) { setShowCustomReminder(true); return; }
+                                            if (opt.minutes === 0) return; // "None" is just a label for context
+                                            parkingTimer.startTimer(opt.minutes, savedSpot.address || '', () => setShowDepartureSheet(true));
+                                        }}
+                                        className={`py-3 rounded-2xl text-xs font-bold border transition-all active:scale-95 ${
+                                            opt.minutes === 0
+                                                ? 'border-[var(--color-border)] bg-white/5 text-[var(--color-text-secondary)] cursor-default'
+                                                : 'border-[var(--color-border)] bg-white/5 hover:bg-white/10 text-[var(--color-text)]'
+                                        }`}>
                                         {opt.label}
                                     </button>
                                 ))}
                             </div>
                         )}
 
-                        {/* End session */}
+                        {/* Clear saved location */}
                         <button onClick={endSession}
                             className="w-full py-2.5 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-red-400 transition-colors">
-                            End session
+                            Clear saved location
                         </button>
                     </div>
                 )}
@@ -726,18 +768,26 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                             style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}>
                             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#facc15" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m2 4 3 12h14l3-12-6 5-4-5-4 5-6-5zm3 16h14"/></svg>
                         </div>
-                        <p className="text-xl font-extrabold text-[var(--color-text)] mb-1">Leaving this spot?</p>
-                        <p className="text-sm text-[var(--color-text-secondary)] mb-6">Help the next driver find it.</p>
+                        <p className="text-xl font-extrabold text-[var(--color-text)] mb-1">Ready to head out?</p>
+                        <p className="text-sm text-[var(--color-text-secondary)] mb-6">Share your spot and help another driver find it.</p>
 
                         <button
-                            onClick={() => { endSession(); setSpotModalOpen(true); }}
+                            onClick={() => {
+                                isDepartureFlowRef.current = true;
+                                setShowDepartureSheet(false);
+                                setSpotModalOpen(true);
+                            }}
                             className="w-full py-3.5 rounded-full text-white font-bold text-sm flex items-center justify-center gap-2 active:scale-95 transition-transform mb-2"
                             style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}>
                             <MapPin size={16} />
                             Leaving Now
                         </button>
                         <button
-                            onClick={() => { endSession(); setSpotModalOpen(true); }}
+                            onClick={() => {
+                                isDepartureFlowRef.current = true;
+                                setShowDepartureSheet(false);
+                                setSpotModalOpen(true);
+                            }}
                             className="w-full py-3 rounded-full text-sm font-bold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 transition-all active:scale-95 text-[var(--color-text)] flex items-center justify-center gap-2 mb-3">
                             <Clock size={15} />
                             Leaving Later
