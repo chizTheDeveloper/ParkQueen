@@ -293,138 +293,142 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
         );
     }
 
-    return (
-        <div>
-            {/* Hero: finder info + vehicle */}
-            <div className="flex items-center gap-3 mb-3">
-                {/* Avatar */}
-                <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 text-white font-bold text-base"
-                    style={{ background: 'linear-gradient(135deg, #1e75ff, #0ea5e9)' }}>
-                    {finderInitial}
+    // Someone else's ping — no address, just enough to decide
+    if (state === 'available') {
+        return (
+            <div>
+                <p className="text-[11px] font-bold text-[#38bdf8] uppercase tracking-widest text-center mb-4">Available spot</p>
+
+                <div className="flex items-center gap-3 mb-4">
+                    <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 text-white font-bold text-xl"
+                        style={{ background: 'linear-gradient(135deg, #1e75ff, #0ea5e9)' }}>
+                        {finderInitial}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <p className="text-lg font-extrabold text-[var(--color-text)] truncate">{finderName}</p>
+                        {selectedItem.finderTitle && (
+                            <p className="text-[11px] font-semibold text-[#38bdf8] mt-0.5">{selectedItem.finderTitle}</p>
+                        )}
+                    </div>
+                    <span className={`text-[10px] font-bold px-2 py-1 rounded-xl border shrink-0 ${badgeConfig.color}`}>
+                        {badgeConfig.label}
+                    </span>
                 </div>
 
-                <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                        <span className="text-sm font-bold text-[var(--color-text)] truncate">{finderName}</span>
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md border ${badgeConfig.color}`}>
-                            {badgeConfig.label}
-                        </span>
+                <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] p-4 mb-4">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <Clock size={14} className={isScheduled ? 'text-yellow-400 shrink-0' : 'text-green-400 shrink-0'} />
+                            <span className="text-sm font-bold text-[var(--color-text)]">
+                                {isScheduled ? `Leaving at ${departureText}` : 'Leaving now'}
+                            </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            {distanceText && (
+                                <span className="text-sm font-bold text-[var(--color-text-secondary)]">{distanceText}</span>
+                            )}
+                            {timeLeftMs > 0 && (
+                                <span className="text-xs text-[var(--color-text-secondary)]">{formatTimeLeft(timeLeftMs)} left</span>
+                            )}
+                        </div>
                     </div>
-                    {state === 'available' ? (
-                        selectedItem.finderTitle && (
-                            <span className="text-[11px] font-semibold text-[#38bdf8] mt-0.5 block">{selectedItem.finderTitle}</span>
-                        )
+                </div>
+
+                {interestError && <p className="text-red-400 text-xs mb-3 text-center">{interestError}</p>}
+
+                <div className="flex gap-2">
+                    <button onClick={() => onMessageUser(selectedItem.finderId, `Spot pinged by ${finderName}`)}
+                        className="bg-white/10 hover:bg-white/20 text-[var(--color-text)] p-3.5 rounded-2xl flex items-center justify-center transition-all shrink-0 active:scale-95">
+                        <MessageSquare size={16} />
+                    </button>
+                    {estDriveMinutes !== null && estDriveMinutes > maxEtaMinutes ? (
+                        <span className="flex-1 text-xs text-[var(--color-text-secondary)] self-center text-center">
+                            Too far (~{estDriveMinutes} min drive)
+                        </span>
                     ) : (
-                        hasVehicle ? (
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                                <VehicleIcon type={vehicleType} color={vehicleColor} size={13} />
-                                <span className="text-[11px] text-[var(--color-text-secondary)] truncate">{vehicleLabel}</span>
-                            </div>
-                        ) : (
-                            <span className="text-[11px] text-[var(--color-text-secondary)]">No vehicle info</span>
-                        )
+                        <button onClick={onHeadingThere}
+                            className="flex-1 font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95 text-white flex items-center justify-center gap-1.5"
+                            style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}>
+                            <Navigation size={14} />
+                            I'm heading there
+                        </button>
                     )}
                 </div>
             </div>
+        );
+    }
 
-            {/* Location + status strip */}
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[var(--color-bg)]/50 border border-[var(--color-border)] mb-3">
-                <MapPin size={13} className="text-[#38bdf8] shrink-0" />
-                <span className="text-[11px] font-semibold text-[var(--color-text)] truncate flex-1">
-                    {selectedItem.title || spotAddress || 'Street Parking Spot'}
-                </span>
-                {distanceText && (
-                    <span className="text-[10px] font-bold text-[var(--color-text-secondary)] shrink-0">{distanceText}</span>
-                )}
-            </div>
+    // Finder's own ping management view — address visible, edit/delete actions
+    if (state === 'my_ping_available') {
+        return (
+            <div>
+                <p className="text-[11px] font-bold text-[#38bdf8] uppercase tracking-widest text-center mb-4">Your active ping</p>
 
-            {/* Time strip */}
-            <div className="flex items-center gap-3 px-3 py-2 rounded-xl bg-[var(--color-bg)]/50 border border-[var(--color-border)] mb-3">
-                <Clock size={13} className={isScheduled ? 'text-yellow-400 shrink-0' : 'text-green-400 shrink-0'} />
-                <span className="text-[11px] font-semibold text-[var(--color-text)]">
-                    {isScheduled ? `Leaving at ${departureText}` : 'Leaving Now'}
-                </span>
-                {timeLeftMs > 0 && (
-                    <span className="ml-auto text-[10px] text-[var(--color-text-secondary)] shrink-0">
-                        {formatTimeLeft(timeLeftMs)} left
-                    </span>
-                )}
-            </div>
-
-            {interestError && <p className="text-red-400 text-xs mb-2 text-center">{interestError}</p>}
-            {messageSent && <p className="text-emerald-400 text-xs mb-2 text-center font-semibold">Message sent</p>}
-
-            {showQuickReplies && (
-                <div className="mb-3 grid grid-cols-2 gap-1.5">
-                    {QUICK_REPLIES.map(msg => (
-                        <button key={msg} onClick={() => sendQuickReply(msg)}
-                            className="bg-white/5 border border-[var(--color-border)] hover:bg-white/10 text-[var(--color-text)] font-semibold py-2.5 px-2 rounded-2xl text-xs transition-all active:scale-95">
-                            {msg}
-                        </button>
-                    ))}
-                </div>
-            )}
-
-            {/* Action buttons */}
-            <div className="flex gap-2">
-                {state === 'available' && (
-                    <>
-                        <button onClick={() => onMessageUser(selectedItem.finderId, `Spot pinged by ${finderName}`)}
-                            className="bg-white/10 hover:bg-white/20 text-[var(--color-text)] p-3 rounded-2xl flex items-center justify-center transition-all shrink-0 active:scale-95">
-                            <MessageSquare size={16} />
-                        </button>
-                        {estDriveMinutes !== null && estDriveMinutes > maxEtaMinutes ? (
-                            <span className="flex-1 text-xs text-[var(--color-text-secondary)] self-center text-center">
-                                Too far (~{estDriveMinutes} min drive)
-                            </span>
-                        ) : (
-                            <button onClick={onHeadingThere}
-                                className="flex-1 font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95 text-white flex items-center justify-center gap-1.5"
-                                style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}>
-                                <Navigation size={14} />
-                                I'm heading there
-                            </button>
-                        )}
-                    </>
-                )}
-
-                {state === 'my_claim' && (
-                    <>
-                        <button onClick={onArrival} disabled={!isWithinArrivalRange}
-                            className="flex-1 font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95 text-white disabled:opacity-40"
-                            style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}>
-                            {isWithinArrivalRange ? "I've arrived" : "Get closer to confirm"}
-                        </button>
-                        <button onClick={() => onMessageUser(selectedItem.finderId, `Spot pinged by ${finderName}`)}
-                            className="bg-white/10 hover:bg-white/20 text-[var(--color-text)] p-3 rounded-2xl flex items-center justify-center transition-all shrink-0 active:scale-95">
-                            <MessageSquare size={16} />
-                        </button>
-                        <button onClick={onCancelByClaimer}
-                            className="text-[var(--color-text-secondary)] hover:text-red-400 text-sm font-semibold px-2 transition-colors">
-                            Cancel
-                        </button>
-                    </>
-                )}
-
-                {state === 'my_ping_available' && (
-                    <div className="flex flex-1 gap-2">
-                        <button onClick={() => onEditSpot(selectedItem)}
-                            className="flex-1 bg-blue-600/50 hover:bg-blue-600 text-white font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95">
-                            Edit
-                        </button>
-                        <button onClick={onDeletePing}
-                            className="flex-1 border border-red-500/50 hover:bg-red-500/10 text-red-400 font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95">
-                            Delete
-                        </button>
+                <div className="flex items-center gap-3 mb-4">
+                    <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 text-white font-bold text-xl"
+                        style={{ background: 'linear-gradient(135deg, #1e75ff, #0ea5e9)' }}>
+                        {finderInitial}
                     </div>
-                )}
+                    <div className="flex-1 min-w-0">
+                        <p className="text-lg font-extrabold text-[var(--color-text)] truncate">{finderName}</p>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border inline-block mt-0.5 ${badgeConfig.color}`}>
+                            {badgeConfig.label}
+                        </span>
+                    </div>
+                </div>
 
-                {state === 'third_party' && (
-                    <span className="flex-1 text-xs font-bold text-amber-400 self-center text-center px-2 py-1 bg-amber-500/10 rounded-2xl border border-amber-500/20">
-                        Someone is heading there
-                    </span>
-                )}
+                <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] p-4 mb-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                        <MapPin size={14} className="text-[#38bdf8] shrink-0" />
+                        <span className="text-sm font-semibold text-[var(--color-text)] truncate">
+                            {selectedItem.title || spotAddress || 'Street Parking Spot'}
+                        </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <Clock size={14} className={isScheduled ? 'text-yellow-400 shrink-0' : 'text-green-400 shrink-0'} />
+                            <span className="text-sm font-bold text-[var(--color-text)]">
+                                {isScheduled ? `Leaving at ${departureText}` : 'Leaving now'}
+                            </span>
+                        </div>
+                        {timeLeftMs > 0 && (
+                            <span className="text-xs text-[var(--color-text-secondary)]">{formatTimeLeft(timeLeftMs)} left</span>
+                        )}
+                    </div>
+                </div>
+
+                <div className="flex gap-2">
+                    <button onClick={() => onEditSpot(selectedItem)}
+                        className="flex-1 bg-white/10 hover:bg-white/20 text-[var(--color-text)] font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95">
+                        Edit
+                    </button>
+                    <button onClick={onDeletePing}
+                        className="flex-1 border border-red-500/50 hover:bg-red-500/10 text-red-400 font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95">
+                        Delete
+                    </button>
+                </div>
             </div>
+        );
+    }
+
+    // Third party — spot is taken
+    return (
+        <div>
+            <div className="flex items-center gap-3 mb-4">
+                <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 text-white font-bold text-xl"
+                    style={{ background: 'linear-gradient(135deg, #1e75ff, #0ea5e9)' }}>
+                    {finderInitial}
+                </div>
+                <div className="flex-1 min-w-0">
+                    <p className="text-lg font-extrabold text-[var(--color-text)] truncate">{finderName}</p>
+                    {selectedItem.finderTitle && (
+                        <p className="text-[11px] font-semibold text-[#38bdf8] mt-0.5">{selectedItem.finderTitle}</p>
+                    )}
+                </div>
+            </div>
+            <span className="flex w-full text-xs font-bold text-amber-400 justify-center px-2 py-3 bg-amber-500/10 rounded-2xl border border-amber-500/20">
+                Someone is already heading there
+            </span>
         </div>
     );
 };
