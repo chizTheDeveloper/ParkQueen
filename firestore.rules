@@ -6,7 +6,7 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return signedIn() && request.auth.token.admin == true;
+      return signedIn() && request.auth.token.role == 'admin';
     }
 
     match /users/{userId} {
@@ -75,6 +75,21 @@ service cloud.firestore {
     match /adminAuditLog/{logId} {
       allow read: if isAdmin();
       allow write: if false;
+    }
+
+    match /streetSegments/{segmentId} {
+      allow read: if true;
+      allow write: if isAdmin();
+
+      match /streetRules/{ruleId} {
+        allow read: if true;
+        allow write: if isAdmin();
+      }
+    }
+
+    match /suspensions/{suspensionId} {
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
     match /chats/{chatId} {
