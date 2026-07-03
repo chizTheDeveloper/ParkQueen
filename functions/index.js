@@ -1,5 +1,5 @@
 const { onSchedule } = require("firebase-functions/v2/scheduler");
-const { onDocumentCreated } = require("firebase-functions/v2/firestore");
+const { onDocumentCreated, onDocumentDeleted } = require("firebase-functions/v2/firestore");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onObjectFinalized } = require("firebase-functions/v2/storage");
 const { defineString } = require("firebase-functions/params");
@@ -31,6 +31,60 @@ function getTitleForCrowns(crowns) {
     }
     return 'Newcomer';
 }
+
+// ─── Trust System v1 ─────────────────────────────────────────────────────────
+// v2 TODOs: time decay, claimer trust, pair detection, rapid-cancel pattern scan
+
+function defaultTrustStats() {
+  return {
+    handoffsCompleted: 0,
+    handoffsCancelledByFinder: 0,
+  };
+}
+
+// trustScore is a pure function of trustStats — replayable, no hidden state.
+// Bayesian prior (α=3, β=1): new users start at 75%.
+// Examples: 10 completed / 0 cancelled → 93. 5 / 5 → 57. 0 / 10 → 20.
+function computeTrustScore(stats) {
+  const completed = stats.handoffsCompleted || 0;
+  const cancelled = stats.handoffsCancelledByFinder || 0;
+  const denominator = completed + cancelled;
+  const ALPHA = 3;
+  const BETA = 1;
+  const smoothed = (completed + ALPHA) / (denominator + ALPHA + BETA);
+  const cancelPenalty = Math.min(50, cancelled * 5);
+  return Math.max(0, Math.round(smoothed * 100) - cancelPenalty);
+}
+
+// Atomically increments one trustStats field and recomputes trustScore.
+// Idempotent: repeated calls with the same eventId are no-ops.
+async function applyTrustDelta(uid, statField, eventId) {
+  const userRef = db.doc(`users/${uid}`);
+  const processedRef = db.doc(`users/${uid}/processedTrustEvents/${eventId}`);
+
+  await db.runTransaction(async (tx) => {
+    const [processedSnap, userSnap] = await Promise.all([
+      tx.get(processedRef),
+      tx.get(userRef),
+    ]);
+
+    if (processedSnap.exists) return; // already processed — idempotency guard
+    if (!userSnap.exists) return;     // user deleted between event and function fire
+
+    const stats = { ...defaultTrustStats(), ...(userSnap.data().trustStats || {}) };
+    stats[statField] = (stats[statField] || 0) + 1;
+
+    tx.update(userRef, {
+      trustStats: stats,
+      trustScore: computeTrustScore(stats),
+    });
+    tx.set(processedRef, {
+      processedAt: Timestamp.now(),
+      statField,
+    });
+  });
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 // 1) Delete expired spots every hour
 exports.cleanupExpiredSpotsHourly = onSchedule(
@@ -511,3 +565,36 @@ exports.deleteAccount = onCall(async (request) => {
     // Delete the Auth account last — after Firestore cleanup
     await auth.deleteUser(uid);
 });
+
+// 11) Trust: record successful handoff for the finder
+// Fires on every spotFeedback creation; only acts on outcome === 'success'.
+// eventId uses the feedback document ID (already globally unique) with a role suffix.
+exports.updateTrustOnFeedback = onDocumentCreated(
+  { document: 'spotFeedback/{feedbackId}', region: 'us-central1' },
+  async (event) => {
+    const data = event.data?.data();
+    if (!data || data.outcome !== 'success') return;
+
+    const finderId = data.finderId;
+    if (!finderId) return;
+
+    await applyTrustDelta(finderId, 'handoffsCompleted', `${event.params.feedbackId}:finder`);
+  }
+);
+
+// 12) Trust: record finder-cancelled-after-interest when a spot is deleted while claimed.
+// Only penalizes if status === 'interested' at deletion time — not for normal spot removal.
+// eventId: spotId + ':finder-cancel' is deterministic and unique for this transition.
+exports.updateTrustOnSpotDelete = onDocumentDeleted(
+  { document: 'spots/{spotId}', region: 'us-central1' },
+  async (event) => {
+    const data = event.data?.data();
+    if (!data || data.status !== 'interested' || !data.finderId) return;
+
+    await applyTrustDelta(
+      data.finderId,
+      'handoffsCancelledByFinder',
+      `${event.params.spotId}:finder-cancel`
+    );
+  }
+);
