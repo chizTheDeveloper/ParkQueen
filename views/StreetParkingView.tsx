@@ -1158,8 +1158,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                 {isMyCarMode ? (
                                     <div className="flex items-center justify-center gap-2.5 w-full px-8">
                                         <VehicleIcon type={user?.vehicleType} color="White" size={22} />
-                                        <div className="text-left">
-                                            <p className="text-[17px] font-bold leading-tight whitespace-nowrap">My Car</p>
+                                        <div className="text-center">
+                                            <p className="text-[17px] font-bold leading-tight whitespace-nowrap">My Parked Car</p>
                                             {myCarDistanceLabel && myCarDistanceLabel !== "You're here" && (
                                                 <p className="text-[10px] font-semibold text-white/70 whitespace-nowrap leading-tight">
                                                     {myCarDistanceLabel}
