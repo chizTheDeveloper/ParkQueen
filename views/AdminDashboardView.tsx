@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart, Bell, Search, Settings, DollarSign, List, Users, LayoutDashboard, ChevronLeft, ChevronRight, LogOut } from 'lucide-react';
+import { BarChart, Bell, Search, Settings, DollarSign, List, Users, LayoutDashboard, ChevronLeft, ChevronRight, LogOut, MapPin } from 'lucide-react';
 import { DashboardPage } from './DashboardPage';
 import { UsersPage } from './UsersPage';
 import { ListingsPage } from './ListingsPage';
 import { FinancialsPage } from './FinancialsPage';
 import { ReportsPage } from './ReportsPage';
 import { SettingsPage } from './SettingsPage';
+import { StreetSegmentsPage } from './admin/StreetSegmentsPage';
 import { Timestamp, collection, query, where, getCountFromServer, doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import parqueenLogo from '../assets/Parqueen_Logo.png';
@@ -18,6 +19,7 @@ const Sidebar = ({ isCollapsed, activePage, setActivePage, onLogout }) => {
     { icon: <DollarSign size={20} />, name: 'Financials' },
     { icon: <BarChart size={20} />, name: 'Reports' },
     { icon: <Settings size={20} />, name: 'Settings' },
+    { icon: <MapPin size={20} />, name: 'Streets' },
   ];
 
   return (
@@ -89,6 +91,8 @@ export const AdminDashboardView = ({ onLogout }) => {
         return <ReportsPage />;
       case 'Settings':
         return <SettingsPage />;
+      case 'Streets':
+        return <StreetSegmentsPage />;
       default:
         return <DashboardPage counts={counts} />;
     }
