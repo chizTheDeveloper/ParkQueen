@@ -72,6 +72,11 @@ service cloud.firestore {
       allow update: if signedIn() && resource.data.userId == request.auth.uid;
     }
 
+    match /adminAuditLog/{logId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
     match /chats/{chatId} {
       allow read, write: if signedIn();
       

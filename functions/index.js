@@ -547,6 +547,47 @@ exports.awardCrowns = onDocumentCreated(
   }
 );
 
+// 13) Admin-safe spot deletion — routes through event pipeline to preserve trust integrity.
+// All admin spot removals MUST use this function instead of direct Console/SDK deletes.
+// Sets source: 'admin' before deletion so onDocumentDeleted skips trust penalties.
+exports.adminDeleteSpot = onCall(
+  { region: 'us-central1' },
+  async (request) => {
+    if (!request.auth?.token?.admin) {
+      throw new HttpsError('permission-denied', 'Admin only.');
+    }
+
+    const { spotId, reason } = request.data || {};
+    if (!spotId || typeof spotId !== 'string') {
+      throw new HttpsError('invalid-argument', 'spotId is required.');
+    }
+
+    const spotRef = db.doc(`spots/${spotId}`);
+    const spotSnap = await spotRef.get();
+    if (!spotSnap.exists) {
+      throw new HttpsError('not-found', 'Spot not found.');
+    }
+
+    const spotData = spotSnap.data();
+
+    // Mark source before deletion so onDocumentDeleted skips trust penalties.
+    await spotRef.update({ source: 'admin' });
+    await spotRef.delete();
+
+    await db.collection('adminAuditLog').add({
+      action: 'deleteSpot',
+      spotId,
+      finderId: spotData.finderId || null,
+      status: spotData.status || null,
+      reason: reason || null,
+      adminUid: request.auth.uid,
+      performedAt: Timestamp.now(),
+    });
+
+    return { success: true };
+  }
+);
+
 // Delete account — Admin SDK bypasses the client-side reauthentication requirement
 exports.deleteAccount = onCall(async (request) => {
     const uid = request.auth?.uid;
