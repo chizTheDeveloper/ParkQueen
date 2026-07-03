@@ -53,12 +53,13 @@ function computeTrustScore(stats) {
   const BETA = 1;
   const smoothed = (completed + ALPHA) / (denominator + ALPHA + BETA);
   const cancelPenalty = Math.min(50, cancelled * 5);
-  return Math.max(0, Math.round(smoothed * 100) - cancelPenalty);
+  // Floor of 10 prevents permanent lockout from edge-case cancellation loops.
+  return Math.max(10, Math.round(smoothed * 100) - cancelPenalty);
 }
 
 // Atomically increments one trustStats field and recomputes trustScore.
 // Idempotent: repeated calls with the same eventId are no-ops.
-async function applyTrustDelta(uid, statField, eventId) {
+async function applyTrustDelta(uid, statField, eventId, source = 'user') {
   const userRef = db.doc(`users/${uid}`);
   const processedRef = db.doc(`users/${uid}/processedTrustEvents/${eventId}`);
 
@@ -81,6 +82,7 @@ async function applyTrustDelta(uid, statField, eventId) {
     tx.set(processedRef, {
       processedAt: Timestamp.now(),
       statField,
+      source,
     });
   });
 }
@@ -591,10 +593,16 @@ exports.updateTrustOnSpotDelete = onDocumentDeleted(
     const data = event.data?.data();
     if (!data || data.status !== 'interested' || !data.finderId) return;
 
+    // Admin-triggered deletions must not penalize the finder.
+    // Requires the deletion path to set source: 'admin' on the spot before deleting.
+    const source = data.source || 'user';
+    if (source === 'admin') return;
+
     await applyTrustDelta(
       data.finderId,
       'handoffsCancelledByFinder',
-      `${event.params.spotId}:finder-cancel`
+      `${event.params.spotId}:finder-cancel`,
+      source
     );
   }
 );
