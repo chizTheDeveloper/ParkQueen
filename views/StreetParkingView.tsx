@@ -29,6 +29,7 @@ import { BottomSheet } from './street-parking/BottomSheet';
 import { HandoffFlow } from './street-parking/HandoffFlow';
 import { ParkingActivitySheet } from './street-parking/ParkingActivitySheet';
 import { HeaderBar } from './street-parking/HeaderBar';
+import { StreetIntelligenceCard } from './street-parking/StreetIntelligenceCard';
 import { useParkingTimer } from './street-parking/useParkingTimer';
 
 
@@ -802,6 +803,15 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                 )}
                             </div>
                         </div>
+
+                        {/* Street Intelligence */}
+                        {savedSpot.segmentId && savedSpot.parkingSide && savedSpot.segmentStreetName && (
+                            <StreetIntelligenceCard
+                                segmentId={savedSpot.segmentId}
+                                parkingSide={savedSpot.parkingSide}
+                                streetName={savedSpot.segmentStreetName}
+                            />
+                        )}
 
                         {/* Navigate in-app */}
                         <button
