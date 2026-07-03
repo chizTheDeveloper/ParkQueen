@@ -1156,20 +1156,22 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                 style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)', minWidth: '250px' }}
                             >
                                 {isMyCarMode ? (
-                                    <>
-                                        <div className="absolute left-8 top-1/2 -translate-y-1/2">
-                                            <VehicleIcon type={user?.vehicleType} color="White" size={22} />
-                                        </div>
-                                        <div className="absolute top-1/2 -translate-y-1/2 text-left" style={{ left: 'calc(50% + 14px)', transform: 'translate(-50%, -50%)' }}>
+                                    <div className="flex items-center justify-center gap-2.5 w-full px-8">
+                                        <VehicleIcon type={user?.vehicleType} color="White" size={22} />
+                                        <div className="text-left">
                                             <p className="text-[17px] font-bold leading-tight whitespace-nowrap">My Car</p>
                                             {myCarDistanceLabel && myCarDistanceLabel !== "You're here" && (
-                                                <p className="text-[10px] font-semibold text-white/70 whitespace-nowrap -mt-0.5">{myCarDistanceLabel}</p>
+                                                <p className="text-[10px] font-semibold text-white/70 whitespace-nowrap leading-tight">
+                                                    {myCarDistanceLabel}
+                                                </p>
                                             )}
                                             {myCarDistanceLabel === "You're here" && (
-                                                <p className="text-[10px] font-semibold text-emerald-300 whitespace-nowrap -mt-0.5">You're here</p>
+                                                <p className="text-[10px] font-semibold text-emerald-300 whitespace-nowrap leading-tight">
+                                                    You've arrived
+                                                </p>
                                             )}
                                         </div>
-                                    </>
+                                    </div>
                                 ) : (
                                     <>
                                         <MapPin size={24} className="absolute left-9 top-1/2 -translate-y-1/2" />
