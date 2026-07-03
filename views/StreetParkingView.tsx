@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { AppView } from '../types';
 import { MapPin, Check, Locate, X, Bell, Clock, ChevronRight, Users, Car, Navigation } from 'lucide-react';
 import { db } from '../firebase';
-import { collection, addDoc, Timestamp, doc, deleteDoc, writeBatch, updateDoc, getDocs, where, query } from 'firebase/firestore';
+import { collection, addDoc, Timestamp, doc, deleteDoc, writeBatch, updateDoc, getDocs, where, query, orderBy, startAt, endAt } from 'firebase/firestore';
+import { detectParkingSide } from '../utils/streetIntelligence';
 import mapboxgl from 'mapbox-gl';
 import * as geofire from 'geofire-common';
 
@@ -91,7 +92,17 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const parkingTimer = useParkingTimer();
 
     const SAVED_SPOT_KEY = 'pq_saved_spot';
-    type SavedSpot = { lat: number; lng: number; address: string; savedAt: number };
+    type SavedSpot = {
+        lat: number;
+        lng: number;
+        address: string;
+        savedAt: number;
+        // Street Intelligence — null if no segment matched
+        segmentId: string | null;
+        parkingSide: 'N' | 'S' | 'E' | 'W' | null;
+        restrictionVersionId: string | null;
+        segmentStreetName: string | null;
+    };
 
     const [savedSpot, setSavedSpot] = useState<SavedSpot | null>(() => {
         try {
@@ -144,11 +155,81 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         return () => clearInterval(id);
     }, [savedSpot?.savedAt]);
 
+    const matchNearestSegment = async (userLat: number, userLng: number) => {
+        try {
+            const radiusM = 80;
+            const center: [number, number] = [userLat, userLng];
+            const bounds = geofire.geohashQueryBounds(center, radiusM);
+
+            const snaps = await Promise.all(
+                bounds.map(([start, end]) =>
+                    getDocs(
+                        query(
+                            collection(db, 'streetSegments'),
+                            orderBy('geohash'),
+                            startAt(start),
+                            endAt(end),
+                        ),
+                    ),
+                ),
+            );
+
+            const candidates = snaps.flatMap(s =>
+                s.docs.map(d => ({ id: d.id, ...(d.data() as any) }))
+            );
+
+            if (!candidates.length) return null;
+
+            const withDist = candidates.map((seg: any) => ({
+                ...seg,
+                dist: geofire.distanceBetween([userLat, userLng], [seg.centerLat, seg.centerLng]),
+            }));
+            withDist.sort((a: any, b: any) => a.dist - b.dist);
+            const nearest = withDist[0];
+
+            const parkingSide = detectParkingSide(
+                userLat, userLng,
+                nearest.fromLat, nearest.fromLng,
+                nearest.toLat, nearest.toLng,
+            );
+
+            const rulesSnap = await getDocs(
+                query(
+                    collection(db, 'streetSegments', nearest.id, 'streetRules'),
+                    where('supersededAt', '==', null),
+                ),
+            );
+            const restrictionVersionId = rulesSnap.docs[0]?.id || null;
+
+            return {
+                segmentId: nearest.id as string,
+                parkingSide,
+                restrictionVersionId,
+                segmentStreetName: nearest.streetName as string,
+            };
+        } catch (e) {
+            console.warn('Segment match failed:', e);
+            return null;
+        }
+    };
+
     const saveMySpot = async () => {
         if (!userLocation) return;
         const [lng, lat] = userLocation;
-        const address = await reverseGeocode(lng, lat);
-        const spot: SavedSpot = { lat, lng, address, savedAt: Date.now() };
+        const [address, segmentMatch] = await Promise.all([
+            reverseGeocode(lng, lat),
+            matchNearestSegment(lat, lng),
+        ]);
+        const spot: SavedSpot = {
+            lat,
+            lng,
+            address,
+            savedAt: Date.now(),
+            segmentId: segmentMatch?.segmentId ?? null,
+            parkingSide: segmentMatch?.parkingSide ?? null,
+            restrictionVersionId: segmentMatch?.restrictionVersionId ?? null,
+            segmentStreetName: segmentMatch?.segmentStreetName ?? null,
+        };
         localStorage.setItem(SAVED_SPOT_KEY, JSON.stringify(spot));
         setSavedSpot(spot);
         setShowSessionSheet(true);
