@@ -11,7 +11,12 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if signedIn() || isAdmin();
-      allow write: if signedIn() && request.auth.uid == userId;
+      allow write: if signedIn() && request.auth.uid == userId
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['trustStats', 'trustScore']);
+
+      match /processedTrustEvents/{eventId} {
+        allow read, write: if false;
+      }
     }
 
     match /spots/{spotId} {
