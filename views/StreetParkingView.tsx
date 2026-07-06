@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { AppView } from '../types';
-import { MapPin, Check, Locate, X, Bell, Clock, ChevronRight, Users, Car, Navigation } from 'lucide-react';
+import { MapPin, Check, Locate, X, Bell, Clock, ChevronRight, ChevronLeft, Users, Car, Navigation, CheckCircle2 } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, addDoc, Timestamp, doc, deleteDoc, writeBatch, updateDoc, getDocs, getDoc, setDoc, where, query, orderBy, startAt, endAt } from 'firebase/firestore';
 import { auth } from '../firebaseConfig';
@@ -24,6 +24,7 @@ const reverseGeocode = async (lng: number, lat: number): Promise<string> => {
 };
 import { MapItem, MapViewProps } from './street-parking/types';
 import { SpotModal } from './street-parking/SpotModal';
+import { TimePicker } from './street-parking/TimePicker';
 import { useSearch } from './street-parking/useSearch';
 import { useUnreadMessages } from './street-parking/useUnreadMessages';
 import { useSpotData } from './street-parking/useSpotData';
@@ -146,6 +147,13 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     // Tracks whether SpotModal was opened from the departure flow —
     // session only ends on successful ping, not on dismiss.
     const isDepartureFlowRef = useRef(false);
+
+    // My Car inline departure flow (bypasses SpotModal entirely)
+    const [myCarDepartureView, setMyCarDepartureView] = useState<'prompt' | 'timePicker'>('prompt');
+    const [myCarDepartureTime, setMyCarDepartureTime] = useState(() => new Date(Date.now() + 2 * 60_000));
+    const [myCarDepartureLoading, setMyCarDepartureLoading] = useState(false);
+    const [myCarDepartureError, setMyCarDepartureError] = useState<string | null>(null);
+    const [myCarPingSuccess, setMyCarPingSuccess] = useState<'leaving_now' | 'leaving_later' | null>(null);
 
     // Live duration counter for active session
     useEffect(() => {
@@ -613,11 +621,85 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         return () => clearTimeout(t);
     }, [pingError]);
 
+    // Reset My Car departure sub-state each time the sheet opens
+    useEffect(() => {
+        if (showDepartureSheet) {
+            setMyCarDepartureView('prompt');
+            setMyCarDepartureTime(new Date(Date.now() + 2 * 60_000));
+            setMyCarDepartureError(null);
+            setMyCarPingSuccess(null);
+        }
+    }, [showDepartureSheet]);
+
     // --- Handlers ---
 
     const handleLocateMe = () => {
         if (userLocation && mapRef.current) {
             mapRef.current.flyTo({ center: userLocation, zoom: 16 });
+        }
+    };
+
+    // Directly creates a ping from the saved My Car location — no SpotModal.
+    const handleMyCarPing = async (departureTime: Date | null) => {
+        if (!savedSpot || !user) return;
+        setMyCarDepartureLoading(true);
+        setMyCarDepartureError(null);
+
+        const now = Date.now();
+        const reportedAt = departureTime ? Timestamp.fromDate(departureTime) : Timestamp.fromMillis(now);
+        const expiresAt = Timestamp.fromMillis(reportedAt.toMillis() + 60 * 60 * 1000);
+
+        // Rate-limit check (same as handleSaveSpot)
+        try {
+            const oneHourAgo = now - 60 * 60 * 1000;
+            const snap = await getDocs(query(collection(db, 'spots'), where('finderId', '==', user.id)));
+            const recentSpots = snap.docs.filter(d => {
+                const t = d.data().reportedAt?.toMillis?.() ?? new Date(d.data().reportedAt).getTime();
+                return t >= oneHourAgo;
+            });
+            if (recentSpots.length >= 5) {
+                const oldestMs = Math.min(...recentSpots.map(d => {
+                    const t = d.data().reportedAt?.toMillis?.() ?? new Date(d.data().reportedAt).getTime();
+                    return t;
+                }));
+                const minutesLeft = Math.ceil((oldestMs + 60 * 60 * 1000 - now) / 60000);
+                setMyCarDepartureError(`Ping limit reached — try again in ${minutesLeft} min.`);
+                setMyCarDepartureLoading(false);
+                return;
+            }
+        } catch { /* non-fatal */ }
+
+        try {
+            await addDoc(collection(db, 'spots'), {
+                lat: savedSpot.lat,
+                lng: savedSpot.lng,
+                type: 'free',
+                status: 'available',
+                finderId: user.id,
+                finderName: user.username || user.fullName || 'Anonymous',
+                finderTitle: getTitleForCrowns(user.crowns || 0),
+                finderVehicleColor: user.vehicleColor || null,
+                finderVehicleType: user.vehicleType || null,
+                finderVehicleBrand: user.vehicleBrand || null,
+                pingMode: departureTime ? 'later' : 'now',
+                reportedAt,
+                expiresAt,
+                geohash: geofire.geohashForLocation([savedSpot.lat, savedSpot.lng]),
+                address: savedSpot.address,
+            });
+
+            const mode = departureTime ? 'leaving_later' : 'leaving_now';
+            setMyCarPingSuccess(mode);
+            setMyCarDepartureLoading(false);
+
+            setTimeout(() => {
+                setShowDepartureSheet(false);
+                if (mode === 'leaving_now') endSession();
+            }, 1500);
+        } catch (e) {
+            console.error('My Car ping failed:', e);
+            setMyCarDepartureError("Couldn't share this spot. Please try again.");
+            setMyCarDepartureLoading(false);
         }
     };
 
@@ -1059,42 +1141,109 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 )}
             </BottomSheet>
 
-            {/* Departure prompt — only appears at natural leaving moments */}
+            {/* Departure prompt — inline, no SpotModal required */}
             <BottomSheet isOpen={showDepartureSheet} onClose={() => setShowDepartureSheet(false)}>
                 {savedSpot && (
-                    <div className="text-center">
-                        <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
-                            style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}>
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#facc15" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m2 4 3 12h14l3-12-6 5-4-5-4 5-6-5zm3 16h14"/></svg>
-                        </div>
-                        <p className="text-xl font-extrabold text-[var(--color-text)] mb-1">Ready to head out?</p>
-                        <p className="text-sm text-[var(--color-text-secondary)] mb-6">Share your spot and help another driver find it.</p>
+                    <div>
+                        {/* Success state */}
+                        {myCarPingSuccess && (
+                            <div className="flex flex-col items-center py-6">
+                                <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4"
+                                    style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}>
+                                    <CheckCircle2 size={30} className="text-white" />
+                                </div>
+                                <p className="text-xl font-extrabold text-[var(--color-text)] mb-1">
+                                    {myCarPingSuccess === 'leaving_now' ? 'Spot shared.' : 'Spot scheduled.'}
+                                </p>
+                                <p className="text-sm text-[var(--color-text-secondary)] text-center">
+                                    {myCarPingSuccess === 'leaving_now'
+                                        ? 'Nearby drivers can now see it.'
+                                        : "We'll let nearby drivers know when you're leaving."}
+                                </p>
+                            </div>
+                        )}
 
-                        <button
-                            onClick={() => {
-                                isDepartureFlowRef.current = true;
-                                setShowDepartureSheet(false);
-                                setSpotModalOpen(true);
-                            }}
-                            className="w-full py-3.5 rounded-full text-white font-bold text-sm flex items-center justify-center gap-2 active:scale-95 transition-transform mb-2"
-                            style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}>
-                            <MapPin size={16} />
-                            Leaving Now
-                        </button>
-                        <button
-                            onClick={() => {
-                                isDepartureFlowRef.current = true;
-                                setShowDepartureSheet(false);
-                                setSpotModalOpen(true);
-                            }}
-                            className="w-full py-3 rounded-full text-sm font-bold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 transition-all active:scale-95 text-[var(--color-text)] flex items-center justify-center gap-2 mb-3">
-                            <Clock size={15} />
-                            Leaving Later
-                        </button>
-                        <button onClick={() => setShowDepartureSheet(false)}
-                            className="w-full py-2.5 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-all">
-                            Not yet
-                        </button>
+                        {/* Prompt view */}
+                        {!myCarPingSuccess && myCarDepartureView === 'prompt' && (
+                            <div className="text-center">
+                                <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
+                                    style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}>
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#facc15" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m2 4 3 12h14l3-12-6 5-4-5-4 5-6-5zm3 16h14"/></svg>
+                                </div>
+                                <p className="text-xl font-extrabold text-[var(--color-text)] mb-1">Leaving this spot?</p>
+                                <p className="text-sm text-[var(--color-text-secondary)] mb-6">Share your saved parking spot with nearby drivers.</p>
+
+                                {myCarDepartureError && (
+                                    <p className="text-sm text-red-400 font-semibold text-center mb-4">{myCarDepartureError}</p>
+                                )}
+
+                                <button
+                                    onClick={() => handleMyCarPing(null)}
+                                    disabled={myCarDepartureLoading}
+                                    className="w-full py-3.5 rounded-full text-white font-bold text-sm flex items-center justify-center gap-2 active:scale-95 transition-transform mb-2 disabled:opacity-50"
+                                    style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}>
+                                    <MapPin size={16} />
+                                    {myCarDepartureLoading ? 'Sharing…' : 'Leaving now'}
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setMyCarDepartureTime(new Date(Date.now() + 2 * 60_000));
+                                        setMyCarDepartureError(null);
+                                        setMyCarDepartureView('timePicker');
+                                    }}
+                                    disabled={myCarDepartureLoading}
+                                    className="w-full py-3 rounded-full text-sm font-bold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 transition-all active:scale-95 text-[var(--color-text)] flex items-center justify-center gap-2 mb-3 disabled:opacity-50">
+                                    <Clock size={15} />
+                                    Leaving later
+                                </button>
+                                <button
+                                    onClick={() => setShowDepartureSheet(false)}
+                                    className="w-full py-2.5 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-all">
+                                    Keep my car saved
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Time picker view */}
+                        {!myCarPingSuccess && myCarDepartureView === 'timePicker' && (
+                            <div>
+                                <div className="flex items-center gap-3 mb-5">
+                                    <button
+                                        onClick={() => { setMyCarDepartureError(null); setMyCarDepartureView('prompt'); }}
+                                        className="w-9 h-9 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] shrink-0">
+                                        <ChevronLeft size={18} className="text-[var(--color-text-secondary)]" />
+                                    </button>
+                                    <div>
+                                        <p className="text-base font-extrabold text-[var(--color-text)]">Set departure time</p>
+                                        <p className="text-xs text-[var(--color-text-secondary)]">When are you planning to leave?</p>
+                                    </div>
+                                </div>
+
+                                <TimePicker
+                                    initialTime={myCarDepartureTime}
+                                    onTimeChange={setMyCarDepartureTime}
+                                />
+
+                                {myCarDepartureError && (
+                                    <p className="mt-3 text-sm text-red-400 font-semibold text-center">{myCarDepartureError}</p>
+                                )}
+
+                                <button
+                                    onClick={() => {
+                                        if (myCarDepartureTime.getTime() <= Date.now()) {
+                                            setMyCarDepartureError('Please choose a future time.');
+                                            return;
+                                        }
+                                        handleMyCarPing(myCarDepartureTime);
+                                    }}
+                                    disabled={myCarDepartureLoading}
+                                    className="w-full mt-4 font-bold py-3.5 rounded-full flex items-center justify-center gap-2 text-white active:scale-95 transition-transform disabled:opacity-50"
+                                    style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}>
+                                    <MapPin size={18} />
+                                    {myCarDepartureLoading ? 'Scheduling…' : 'Schedule spot'}
+                                </button>
+                            </div>
+                        )}
                     </div>
                 )}
             </BottomSheet>
