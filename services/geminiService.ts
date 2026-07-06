@@ -55,15 +55,15 @@ export const analyzeParkingSign = async (imageBase64: string): Promise<SignAnaly
       return parsed as SignAnalysisResult;
     } catch (e) {
       return {
-        status: "CONDITIONAL",
-        explanation: "Could not parse AI response. " + text,
+        status: "ERROR",
+        explanation: "I couldn't read this sign clearly. Try a sharper photo with the full sign visible.",
       };
     }
   } catch (error) {
     console.error("Gemini Vision Error:", error);
     return {
       status: "ERROR",
-      explanation: "Sorry, I couldn't read that sign. Please check your network or API key."
+      explanation: "ParQueen Assistant is having trouble right now. Please try again."
     };
   }
 };
