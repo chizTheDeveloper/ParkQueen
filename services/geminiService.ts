@@ -3,12 +3,11 @@ import { GoogleGenAI } from "@google/genai";
 // Helper to get the AI instance lazily.
 // This prevents the app from crashing on startup if the API key is missing.
 const getAiClient = () => {
-  const apiKey = process.env.API_KEY;
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
   if (!apiKey) {
-    console.warn("API Key is missing. AI features will not work.");
+    console.warn("VITE_GEMINI_API_KEY is missing. AI features will not work.");
   }
-  // We initialize here so the error (if any) happens during the function call, not app load.
-  return new GoogleGenAI({ apiKey: apiKey || "MISSING_KEY" });
+  return new GoogleGenAI({ apiKey: apiKey ?? "" });
 };
 
 export interface SignAnalysisResult {
