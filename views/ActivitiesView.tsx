@@ -82,7 +82,7 @@ export const ActivitiesView = ({ user, onBack }: { user: any; onBack: () => void
         return {
           id: `driver-${d.id}`,
           role: 'driver' as const,
-          address: 'Street Parking Spot',
+          address: f.address || 'Saved parking spot',
           status,
           statusLabel: label,
           timestamp: ts,

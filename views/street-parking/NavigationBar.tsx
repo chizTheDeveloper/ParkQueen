@@ -1,5 +1,5 @@
 import React from 'react';
-import { Map, Calendar, Wallet, User } from 'lucide-react';
+import { Map, Calendar, User } from 'lucide-react';
 import { AppView } from '../../types';
 
 interface NavigationBarProps {
@@ -22,15 +22,7 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({ setView }) => {
                 className="flex flex-col items-center gap-0.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text)] flex-1 transition-colors"
             >
                 <Calendar size={18} />
-                <span className="text-[9px] font-medium">Bookings</span>
-            </button>
-
-            <button
-                onClick={() => alert("Wallet features coming soon!")}
-                className="flex flex-col items-center gap-0.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text)] flex-1 transition-colors"
-            >
-                <Wallet size={18} />
-                <span className="text-[9px] font-medium">Wallet</span>
+                <span className="text-[9px] font-medium">Activity</span>
             </button>
 
             <button

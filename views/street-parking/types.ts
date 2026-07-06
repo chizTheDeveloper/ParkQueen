@@ -29,6 +29,9 @@ export interface MapItem {
     originSpotId?: string | null;
     geohash?: string;
     rawSpot?: any;
+    holdRequestStatus?: string | null;
+    holdRequestedBy?: string | null;
+    holdTimerExpiresAt?: any;
 }
 
 export interface MapViewProps {

@@ -1,5 +1,5 @@
 import { auth, db } from './firebaseConfig';
-import { signOut, updateProfile } from 'firebase/auth';
+import { signOut, updateProfile, sendPasswordResetEmail as _sendPasswordResetEmail } from 'firebase/auth';
 import { doc, setDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { getFunctions, httpsCallable } from 'firebase/functions';
 
@@ -40,6 +40,9 @@ export const logoutUser = async () => {
 export const updateUser = async (userId: string, data: Record<string, any>) => {
   await updateDoc(doc(db, 'users', userId), data);
 };
+
+export const sendPasswordResetEmail = (email: string) =>
+  _sendPasswordResetEmail(auth, email);
 
 export const deleteUser = async () => {
   if (!auth.currentUser) throw new Error("No user is currently signed in.");

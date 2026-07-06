@@ -17,6 +17,7 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
     const [view, setView] = useState<'main' | 'timePicker'>('main');
     const [departureTime, setDepartureTime] = useState(new Date());
     const [pingType, setPingType] = useState<'now' | 'later'>('now');
+    const [timeError, setTimeError] = useState<string | null>(null);
 
     useEffect(() => {
         if (isOpen) {
@@ -27,12 +28,13 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
             setDepartureTime(initialDate);
             setPingType('now');
             setView('main');
+            setTimeError(null);
         }
     }, [spot, isOpen]);
 
     const handleSetTime = () => {
         if (pingType === 'later' && departureTime.getTime() <= Date.now()) {
-            alert('Please select a future time.');
+            setTimeError('Please choose a future time.');
             return;
         }
         onSave(pingType === 'now' ? null : departureTime);
@@ -119,13 +121,16 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                         </button>
                     </div>
 
+                    {timeError && (
+                        <p className="mt-4 text-sm text-red-400 font-semibold text-center">{timeError}</p>
+                    )}
                     <button
                         onClick={handleSetTime}
-                        className="w-full mt-6 font-bold py-3.5 rounded-full flex items-center justify-center gap-2 text-white active:scale-95 transition-transform"
+                        className="w-full mt-4 font-bold py-3.5 rounded-full flex items-center justify-center gap-2 text-white active:scale-95 transition-transform"
                         style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}
                     >
                         <MapPin size={18} />
-                        <span>{isEditing ? 'Confirm' : 'Ping'}</span>
+                        <span>{isEditing ? 'Update Spot' : 'Share Spot'}</span>
                     </button>
                 </div>
             ) : (
@@ -139,10 +144,13 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                     <div className="mb-6">
                         <TimePicker initialTime={departureTime} onTimeChange={setDepartureTime} />
                     </div>
+                    {timeError && (
+                        <p className="mb-3 text-sm text-red-400 font-semibold text-center">{timeError}</p>
+                    )}
                     <button
                         onClick={() => {
                             if (departureTime.getTime() <= Date.now()) {
-                                alert('Please select a future time.');
+                                setTimeError('Please choose a future time.');
                                 return;
                             }
                             onSave(departureTime);
@@ -151,7 +159,7 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                         style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}
                     >
                         <MapPin size={18} />
-                        Ping
+                        {isEditing ? 'Update Spot' : 'Share Spot'}
                     </button>
                     <button
                         onClick={() => setView('main')}

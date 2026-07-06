@@ -23,6 +23,7 @@ export interface SegmentDoc {
   id: string;
   cityId: string;
   streetName: string;
+  referenceAddress?: string;
   fromCross: string;
   toCross: string;
   borough: string;
@@ -34,7 +35,28 @@ export interface SegmentDoc {
   centerLng: number;
   bearing: number;
   geohash: string;
+  evenSideIsPositiveCross: boolean;
   cslSegmentId: string | null;
+  source?: 'admin' | 'sweepnyc';
+  status?: 'active' | 'needs_review' | 'archived' | 'duplicate';
+  confidenceScore?: number;   // 1.0 = admin-verified, 0.95 = sweepnyc, 0.6 = community
+  editedBy?: string;          // 'admin:uid' | 'system:sweepnyc' | 'system:quality'
+  provenance?: {
+    provider: 'admin' | 'sweepnyc' | 'community' | 'import';
+    // admin provenance
+    importedBy?: string;
+    // sweepnyc provenance
+    sweepNYCObjectId?: number;
+    fetchedAt?: any;
+    parserVersion?: string;
+    rawSignTexts?: string[];
+    refreshedAt?: any;
+    refreshCount?: number;
+  };
+  // Archive metadata — present only when status === 'archived'
+  archivedAt?: any;
+  archivedBy?: string;
+  archiveReason?: string;
   confidence: {
     level: 'parqueen_verified' | 'community' | 'flagged';
     source: 'admin' | 'nyc_open_data' | 'user_report';
@@ -53,6 +75,7 @@ export interface SuspensionDoc {
   label: string;
   affectsTypes: string[];    // ["streetCleaning"]
   source: 'admin';
+  status?: string;           // 'archived' when soft-deleted by admin
 }
 
 export interface SafeUntilResult {
@@ -63,29 +86,78 @@ export interface SafeUntilResult {
   scheduleDescription: string | null; // "Mon & Thu · 8–11 AM"
 }
 
-// ─── Geocoding ────────────────────────────────────────────────────────────────
+// ─── Geocoding & Geometry ─────────────────────────────────────────────────────
 
 const BOROUGH_NAMES: Record<string, string> = {
   MN: 'Manhattan', BK: 'Brooklyn', QN: 'Queens', BX: 'Bronx', SI: 'Staten Island',
 };
 
-export async function geocodeIntersection(
-  street: string,
-  cross: string,
+export async function geocodeAddress(
+  address: string,
   borough: string,
 ): Promise<{ lat: number; lng: number } | null> {
   const boroughName = BOROUGH_NAMES[borough] || borough;
-  const q = encodeURIComponent(`${street} and ${cross}, ${boroughName}, New York, NY`);
+  const q = encodeURIComponent(`${address}, ${boroughName}, NY`);
   const url = `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1`;
-
   try {
-    const res = await fetch(url, { headers: { 'User-Agent': 'ParQueen/1.0' } });
+    const res = await fetch(url);
     const data = await res.json();
     if (!data.length) return null;
     return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
   } catch {
     return null;
   }
+}
+
+export const geocodeIntersection = geocodeAddress;
+
+/**
+ * Fetches OSM street geometry near a point via Overpass.
+ * Combines all way segments found, normalizes bearing to 0–180° so
+ * the cross-product sign is consistent for even/odd side detection.
+ */
+export async function fetchStreetGeometry(
+  streetName: string,
+  lat: number,
+  lng: number,
+): Promise<{ fromLat: number; fromLng: number; toLat: number; toLng: number; bearing: number } | null> {
+  const delta = 0.003;
+  const bbox = `${lat - delta},${lng - delta},${lat + delta},${lng + delta}`;
+  const q = `[out:json][timeout:10];way[name="${streetName}"](${bbox});out geom;`;
+  const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`;
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    if (!data.elements?.length) return null;
+    // Collect all nodes across all matched ways
+    const allNodes: { lat: number; lon: number }[] = data.elements.flatMap(
+      (el: any) => el.geometry || [],
+    );
+    if (allNodes.length < 2) return null;
+    let fromLat = allNodes[0].lat, fromLng = allNodes[0].lon;
+    let toLat = allNodes[allNodes.length - 1].lat, toLng = allNodes[allNodes.length - 1].lon;
+    // Normalize: always point with bearing 0–180° for consistent cross-product sign
+    let bearing = computeBearing({ lat: fromLat, lng: fromLng }, { lat: toLat, lng: toLng });
+    if (bearing > 180) {
+      [fromLat, toLat] = [toLat, fromLat];
+      [fromLng, toLng] = [toLng, fromLng];
+      bearing = computeBearing({ lat: fromLat, lng: fromLng }, { lat: toLat, lng: toLng });
+    }
+    return { fromLat, fromLng, toLat, toLng, bearing };
+  } catch {
+    return null;
+  }
+}
+
+/** Raw cross product — positive means user is left of the from→to direction. */
+export function computeCrossRaw(
+  userLat: number, userLng: number,
+  fromLat: number, fromLng: number,
+  toLat: number, toLng: number,
+): number {
+  const dx = toLng - fromLng;
+  const dy = toLat - fromLat;
+  return dx * (userLat - fromLat) - dy * (userLng - fromLng);
 }
 
 // ─── Geometry ─────────────────────────────────────────────────────────────────
@@ -108,9 +180,10 @@ export function computeGeohash(lat: number, lng: number): string {
 }
 
 /**
- * Returns which side of the street segment the user is standing on.
- * Uses the sign of the 2D cross product to determine left vs. right of the segment.
- * Then maps left/right to cardinal direction based on segment bearing.
+ * Returns which side of the street segment the user is on: 'even' or 'odd'.
+ * Requires evenSideIsPositiveCross from the segment doc (computed at segment creation
+ * using a known even-numbered reference address).
+ * The segment must have bearing normalized to 0–180° (done by fetchStreetGeometry).
  */
 export function detectParkingSide(
   userLat: number,
@@ -119,36 +192,10 @@ export function detectParkingSide(
   fromLng: number,
   toLat: number,
   toLng: number,
-): 'N' | 'S' | 'E' | 'W' {
-  // Segment direction vector
-  const dx = toLng - fromLng;
-  const dy = toLat - fromLat;
-  // Vector from segment start to user
-  const px = userLng - fromLng;
-  const py = userLat - fromLat;
-  // Cross product: positive = user is to the LEFT of segment direction
-  const cross = dx * py - dy * px;
-
-  // Bearing of segment (direction it runs toward "to")
-  const bearing = computeBearing(
-    { lat: fromLat, lng: fromLng },
-    { lat: toLat, lng: toLng },
-  );
-
-  // Mostly E-W segment (bearing near 90° or 270°): sides are N / S
-  const isEW = (bearing > 45 && bearing < 135) || (bearing > 225 && bearing < 315);
-  if (isEW) {
-    // Segment runs eastward (bearing ~90): left of travel = North side
-    // Segment runs westward (bearing ~270): left of travel = South side
-    const runningEast = bearing < 180;
-    if (runningEast) return cross > 0 ? 'N' : 'S';
-    return cross > 0 ? 'S' : 'N';
-  } else {
-    // Mostly N-S segment: sides are E / W
-    const runningNorth = bearing < 90 || bearing > 270;
-    if (runningNorth) return cross > 0 ? 'W' : 'E';
-    return cross > 0 ? 'E' : 'W';
-  }
+  evenSideIsPositiveCross: boolean,
+): 'even' | 'odd' {
+  const cross = computeCrossRaw(userLat, userLng, fromLat, fromLng, toLat, toLng);
+  return (cross > 0) === evenSideIsPositiveCross ? 'even' : 'odd';
 }
 
 // ─── Safe Until ───────────────────────────────────────────────────────────────

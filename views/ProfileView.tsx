@@ -80,14 +80,13 @@ export const ProfileView = ({ user, onBack, setView }) => {
       const storageRef = ref(storage, `avatars/${user.id}`);
       try {
         await uploadBytes(storageRef, file);
-        setUploadStatus('Checking photo...');
+        setUploadStatus('Reviewing photo — this may take a moment');
 
         const moderationRef = doc(db, 'avatarModeration', user.id);
         const timeout = setTimeout(() => {
           unsub();
-          setUploadStatus('');
+          setUploadStatus('Photo check timed out — please try again.');
           setIsUploading(false);
-          alert('Photo check timed out. Please try again.');
         }, 20000);
 
         const unsub = onSnapshot(moderationRef, async (snap) => {
@@ -109,8 +108,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
         });
       } catch (error) {
         console.error('Error uploading file:', error);
-        setUploadStatus('');
-        alert('Failed to upload. Please try again.');
+        setUploadStatus('Upload failed — please try again.');
         setIsUploading(false);
       }
     }

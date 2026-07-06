@@ -139,9 +139,9 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                 </div>
 
                 {/* Vehicle hero — what to look out for */}
-                <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] p-4 mb-4">
-                    <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-3">Look out for</p>
-                    {hasVehicle ? (
+                {hasVehicle && (
+                    <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] p-4 mb-4">
+                        <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-3">Look out for</p>
                         <div className="flex items-center gap-4">
                             <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 border border-white/10"
                                 style={{ background: vehicleHex + '33' }}>
@@ -156,10 +156,8 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                                 )}
                             </div>
                         </div>
-                    ) : (
-                        <p className="text-sm text-[var(--color-text-secondary)]">No vehicle info provided</p>
-                    )}
-                </div>
+                    </div>
+                )}
 
                 {interestError && <p className="text-red-400 text-xs mb-2 text-center">{interestError}</p>}
                 {messageSent && <p className="text-emerald-400 text-xs mb-2 text-center font-semibold">Message sent</p>}
@@ -204,7 +202,7 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                         <button onClick={onArrival} disabled={!isWithinArrivalRange}
                             className="flex-1 font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95 text-white disabled:opacity-40"
                             style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}>
-                            {isWithinArrivalRange ? "I've arrived" : "Get closer"}
+                            {isWithinArrivalRange ? "I've arrived" : (distanceText ? `${distanceText} away` : "Get closer")}
                         </button>
                     </div>
                 )}
@@ -253,9 +251,9 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                 </div>
 
                 {/* Vehicle hero — what to look out for */}
-                <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] p-4 mb-4">
-                    <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-3">Look out for</p>
-                    {hasClaimerVehicle ? (
+                {hasClaimerVehicle && (
+                    <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] p-4 mb-4">
+                        <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-3">Look out for</p>
                         <div className="flex items-center gap-4">
                             <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 border border-white/10"
                                 style={{ background: vehicleHexClaimer + '33' }}>
@@ -270,10 +268,8 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                                 )}
                             </div>
                         </div>
-                    ) : (
-                        <p className="text-sm text-[var(--color-text-secondary)]">No vehicle info provided</p>
-                    )}
-                </div>
+                    </div>
+                )}
 
                 {messageSent && <p className="text-emerald-400 text-xs mb-2 text-center font-semibold">Message sent</p>}
                 {showQuickReplies && (

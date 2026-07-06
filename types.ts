@@ -1,3 +1,25 @@
+import { Timestamp } from 'firebase/firestore';
+
+/** Standard schema for all future adminAuditLog entries. */
+export interface AuditLogEntry {
+  id: string;
+  action: string;
+  targetType: 'user' | 'spot' | 'segment' | 'rule' | 'suspension' | 'report' | 'system';
+  targetId: string;
+  targetUserId?: string | null;
+  adminId: string;
+  adminEmail?: string | null;
+  reason?: string | null;
+  metadata?: Record<string, unknown>;
+  createdAt: Timestamp;
+  // Legacy fields — present on older entries, kept for backward compat reads
+  adminUid?: string;
+  performedAt?: Timestamp;
+  finderId?: string | null;
+  spotId?: string | null;
+  targetUid?: string | null;
+}
+
 export enum AppView {
   SPLASH = 'splash',
   CREATE_ACCOUNT = 'create-account',
@@ -20,6 +42,7 @@ export enum AppView {
   COMPLETE_PROFILE = 'complete-profile',
   SETTINGS = 'settings',
   EDIT_VEHICLE = 'edit-vehicle',
+  ADMIN_LOGIN = 'admin-login',
 }
 
 export interface StreetSpot {

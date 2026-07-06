@@ -1,12 +1,14 @@
 import React, { useState, useRef } from 'react';
 import { Camera, RefreshCw, AlertCircle, CheckCircle2, Clock, Bell } from 'lucide-react';
 import { analyzeParkingSign, SignAnalysisResult } from '../services/geminiService';
+import { useParkingTimer } from './street-parking/useParkingTimer';
 
 export const AssistantView = () => {
   const [image, setImage] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<SignAnalysisResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { startTimer, timer } = useParkingTimer();
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -45,10 +47,17 @@ export const AssistantView = () => {
     setAnalysis(null);
   };
 
+  const reminderSet = !!timer;
+
   const setReminder = () => {
-    if (analysis?.restrictionStartsAt || analysis?.actionableAdvice) {
-       alert("Alarm set! We'll remind you 15 minutes before the restriction.");
+    if (!analysis) return;
+    let minutes = 60;
+    if (analysis.restrictionStartsAt) {
+      const parsed = new Date(analysis.restrictionStartsAt);
+      const diff = Math.ceil((parsed.getTime() - Date.now()) / 60_000);
+      if (diff > 0) minutes = diff;
     }
+    startTimer(minutes, 'parking sign');
   };
 
   return (
@@ -135,7 +144,7 @@ export const AssistantView = () => {
                              <p className="text-sm text-[var(--color-text-secondary)]">{analysis.actionableAdvice}</p>
                              
                              <button onClick={setReminder} className="mt-3 w-full bg-blue-500/20 hover:bg-blue-500/40 text-blue-300 py-2 rounded-md flex items-center justify-center gap-2 text-sm font-semibold transition-colors">
-                               <Bell size={16} /> Set Departure Reminder
+                               <Bell size={16} /> {reminderSet ? 'Reminder set' : 'Set Departure Reminder'}
                              </button>
                            </div>
                         </div>

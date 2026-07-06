@@ -1,13 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../firebase';
 import {
-  collection, addDoc, getDocs, deleteDoc, doc,
-  query, orderBy, Timestamp, where,
+  collection, getDocs, query, orderBy, where,
 } from 'firebase/firestore';
-import { MapPin, Plus, Trash2, ChevronDown, ChevronUp, AlertCircle, CheckCircle } from 'lucide-react';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { getApp } from 'firebase/app';
+import { MapPin, Plus, Trash2, ChevronDown, ChevronUp, AlertCircle, CheckCircle, Wrench, Flag, RotateCcw } from 'lucide-react';
+import { backfillStreetIntelligence, type BackfillResult } from '../../utils/backfill';
+import { ParseFailuresPage } from './ParseFailuresPage';
+import { StreetIntelligenceHealthPage } from './StreetIntelligenceHealthPage';
 import {
-  geocodeIntersection, computeBearing, computeGeohash,
-  CleaningSchedule, SegmentDoc, SuspensionDoc, StreetRuleDoc,
+  geocodeAddress, fetchStreetGeometry, computeGeohash, computeCrossRaw,
+  SegmentDoc, SuspensionDoc, StreetRuleDoc,
 } from '../../utils/streetIntelligence';
 
 const BOROUGHS = [
@@ -24,65 +28,70 @@ const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 function AddSegmentForm({ onSaved }: { onSaved: () => void }) {
   const [streetName, setStreetName] = useState('');
-  const [fromCross, setFromCross] = useState('');
-  const [toCross, setToCross] = useState('');
-  const [borough, setBorough] = useState('MN');
+  const [referenceAddress, setReferenceAddress] = useState('');
+  const [borough, setBorough] = useState('BX');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleSave = async () => {
-    if (!streetName.trim() || !fromCross.trim() || !toCross.trim()) {
+    if (!streetName.trim() || !referenceAddress.trim()) {
       setError('All fields are required.');
       return;
     }
     setSaving(true);
     setError(null);
     try {
-      const [fromCoord, toCoord] = await Promise.all([
-        geocodeIntersection(streetName, fromCross, borough),
-        geocodeIntersection(streetName, toCross, borough),
-      ]);
-      if (!fromCoord || !toCoord) {
-        setError('Could not geocode one or both intersections. Check street names and try again.');
+      // 1. Geocode the reference address to find the block
+      const center = await geocodeAddress(referenceAddress.trim(), borough);
+      if (!center) {
+        setError('Could not find that address. Check and try again.');
         setSaving(false);
         return;
       }
-      const centerLat = (fromCoord.lat + toCoord.lat) / 2;
-      const centerLng = (fromCoord.lng + toCoord.lng) / 2;
-      const bearing = computeBearing(fromCoord, toCoord);
+
+      // 2. Fetch OSM street geometry near the address
+      const geo = await fetchStreetGeometry(streetName.trim(), center.lat, center.lng);
+      if (!geo) {
+        setError('Could not find street geometry. Check the street name spelling.');
+        setSaving(false);
+        return;
+      }
+
+      // 3. Determine which side is the even-address side using the house number
+      const houseMatch = referenceAddress.trim().match(/^(\d+)/);
+      const houseNum = houseMatch ? parseInt(houseMatch[1]) : null;
+      const cross = computeCrossRaw(center.lat, center.lng, geo.fromLat, geo.fromLng, geo.toLat, geo.toLng);
+      const isEven = houseNum !== null ? houseNum % 2 === 0 : true;
+      const evenSideIsPositiveCross = isEven ? cross > 0 : cross < 0;
+
+      const centerLat = (geo.fromLat + geo.toLat) / 2;
+      const centerLng = (geo.fromLng + geo.toLng) / 2;
       const geohash = computeGeohash(centerLat, centerLng);
 
-      await addDoc(collection(db, 'streetSegments'), {
+      const fn = httpsCallable(getFunctions(getApp(), 'us-central1'), 'adminAddSegment');
+      await fn({
         cityId: 'nyc',
         streetName: streetName.trim(),
-        fromCross: fromCross.trim(),
-        toCross: toCross.trim(),
+        referenceAddress: referenceAddress.trim(),
+        fromCross: '',
+        toCross: '',
         borough,
-        fromLat: fromCoord.lat,
-        fromLng: fromCoord.lng,
-        toLat: toCoord.lat,
-        toLng: toCoord.lng,
+        fromLat: geo.fromLat,
+        fromLng: geo.fromLng,
+        toLat: geo.toLat,
+        toLng: geo.toLng,
         centerLat,
         centerLng,
-        bearing,
+        bearing: geo.bearing,
         geohash,
-        cslSegmentId: null,
-        confidence: {
-          level: 'parqueen_verified',
-          source: 'admin',
-          lastVerifiedAt: Timestamp.now(),
-          communityConfirmations: 0,
-        },
-        createdAt: Timestamp.now(),
-        updatedAt: Timestamp.now(),
+        evenSideIsPositiveCross,
       });
 
       setStreetName('');
-      setFromCross('');
-      setToCross('');
+      setReferenceAddress('');
       onSaved();
-    } catch (e: any) {
-      setError(e.message || 'Save failed.');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Save failed.');
     } finally {
       setSaving(false);
     }
@@ -97,26 +106,19 @@ function AddSegmentForm({ onSaved }: { onSaved: () => void }) {
           <input
             value={streetName}
             onChange={e => setStreetName(e.target.value)}
-            placeholder="Broadway"
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Melville Street"
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
-        <div>
-          <label className="text-xs font-semibold text-gray-500 mb-1 block">From Cross Street</label>
+        <div className="col-span-2">
+          <label className="text-xs font-semibold text-gray-500 mb-1 block">
+            Reference Address <span className="font-normal text-gray-400">— any address on this block (used to identify even vs. odd side)</span>
+          </label>
           <input
-            value={fromCross}
-            onChange={e => setFromCross(e.target.value)}
-            placeholder="W 72 St"
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-        <div>
-          <label className="text-xs font-semibold text-gray-500 mb-1 block">To Cross Street</label>
-          <input
-            value={toCross}
-            onChange={e => setToCross(e.target.value)}
-            placeholder="W 73 St"
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            value={referenceAddress}
+            onChange={e => setReferenceAddress(e.target.value)}
+            placeholder="1716 Melville Street"
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
         <div>
@@ -124,7 +126,7 @@ function AddSegmentForm({ onSaved }: { onSaved: () => void }) {
           <select
             value={borough}
             onChange={e => setBorough(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             {BOROUGHS.map(b => <option key={b.code} value={b.code}>{b.label}</option>)}
           </select>
@@ -141,7 +143,7 @@ function AddSegmentForm({ onSaved }: { onSaved: () => void }) {
         disabled={saving}
         className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
       >
-        {saving ? 'Geocoding & saving…' : 'Add Segment'}
+        {saving ? 'Looking up street…' : 'Add Segment'}
       </button>
     </div>
   );
@@ -150,11 +152,12 @@ function AddSegmentForm({ onSaved }: { onSaved: () => void }) {
 // ── Cleaning Rule Form ────────────────────────────────────────────────────────
 
 function AddRuleForm({ segmentId, onSaved }: { segmentId: string; onSaved: () => void }) {
-  const [side, setSide] = useState('N');
+  const [side, setSide] = useState<'even' | 'odd'>('even');
   const [days, setDays] = useState<string[]>([]);
   const [startTime, setStartTime] = useState('08:00');
   const [endTime, setEndTime] = useState('11:00');
   const [saving, setSaving] = useState(false);
+  const [ruleError, setRuleError] = useState<string | null>(null);
 
   const toggleDay = (d: string) => {
     setDays(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]);
@@ -163,18 +166,17 @@ function AddRuleForm({ segmentId, onSaved }: { segmentId: string; onSaved: () =>
   const handleSave = async () => {
     if (!days.length) return;
     setSaving(true);
-    const schedule: CleaningSchedule = { side, days, startTime, endTime };
-    await addDoc(collection(db, 'streetSegments', segmentId, 'streetRules'), {
-      type: 'streetCleaning',
-      effectiveDate: Timestamp.now(),
-      supersededAt: null,
-      schedules: [schedule],
-      source: 'admin',
-      lastSourceSync: new Date().toISOString().slice(0, 10),
-    });
-    setDays([]);
-    setSaving(false);
-    onSaved();
+    setRuleError(null);
+    try {
+      const fn = httpsCallable(getFunctions(getApp(), 'us-central1'), 'adminAddCleaningRule');
+      await fn({ segmentId, side, days, startTime, endTime });
+      setDays([]);
+      onSaved();
+    } catch (e: unknown) {
+      setRuleError(e instanceof Error ? e.message : 'Failed to save rule.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -183,17 +185,18 @@ function AddRuleForm({ segmentId, onSaved }: { segmentId: string; onSaved: () =>
       <div className="flex flex-wrap gap-3 mb-3">
         <div>
           <label className="text-xs text-gray-500 mb-1 block">Side</label>
-          <select value={side} onChange={e => setSide(e.target.value)} className="px-2 py-1 border border-gray-200 rounded text-sm">
-            {['N', 'S', 'E', 'W'].map(s => <option key={s} value={s}>{s}</option>)}
+          <select value={side} onChange={e => setSide(e.target.value as 'even' | 'odd')} className="px-2 py-1 border border-gray-200 rounded text-sm text-gray-900 bg-white">
+            <option value="even">Even addresses</option>
+            <option value="odd">Odd addresses</option>
           </select>
         </div>
         <div>
           <label className="text-xs text-gray-500 mb-1 block">Start</label>
-          <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className="px-2 py-1 border border-gray-200 rounded text-sm" />
+          <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} className="px-2 py-1 border border-gray-200 rounded text-sm text-gray-900 bg-white" />
         </div>
         <div>
           <label className="text-xs text-gray-500 mb-1 block">End</label>
-          <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} className="px-2 py-1 border border-gray-200 rounded text-sm" />
+          <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} className="px-2 py-1 border border-gray-200 rounded text-sm text-gray-900 bg-white" />
         </div>
       </div>
       <div className="flex flex-wrap gap-1 mb-3">
@@ -214,6 +217,12 @@ function AddRuleForm({ segmentId, onSaved }: { segmentId: string; onSaved: () =>
       >
         {saving ? 'Saving…' : 'Save Rule'}
       </button>
+      {ruleError && (
+        <div className="mt-2 flex items-center gap-1.5 text-red-600 text-xs">
+          <AlertCircle size={11} />
+          {ruleError}
+        </div>
+      )}
     </div>
   );
 }
@@ -225,6 +234,7 @@ function SegmentRow({ seg, onDeleted }: { seg: SegmentDoc; onDeleted: () => void
   const [rules, setRules] = useState<StreetRuleDoc[]>([]);
   const [loadingRules, setLoadingRules] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [segError, setSegError] = useState<string | null>(null);
 
   const loadRules = async () => {
     setLoadingRules(true);
@@ -240,33 +250,74 @@ function SegmentRow({ seg, onDeleted }: { seg: SegmentDoc; onDeleted: () => void
     setExpanded(e => !e);
   };
 
-  const deleteRule = async (ruleId: string) => {
-    await deleteDoc(doc(db, 'streetSegments', seg.id, 'streetRules', ruleId));
-    loadRules();
+  const supersedRule = async (ruleId: string) => {
+    try {
+      const fn = httpsCallable(getFunctions(getApp(), 'us-central1'), 'adminSupersedeRule');
+      await fn({ segmentId: seg.id, ruleId });
+      loadRules();
+    } catch (e: unknown) {
+      setSegError(e instanceof Error ? e.message : 'Failed to remove rule.');
+    }
   };
 
-  const deleteSegment = async () => {
-    if (!confirm(`Delete segment "${seg.streetName}" (${seg.fromCross}–${seg.toCross})?`)) return;
+  const callSegmentStatus = async (status: 'archived' | 'needs_review' | 'active', reason?: string) => {
     setDeleting(true);
-    await deleteDoc(doc(db, 'streetSegments', seg.id));
-    onDeleted();
+    setSegError(null);
+    try {
+      const fn = httpsCallable(getFunctions(getApp(), 'us-central1'), 'adminUpdateSegmentStatus');
+      await fn({ segmentId: seg.id, status, reason: reason ?? null });
+      onDeleted();
+    } catch (e: unknown) {
+      setSegError(e instanceof Error ? e.message : 'Action failed.');
+      setDeleting(false);
+    }
   };
+
+  const archiveSegment = async () => {
+    if (!confirm(`Archive segment "${seg.streetName}"? It will no longer be served to users but can be restored.`)) return;
+    await callSegmentStatus('archived', 'Archived from admin dashboard');
+  };
+
+  const markNeedsReview = () => callSegmentStatus('needs_review', 'Marked needs review from admin dashboard');
+  const markActive       = () => callSegmentStatus('active',       'Restored active from admin dashboard');
 
   return (
     <div className="border border-gray-200 rounded-xl overflow-hidden mb-3">
       <div className="flex items-center justify-between px-4 py-3 bg-white">
         <div>
           <p className="font-semibold text-gray-800 text-sm">{seg.streetName}</p>
-          <p className="text-xs text-gray-500">{seg.fromCross} → {seg.toCross} · {BOROUGHS.find(b => b.code === seg.borough)?.label}</p>
+          <p className="text-xs text-gray-500">{seg.referenceAddress || seg.fromCross} · {BOROUGHS.find(b => b.code === seg.borough)?.label}</p>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded-full font-medium">ParQueen Verified</span>
+          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+            seg.status === 'archived' ? 'bg-gray-100 text-gray-500' :
+            seg.status === 'needs_review' ? 'bg-yellow-100 text-yellow-700' :
+            seg.source === 'sweepnyc' ? 'bg-purple-100 text-purple-700' :
+            'bg-green-100 text-green-700'
+          }`}>
+            {seg.status === 'archived' ? 'Archived' :
+             seg.status === 'needs_review' ? 'Needs Review' :
+             seg.source === 'sweepnyc' ? 'SweepNYC' :
+             'ParQueen Verified'}
+          </span>
+          {seg.status === 'active' && (
+            <button onClick={markNeedsReview} className="p-1 text-amber-400 hover:text-amber-600" title="Flag for review">
+              <Flag size={15} />
+            </button>
+          )}
+          {(seg.status === 'needs_review' || seg.status === 'archived') && (
+            <button onClick={markActive} className="p-1 text-green-400 hover:text-green-600" title="Restore as active">
+              <RotateCcw size={15} />
+            </button>
+          )}
           <button onClick={handleExpand} className="p-1 text-gray-400 hover:text-gray-600">
             {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
           </button>
-          <button onClick={deleteSegment} disabled={deleting} className="p-1 text-red-400 hover:text-red-600 disabled:opacity-50">
-            <Trash2 size={16} />
-          </button>
+          {seg.status !== 'archived' && (
+            <button onClick={archiveSegment} disabled={deleting} className="p-1 text-red-400 hover:text-red-600 disabled:opacity-50" title="Archive segment (keeps history)">
+              <Trash2 size={16} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -285,7 +336,7 @@ function SegmentRow({ seg, onDeleted }: { seg: SegmentDoc; onDeleted: () => void
                     <span className="font-semibold text-gray-700">Side {sched.side}</span>
                     <span className="text-gray-500">{sched.days.join(' & ')}</span>
                     <span className="text-gray-500">{sched.startTime}–{sched.endTime}</span>
-                    <button onClick={() => deleteRule(rule.id)} className="text-red-400 hover:text-red-600">
+                    <button onClick={() => supersedRule(rule.id)} className="text-red-400 hover:text-red-600" title="Remove rule (supersedes, keeps history)">
                       <Trash2 size={12} />
                     </button>
                   </div>
@@ -294,6 +345,12 @@ function SegmentRow({ seg, onDeleted }: { seg: SegmentDoc; onDeleted: () => void
             </div>
           )}
           <AddRuleForm segmentId={seg.id} onSaved={loadRules} />
+        </div>
+      )}
+      {segError && (
+        <div className="px-4 py-2 bg-red-50 border-t border-red-200 text-xs text-red-600 flex items-center gap-2">
+          <AlertCircle size={12} />
+          {segError}
         </div>
       )}
     </div>
@@ -308,6 +365,7 @@ function SuspensionsPanel() {
   const [label, setLabel] = useState('');
   const [type, setType] = useState<'holiday' | 'emergency'>('holiday');
   const [saving, setSaving] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
 
   const load = async () => {
     const snap = await getDocs(query(collection(db, 'suspensions'), orderBy('date', 'desc')));
@@ -319,24 +377,29 @@ function SuspensionsPanel() {
   const handleAdd = async () => {
     if (!date || !label) return;
     setSaving(true);
-    await addDoc(collection(db, 'suspensions'), {
-      cityId: 'nyc',
-      date,
-      type,
-      label: label.trim(),
-      affectsTypes: ['streetCleaning'],
-      source: 'admin',
-      createdAt: Timestamp.now(),
-    });
-    setDate('');
-    setLabel('');
-    setSaving(false);
-    load();
+    setArchiveError(null);
+    try {
+      const fn = httpsCallable(getFunctions(getApp(), 'us-central1'), 'adminAddSuspension');
+      await fn({ date, label: label.trim(), type });
+      setDate('');
+      setLabel('');
+      load();
+    } catch (e: unknown) {
+      setArchiveError(e instanceof Error ? e.message : 'Failed to add suspension.');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleDelete = async (id: string) => {
-    await deleteDoc(doc(db, 'suspensions', id));
-    load();
+  const handleArchive = async (id: string) => {
+    setArchiveError(null);
+    try {
+      const fn = httpsCallable(getFunctions(getApp(), 'us-central1'), 'adminArchiveSuspension');
+      await fn({ suspensionId: id, reason: 'Archived from admin dashboard' });
+      load();
+    } catch (e: unknown) {
+      setArchiveError(e instanceof Error ? e.message : 'Archive failed.');
+    }
   };
 
   return (
@@ -346,15 +409,15 @@ function SuspensionsPanel() {
         <div className="grid grid-cols-3 gap-3 mb-3">
           <div>
             <label className="text-xs font-semibold text-gray-500 mb-1 block">Date</label>
-            <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
           <div>
             <label className="text-xs font-semibold text-gray-500 mb-1 block">Label</label>
-            <input value={label} onChange={e => setLabel(e.target.value)} placeholder="Martin Luther King Jr. Day" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <input value={label} onChange={e => setLabel(e.target.value)} placeholder="Martin Luther King Jr. Day" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
           <div>
             <label className="text-xs font-semibold text-gray-500 mb-1 block">Type</label>
-            <select value={type} onChange={e => setType(e.target.value as any)} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
+            <select value={type} onChange={e => setType(e.target.value as 'holiday' | 'emergency')} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm">
               <option value="holiday">Holiday</option>
               <option value="emergency">Emergency</option>
             </select>
@@ -364,39 +427,168 @@ function SuspensionsPanel() {
           {saving ? 'Saving…' : 'Add Suspension'}
         </button>
       </div>
+      {archiveError && (
+        <div className="mb-2 flex items-center gap-2 text-red-600 text-xs bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+          <AlertCircle size={12} />
+          {archiveError}
+        </div>
+      )}
       <div className="space-y-2">
-        {suspensions.map(s => (
+        {suspensions.filter(s => s.status !== 'archived').map(s => (
           <div key={s.id} className="flex items-center justify-between bg-white border border-gray-200 rounded-lg px-4 py-3">
             <div>
               <p className="text-sm font-semibold text-gray-800">{s.label}</p>
               <p className="text-xs text-gray-500">{s.date} · {s.type}</p>
             </div>
-            <button onClick={() => handleDelete(s.id)} className="text-red-400 hover:text-red-600">
+            <button onClick={() => handleArchive(s.id)} className="text-red-400 hover:text-red-600" title="Remove suspension (archived, not deleted)">
               <Trash2 size={16} />
             </button>
           </div>
         ))}
-        {!suspensions.length && <p className="text-sm text-gray-400">No suspensions on record.</p>}
+        {!suspensions.filter(s => s.status !== 'archived').length && <p className="text-sm text-gray-400">No suspensions on record.</p>}
       </div>
+    </div>
+  );
+}
+
+// ── Data Maintenance Panel ────────────────────────────────────────────────────
+
+function DataMaintenancePanel() {
+  const [open, setOpen] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [preview, setPreview] = useState<BackfillResult | null>(null);
+  const [applied, setApplied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const runDryRun = async () => {
+    setRunning(true);
+    setError(null);
+    setPreview(null);
+    setApplied(false);
+    try {
+      const result = await backfillStreetIntelligence(db!, true);
+      setPreview(result);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Dry run failed.');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const applyBackfill = async () => {
+    if (!confirm('Apply backfill? This will write missing schema fields to Firestore. The operation is safe and idempotent.')) return;
+    setRunning(true);
+    setError(null);
+    try {
+      const result = await backfillStreetIntelligence(db!, false);
+      setPreview(result);
+      setApplied(true);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Backfill failed.');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="mt-8 border border-gray-200 rounded-xl overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
+      >
+        <span className="flex items-center gap-2 text-sm font-semibold text-gray-600">
+          <Wrench size={15} />
+          Data Maintenance
+        </span>
+        {open ? <ChevronUp size={15} className="text-gray-400" /> : <ChevronDown size={15} className="text-gray-400" />}
+      </button>
+
+      {open && (
+        <div className="px-4 pb-5 pt-4 bg-white space-y-4">
+          <div>
+            <p className="text-sm font-semibold text-gray-800 mb-1">Schema Backfill</p>
+            <p className="text-xs text-gray-500 mb-3">
+              Adds missing <code className="bg-gray-100 px-1 rounded">status</code>,{' '}
+              <code className="bg-gray-100 px-1 rounded">source</code>,{' '}
+              <code className="bg-gray-100 px-1 rounded">confidenceScore</code>, and{' '}
+              <code className="bg-gray-100 px-1 rounded">provenance</code> fields to existing
+              segments and rules. Never overwrites existing values. Safe to run multiple times.
+            </p>
+
+            <div className="flex gap-2">
+              <button
+                onClick={runDryRun}
+                disabled={running}
+                className="px-3 py-1.5 text-sm font-semibold rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              >
+                {running && !preview ? 'Scanning…' : 'Dry Run'}
+              </button>
+              {preview && !applied && (
+                <button
+                  onClick={applyBackfill}
+                  disabled={running || (preview.segmentsUpdated === 0 && preview.rulesUpdated === 0)}
+                  className="px-3 py-1.5 text-sm font-semibold rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                >
+                  {running ? 'Applying…' : `Apply (${preview.segmentsUpdated + preview.rulesUpdated} changes)`}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {error && (
+            <div className="flex items-center gap-2 text-red-600 text-sm">
+              <AlertCircle size={14} />
+              {error}
+            </div>
+          )}
+
+          {preview && (
+            <div className={`rounded-lg p-3 text-sm ${applied ? 'bg-green-50 border border-green-200' : 'bg-blue-50 border border-blue-200'}`}>
+              <p className="font-semibold mb-1 text-gray-800">
+                {applied ? '✓ Backfill applied' : 'Dry run results'}
+              </p>
+              <ul className="text-xs text-gray-600 space-y-0.5">
+                <li>Segments scanned: <strong>{preview.segmentsScanned}</strong></li>
+                <li>Segments {applied ? 'updated' : 'would update'}: <strong>{preview.segmentsUpdated}</strong></li>
+                <li>Rules scanned: <strong>{preview.rulesScanned}</strong></li>
+                <li>Rules {applied ? 'updated' : 'would update'}: <strong>{preview.rulesUpdated}</strong></li>
+              </ul>
+              {!applied && preview.segmentsUpdated === 0 && preview.rulesUpdated === 0 && (
+                <p className="text-xs text-green-700 mt-1 font-medium">All documents already up to date.</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
+type StatusFilter = 'active' | 'needs_review' | 'archived' | 'all';
+
 export const StreetSegmentsPage = () => {
   const [segments, setSegments] = useState<SegmentDoc[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'segments' | 'suspensions'>('segments');
+  const [activeTab, setActiveTab] = useState<'segments' | 'suspensions' | 'failures' | 'health'>('segments');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('active');
 
-  const loadSegments = async () => {
+  const loadSegments = async (filter: StatusFilter = statusFilter) => {
     setLoading(true);
-    const snap = await getDocs(query(collection(db, 'streetSegments'), orderBy('streetName')));
-    setSegments(snap.docs.map(d => ({ id: d.id, ...d.data() } as SegmentDoc)));
+    const q = filter === 'all'
+      ? query(collection(db, 'streetSegments'))
+      : query(collection(db, 'streetSegments'), where('status', '==', filter));
+    const snap = await getDocs(q);
+    setSegments(
+      snap.docs
+        .map(d => ({ id: d.id, ...d.data() } as SegmentDoc))
+        .sort((a, b) => a.streetName.localeCompare(b.streetName))
+    );
     setLoading(false);
   };
 
-  useEffect(() => { loadSegments(); }, []);
+  useEffect(() => { loadSegments(statusFilter); }, [statusFilter]);
 
   return (
     <div className="p-6 max-w-3xl">
@@ -406,35 +598,56 @@ export const StreetSegmentsPage = () => {
       </div>
 
       <div className="flex gap-2 mb-6 border-b border-gray-200">
-        {(['segments', 'suspensions'] as const).map(tab => (
+        {([
+          { key: 'segments', label: 'Segments' },
+          { key: 'suspensions', label: 'Suspensions' },
+          { key: 'failures', label: 'Parse Failures' },
+          { key: 'health', label: 'Health' },
+        ] as const).map(tab => (
           <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 text-sm font-semibold capitalize border-b-2 transition-colors -mb-px ${activeTab === tab ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`px-4 py-2 text-sm font-semibold border-b-2 transition-colors -mb-px ${activeTab === tab.key ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
           >
-            {tab}
+            {tab.label}
           </button>
         ))}
       </div>
 
       {activeTab === 'segments' && (
         <>
-          <AddSegmentForm onSaved={loadSegments} />
+          <AddSegmentForm onSaved={() => loadSegments(statusFilter)} />
+          <div className="flex gap-2 mb-4">
+            {(['active', 'needs_review', 'archived', 'all'] as const).map(f => (
+              <button
+                key={f}
+                onClick={() => setStatusFilter(f)}
+                className={`px-3 py-1 text-xs font-semibold rounded-full transition-colors ${statusFilter === f ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+              >
+                {f === 'needs_review' ? 'Needs Review' : f.charAt(0).toUpperCase() + f.slice(1)}
+              </button>
+            ))}
+          </div>
           {loading ? (
             <p className="text-sm text-gray-400">Loading segments…</p>
           ) : segments.length === 0 ? (
-            <p className="text-sm text-gray-400">No segments yet. Add one above.</p>
+            <p className="text-sm text-gray-400">No segments with status "{statusFilter}".</p>
           ) : (
             <div>
               {segments.map(seg => (
-                <SegmentRow key={seg.id} seg={seg} onDeleted={loadSegments} />
+                <SegmentRow key={seg.id} seg={seg} onDeleted={() => loadSegments(statusFilter)} />
               ))}
             </div>
           )}
+          <DataMaintenancePanel />
         </>
       )}
 
       {activeTab === 'suspensions' && <SuspensionsPanel />}
+
+      {activeTab === 'failures' && <ParseFailuresPage />}
+
+      {activeTab === 'health' && <StreetIntelligenceHealthPage />}
     </div>
   );
 };

@@ -1,25 +1,24 @@
-import React, { useState, useEffect } from 'react';
-import { BarChart, Bell, Search, Settings, DollarSign, List, Users, LayoutDashboard, ChevronLeft, ChevronRight, LogOut, MapPin } from 'lucide-react';
+import React, { useState } from 'react';
+import { Settings, Users, LayoutDashboard, ChevronLeft, ChevronRight, LogOut, MapPin, ShieldAlert, ClipboardList } from 'lucide-react';
 import { DashboardPage } from './DashboardPage';
 import { UsersPage } from './UsersPage';
-import { ListingsPage } from './ListingsPage';
-import { FinancialsPage } from './FinancialsPage';
-import { ReportsPage } from './ReportsPage';
 import { SettingsPage } from './SettingsPage';
 import { StreetSegmentsPage } from './admin/StreetSegmentsPage';
-import { Timestamp, collection, query, where, getCountFromServer, doc, getDoc } from "firebase/firestore";
-import { db } from "../firebase";
+import { ReportsPage } from './admin/ReportsPage';
+import { PingsPage } from './admin/PingsPage';
+import { AuditLogPage } from './admin/AuditLogPage';
+import { auth } from "../firebase";
 import parqueenLogo from '../assets/Parqueen_Logo.png';
 
 const Sidebar = ({ isCollapsed, activePage, setActivePage, onLogout }) => {
   const navItems = [
     { icon: <LayoutDashboard size={20} />, name: 'Dashboard' },
     { icon: <Users size={20} />, name: 'Users' },
-    { icon: <List size={20} />, name: 'Listings' },
-    { icon: <DollarSign size={20} />, name: 'Financials' },
-    { icon: <BarChart size={20} />, name: 'Reports' },
-    { icon: <Settings size={20} />, name: 'Settings' },
     { icon: <MapPin size={20} />, name: 'Streets' },
+    { icon: <ShieldAlert size={20} />, name: 'Reports' },
+    { icon: <MapPin size={20} />, name: 'Pings' },
+    { icon: <ClipboardList size={20} />, name: 'Audit Log' },
+    { icon: <Settings size={20} />, name: 'Settings' },
   ];
 
   return (
@@ -30,104 +29,68 @@ const Sidebar = ({ isCollapsed, activePage, setActivePage, onLogout }) => {
       </div>
       <nav className="flex-1 mt-8 space-y-2 px-2">
         {navItems.map((item) => (
-          <a
+          <button
             key={item.name}
-            href="#"
+            type="button"
             onClick={() => setActivePage(item.name)}
-            className={`flex items-center p-3 rounded-lg text-gray-600 hover:bg-blue-50 transition-colors ${activePage === item.name ? 'bg-blue-100 text-blue-600 font-semibold' : ''} ${isCollapsed ? 'justify-center' : ''}`}
+            className={`w-full flex items-center p-3 rounded-lg text-gray-600 hover:bg-blue-50 transition-colors ${activePage === item.name ? 'bg-blue-100 text-blue-600 font-semibold' : ''} ${isCollapsed ? 'justify-center' : ''}`}
           >
             {item.icon}
             {!isCollapsed && <span className="ml-4">{item.name}</span>}
-          </a>
+          </button>
         ))}
       </nav>
       <div className="p-2">
-        <a
-          href="#"
+        <button
+          type="button"
           onClick={onLogout}
-          className={`flex items-center p-3 rounded-lg text-gray-600 hover:bg-red-50 transition-colors ${isCollapsed ? 'justify-center' : ''}`}>
+          className={`w-full flex items-center p-3 rounded-lg text-gray-600 hover:bg-red-50 transition-colors ${isCollapsed ? 'justify-center' : ''}`}
+        >
           <LogOut size={20} />
           {!isCollapsed && <span className="ml-4">Logout</span>}
-        </a>
+        </button>
       </div>
     </aside>
   );
 };
 
-async function loadDashboardCounts() {
-  const now = Timestamp.now();
-  const activeQ = query(collection(db, "spots"), where("expiresAt", ">", now));
-  const activeSnap = await getCountFromServer(activeQ);
-  const activeCount = activeSnap.data().count;
-
-  const statsSnap = await getDoc(doc(db, "stats", "global"));
-  const totalSpotsPinged = statsSnap.exists()
-    ? (statsSnap.data().totalSpotsPinged ?? 0)
-    : 0;
-
-  return { activeCount, totalSpotsPinged };
-}
-
 export const AdminDashboardView = ({ onLogout }) => {
   const [isSidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activePage, setActivePage] = useState('Dashboard');
-  const [counts, setCounts] = useState({ activeCount: 0, totalSpotsPinged: 0 });
-
-  useEffect(() => {
-    loadDashboardCounts().then(setCounts);
-  }, []);
 
   const renderPage = () => {
     switch (activePage) {
-      case 'Dashboard':
-        return <DashboardPage counts={counts} />;
-      case 'Users':
-        return <UsersPage />;
-      case 'Listings':
-        return <ListingsPage />;
-      case 'Financials':
-        return <FinancialsPage />;
-      case 'Reports':
-        return <ReportsPage />;
-      case 'Settings':
-        return <SettingsPage />;
-      case 'Streets':
-        return <StreetSegmentsPage />;
-      default:
-        return <DashboardPage counts={counts} />;
+      case 'Dashboard': return <DashboardPage onNavigate={setActivePage} />;
+      case 'Users':     return <UsersPage />;
+      case 'Streets':   return <StreetSegmentsPage />;
+      case 'Reports':   return <ReportsPage />;
+      case 'Pings':      return <PingsPage />;
+      case 'Audit Log':  return <AuditLogPage />;
+      case 'Settings':   return <SettingsPage />;
+      default:          return <DashboardPage onNavigate={setActivePage} />;
     }
   };
 
   return (
     <div className="h-screen w-screen flex bg-gray-50">
       <Sidebar isCollapsed={isSidebarCollapsed} activePage={activePage} setActivePage={setActivePage} onLogout={onLogout} />
-      
+
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
         <header className="flex justify-between items-center p-4 bg-white border-b border-gray-200">
           <button onClick={() => setSidebarCollapsed(!isSidebarCollapsed)} className="p-2 rounded-md hover:bg-gray-100">
             {isSidebarCollapsed ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
           </button>
-          <div className="flex-1 max-w-xl mx-4">
-            <div className="relative">
-              <Search size={20} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input type="text" placeholder="Search..." className="w-full bg-gray-100 rounded-lg pl-10 pr-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <div className="flex-1" />
+          <div className="flex items-center gap-2">
+            <div className="h-8 w-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 overflow-hidden shrink-0">
+              <i className="fa-solid fa-user text-sm"></i>
             </div>
-          </div>
-          <div className="flex items-center gap-4">
-            <button className="p-2 rounded-full hover:bg-gray-100">
-              <Bell size={20} className="text-gray-600" />
-            </button>
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 overflow-hidden shrink-0">
-                <i className="fa-solid fa-user text-sm"></i>
-              </div>
-              <span className="text-sm font-semibold text-gray-700">Admin</span>
-            </div>
+            <span className="text-sm font-semibold text-gray-700">
+              {auth?.currentUser?.email ?? 'Admin'}
+            </span>
           </div>
         </header>
 
-        {/* Main Content */}
         <main className="flex-1 overflow-y-auto p-6 md:p-8">
           {renderPage()}
         </main>

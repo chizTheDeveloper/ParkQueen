@@ -2,8 +2,12 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { AppView } from '../types';
 import { MapPin, Check, Locate, X, Bell, Clock, ChevronRight, Users, Car, Navigation } from 'lucide-react';
 import { db } from '../firebase';
-import { collection, addDoc, Timestamp, doc, deleteDoc, writeBatch, updateDoc, getDocs, where, query, orderBy, startAt, endAt } from 'firebase/firestore';
+import { collection, addDoc, Timestamp, doc, deleteDoc, writeBatch, updateDoc, getDocs, getDoc, setDoc, where, query, orderBy, startAt, endAt } from 'firebase/firestore';
+import { auth } from '../firebaseConfig';
 import { detectParkingSide } from '../utils/streetIntelligence';
+import { detectCardinalSide } from '../utils/sweepnyc';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { getApp } from 'firebase/app';
 import mapboxgl from 'mapbox-gl';
 import * as geofire from 'geofire-common';
 
@@ -55,6 +59,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
     const [isPinging, setIsPinging] = useState(false);
     const [showPingConfirmation, setShowPingConfirmation] = useState(false);
+    const [pingError, setPingError] = useState<string | null>(null);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [isSpotModalOpen, setSpotModalOpen] = useState(false);
     const [spotAddress, setSpotAddress] = useState<string>("Loading address...");
 
@@ -100,7 +106,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         savedAt: number;
         // Street Intelligence — null if no segment matched
         segmentId: string | null;
-        parkingSide: 'N' | 'S' | 'E' | 'W' | null;
+        parkingSide: string | null;
         restrictionVersionId: string | null;
         segmentStreetName: string | null;
     };
@@ -117,6 +123,9 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             return s;
         } catch { return null; }
     });
+    const [reminderEnabled, setReminderEnabled] = useState<boolean>(
+        () => localStorage.getItem('streetCleaningReminder') !== 'false'
+    );
     const [showSessionSheet, setShowSessionSheet] = useState(false);
     const [showDepartureSheet, setShowDepartureSheet] = useState(false);
     const [parkedDuration, setParkedDuration] = useState('');
@@ -179,7 +188,23 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 s.docs.map(d => ({ id: d.id, ...(d.data() as any) }))
             );
 
-            if (!candidates.length) return null;
+            if (!candidates.length) {
+                // No Firestore segment — lazy-populate via CF (server-controlled write)
+                try {
+                    const fn = httpsCallable(getFunctions(getApp(), 'us-central1'), 'createSegmentFromSweepNYC');
+                    const result = await fn({ lat: userLat, lng: userLng });
+                    const data = result.data as { success: boolean; segmentId?: string; parkingSide?: string; streetName?: string };
+                    if (!data.success || !data.segmentId) return null;
+                    return {
+                        segmentId: data.segmentId,
+                        parkingSide: data.parkingSide ?? 'North',
+                        restrictionVersionId: null,
+                        segmentStreetName: data.streetName ?? '',
+                    };
+                } catch {
+                    return null;
+                }
+            }
 
             const withDist = candidates.map((seg: any) => ({
                 ...seg,
@@ -188,11 +213,9 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             withDist.sort((a: any, b: any) => a.dist - b.dist);
             const nearest = withDist[0];
 
-            const parkingSide = detectParkingSide(
-                userLat, userLng,
-                nearest.fromLat, nearest.fromLng,
-                nearest.toLat, nearest.toLng,
-            );
+            const parkingSide = nearest.source === 'sweepnyc'
+                ? detectCardinalSide(userLat, userLng, nearest.fromLat, nearest.fromLng, nearest.toLat, nearest.toLng, nearest.bearing ?? 90)
+                : detectParkingSide(userLat, userLng, nearest.fromLat, nearest.fromLng, nearest.toLat, nearest.toLng, nearest.evenSideIsPositiveCross ?? true);
 
             const rulesSnap = await getDocs(
                 query(
@@ -236,8 +259,37 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         setShowSessionSheet(true);
     };
 
+    const writeCleaningReminder = async (safeUntil: Date | null, enabled: boolean, streetName: string | null) => {
+        if (!safeUntil || !enabled || !auth.currentUser || !streetName) return;
+        const uid = auth.currentUser.uid;
+        try {
+            const userSnap = await getDoc(doc(db, 'users', uid));
+            const fcmToken = userSnap.data()?.fcmToken;
+            if (!fcmToken) return;
+            const reminderMinutesBefore = 60;
+            const reminderAt = new Date(safeUntil.getTime() - reminderMinutesBefore * 60 * 1000);
+            await setDoc(doc(db, 'parkingSessions', uid), {
+                userId: uid,
+                fcmToken,
+                streetName,
+                nextCleaningAt: Timestamp.fromDate(safeUntil),
+                reminderAt: Timestamp.fromDate(reminderAt),
+                reminderMinutesBefore,
+                reminderEnabled: true,
+                reminderSent: false,
+                active: true,
+                savedAt: Timestamp.now(),
+            });
+        } catch (e) {
+            console.warn('Could not write cleaning reminder:', e);
+        }
+    };
+
     const endSession = () => {
         localStorage.removeItem(SAVED_SPOT_KEY);
+        if (auth.currentUser) {
+            setDoc(doc(db, 'parkingSessions', auth.currentUser.uid), { active: false }, { merge: true }).catch(() => {});
+        }
         setSavedSpot(null);
         parkingTimer.clearTimer();
         setShowSessionSheet(false);
@@ -555,6 +607,12 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         }
     }, [userLocation]);
 
+    useEffect(() => {
+        if (!pingError) return;
+        const t = setTimeout(() => setPingError(null), 4000);
+        return () => clearTimeout(t);
+    }, [pingError]);
+
     // --- Handlers ---
 
     const handleLocateMe = () => {
@@ -570,7 +628,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             const activeQ = query(collection(db, 'spots'), where('finderId', '==', user.id), where('status', 'in', ['available', 'interested']));
             const activeSnap = await getDocs(activeQ);
             if (!activeSnap.empty) {
-                alert('You already have an active ping. Cancel or wait for it to be taken before creating a new one.');
+                setPingError('You already have an active ping — cancel it first.');
                 return;
             }
         }
@@ -593,7 +651,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
         const onSaveError = (error: any) => {
             console.error("Error saving spot:", error);
-            alert("There was an error saving your ping. Please try again.");
+            setPingError("Couldn't save your ping — please try again.");
             setIsPinging(false);
         };
 
@@ -642,7 +700,12 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 });
 
                 if (recentSpots.length >= 5) {
-                    alert("You have reached your limit of 5 pings per hour. Please wait before pinging again!");
+                    const oldestMs = Math.min(...recentSpots.map(d => {
+                        const t = d.data().reportedAt?.toMillis ? d.data().reportedAt.toMillis() : new Date(d.data().reportedAt).getTime();
+                        return t;
+                    }));
+                    const minutesLeft = Math.ceil((oldestMs + 60 * 60 * 1000 - now) / 60000);
+                    setPingError(`Ping limit reached — try again in ${minutesLeft} min.`);
                     setIsPinging(false);
                     return;
                 }
@@ -675,7 +738,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 addDoc(collection(db, "spots"), newSpotData)
                     .catch(error => {
                         console.error("Optimistic save failed:", error);
-                        alert("There was an error syncing your ping to the server.");
+                        setPingError("Couldn't sync your ping — please try again.");
                     });
             } else {
                 navigator.geolocation.getCurrentPosition(
@@ -706,12 +769,12 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                         addDoc(collection(db, "spots"), newSpotData)
                             .catch(error => {
                                 console.error("Optimistic save failed:", error);
-                                alert("There was an error syncing your ping to the server.");
+                                setPingError("Couldn't sync your ping — please try again.");
                             });
                     },
                     (error) => {
                         console.error("Error getting position for ping:", error);
-                        alert("Could not get your location. Please ensure location services are enabled.");
+                        setPingError("Location unavailable — please enable location services.");
                         setIsPinging(false);
                     },
                     { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
@@ -720,14 +783,17 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         }
     };
 
-    const handleDeletePing = async () => {
+    const handleDeletePing = () => {
         const spotToDelete = selectedItem || (spotData.activeSpots.length > 0 ? spotData.activeSpots[0] : null);
         if (!user || !spotToDelete) return;
         if (user.id !== spotToDelete.finderId) return;
+        setShowDeleteConfirm(true);
+    };
 
-        const ok = window.confirm("Delete this ping? This can't be undone.");
-        if (!ok) return;
-
+    const doDeletePing = async () => {
+        const spotToDelete = selectedItem || (spotData.activeSpots.length > 0 ? spotData.activeSpots[0] : null);
+        if (!spotToDelete) return;
+        setShowDeleteConfirm(false);
         try {
             await deleteDoc(doc(db, "spots", spotToDelete.id));
             setSelectedItem(null);
@@ -805,12 +871,42 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                         </div>
 
                         {/* Street Intelligence */}
-                        {savedSpot.segmentId && savedSpot.parkingSide && savedSpot.segmentStreetName && (
-                            <StreetIntelligenceCard
-                                segmentId={savedSpot.segmentId}
-                                parkingSide={savedSpot.parkingSide}
-                                streetName={savedSpot.segmentStreetName}
-                            />
+                        {savedSpot.segmentId && savedSpot.parkingSide && savedSpot.segmentStreetName ? (
+                            <>
+                                <StreetIntelligenceCard
+                                    segmentId={savedSpot.segmentId}
+                                    parkingSide={savedSpot.parkingSide}
+                                    streetName={savedSpot.segmentStreetName}
+                                    onResult={r => {
+                                        if (r?.safeUntil) {
+                                            writeCleaningReminder(r.safeUntil, reminderEnabled, savedSpot.segmentStreetName);
+                                        }
+                                    }}
+                                />
+                                <button
+                                    onClick={() => {
+                                        const next = !reminderEnabled;
+                                        setReminderEnabled(next);
+                                        localStorage.setItem('streetCleaningReminder', String(next));
+                                        if (auth.currentUser) {
+                                            setDoc(doc(db, 'parkingSessions', auth.currentUser.uid), { reminderEnabled: next }, { merge: true }).catch(() => {});
+                                        }
+                                    }}
+                                    className="w-full flex items-center justify-between px-4 py-3 rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] mb-4"
+                                >
+                                    <div className="flex items-center gap-2">
+                                        <Bell size={15} className={reminderEnabled ? 'text-blue-400' : 'text-[var(--color-text-secondary)]'} />
+                                        <span className="text-sm text-[var(--color-text)]">Remind me 1 hr before cleaning</span>
+                                    </div>
+                                    <div className={`w-10 h-6 rounded-full transition-colors relative ${reminderEnabled ? 'bg-blue-600' : 'bg-white/20'}`}>
+                                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${reminderEnabled ? 'left-5' : 'left-1'}`} />
+                                    </div>
+                                </button>
+                            </>
+                        ) : (
+                            <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-4 mb-4">
+                                <p className="text-sm text-[var(--color-text-secondary)]">Street cleaning data isn't available for this block yet. Please check posted signs.</p>
+                            </div>
                         )}
 
                         {/* Navigate in-app */}
@@ -1076,6 +1172,29 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             <div className="map-blue-tint-color" />
             <div className="map-blue-tint-overlay" />
             <div className="map-blue-tint-soft" />
+
+            {pingError && (
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 bg-red-500/90 text-white text-sm font-medium rounded-2xl shadow-lg backdrop-blur-sm max-w-[85vw] text-center pointer-events-none">
+                    {pingError}
+                </div>
+            )}
+
+            {showDeleteConfirm && (
+                <div className="absolute inset-0 z-[200] flex items-end justify-center pb-10 bg-black/50 backdrop-blur-sm">
+                    <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-3xl p-6 mx-4 w-full max-w-sm shadow-2xl">
+                        <p className="text-base font-bold text-[var(--color-text)] text-center mb-1">Delete this spot?</p>
+                        <p className="text-sm text-[var(--color-text-secondary)] text-center mb-6">This can't be undone.</p>
+                        <div className="flex gap-3">
+                            <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 py-3 rounded-2xl border border-[var(--color-border)] text-[var(--color-text)] font-semibold text-sm">
+                                Cancel
+                            </button>
+                            <button onClick={doDeletePing} className="flex-1 py-3 rounded-2xl bg-red-500/20 border border-red-500/40 text-red-400 font-bold text-sm">
+                                Delete Spot
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {showPingConfirmation && (
                 <div className="absolute inset-0 z-50 flex items-start justify-center pt-28 pointer-events-none">

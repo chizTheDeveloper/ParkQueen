@@ -64,7 +64,7 @@ export function useInterestFlow({
                         setFinderToast(data.message);
                         setTimeout(() => setFinderToast(null), 6000);
                     }
-                    change.doc.ref.delete().catch(() => {});
+                    deleteDoc(change.doc.ref).catch(() => {});
                 }
             });
         });
@@ -254,6 +254,10 @@ export function useInterestFlow({
             status: 'available',
             interestedUserId: null,
             interestedUserName: null,
+            interestedUserVehicleColor: null,
+            interestedUserVehicleType: null,
+            interestedUserVehicleBrand: null,
+            interestedUserTitle: null,
             etaMinutes: null,
             interestExpiresAt: null,
         });

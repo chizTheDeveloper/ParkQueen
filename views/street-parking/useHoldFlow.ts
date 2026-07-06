@@ -94,13 +94,13 @@ export function useHoldFlow({
         return () => clearInterval(interval);
     }, [selectedItem?.holdRequestStatus, selectedItem?.holdTimerExpiresAt, selectedItem?.id]);
 
-    // Finder wallet payout success banner
+    // Finder hold-complete banner
     useEffect(() => {
         if (!user) return;
         const completedSpot = freeSpots.find(s => s.finderId === user.id && s.holdRequestStatus === 'completed');
         if (completedSpot && completedSpot.id !== lastCompletedHoldId) {
             setLastCompletedHoldId(completedSpot.id);
-            setFinderSuccessNotification(`Claimant arrived! $2.00 has been released to your wallet from spot at ${completedSpot.title || 'Street Spot'}.`);
+            setFinderSuccessNotification(`Handoff complete — thanks for helping another driver.`);
             setTimeout(() => setFinderSuccessNotification(null), 5000);
         }
     }, [freeSpots, user?.id, lastCompletedHoldId]);
@@ -171,7 +171,6 @@ export function useHoldFlow({
                 holdRequestStatus: 'completed',
                 status: 'occupied'
             }));
-            alert(`Escrow released successfully! $2.00 has been transferred to ${spot.finderName}.`);
         } catch (e) {
             console.error("Error releasing hold escrow:", e);
         }

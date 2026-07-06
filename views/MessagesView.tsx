@@ -21,25 +21,24 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [userProfilesCache, setUserProfilesCache] = useState<Record<string, { name: string; avatarUrl: string | null }>>({});
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const activeConversation = conversations.find(c => c.id === activeConversationId);
 
-  const handleDeleteChat = async () => {
+  const doDeleteChat = async () => {
     if (!activeConversationId) return;
-    if (window.confirm("Are you sure you want to delete this conversation? This will delete all messages for both users.")) {
-      try {
-        const msgsRef = collection(db, "chats", activeConversationId, "messages");
-        const snap = await getDocs(msgsRef);
-        const batch = writeBatch(db);
-        snap.docs.forEach(d => batch.delete(d.ref));
-        batch.delete(doc(db, "chats", activeConversationId));
-        await batch.commit();
-        
-        setActiveConversationId(null);
-      } catch (e) {
-        console.error("Error deleting chat:", e);
-        alert("Failed to delete chat.");
-      }
+    setShowDeleteConfirm(false);
+    try {
+      const msgsRef = collection(db, "chats", activeConversationId, "messages");
+      const snap = await getDocs(msgsRef);
+      const batch = writeBatch(db);
+      snap.docs.forEach(d => batch.delete(d.ref));
+      batch.delete(doc(db, "chats", activeConversationId));
+      await batch.commit();
+      setActiveConversationId(null);
+    } catch (e) {
+      console.error("Error deleting chat:", e);
+      showToast('Failed to delete conversation.');
     }
   };
 
@@ -327,7 +326,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
                 <div className="fixed inset-0 z-40" onClick={() => setIsMenuOpen(false)} />
                 <div className="absolute right-0 mt-2 w-48 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl shadow-xl z-50 overflow-hidden py-1">
                   <button 
-                    onClick={() => { setIsMenuOpen(false); handleDeleteChat(); }}
+                    onClick={() => { setIsMenuOpen(false); setShowDeleteConfirm(true); }}
                     className="w-full text-left px-4 py-3 text-sm text-red-500 hover:bg-white/5 flex items-center gap-2 transition-colors font-medium"
                   >
                     Delete Chat
@@ -390,6 +389,23 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
         {actionToast && (
           <div className="px-4 py-2 bg-[var(--color-surface)] border-t border-[var(--color-border)]">
             <p className="text-emerald-400 text-xs text-center font-semibold">{actionToast}</p>
+          </div>
+        )}
+
+        {showDeleteConfirm && (
+          <div className="absolute inset-0 z-50 bg-black/50 flex items-end justify-center pb-10">
+            <div className="bg-[var(--color-surface)] rounded-3xl p-6 mx-4 w-full max-w-sm border border-[var(--color-border)] shadow-2xl">
+              <p className="text-base font-bold text-[var(--color-text)] text-center mb-1">Delete this conversation?</p>
+              <p className="text-sm text-[var(--color-text-secondary)] text-center mb-6">This can't be undone.</p>
+              <div className="flex gap-3">
+                <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 py-3 rounded-2xl border border-[var(--color-border)] text-[var(--color-text)] font-semibold text-sm">
+                  Cancel
+                </button>
+                <button onClick={doDeleteChat} className="flex-1 py-3 rounded-2xl bg-red-500/20 border border-red-500/40 text-red-400 font-bold text-sm">
+                  Delete
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -465,7 +481,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
        <div className="flex-1 overflow-y-auto px-4 space-y-4 no-scrollbar">
           {conversations.length === 0 ? (
             <div className="text-center p-10 text-gray-500">
-              <p>No active conversations found.</p>
+              <p>Claim a spot or offer yours to start a conversation.</p>
             </div>
           ) : (
             conversations.map(conv => {

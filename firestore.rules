@@ -9,10 +9,46 @@ service cloud.firestore {
       return signedIn() && request.auth.token.role == 'admin';
     }
 
+    // ── Spot update helpers ───────────────────────────────────────────────────
+    function isFinder() {
+      return resource.data.finderId == request.auth.uid;
+    }
+
+    function isClaimer() {
+      return resource.data.interestedUserId == request.auth.uid;
+    }
+
+    function isHoldClaimer() {
+      return resource.data.claimedBy == request.auth.uid;
+    }
+
+    function isAvailableForClaim() {
+      return resource.data.status == 'available'
+        && resource.data.get('interestedUserId', null) == null
+        && resource.data.get('holdRequestedBy', null) == null;
+    }
+
+    function isAvailableForHold() {
+      return resource.data.status == 'available'
+        && resource.data.get('interestedUserId', null) == null
+        && resource.data.get('holdRequestedBy', null) == null;
+    }
+
+    function onlyChanges(keys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
+    }
+
     match /users/{userId} {
       allow read: if signedIn() || isAdmin();
-      allow write: if signedIn() && request.auth.uid == userId
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['trustStats', 'trustScore']);
+      allow create: if signedIn() && request.auth.uid == userId;
+      allow update: if isAdmin()
+        || (signedIn() && request.auth.uid == userId
+            && !request.resource.data.diff(resource.data).affectedKeys()
+                  .hasAny(['crowns', 'title', 'trustScore', 'trustStats',
+                            'moderationStatus', 'reportCount', 'role', 'status',
+                            'suspendedAt', 'suspendedBy', 'suspensionReason',
+                            'unsuspendedAt', 'unsuspendedBy', 'emailVerified']));
+      allow delete: if false;
 
       match /processedTrustEvents/{eventId} {
         allow read, write: if false;
@@ -23,7 +59,82 @@ service cloud.firestore {
       allow read: if signedIn() || isAdmin();
       allow create: if signedIn() && request.resource.data.finderId == request.auth.uid;
       allow delete: if signedIn() && resource.data.finderId == request.auth.uid;
-      allow update: if signedIn();
+      allow update: if signedIn() && (
+
+        // Arm 1: Claim an available spot
+        (isAvailableForClaim()
+          && request.resource.data.interestedUserId == request.auth.uid
+          && request.resource.data.status == 'interested'
+          && onlyChanges(['status', 'interestedUserId', 'interestedUserName',
+                          'interestedUserVehicleColor', 'interestedUserVehicleType',
+                          'interestedUserVehicleBrand', 'interestedUserTitle',
+                          'etaMinutes', 'interestExpiresAt']))
+
+        // Arm 2: Claimer updates ETA
+        || (isClaimer() && onlyChanges(['etaMinutes']))
+
+        // Arm 3: Claimer cancels — clears all claimer metadata
+        || (isClaimer()
+          && request.resource.data.status == 'available'
+          && onlyChanges(['status', 'interestedUserId', 'interestedUserName',
+                          'interestedUserVehicleColor', 'interestedUserVehicleType',
+                          'interestedUserVehicleBrand', 'interestedUserTitle',
+                          'etaMinutes', 'interestExpiresAt']))
+
+        // Arm 4: Claimer marks arrived
+        || (isClaimer()
+          && request.resource.data.status == 'occupied'
+          && onlyChanges(['status']))
+
+        // Arm 5: Finder confirms arrival
+        || (isFinder()
+          && request.resource.data.status == 'occupied'
+          && onlyChanges(['status']))
+
+        // Arm 6: Finder extends claim expiry
+        || (isFinder() && onlyChanges(['interestExpiresAt']))
+
+        // Arm 7: Finder accepts hold — old state must be pending, claimedBy must match requester
+        || (isFinder()
+          && resource.data.holdRequestStatus == 'pending'
+          && resource.data.status == 'available'
+          && resource.data.get('holdRequestedBy', null) != null
+          && request.resource.data.holdRequestStatus == 'accepted'
+          && request.resource.data.status == 'claimed'
+          && request.resource.data.claimedBy == resource.data.holdRequestedBy
+          && onlyChanges(['holdRequestStatus', 'status', 'claimedBy', 'holdTimerExpiresAt']))
+
+        // Arm 8: Finder declines hold — old state must be pending
+        || (isFinder()
+          && resource.data.holdRequestStatus == 'pending'
+          && resource.data.status == 'available'
+          && request.resource.data.holdRequestStatus == 'declined'
+          && request.resource.data.status == 'available'
+          && request.resource.data.get('claimedBy', null) == null
+          && onlyChanges(['holdRequestStatus', 'status', 'claimedBy']))
+
+        // Arm 9: Send hold request — available spot, no active claim or hold
+        || (isAvailableForHold()
+          && request.resource.data.holdRequestedBy == request.auth.uid
+          && request.resource.data.holdRequestStatus == 'pending'
+          && onlyChanges(['holdRequestedBy', 'holdRequestedByName',
+                          'holdRequestStatus', 'holdRequestExpiresAt']))
+
+        // Arm 10: Hold claimer arrival release
+        || (isHoldClaimer()
+          && request.resource.data.holdRequestStatus == 'completed'
+          && request.resource.data.status == 'occupied'
+          && onlyChanges(['holdRequestStatus', 'status']))
+
+        // Arm 11: Hold timer expiry — old state must be accepted; finder or claimer may execute
+        || ((isFinder() || isHoldClaimer())
+          && resource.data.holdRequestStatus == 'accepted'
+          && resource.data.status == 'claimed'
+          && request.resource.data.holdRequestStatus == 'declined'
+          && request.resource.data.status == 'available'
+          && request.resource.data.get('claimedBy', null) == null
+          && onlyChanges(['holdRequestStatus', 'status', 'claimedBy']))
+      );
     }
 
     match /listings/{listingId} {
@@ -61,14 +172,14 @@ service cloud.firestore {
     }
 
     match /spotNotifications/{notifId} {
-      allow read: if signedIn();
+      allow read: if signedIn() && resource.data.targetUserId == request.auth.uid;
       allow create: if signedIn();
-      allow delete: if signedIn();
+      allow delete: if signedIn() && resource.data.targetUserId == request.auth.uid;
     }
 
     match /spotFeedback/{feedbackId} {
       allow create: if signedIn();
-      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+      allow read: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
       allow update: if signedIn() && resource.data.userId == request.auth.uid;
     }
 
@@ -77,14 +188,42 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /parkingSessions/{userId} {
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == userId);
+      allow write: if signedIn() && request.auth.uid == userId;
+    }
+
+    match /parseFailures/{failureId} {
+      allow read: if isAdmin();
+      // Signed-in users may create new failure docs or increment count on existing ones
+      allow create: if signedIn();
+      allow update: if isAdmin() || (
+        signedIn()
+        // Users may only increment count and update lastSeenAt/location — not resolve/reopen
+        && !request.resource.data.diff(resource.data).affectedKeys()
+             .hasAny(['resolvedAt', 'resolvedBy', 'resolutionType', 'resolutionNote'])
+      );
+      allow delete: if false;
+    }
+
     match /streetSegments/{segmentId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow create: if isAdmin();
+      allow update, delete: if isAdmin();
 
       match /streetRules/{ruleId} {
         allow read: if true;
-        allow write: if isAdmin();
+        allow create: if isAdmin();
+        allow update, delete: if isAdmin();
       }
+    }
+
+    // Collection group rule required for collectionGroup('streetRules') queries.
+    // Nested subcollection rules only cover path-based access, not cross-collection queries.
+    match /{path=**}/streetRules/{ruleId} {
+      allow read: if true;
+      allow create: if isAdmin();
+      allow update, delete: if isAdmin();
     }
 
     match /suspensions/{suspensionId} {

@@ -1,161 +1,212 @@
 import React, { useState, useEffect } from 'react';
-import { Users, DollarSign, Bell, CheckCircle, ChevronRight } from 'lucide-react';
+import { Users, AlertTriangle, MapPin, Activity, Car, FileWarning, ShieldAlert, CheckCircle } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, onSnapshot, getCountFromServer, where, orderBy, limit, Timestamp } from 'firebase/firestore';
 
-const MetricCard = ({ icon, title, value, trend, isWarning }) => (
-  <div className="bg-white p-4 rounded-xl shadow-md flex items-start gap-4">
-    <div className={`p-2 rounded-full ${isWarning ? 'bg-red-100' : 'bg-blue-100'}`}>
+interface MetricCardProps {
+  icon: React.ReactNode;
+  title: string;
+  value: string | number;
+  subtitle?: string;
+  isWarning?: boolean;
+  onClick?: () => void;
+}
+
+const MetricCard = ({ icon, title, value, subtitle, isWarning = false, onClick }: MetricCardProps) => (
+  <div
+    onClick={onClick}
+    className={`bg-white p-4 rounded-xl shadow-md flex items-start gap-4 ${onClick ? 'cursor-pointer hover:shadow-lg transition-shadow' : ''}`}
+  >
+    <div className={`p-2 rounded-full shrink-0 ${isWarning ? 'bg-red-100' : 'bg-blue-100'}`}>
       {icon}
     </div>
     <div>
       <p className="text-sm text-gray-500">{title}</p>
       <p className="text-2xl font-bold text-gray-800">{value}</p>
-      {trend && <p className={`text-xs ${trend.includes('+') ? 'text-green-500' : 'text-red-500'}`}>{trend}</p>}
-      {isWarning && <p className="text-xs text-red-500 font-semibold">Action Required</p>}
+      {subtitle && <p className={`text-xs mt-0.5 ${isWarning ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>{subtitle}</p>}
     </div>
   </div>
 );
 
-export const DashboardPage = ({ counts }) => {
-  const [stats, setStats] = useState({
-    totalUsers: 0,
-    transactionVolume: 0,
-    activeDisputes: 0,
-  });
-  const [recentRegistrations, setRecentRegistrations] = useState([]);
-  const [flaggedListings, setFlaggedListings] = useState([]);
+interface Counts {
+  totalUsers: number;
+  activePings: number;
+  activeSessions: number;
+  parseFailures: number;
+  needsReview: number;
+  reports: number;
+}
+
+const EMPTY_COUNTS: Counts = {
+  totalUsers: 0, activePings: 0, activeSessions: 0,
+  parseFailures: 0, needsReview: 0, reports: 0,
+};
+
+export const DashboardPage = ({ onNavigate }: { onNavigate: (page: string) => void }) => {
+  const [counts, setCounts] = useState<Counts>(EMPTY_COUNTS);
+  const [loadingCounts, setLoadingCounts] = useState(true);
+  const [recentUsers, setRecentUsers] = useState<any[]>([]);
 
   useEffect(() => {
     if (!db) return;
 
-    const fetchData = async () => {
-      try {
-        const usersCol = collection(db, 'users');
-        const userSnapshot = await getCountFromServer(usersCol);
-        setStats(prev => ({ ...prev, totalUsers: userSnapshot.data().count }));
+    const now = Timestamp.now();
 
-        const disputesQuery = query(collection(db, 'disputes'), where('status', '==', 'open'));
-        const disputeSnapshot = await getCountFromServer(disputesQuery);
-        setStats(prev => ({ ...prev, activeDisputes: disputeSnapshot.data().count }));
-      } catch (error) {
-        console.error("Error fetching aggregate counts:", error);
-      }
-    };
-
-    fetchData();
-    
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const thirtyDaysAgoTimestamp = Timestamp.fromDate(thirtyDaysAgo);
-
-    const transactionsQuery = query(
-      collection(db, 'transactions'),
-      where('timestamp', '>=', thirtyDaysAgoTimestamp)
-    );
-    const unsubTransactions = onSnapshot(transactionsQuery, (snapshot) => {
-      let totalVolume = 0;
-      snapshot.forEach(doc => {
-        totalVolume += doc.data().amount || 0;
+    Promise.allSettled([
+      getCountFromServer(collection(db, 'users')),
+      getCountFromServer(query(collection(db, 'spots'), where('expiresAt', '>', now))),
+      getCountFromServer(query(collection(db, 'parkingSessions'), where('active', '==', true))),
+      getCountFromServer(query(collection(db, 'parseFailures'), where('resolvedAt', '==', null))),
+      getCountFromServer(query(collection(db, 'streetSegments'), where('status', '==', 'needs_review'))),
+      getCountFromServer(query(collection(db, 'reports'), where('status', '==', 'pending'))),
+    ]).then(([users, pings, sessions, failures, review, reports]) => {
+      setCounts({
+        totalUsers:     users.status    === 'fulfilled' ? users.value.data().count    : 0,
+        activePings:    pings.status    === 'fulfilled' ? pings.value.data().count    : 0,
+        activeSessions: sessions.status === 'fulfilled' ? sessions.value.data().count : 0,
+        parseFailures:  failures.status === 'fulfilled' ? failures.value.data().count : 0,
+        needsReview:    review.status   === 'fulfilled' ? review.value.data().count   : 0,
+        reports:        reports.status  === 'fulfilled' ? reports.value.data().count  : 0,
       });
-      setStats(prev => ({ ...prev, transactionVolume: totalVolume }));
-    }, error => console.error("Error fetching transactions:", error));
+      setLoadingCounts(false);
+    });
 
-    const recentUsersQuery = query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(5));
-    const unsubUsers = onSnapshot(recentUsersQuery, (snapshot) => {
-      const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setRecentRegistrations(users);
-    }, error => console.error("Error fetching recent users:", error));
+    const unsubUsers = onSnapshot(
+      query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(5)),
+      (snap) => setRecentUsers(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+      (e) => console.error('Recent users error:', e),
+    );
 
-    const flaggedListingsQuery = query(collection(db, 'listings'), where('isFlagged', '==', true), limit(5));
-    const unsubListings = onSnapshot(flaggedListingsQuery, (snapshot) => {
-      const listings = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setFlaggedListings(listings);
-    }, error => console.error("Error fetching flagged listings:", error));
-
-    return () => {
-      unsubTransactions();
-      unsubUsers();
-      unsubListings();
-    };
+    return () => unsubUsers();
   }, []);
+
+  const attentionItems: { label: string; page?: string }[] = [
+    counts.parseFailures > 0  && { label: `${counts.parseFailures} unresolved parse failure${counts.parseFailures !== 1 ? 's' : ''}`, page: 'Streets' },
+    counts.needsReview > 0    && { label: `${counts.needsReview} segment${counts.needsReview !== 1 ? 's' : ''} flagged for review`, page: 'Streets' },
+    counts.reports > 0        && { label: `${counts.reports} pending report${counts.reports !== 1 ? 's' : ''} to review`, page: 'Reports' },
+  ].filter(Boolean) as { label: string; page?: string }[];
+
+  const val = (n: number) => loadingCounts ? '—' : n.toLocaleString();
 
   return (
     <div>
-      <h1 className="text-3xl font-bold text-gray-800 mb-6">Dashboard Overview</h1>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <MetricCard icon={<Users size={24} className="text-blue-500" />} title="Active Spots" value={counts.activeCount.toLocaleString()} trend="+5% from last week" />
-        <MetricCard icon={<Users size={24} className="text-blue-500" />} title="Total Spots Pinged" value={counts.totalSpotsPinged.toLocaleString()} trend="+12% from last week" />
-        <MetricCard icon={<Users size={24} className="text-blue-500" />} title="Total Users" value={stats.totalUsers.toLocaleString()} trend="+8% from last month" />
-        <MetricCard icon={<DollarSign size={24} className="text-blue-500" />} title="Transaction Volume (30d)" value={`$${stats.transactionVolume.toLocaleString()}`} trend="+3% from last month" />
-        <MetricCard icon={<Bell size={24} className="text-red-500" />} title="Active Disputes" value={stats.activeDisputes.toLocaleString()} isWarning={stats.activeDisputes > 0} />
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold text-gray-800">Operations Overview</h1>
+        <span className="text-xs text-gray-400">Live counts · refreshes on load</span>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-md">
-          <h2 className="text-xl font-semibold text-gray-800 mb-4">Recent New User Registrations</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="text-sm text-gray-500">
-                  <th className="py-2 px-4">Name</th>
-                  <th className="py-2 px-4">Role</th>
-                  <th className="py-2 px-4">Status</th>
-                  <th className="py-2 px-4">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentRegistrations.map((user) => (
-                  <tr key={user.id} className="border-b border-gray-100">
-                    <td className="py-3 px-4 font-medium text-gray-700">{user.fullName || 'N/A'}</td>
-                    <td className="py-3 px-4 text-gray-600">{user.role || 'Renter'}</td>
-                    <td className="py-3 px-4"><span className="bg-green-100 text-green-700 text-xs font-semibold px-2 py-1 rounded-full">Active</span></td>
-                    <td className="py-3 px-4"><button className="font-semibold text-blue-600 hover:underline">View</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+        <MetricCard
+          icon={<Users size={22} className="text-blue-500" />}
+          title="Total Users"
+          value={val(counts.totalUsers)}
+          onClick={() => onNavigate('Users')}
+        />
+        <MetricCard
+          icon={<MapPin size={22} className="text-blue-500" />}
+          title="Active Parking Pings"
+          subtitle="Live count"
+          value={val(counts.activePings)}
+          onClick={() => onNavigate('Pings')}
+        />
+        <MetricCard
+          icon={<Car size={22} className="text-blue-500" />}
+          title="Active My Car Sessions"
+          subtitle="Users with active == true"
+          value={val(counts.activeSessions)}
+        />
+        <MetricCard
+          icon={<FileWarning size={22} className={counts.parseFailures > 0 ? 'text-red-500' : 'text-gray-400'} />}
+          title="Unresolved Parse Failures"
+          value={val(counts.parseFailures)}
+          isWarning={counts.parseFailures > 0}
+          subtitle={counts.parseFailures > 0 ? 'Needs attention' : undefined}
+          onClick={() => onNavigate('Streets')}
+        />
+        <MetricCard
+          icon={<Activity size={22} className={counts.needsReview > 0 ? 'text-amber-500' : 'text-gray-400'} />}
+          title="Segments Needing Review"
+          value={val(counts.needsReview)}
+          isWarning={counts.needsReview > 0}
+          subtitle={counts.needsReview > 0 ? 'Needs attention' : undefined}
+          onClick={() => onNavigate('Streets')}
+        />
+        <MetricCard
+          icon={<ShieldAlert size={22} className={counts.reports > 0 ? 'text-orange-500' : 'text-gray-400'} />}
+          title="Pending Reports"
+          subtitle={counts.reports > 0 ? 'Needs attention' : 'No pending reports'}
+          isWarning={counts.reports > 0}
+          value={val(counts.reports)}
+          onClick={() => onNavigate('Reports')}
+        />
+      </div>
 
-        <div className="bg-white p-6 rounded-xl shadow-md">
-          <h2 className="text-xl font-semibold text-gray-800 mb-4">Flagged Listings</h2>
-          <div className="space-y-4">
-            {flaggedListings.length === 0 ? (
-                <div className="text-center py-6 text-gray-500 bg-gray-50 rounded-lg border border-dashed border-gray-200">
-                    <CheckCircle className="mx-auto mb-2 text-green-500" size={32} />
-                    <p className="font-medium text-gray-600">All clear!</p>
-                    <p className="text-sm">No listings currently flagged for review.</p>
-                </div>
-            ) : (
-                flaggedListings.map((listing) => (
-                  <div key={listing.id} className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <img src={listing.thumbnail || 'https://via.placeholder.com/40'} alt="Listing" className="h-10 w-10 rounded-lg object-cover" />
-                      <div>
-                        <p className="font-semibold text-gray-700">{listing.address || 'No Address'}</p>
-                        <p className="text-xs text-gray-500">{listing.reason || 'No reason given'}</p>
-                      </div>
-                    </div>
-                    <button className="text-sm font-semibold text-blue-600 hover:underline">Review</button>
-                  </div>
-                ))
+      {/* Attention Needed */}
+      <div className="bg-white rounded-xl shadow-md p-6 mb-8">
+        <h2 className="text-base font-semibold text-gray-700 mb-3">Attention Needed</h2>
+        {!loadingCounts && attentionItems.length === 0 ? (
+          <div className="flex items-center gap-2 text-green-600 text-sm font-medium">
+            <CheckCircle size={18} />
+            No urgent admin issues right now.
+          </div>
+        ) : loadingCounts ? (
+          <p className="text-sm text-gray-400">Loading…</p>
+        ) : (
+          <ul className="space-y-2">
+            {attentionItems.map((item, i) => (
+              <li key={i} className="flex items-center gap-2 text-sm">
+                <span className="w-2 h-2 rounded-full bg-red-400 shrink-0" />
+                {item.page ? (
+                  <button
+                    onClick={() => onNavigate(item.page!)}
+                    className="text-blue-600 hover:underline text-left"
+                  >
+                    {item.label}
+                  </button>
+                ) : (
+                  <span className="text-gray-700">{item.label}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* Recent Registrations */}
+      <div className="bg-white p-6 rounded-xl shadow-md">
+        <h2 className="text-lg font-semibold text-gray-800 mb-4">Recent Registrations</h2>
+        <table className="w-full text-left">
+          <thead>
+            <tr className="text-sm text-gray-500">
+              <th className="py-2 px-4">Name</th>
+              <th className="py-2 px-4">Status</th>
+              <th className="py-2 px-4">Joined</th>
+            </tr>
+          </thead>
+          <tbody>
+            {recentUsers.length === 0 && (
+              <tr>
+                <td colSpan={3} className="py-6 px-4 text-center text-gray-400 text-sm">No recent registrations.</td>
+              </tr>
             )}
-          </div>
-          
-          <h2 className="text-xl font-semibold text-gray-800 mt-8 mb-4">Quick Links</h2>
-          <div className="space-y-3">
-             <button className="w-full flex items-center justify-between p-3 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors font-medium">
-               <span>Approve Pending Listings</span>
-               <ChevronRight size={18} />
-             </button>
-             <button className="w-full flex items-center justify-between p-3 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors font-medium">
-               <span>Send System Notification</span>
-               <ChevronRight size={18} />
-             </button>
-          </div>
-        </div>
+            {recentUsers.map((user: any) => (
+              <tr key={user.id} className="border-b border-gray-100">
+                <td className="py-3 px-4 font-medium text-gray-700">
+                  {user.fullName || user.username || 'N/A'}
+                  {user.username && user.fullName && <span className="text-gray-400 text-xs ml-1">@{user.username}</span>}
+                </td>
+                <td className="py-3 px-4">
+                  <span className={`text-xs font-semibold px-2 py-1 rounded-full ${user.status === 'suspended' || user.status === 'Suspended' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                    {user.status === 'suspended' || user.status === 'Suspended' ? 'Suspended' : 'Active'}
+                  </span>
+                </td>
+                <td className="py-3 px-4 text-gray-500 text-sm">
+                  {user.createdAt?.toDate ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(user.createdAt.toDate()) : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

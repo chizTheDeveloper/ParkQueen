@@ -1,32 +1,37 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../../firebase';
 import { collection, getDocs, query, where, orderBy } from 'firebase/firestore';
-import { Leaf, Clock, AlertTriangle, CheckCircle, Layers } from 'lucide-react';
+import { Leaf, AlertTriangle, CheckCircle } from 'lucide-react';
 import {
-  computeSafeUntil, getBlockComplexity,
+  computeSafeUntil,
   StreetRuleDoc, SuspensionDoc, SafeUntilResult, CleaningSchedule,
 } from '../../utils/streetIntelligence';
 
 interface Props {
   segmentId: string;
-  parkingSide: 'N' | 'S' | 'E' | 'W';
+  parkingSide: string;
   streetName: string;
+  onResult?: (result: SafeUntilResult | null) => void;
 }
 
+const fmtSafeUntil = (d: Date) => {
+  const day = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  return `${day} at ${time}`;
+};
+
 const SIDE_LABELS: Record<string, string> = {
-  N: 'North Side', S: 'South Side', E: 'East Side', W: 'West Side',
+  even: 'Even-address side',
+  odd: 'Odd-address side',
+  North: 'North side', South: 'South side',
+  East: 'East side', West: 'West side',
 };
 
-const COMPLEXITY_CONFIG = {
-  simple: { label: 'Easy Block', color: 'text-green-400', bg: 'bg-green-500/10 border-green-500/20' },
-  moderate: { label: 'Moderate Block', color: 'text-yellow-400', bg: 'bg-yellow-500/10 border-yellow-500/20' },
-  complex: { label: 'Complex Block', color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/20' },
-};
-
-export const StreetIntelligenceCard = ({ segmentId, parkingSide, streetName }: Props) => {
+export const StreetIntelligenceCard = ({ segmentId, parkingSide, streetName, onResult }: Props) => {
   const [result, setResult] = useState<SafeUntilResult | null>(null);
-  const [ruleCount, setRuleCount] = useState(0);
+  const [scheduleCount, setScheduleCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -44,16 +49,18 @@ export const StreetIntelligenceCard = ({ segmentId, parkingSide, streetName }: P
         if (cancelled) return;
 
         const rules = rulesSnap.docs.map(d => ({ id: d.id, ...d.data() } as StreetRuleDoc));
-        const suspensions = suspSnap.docs.map(d => ({ id: d.id, ...d.data() } as SuspensionDoc));
-
-        // Flatten all schedules from active rules
+        const suspensions = suspSnap.docs
+          .map(d => ({ id: d.id, ...d.data() } as SuspensionDoc))
+          .filter(s => s.status !== 'archived');
         const allSchedules: CleaningSchedule[] = rules.flatMap(r => r.schedules || []);
 
-        setRuleCount(rules.length);
-        setResult(computeSafeUntil(allSchedules, parkingSide, suspensions));
+        setScheduleCount(allSchedules.length);
+        const r = computeSafeUntil(allSchedules, parkingSide, suspensions);
+        setResult(r);
+        onResult?.(r);
       } catch (e) {
         console.warn('StreetIntelligenceCard load error:', e);
-        setResult(null);
+        setLoadError(true);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -72,22 +79,26 @@ export const StreetIntelligenceCard = ({ segmentId, parkingSide, streetName }: P
     );
   }
 
+  if (loadError) {
+    return (
+      <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-4 mb-4">
+        <p className="text-sm text-[var(--color-text-secondary)]">Couldn't load street cleaning info — check back shortly.</p>
+      </div>
+    );
+  }
+
   if (!result) return null;
 
-  const complexity = getBlockComplexity(ruleCount);
-  const cx = COMPLEXITY_CONFIG[complexity];
-
-  // No cleaning rules for this side
   if (!result.scheduleDescription) {
     return (
       <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-4 mb-4">
         <div className="flex items-center gap-2 mb-1">
           <Leaf size={14} className="text-[var(--color-text-secondary)]" />
           <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest">
-            {streetName} · {SIDE_LABELS[parkingSide]}
+            {streetName} · {SIDE_LABELS[parkingSide] ?? parkingSide}
           </p>
         </div>
-        <p className="text-sm text-[var(--color-text-secondary)]">No street cleaning on record for this side.</p>
+        <p className="text-sm text-[var(--color-text-secondary)]">No cleaning schedule on file for this side yet.</p>
       </div>
     );
   }
@@ -98,7 +109,7 @@ export const StreetIntelligenceCard = ({ segmentId, parkingSide, streetName }: P
       <div className="flex items-center gap-2 mb-3">
         <Leaf size={14} className="text-[var(--color-text-secondary)]" />
         <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest">
-          {streetName} · {SIDE_LABELS[parkingSide]}
+          {streetName} · {SIDE_LABELS[parkingSide] ?? parkingSide}
         </p>
       </div>
 
@@ -118,7 +129,9 @@ export const StreetIntelligenceCard = ({ segmentId, parkingSide, streetName }: P
           <CheckCircle size={18} className="text-green-400 shrink-0" />
           <div>
             <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest leading-none mb-0.5">Safe Until</p>
-            <p className="text-base font-extrabold text-white leading-tight">{result.nextDay} {result.nextTime}</p>
+            <p className="text-base font-extrabold text-white leading-tight">
+              {result.safeUntil ? fmtSafeUntil(result.safeUntil) : `${result.nextDay} ${result.nextTime}`}
+            </p>
           </div>
         </div>
       ) : (
@@ -128,17 +141,17 @@ export const StreetIntelligenceCard = ({ segmentId, parkingSide, streetName }: P
         </div>
       )}
 
-      {/* Because: explanation */}
+      {/* Schedule description */}
       <p className="text-xs text-[var(--color-text-secondary)] mb-3">
         Because: street cleaning {result.scheduleDescription}
       </p>
 
-      {/* Block complexity + confidence */}
+      {/* Schedule count + verified badge */}
       <div className="flex items-center gap-2">
-        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${cx.bg} ${cx.color}`}>
-          {cx.label}
+        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-white/5 border-white/10 text-[var(--color-text-secondary)]">
+          {scheduleCount} cleaning schedule{scheduleCount !== 1 ? 's' : ''}
         </span>
-        <span className="text-[10px] font-semibold text-[var(--color-text-secondary)] bg-white/5 px-2 py-0.5 rounded-full border border-white/10">
+        <span className="text-[10px] font-semibold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full border border-blue-500/20">
           ParQueen Verified
         </span>
       </div>

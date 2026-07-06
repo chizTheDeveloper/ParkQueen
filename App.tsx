@@ -8,8 +8,6 @@ import { OnboardingView } from './views/OnboardingView';
 // leaflet, recharts, the Gemini-backed assistant, the admin dashboard, etc.)
 // out of the critical path for users who never visit those screens.
 const MapView = lazy(() => import('./views/StreetParkingView').then(m => ({ default: m.MapView })));
-const GarageRentalView = lazy(() => import('./views/GarageRentalView').then(m => ({ default: m.GarageRentalView })));
-const HostDashboardView = lazy(() => import('./views/HostDashboardView').then(m => ({ default: m.HostDashboardView })));
 const AssistantView = lazy(() => import('./views/AssistantView').then(m => ({ default: m.AssistantView })));
 const MessagesView = lazy(() => import('./views/MessagesView').then(m => ({ default: m.MessagesView })));
 const ProfileView = lazy(() => import('./views/ProfileView').then(m => ({ default: m.ProfileView })));
@@ -21,6 +19,11 @@ const NameEntryView = lazy(() => import('./views/NameEntryView').then(m => ({ de
 const EditProfileView = lazy(() => import('./views/EditProfileView').then(m => ({ default: m.EditProfileView })));
 const SettingsView = lazy(() => import('./views/SettingsView').then(m => ({ default: m.SettingsView })));
 const AdminDashboardView = lazy(() => import('./views/AdminDashboardView').then(m => ({ default: m.AdminDashboardView })));
+const AdminLoginView = lazy(() => import('./views/AdminLoginView').then(m => ({ default: m.AdminLoginView })));
+
+// Admin portal lives at admin.parqueen.app. On localhost, add ?admin to test it.
+const isAdminDomain = window.location.hostname === 'admin.parqueen.app'
+  || (window.location.hostname === 'localhost' && new URLSearchParams(window.location.search).has('admin'));
 const ActivitiesView = lazy(() => import('./views/ActivitiesView').then(m => ({ default: m.ActivitiesView })));
 const EditVehicleView = lazy(() => import('./views/EditVehicleView').then(m => ({ default: m.EditVehicleView })));
 const PrivacyPolicyView = lazy(() => import('./views/PrivacyPolicyView').then(m => ({ default: m.PrivacyPolicyView })));
@@ -62,6 +65,18 @@ export default function App() {
       if (firebaseUser) {
         const userDocRef = doc(db, 'users', firebaseUser.uid);
 
+        // Admin domain: skip FCM and profile listener — just check the claim
+        if (isAdminDomain) {
+          const token = await firebaseUser.getIdTokenResult();
+          if (token.claims.role === 'admin') {
+            setCurrentView(AppView.ADMIN_DASHBOARD);
+          } else {
+            setCurrentView(AppView.ADMIN_LOGIN);
+          }
+          setLoading(false);
+          return;
+        }
+
         // FCM Setup
         getFCM().then(messaging => {
             if (messaging) {
@@ -101,7 +116,7 @@ export default function App() {
 
         // Check for admin claims and route accordingly
         const token = await firebaseUser.getIdTokenResult();
-        const isAdmin = token.claims.admin === true;
+        const isAdmin = token.claims.role === 'admin';
 
         if (isAdmin) {
           setCurrentView(AppView.ADMIN_DASHBOARD);
@@ -117,7 +132,11 @@ export default function App() {
       } else {
         // No user is logged in
         setUser(null);
-        setCurrentView(localStorage.getItem('hasSeenOnboarding') ? AppView.CREATE_ACCOUNT : AppView.ONBOARDING);
+        if (isAdminDomain) {
+          setCurrentView(AppView.ADMIN_LOGIN);
+        } else {
+          setCurrentView(localStorage.getItem('hasSeenOnboarding') ? AppView.CREATE_ACCOUNT : AppView.ONBOARDING);
+        }
       }
       setLoading(false);
     });
@@ -241,7 +260,7 @@ export default function App() {
       case AppView.COMPLETE_PROFILE:
         return <SetupProfileView phone={phone} onSave={handleSaveProfile} onSkip={() => setCurrentView(AppView.PROFILE)} />;
       case AppView.EDIT_PROFILE:
-        return <EditProfileView user={user} onBack={() => setCurrentView(AppView.SETTINGS)} />;
+        return <EditProfileView onBack={() => setCurrentView(AppView.SETTINGS)} />;
       case AppView.MAP:
         return (
           <MapView 
@@ -249,36 +268,6 @@ export default function App() {
             onMessageUser={handleMessageUser} 
             setView={setCurrentView}
           />
-        );
-      case AppView.GARAGE_LIST:
-        return (
-          <div className="h-full flex flex-col bg-[var(--color-bg)]">
-            <div className="pt-4 px-4 flex items-center gap-4 mb-4">
-              <button onClick={() => setCurrentView(AppView.MAP)} className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] text-[var(--color-text)] hover:bg-white/10 transition-all shrink-0">
-                <ChevronLeft size={20} />
-              </button>
-              <div>
-                <h1 className="text-xl font-bold text-[var(--color-text)] tracking-wide">Listings</h1>
-                <p className="text-xs text-[var(--color-text-secondary)]">Browse and book private parking rentals</p>
-              </div>
-            </div>
-            <GarageRentalView />
-          </div>
-        );
-      case AppView.HOST_DASHBOARD:
-        return (
-          <div className="h-full flex flex-col bg-[var(--color-bg)]">
-            <div className="pt-4 px-4 flex items-center gap-4 mb-4">
-              <button onClick={() => setCurrentView(AppView.GARAGE_LIST)} className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] text-[var(--color-text)] hover:bg-white/10 transition-all shrink-0">
-                <ChevronLeft size={20} />
-              </button>
-              <div>
-                <h1 className="text-xl font-bold text-[var(--color-text)] tracking-wide">Host Dashboard</h1>
-                <p className="text-xs text-[var(--color-text-secondary)]">Manage your shared spaces and host earnings</p>
-              </div>
-            </div>
-            <HostDashboardView />
-          </div>
         );
       case AppView.AI_ASSISTANT:
         return (
@@ -312,6 +301,8 @@ export default function App() {
         return <SettingsView user={user} setView={setCurrentView} onBack={() => setCurrentView(AppView.PROFILE)} onLogout={handleLogout} onDeleteAccount={handleDeleteAccount} theme={theme} toggleTheme={toggleTheme} />;
       case AppView.NOTIFICATIONS:
         return <NotificationsView user={user} onBack={() => setCurrentView(AppView.MAP)} />;
+      case AppView.ADMIN_LOGIN:
+        return <AdminLoginView onVerified={() => setCurrentView(AppView.ADMIN_DASHBOARD)} />;
       case AppView.ADMIN_DASHBOARD:
         return <AdminDashboardView onLogout={handleLogout} />;
       case AppView.PARKING_SPACE:
