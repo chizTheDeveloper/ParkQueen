@@ -149,6 +149,7 @@ export const AssistantView = () => {
             ref={fileInputRef}
             onChange={handleFileChange}
             accept="image/*"
+            capture="environment"
             className="hidden"
           />
 
