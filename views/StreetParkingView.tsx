@@ -1264,7 +1264,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     setShowSessionSheet(false);
                                     setShowDepartureSheet(true);
                                 }}
-                                className="w-full mb-3 py-3 rounded-2xl text-sm font-bold border border-[var(--color-border)] bg-white/5 hover:bg-white/8 transition-all active:scale-95 text-[var(--color-text-secondary)] flex items-center justify-center gap-2">
+                                className="w-full mb-3 py-3 rounded-2xl text-sm font-bold border border-[#1e75ff]/40 bg-[#1e75ff]/12 hover:bg-[#1e75ff]/20 transition-all active:scale-95 text-[#38bdf8] flex items-center justify-center gap-2">
                                 <Clock size={14} />
                                 Share when I leave
                             </button>
