@@ -178,6 +178,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const [showPostSaveOffer, setShowPostSaveOffer] = useState(false);
     // Allows "Share when I leave" to open departure sheet directly at timePicker
     const departureSheetInitialViewRef = useRef<'prompt' | 'timePicker'>('prompt');
+    // Tracks where the departure sheet was opened from, so back arrow knows where to return.
+    const departureSheetOriginRef = useRef<'session' | 'post_save' | 'change_time' | 'prompt'>('prompt');
 
     // Live duration counter for active session
     useEffect(() => {
@@ -652,6 +654,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             setMyCarDepartureDate(localDateStr());
             setMyCarDepartureError(null);
             setMyCarPingSuccess(savedSpot?.linkedPingId ? 'already_shared' : null);
+        } else {
+            departureSheetOriginRef.current = 'prompt'; // reset on close
         }
     }, [showDepartureSheet]);
 
@@ -1009,6 +1013,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         const updated = { ...savedSpot, linkedPingId: null };
         localStorage.setItem(SAVED_SPOT_KEY, JSON.stringify(updated));
         setSavedSpot(updated);
+        departureSheetOriginRef.current = 'change_time';
         departureSheetInitialViewRef.current = 'timePicker';
         setShowSessionSheet(false);
         setShowDepartureSheet(true);
@@ -1322,6 +1327,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                         })() : (
                             <button
                                 onClick={() => {
+                                    departureSheetOriginRef.current = 'session';
                                     departureSheetInitialViewRef.current = 'timePicker';
                                     setShowSessionSheet(false);
                                     setShowDepartureSheet(true);
@@ -1394,6 +1400,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                         </p>
                         <button
                             onClick={() => {
+                                departureSheetOriginRef.current = 'post_save';
                                 departureSheetInitialViewRef.current = 'timePicker';
                                 setShowPostSaveOffer(false);
                                 setShowDepartureSheet(true);
@@ -1491,7 +1498,15 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                             <div>
                                 <div className="flex items-center gap-3 mb-5">
                                     <button
-                                        onClick={() => { setMyCarDepartureError(null); setMyCarDepartureView('prompt'); }}
+                                        onClick={() => {
+                                            setMyCarDepartureError(null);
+                                            if (departureSheetOriginRef.current === 'prompt') {
+                                                setMyCarDepartureView('prompt');
+                                            } else {
+                                                setShowDepartureSheet(false);
+                                                setShowSessionSheet(true);
+                                            }
+                                        }}
                                         className="w-9 h-9 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] shrink-0">
                                         <ChevronLeft size={18} className="text-[var(--color-text-secondary)]" />
                                     </button>
