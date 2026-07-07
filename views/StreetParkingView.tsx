@@ -492,7 +492,11 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         Object.values(allMarkersRef.current).forEach(m => m.remove());
         allMarkersRef.current = {};
 
-        const items = spotData.radiusFilteredItems;
+        // Filter out the owner's own My Car-linked ping — it's managed inside the session sheet,
+        // not shown as a separate yellow map marker. Manual pings (different IDs) are unaffected.
+        const items = spotData.radiusFilteredItems.filter(
+            item => item.id !== (savedSpot?.linkedPingId ?? '')
+        );
         const assigned = new Set<string>();
 
         for (const item of items) {
@@ -547,7 +551,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 allMarkersRef.current[item.id] = marker;
             }
         }
-    }, [spotData.radiusFilteredItems]);
+    }, [spotData.radiusFilteredItems, savedSpot?.linkedPingId]);
 
     // Last parked location marker
     useEffect(() => {
@@ -743,6 +747,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 finderVehicleType: user.vehicleType || null,
                 finderVehicleBrand: user.vehicleBrand || null,
                 pingMode: departureTime ? 'later' : 'now',
+                source: 'my_car',
+                originSessionId: savedSpot.sessionId,
                 reportedAt,
                 expiresAt,
                 geohash: geofire.geohashForLocation([savedSpot.lat, savedSpot.lng]),
@@ -934,6 +940,25 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         if (!user || !spotToDelete) return;
         if (user.id !== spotToDelete.finderId) return;
         setShowDeleteConfirm(true);
+    };
+
+    const cancelLinkedPing = async () => {
+        if (!savedSpot?.linkedPingId) return;
+        try {
+            await deleteDoc(doc(db, 'spots', savedSpot.linkedPingId));
+        } catch (e) {
+            console.error('Error canceling linked ping:', e);
+        }
+        const updated = { ...savedSpot, linkedPingId: null };
+        localStorage.setItem(SAVED_SPOT_KEY, JSON.stringify(updated));
+        setSavedSpot(updated);
+    };
+
+    const changeLinkedPingTime = async () => {
+        await cancelLinkedPing();
+        departureSheetInitialViewRef.current = 'timePicker';
+        setShowSessionSheet(false);
+        setShowDepartureSheet(true);
     };
 
     const doDeletePing = async () => {
@@ -1194,6 +1219,55 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     </button>
                                 ))}
                             </div>
+                        )}
+
+                        {/* Linked My Car Ping — managed here, not as a separate map marker */}
+                        {savedSpot.linkedPingId ? (() => {
+                            const linkedSpot = spotData.activeSpots.find(s => s.id === savedSpot.linkedPingId);
+                            const depTime = linkedSpot?.reportedAt
+                                ? (typeof linkedSpot.reportedAt.toDate === 'function'
+                                    ? linkedSpot.reportedAt.toDate()
+                                    : new Date(linkedSpot.reportedAt.seconds * 1000))
+                                : null;
+                            const depLabel = depTime && depTime.getTime() > Date.now() + 60_000
+                                ? depTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                                : null;
+                            return (
+                                <div className="rounded-2xl border border-[#1e75ff]/25 bg-[#1e75ff]/8 px-4 py-3 mb-3">
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <div className="w-2 h-2 rounded-full bg-[#38bdf8] shrink-0" />
+                                        <p className="text-sm font-bold text-[var(--color-text)]">Spot scheduled</p>
+                                    </div>
+                                    <p className="text-xs text-[var(--color-text-secondary)] mb-3">
+                                        {depLabel
+                                            ? `Nearby drivers will see this at ${depLabel}.`
+                                            : 'Nearby drivers will see this when you\'re leaving.'}
+                                    </p>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={changeLinkedPingTime}
+                                            className="flex-1 py-2 rounded-xl text-xs font-bold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 text-[var(--color-text)] transition-all active:scale-95">
+                                            Change time
+                                        </button>
+                                        <button
+                                            onClick={cancelLinkedPing}
+                                            className="flex-1 py-2 rounded-xl text-xs font-bold border border-red-500/25 bg-red-500/8 hover:bg-red-500/15 text-red-400 transition-all active:scale-95">
+                                            Cancel share
+                                        </button>
+                                    </div>
+                                </div>
+                            );
+                        })() : (
+                            <button
+                                onClick={() => {
+                                    departureSheetInitialViewRef.current = 'timePicker';
+                                    setShowSessionSheet(false);
+                                    setShowDepartureSheet(true);
+                                }}
+                                className="w-full mb-3 py-3 rounded-2xl text-sm font-bold border border-[var(--color-border)] bg-white/5 hover:bg-white/8 transition-all active:scale-95 text-[var(--color-text-secondary)] flex items-center justify-center gap-2">
+                                <Clock size={14} />
+                                Share when I leave
+                            </button>
                         )}
 
                         {/* Clear saved location */}
@@ -1598,20 +1672,22 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     )}
 
                     {(() => {
-                        const myPing = spotData.activeSpots.find(s => s.finderId === user?.id);
+                        // My Car-linked pings must not override the "My Parked Car" label.
+                        // isMyCarMode wins whenever savedSpot exists, even if the session has a linked ping.
+                        const myPing = spotData.activeSpots.find(s => s.finderId === user?.id && s.id !== savedSpot?.linkedPingId);
                         const hasActivePing = !!myPing;
-                        const isMyCarMode = !!savedSpot && !hasActivePing;
+                        const isMyCarMode = !!savedSpot;
                         return (
                             <button
                                 onClick={() => {
-                                    if (hasActivePing) {
-                                        setSelectedItem(myPing);
-                                        setSelectedItemManageMode(true);
-                                    } else if (isMyCarMode) {
+                                    if (isMyCarMode) {
                                         if (mapRef.current) {
                                             mapRef.current.flyTo({ center: [savedSpot.lng, savedSpot.lat], zoom: 17, duration: 800 });
                                         }
                                         setTimeout(() => setShowSessionSheet(true), 600);
+                                    } else if (hasActivePing) {
+                                        setSelectedItem(myPing);
+                                        setSelectedItemManageMode(true);
                                     } else {
                                         setSelectedItem(null);
                                         setSpotModalOpen(true);
