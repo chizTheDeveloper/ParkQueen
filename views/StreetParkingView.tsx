@@ -160,6 +160,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const [myCarDepartureTime, setMyCarDepartureTime] = useState(() => new Date(Date.now() + 2 * 60_000));
     const [myCarDepartureLoading, setMyCarDepartureLoading] = useState(false);
     const [myCarDepartureError, setMyCarDepartureError] = useState<string | null>(null);
+    const [linkedPingError, setLinkedPingError] = useState<string | null>(null);
     const [myCarPingSuccess, setMyCarPingSuccess] = useState<'leaving_now' | 'leaving_later' | 'already_shared' | null>(null);
     // Post-save offer: shown after saveMySpot() succeeds
     const [showPostSaveOffer, setShowPostSaveOffer] = useState(false);
@@ -944,10 +945,13 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
     const cancelLinkedPing = async () => {
         if (!savedSpot?.linkedPingId) return;
+        setLinkedPingError(null);
         try {
             await deleteDoc(doc(db, 'spots', savedSpot.linkedPingId));
         } catch (e) {
             console.error('Error canceling linked ping:', e);
+            setLinkedPingError("Couldn't cancel shared spot. Please try again.");
+            return;
         }
         const updated = { ...savedSpot, linkedPingId: null };
         localStorage.setItem(SAVED_SPOT_KEY, JSON.stringify(updated));
@@ -955,7 +959,18 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     };
 
     const changeLinkedPingTime = async () => {
-        await cancelLinkedPing();
+        if (!savedSpot?.linkedPingId) return;
+        setLinkedPingError(null);
+        try {
+            await deleteDoc(doc(db, 'spots', savedSpot.linkedPingId));
+        } catch (e) {
+            console.error('Error updating linked ping:', e);
+            setLinkedPingError("Couldn't update shared spot. Please try again.");
+            return;
+        }
+        const updated = { ...savedSpot, linkedPingId: null };
+        localStorage.setItem(SAVED_SPOT_KEY, JSON.stringify(updated));
+        setSavedSpot(updated);
         departureSheetInitialViewRef.current = 'timePicker';
         setShowSessionSheet(false);
         setShowDepartureSheet(true);
@@ -1255,6 +1270,9 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                             Cancel share
                                         </button>
                                     </div>
+                                    {linkedPingError && (
+                                        <p className="mt-2 text-xs text-red-400 font-semibold text-center">{linkedPingError}</p>
+                                    )}
                                 </div>
                             );
                         })() : (
