@@ -242,12 +242,14 @@ exports.notifyNearbyUsers = onDocumentCreated(
       const messages = [];
       neighborsSnap.forEach(userDoc => {
           const userData = userDoc.data();
-          if (userData.id === spotData.finderId) return;
+          if (userDoc.id === spotData.finderId) return;
           if (!userData.fcmToken) return;
           if (userData.notificationsEnabled === false) return;
 
-          // Precise distance check against user's notification radius
+          // Skip users with stale location — prevents cross-borough false positives
           if (!userData.lastGeohash) return;
+          const geohashAge = userData.lastGeohashUpdatedAt ? Date.now() - userData.lastGeohashUpdatedAt.toMillis() : Infinity;
+          if (geohashAge > 24 * 60 * 60 * 1000) return;
           const geofire = require("geofire-common");
           const [userLat, userLng] = geofire.geohashToLocation(userData.lastGeohash);
           const distMiles = haversineDistMiles(userLat, userLng, spotData.lat, spotData.lng);
@@ -537,7 +539,14 @@ exports.claimUsername = onCall(
         }
 
         tx.set(usernameRef, { uid, claimedAt: Timestamp.now() });
-        tx.set(userRef, { username: trimmed, usernameChangedAt: Timestamp.now() }, { merge: true });
+        // Only update an existing user doc. New users don't have a doc yet —
+        // saveUserProfile (client) will create it under the CREATE rule, which
+        // allows all fields. Writing here on a missing doc would create a
+        // partial stub, turning the subsequent setDoc into an UPDATE and
+        // triggering the blocked-fields restriction.
+        if (userDoc.exists) {
+          tx.set(userRef, { username: trimmed, usernameChangedAt: Timestamp.now() }, { merge: true });
+        }
       });
     } catch (e) {
       if (e.code) throw e;

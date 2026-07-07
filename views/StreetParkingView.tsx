@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { AppView } from '../types';
 import { MapPin, Check, Locate, X, Bell, Clock, ChevronRight, ChevronLeft, Users, Car, Navigation, CheckCircle2 } from 'lucide-react';
 import { db } from '../firebase';
-import { collection, addDoc, Timestamp, doc, deleteDoc, writeBatch, updateDoc, getDocs, getDoc, setDoc, where, query, orderBy, startAt, endAt } from 'firebase/firestore';
+import { collection, addDoc, Timestamp, doc, deleteDoc, writeBatch, updateDoc, getDocs, getDoc, setDoc, where, query, orderBy, startAt, endAt, serverTimestamp } from 'firebase/firestore';
 import { auth } from '../firebaseConfig';
 import { detectParkingSide } from '../utils/streetIntelligence';
 import { detectCardinalSide } from '../utils/sweepnyc';
@@ -53,6 +53,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const [searchCenter, setSearchCenter] = useState<[number, number] | null>(null);
     const [mapReady, setMapReady] = useState(false);
     const [searchRadius] = useState<number>(2000);
+    const [nowMs, setNowMs] = useState(Date.now());
 
     const [showFree, setShowFree] = useState(true);
     const [showPaid, setShowPaid] = useState(false);
@@ -69,6 +70,13 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
     const userRef = useRef(user);
     useEffect(() => { userRef.current = user; }, [user]);
+
+    // Tick every 30s so scheduled Ping markers flip yellow→blue at departure time
+    // without waiting for a Firestore event.
+    useEffect(() => {
+        const id = setInterval(() => setNowMs(Date.now()), 30_000);
+        return () => clearInterval(id);
+    }, []);
 
     // --- Custom hooks ---
 
@@ -163,6 +171,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const [myCarDepartureError, setMyCarDepartureError] = useState<string | null>(null);
     const [myCarDepartureDate, setMyCarDepartureDate] = useState(() => localDateStr());
     const [linkedPingError, setLinkedPingError] = useState<string | null>(null);
+    const [showRemoveCarConfirm, setShowRemoveCarConfirm] = useState(false);
+    const [removeCarLoading, setRemoveCarLoading] = useState(false);
     const [myCarPingSuccess, setMyCarPingSuccess] = useState<'leaving_now' | 'leaving_later' | 'already_shared' | null>(null);
     // Post-save offer: shown after saveMySpot() succeeds
     const [showPostSaveOffer, setShowPostSaveOffer] = useState(false);
@@ -349,25 +359,11 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         s => s.status === 'interested' && s.interestedUserId !== user?.id
     ).length;
 
-    const nearestSpot = useMemo(() => {
-        if (!userLocation || spotData.freeSpots.length === 0) return null;
-        let closest: any = null;
-        let minDist = Infinity;
-        spotData.freeSpots.filter(s => s.finderId !== user?.id).forEach(s => {
-            const d = getDistance(userLocation[1], userLocation[0], s.lat, s.lng);
-            if (d < minDist) { minDist = d; closest = s; }
-        });
-        if (!closest) return null;
-        const mi = minDist * 0.621371;
-        const distText = mi < 0.1 ? `${Math.round(minDist * 1000 * 1.09361)} yd` : `${mi.toFixed(1)} mi`;
-        const reportedAt = closest.reportedAt?.toDate?.();
-        let timeAgo: string | null = null;
-        if (reportedAt) {
-            const mins = Math.floor((Date.now() - reportedAt.getTime()) / 60000);
-            timeAgo = mins < 1 ? 'just now' : mins < 60 ? `${mins} min ago` : `${Math.floor(mins / 60)}h ago`;
-        }
-        return { spot: closest, distText, timeAgo };
-    }, [userLocation, spotData.freeSpots]);
+
+    // Reset remove-car confirmation state whenever the session sheet closes
+    useEffect(() => {
+        if (!showSessionSheet) { setShowRemoveCarConfirm(false); setRemoveCarLoading(false); }
+    }, [showSessionSheet]);
 
     // --- Remaining effects ---
 
@@ -461,7 +457,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                         const newPrefix = newGeohash.substring(0, 5);
                         const currentPrefix = userRef.current?.lastGeohash?.substring(0, 5);
                         if (userRef.current && db && newPrefix !== currentPrefix) {
-                            updateDoc(doc(db, 'users', userRef.current.id), { lastGeohash: newGeohash }).catch(e => console.warn('Failed to update lastGeohash', e));
+                            updateDoc(doc(db, 'users', userRef.current.id), { lastGeohash: newGeohash, lastGeohashUpdatedAt: serverTimestamp() }).catch(e => console.warn('Failed to update lastGeohash', e));
                         }
                     } catch (err) {
                         console.error("Geohash generation error:", err);
@@ -523,7 +519,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     ? (typeof item.reportedAt.toMillis === 'function' ? item.reportedAt.toMillis()
                         : typeof item.reportedAt.seconds === 'number' ? item.reportedAt.seconds * 1000 : 0)
                     : 0;
-                const isScheduled = reportedMs > Date.now() + 60_000;
+                const isScheduled = reportedMs > nowMs;
                 const el = createMarkerElement(isScheduled, reportedMs);
                 const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
                     .setLngLat(lngLat).addTo(map);
@@ -554,7 +550,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 allMarkersRef.current[item.id] = marker;
             }
         }
-    }, [spotData.radiusFilteredItems, savedSpot?.linkedPingId]);
+    }, [spotData.radiusFilteredItems, savedSpot?.linkedPingId, nowMs]);
 
     // Last parked location marker
     useEffect(() => {
@@ -961,6 +957,41 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         setSavedSpot(updated);
     };
 
+    const handleRemoveCar = async () => {
+        if (!savedSpot?.linkedPingId) { endSession(); return; }
+        setRemoveCarLoading(true);
+        setLinkedPingError(null);
+        // Validate before touching Firestore — same stale criteria as the departure sheet validator
+        let snap: Awaited<ReturnType<typeof getDoc>>;
+        try {
+            snap = await getDoc(doc(db, 'spots', savedSpot.linkedPingId));
+        } catch (e) {
+            console.error('Error checking linked ping before remove:', e);
+            setLinkedPingError("Couldn't remove saved car. Please try again.");
+            setRemoveCarLoading(false);
+            return;
+        }
+        const snapData = snap.data() as any;
+        const isActive = snap.exists()
+            && (snapData?.expiresAt?.toMillis?.() ?? 0) > Date.now()
+            && snapData?.status !== 'occupied';
+        if (!isActive) {
+            // Stale ping — already gone, expired, or handed off; safe to remove without deleteDoc
+            endSession();
+            return;
+        }
+        // Active ping — must delete from Firestore before removing My Car
+        try {
+            await deleteDoc(doc(db, 'spots', savedSpot.linkedPingId));
+        } catch (e) {
+            console.error('Error canceling linked ping before remove:', e);
+            setLinkedPingError("Couldn't remove saved car. Please try again.");
+            setRemoveCarLoading(false);
+            return;
+        }
+        endSession();
+    };
+
     const changeLinkedPingTime = async () => {
         if (!savedSpot?.linkedPingId) return;
         setLinkedPingError(null);
@@ -1031,6 +1062,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     isWithinArrivalRange={selectedItem ? interestFlow.isWithinArrivalRange(selectedItem) : false}
                     maxEtaMinutes={interestFlow.MAX_ETA_MINUTES}
                     manageMode={selectedItemManageMode}
+                    nowMs={nowMs}
                 />
             </BottomSheet>
 
@@ -1296,11 +1328,50 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                             </button>
                         )}
 
-                        {/* Clear saved location */}
-                        <button onClick={endSession}
-                            className="w-full py-2.5 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-red-400 transition-colors">
-                            Clear saved location
-                        </button>
+                        {/* Remove saved car */}
+                        <div className="pt-3 border-t border-[var(--color-border)]">
+                            {!showRemoveCarConfirm ? (
+                                <button
+                                    onClick={() => setShowRemoveCarConfirm(true)}
+                                    className="w-full py-2.5 text-sm font-semibold text-red-400 hover:text-red-300 transition-colors">
+                                    Remove saved car
+                                </button>
+                            ) : savedSpot?.linkedPingId ? (
+                                <div className="space-y-2">
+                                    <p className="text-xs text-[var(--color-text-secondary)] text-center leading-snug">You have a shared spot active. It will be canceled when you remove your saved car.</p>
+                                    {linkedPingError && <p className="text-xs text-red-400 text-center font-semibold">{linkedPingError}</p>}
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => { setShowRemoveCarConfirm(false); setLinkedPingError(null); }}
+                                            className="flex-1 py-2 rounded-xl text-xs font-bold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 text-[var(--color-text)] transition-all active:scale-95">
+                                            Keep it
+                                        </button>
+                                        <button
+                                            onClick={handleRemoveCar}
+                                            disabled={removeCarLoading}
+                                            className="flex-1 py-2 rounded-xl text-xs font-bold border border-red-500/25 bg-red-500/8 hover:bg-red-500/15 text-red-400 transition-all active:scale-95 disabled:opacity-50">
+                                            {removeCarLoading ? 'Removing…' : 'Cancel & remove'}
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="space-y-2">
+                                    <p className="text-xs text-[var(--color-text-secondary)] text-center">Remove this saved parking spot from My Car?</p>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => setShowRemoveCarConfirm(false)}
+                                            className="flex-1 py-2 rounded-xl text-xs font-bold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 text-[var(--color-text)] transition-all active:scale-95">
+                                            Keep it
+                                        </button>
+                                        <button
+                                            onClick={endSession}
+                                            className="flex-1 py-2 rounded-xl text-xs font-bold border border-red-500/25 bg-red-500/8 hover:bg-red-500/15 text-red-400 transition-all active:scale-95">
+                                            Remove
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 )}
             </BottomSheet>
@@ -1691,24 +1762,6 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                         </div>
                     )}
 
-                    {nearestSpot && !selectedItem && (
-                        <button
-                            onClick={() => setSelectedItem(nearestSpot.spot)}
-                            className="nearest-spot-chip mx-auto flex items-center gap-2 px-3.5 py-2 rounded-full border border-white/15 active:scale-95 transition-transform"
-                            style={{ backdropFilter: 'blur(12px)', background: 'rgba(255,255,255,0.06)' }}
-                        >
-                            <span className="w-1.5 h-1.5 rounded-full bg-[#1e75ff] shrink-0" />
-                            <span className="text-[12px] font-semibold text-[var(--color-text)] whitespace-nowrap">
-                                {nearestSpot.distText}
-                                {nearestSpot.spot.reportedAt && (() => {
-                                    const dep = typeof nearestSpot.spot.reportedAt.toDate === 'function' ? nearestSpot.spot.reportedAt.toDate() : new Date(nearestSpot.spot.reportedAt);
-                                    const isScheduled = dep.getTime() > Date.now() + 60_000;
-                                    return <span className="text-[#38bdf8]"> · {isScheduled ? `Available ${dep.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Leaving now'}</span>;
-                                })()}
-                            </span>
-                            <ChevronRight size={12} className="text-[var(--color-text-secondary)] shrink-0" />
-                        </button>
-                    )}
 
                     {(() => {
                         // My Car-linked pings must not override the "My Parked Car" label.
