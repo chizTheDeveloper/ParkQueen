@@ -49,9 +49,10 @@ export const createMarkerElement = (scheduled = false, reportedMs = 0) => {
 
     const color = scheduled ? '#eab308' : '#1e75ff';
     const size = scheduled ? 38 : 46;
-    const ageMs = reportedMs ? Date.now() - reportedMs : 0;
+    const now = Date.now();
+    const ageMs = reportedMs ? now - reportedMs : 0;
     const isAging = ageMs > 15 * 60 * 1000;
-    const isFresh = reportedMs && ageMs < 5000;
+    const isFresh = reportedMs && reportedMs <= now && ageMs >= 0 && ageMs < 5000;
     const opacity = isAging ? '0.55' : '1';
     const pulseDelay1 = isFresh ? '3s' : '0s';
     const pulseDelay2 = isFresh ? '3.7s' : '0.7s';

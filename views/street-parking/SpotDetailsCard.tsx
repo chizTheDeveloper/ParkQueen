@@ -30,13 +30,14 @@ interface SpotDetailsCardProps {
     isWithinArrivalRange: boolean;
     maxEtaMinutes: number;
     manageMode?: boolean;
+    nowMs?: number;
 }
 
 export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
     selectedItem, freeSpots, user, userLocation, spotAddress,
     onHeadingThere, onEditSpot, onDeletePing, onArrival,
     onCancelByFinder, onCancelByClaimer, onDriverArrived, onMessageUser,
-    nearbyInterestCount = 0, interestError, estDriveMinutes, isWithinArrivalRange, maxEtaMinutes, manageMode = false,
+    nearbyInterestCount = 0, interestError, estDriveMinutes, isWithinArrivalRange, maxEtaMinutes, manageMode = false, nowMs = Date.now(),
 }) => {
     const [showQuickReplies, setShowQuickReplies] = useState(false);
     const [messageSent, setMessageSent] = useState(false);
@@ -51,7 +52,7 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
         : '';
 
     const departureDate = selectedItem.reportedAt ? (typeof selectedItem.reportedAt.toDate === 'function' ? selectedItem.reportedAt.toDate() : new Date(selectedItem.reportedAt)) : null;
-    const isScheduled = departureDate && departureDate.getTime() > Date.now() + 60_000;
+    const isScheduled = departureDate && departureDate.getTime() > nowMs;
     const departureText = departureDate ? (isScheduled ? departureDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Leaving Now') : '';
     const timeLeftMs = selectedItem.expiresAt ? (typeof selectedItem.expiresAt.toMillis === 'function' ? selectedItem.expiresAt.toMillis() : new Date(selectedItem.expiresAt).getTime()) - Date.now() : 0;
 
