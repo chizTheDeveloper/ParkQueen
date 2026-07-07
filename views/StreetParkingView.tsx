@@ -25,6 +25,7 @@ const reverseGeocode = async (lng: number, lat: number): Promise<string> => {
 import { MapItem, MapViewProps } from './street-parking/types';
 import { SpotModal } from './street-parking/SpotModal';
 import { TimePicker } from './street-parking/TimePicker';
+import { localDateStr, combineDateAndTime } from './street-parking/dateUtils';
 import { useSearch } from './street-parking/useSearch';
 import { useUnreadMessages } from './street-parking/useUnreadMessages';
 import { useSpotData } from './street-parking/useSpotData';
@@ -160,6 +161,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const [myCarDepartureTime, setMyCarDepartureTime] = useState(() => new Date(Date.now() + 2 * 60_000));
     const [myCarDepartureLoading, setMyCarDepartureLoading] = useState(false);
     const [myCarDepartureError, setMyCarDepartureError] = useState<string | null>(null);
+    const [myCarDepartureDate, setMyCarDepartureDate] = useState(() => localDateStr());
     const [linkedPingError, setLinkedPingError] = useState<string | null>(null);
     const [myCarPingSuccess, setMyCarPingSuccess] = useState<'leaving_now' | 'leaving_later' | 'already_shared' | null>(null);
     // Post-save offer: shown after saveMySpot() succeeds
@@ -647,6 +649,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             setMyCarDepartureView(departureSheetInitialViewRef.current);
             departureSheetInitialViewRef.current = 'prompt'; // consume and reset
             setMyCarDepartureTime(new Date(Date.now() + 2 * 60_000));
+            setMyCarDepartureDate(localDateStr());
             setMyCarDepartureError(null);
             setMyCarPingSuccess(savedSpot?.linkedPingId ? 'already_shared' : null);
         }
@@ -1244,20 +1247,25 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     ? linkedSpot.reportedAt.toDate()
                                     : new Date(linkedSpot.reportedAt.seconds * 1000))
                                 : null;
-                            const depLabel = depTime && depTime.getTime() > Date.now() + 60_000
-                                ? depTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                                : null;
+                            const depText = (() => {
+                                if (!depTime || depTime.getTime() <= Date.now() + 60_000)
+                                    return "Nearby drivers will see this when you're leaving.";
+                                const now = new Date();
+                                const time = depTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                if (depTime.toDateString() === now.toDateString())
+                                    return `Nearby drivers will see this at ${time}.`;
+                                const tom = new Date(now); tom.setDate(now.getDate() + 1);
+                                if (depTime.toDateString() === tom.toDateString())
+                                    return `Nearby drivers will see this tomorrow at ${time}.`;
+                                return `Nearby drivers will see this on ${depTime.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} at ${time}.`;
+                            })();
                             return (
                                 <div className="rounded-2xl border border-[#1e75ff]/25 bg-[#1e75ff]/8 px-4 py-3 mb-3">
                                     <div className="flex items-center gap-2 mb-1">
                                         <div className="w-2 h-2 rounded-full bg-[#38bdf8] shrink-0" />
                                         <p className="text-sm font-bold text-[var(--color-text)]">Spot scheduled</p>
                                     </div>
-                                    <p className="text-xs text-[var(--color-text-secondary)] mb-3">
-                                        {depLabel
-                                            ? `Nearby drivers will see this at ${depLabel}.`
-                                            : 'Nearby drivers will see this when you\'re leaving.'}
-                                    </p>
+                                    <p className="text-xs text-[var(--color-text-secondary)] mb-3">{depText}</p>
                                     <div className="flex gap-2">
                                         <button
                                             onClick={changeLinkedPingTime}
@@ -1418,6 +1426,18 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     </div>
                                 </div>
 
+                                <div className="mb-4">
+                                    <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-2">Date</p>
+                                    <input
+                                        type="date"
+                                        value={myCarDepartureDate}
+                                        min={localDateStr()}
+                                        onChange={e => { if (e.target.value) setMyCarDepartureDate(e.target.value); }}
+                                        className="w-full bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl px-4 py-3 text-sm font-semibold text-white focus:outline-none"
+                                        style={{ colorScheme: 'dark' }}
+                                    />
+                                </div>
+                                <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-2">Time</p>
                                 <TimePicker
                                     initialTime={myCarDepartureTime}
                                     onTimeChange={setMyCarDepartureTime}
@@ -1429,11 +1449,12 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
                                 <button
                                     onClick={() => {
-                                        if (myCarDepartureTime.getTime() <= Date.now()) {
+                                        const combined = combineDateAndTime(myCarDepartureDate, myCarDepartureTime);
+                                        if (combined.getTime() <= Date.now()) {
                                             setMyCarDepartureError('Please choose a future time.');
                                             return;
                                         }
-                                        handleMyCarPing(myCarDepartureTime);
+                                        handleMyCarPing(combined);
                                     }}
                                     disabled={myCarDepartureLoading}
                                     className="w-full mt-4 font-bold py-3.5 rounded-full flex items-center justify-center gap-2 text-white active:scale-95 transition-transform disabled:opacity-50"

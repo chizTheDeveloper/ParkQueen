@@ -3,6 +3,7 @@ import { MapPin, Zap, Clock, Check, ChevronLeft, Users } from 'lucide-react';
 import { StreetSpot } from '../../types';
 import { TimePicker } from './TimePicker';
 import { BottomSheet } from './BottomSheet';
+import { localDateStr, combineDateAndTime } from './dateUtils';
 
 interface SpotModalProps {
     isOpen: boolean;
@@ -16,6 +17,7 @@ interface SpotModalProps {
 export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, spot, spotAddress, user }) => {
     const [view, setView] = useState<'main' | 'timePicker'>('main');
     const [departureTime, setDepartureTime] = useState(new Date());
+    const [selectedDateStr, setSelectedDateStr] = useState(() => localDateStr());
     const [pingType, setPingType] = useState<'now' | 'later'>('now');
     const [timeError, setTimeError] = useState<string | null>(null);
 
@@ -26,6 +28,7 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                 ? spot.reportedAt.toDate()
                 : (spot && spot.reportedAt ? new Date(spot.reportedAt) : new Date(Date.now() + 2 * 60_000));
             setDepartureTime(initialDate);
+            setSelectedDateStr(localDateStr());
             setPingType('now');
             setView('main');
             setTimeError(null);
@@ -33,11 +36,16 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
     }, [spot, isOpen]);
 
     const handleSetTime = () => {
-        if (pingType === 'later' && departureTime.getTime() <= Date.now()) {
-            setTimeError('Please choose a future time.');
+        if (pingType === 'later') {
+            const combined = combineDateAndTime(selectedDateStr, departureTime);
+            if (combined.getTime() <= Date.now()) {
+                setTimeError('Please choose a future time.');
+                return;
+            }
+            onSave(combined);
             return;
         }
-        onSave(pingType === 'now' ? null : departureTime);
+        onSave(null);
     };
 
     const isEditing = !!spot;
@@ -109,7 +117,12 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                                 <div className="text-sm font-bold text-[var(--color-text)]">Leaving Later</div>
                                 <div className="text-[11px] text-[var(--color-text-secondary)]">
                                     {pingType === 'later'
-                                        ? departureTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                                        ? (() => {
+                                            const combined = combineDateAndTime(selectedDateStr, departureTime);
+                                            const isToday = combined.toDateString() === new Date().toDateString();
+                                            const time = combined.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                            return isToday ? time : combined.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) + ' · ' + time;
+                                        })()
                                         : 'Set a specific time'}
                                 </div>
                             </div>
@@ -141,6 +154,18 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                         </div>
                         <h2 className="text-lg font-bold text-[var(--color-text)]">Set departure time</h2>
                     </div>
+                    <div className="mb-4">
+                        <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-2">Date</p>
+                        <input
+                            type="date"
+                            value={selectedDateStr}
+                            min={localDateStr()}
+                            onChange={e => { if (e.target.value) setSelectedDateStr(e.target.value); }}
+                            className="w-full bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl px-4 py-3 text-sm font-semibold text-white focus:outline-none"
+                            style={{ colorScheme: 'dark' }}
+                        />
+                    </div>
+                    <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-2">Time</p>
                     <div className="mb-6">
                         <TimePicker initialTime={departureTime} onTimeChange={setDepartureTime} />
                     </div>
@@ -149,11 +174,12 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                     )}
                     <button
                         onClick={() => {
-                            if (departureTime.getTime() <= Date.now()) {
+                            const combined = combineDateAndTime(selectedDateStr, departureTime);
+                            if (combined.getTime() <= Date.now()) {
                                 setTimeError('Please choose a future time.');
                                 return;
                             }
-                            onSave(departureTime);
+                            onSave(combined);
                         }}
                         className="w-full font-bold py-3.5 rounded-full flex items-center justify-center gap-2 text-white active:scale-95 transition-transform"
                         style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}
