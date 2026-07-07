@@ -225,15 +225,19 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 try {
                     const fn = httpsCallable(getFunctions(getApp(), 'us-central1'), 'createSegmentFromSweepNYC');
                     const result = await fn({ lat: userLat, lng: userLng });
-                    const data = result.data as { success: boolean; segmentId?: string; parkingSide?: string; streetName?: string };
-                    if (!data.success || !data.segmentId) return null;
+                    const data = result.data as { success: boolean; segmentId?: string; parkingSide?: string; streetName?: string; reason?: string };
+                    if (!data.success || !data.segmentId) {
+                        console.warn('[SweepNYC] lookup failed:', data.reason ?? 'unknown');
+                        return null;
+                    }
                     return {
                         segmentId: data.segmentId,
                         parkingSide: data.parkingSide ?? 'North',
                         restrictionVersionId: null,
                         segmentStreetName: data.streetName ?? '',
                     };
-                } catch {
+                } catch (e: any) {
+                    console.warn('[SweepNYC] cloud function error:', e?.code ?? e?.message ?? 'unknown');
                     return null;
                 }
             }
