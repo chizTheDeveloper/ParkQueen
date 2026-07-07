@@ -641,6 +641,25 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         }
     }, [showDepartureSheet]);
 
+    // Validate stale linkedPingId when the departure sheet opens.
+    // If the linked ping no longer exists, has expired, or was successfully
+    // handed off (occupied), clear the link so the user can share again.
+    useEffect(() => {
+        if (!showDepartureSheet || !savedSpot?.linkedPingId) return;
+        getDoc(doc(db, 'spots', savedSpot.linkedPingId)).then(snap => {
+            const data = snap.data();
+            const isActive = snap.exists()
+                && (data?.expiresAt?.toMillis?.() ?? 0) > Date.now()
+                && data?.status !== 'occupied';
+            if (!isActive) {
+                const updated = { ...savedSpot, linkedPingId: null };
+                localStorage.setItem(SAVED_SPOT_KEY, JSON.stringify(updated));
+                setSavedSpot(updated);
+                setMyCarPingSuccess(null);
+            }
+        }).catch(() => { /* non-fatal: keep showing "already shared" if check fails */ });
+    }, [showDepartureSheet, savedSpot?.linkedPingId]);
+
     // --- Handlers ---
 
     const handleLocateMe = () => {
