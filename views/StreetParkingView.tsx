@@ -161,6 +161,10 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const [myCarDepartureLoading, setMyCarDepartureLoading] = useState(false);
     const [myCarDepartureError, setMyCarDepartureError] = useState<string | null>(null);
     const [myCarPingSuccess, setMyCarPingSuccess] = useState<'leaving_now' | 'leaving_later' | 'already_shared' | null>(null);
+    // Post-save offer: shown after saveMySpot() succeeds
+    const [showPostSaveOffer, setShowPostSaveOffer] = useState(false);
+    // Allows "Share when I leave" to open departure sheet directly at timePicker
+    const departureSheetInitialViewRef = useRef<'prompt' | 'timePicker'>('prompt');
 
     // Live duration counter for active session
     useEffect(() => {
@@ -273,7 +277,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         };
         localStorage.setItem(SAVED_SPOT_KEY, JSON.stringify(spot));
         setSavedSpot(spot);
-        setShowSessionSheet(true);
+        setShowPostSaveOffer(true);
     };
 
     const writeCleaningReminder = async (safeUntil: Date | null, enabled: boolean, streetName: string | null) => {
@@ -632,9 +636,11 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
     // Reset My Car departure sub-state each time the sheet opens.
     // If the session already has a linked ping, show "already shared" immediately.
+    // departureSheetInitialViewRef lets callers (e.g. post-save offer) open directly to timePicker.
     useEffect(() => {
         if (showDepartureSheet) {
-            setMyCarDepartureView('prompt');
+            setMyCarDepartureView(departureSheetInitialViewRef.current);
+            departureSheetInitialViewRef.current = 'prompt'; // consume and reset
             setMyCarDepartureTime(new Date(Date.now() + 2 * 60_000));
             setMyCarDepartureError(null);
             setMyCarPingSuccess(savedSpot?.linkedPingId ? 'already_shared' : null);
@@ -1194,6 +1200,38 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                         <button onClick={endSession}
                             className="w-full py-2.5 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-red-400 transition-colors">
                             Clear saved location
+                        </button>
+                    </div>
+                )}
+            </BottomSheet>
+
+            {/* Post-save offer — shown once after saveMySpot() succeeds */}
+            <BottomSheet isOpen={showPostSaveOffer} onClose={() => { setShowPostSaveOffer(false); setShowSessionSheet(true); }}>
+                {savedSpot && (
+                    <div className="text-center">
+                        <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
+                            style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}>
+                            <Car size={26} className="text-white" />
+                        </div>
+                        <p className="text-xl font-extrabold text-[var(--color-text)] mb-1">Car saved.</p>
+                        <p className="text-sm text-[var(--color-text-secondary)] mb-6">
+                            Want to help another driver when you leave?
+                        </p>
+                        <button
+                            onClick={() => {
+                                departureSheetInitialViewRef.current = 'timePicker';
+                                setShowPostSaveOffer(false);
+                                setShowDepartureSheet(true);
+                            }}
+                            className="w-full py-3.5 rounded-full text-white font-bold text-sm flex items-center justify-center gap-2 active:scale-95 transition-transform mb-2"
+                            style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}>
+                            <Clock size={16} />
+                            Share when I leave
+                        </button>
+                        <button
+                            onClick={() => { setShowPostSaveOffer(false); setShowSessionSheet(true); }}
+                            className="w-full py-2.5 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-all">
+                            Not now
                         </button>
                     </div>
                 )}
