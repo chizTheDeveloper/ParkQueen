@@ -326,7 +326,18 @@ export default function App() {
     <div className="h-screen w-screen flex flex-col bg-[var(--color-bg)] text-[var(--color-text)] font-sans selection:bg-queen-500 selection:text-white transition-colors duration-300">
       <main className={`flex-1 relative ${isMapView ? 'overflow-hidden' : 'overflow-y-auto'}`}>
         <ErrorBoundary>
-          <Suspense fallback={<div className="h-full w-full bg-[var(--color-bg)] flex items-center justify-center"><div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" /></div>}>
+          <Suspense fallback={
+            <div
+              className="h-full w-full bg-cover bg-center bg-no-repeat flex flex-col items-center justify-end pb-16"
+              style={{ backgroundImage: `url(${SplashScreen})` }}
+              role="status"
+              aria-label="Loading ParQueen"
+            >
+              <p className="text-sm font-medium text-white/70 animate-pulse tracking-wide">
+                Preparing your parking map…
+              </p>
+            </div>
+          }>
             {renderView()}
           </Suspense>
         </ErrorBoundary>
