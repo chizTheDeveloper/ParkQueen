@@ -105,6 +105,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         lng: number;
         address: string;
         savedAt: number;
+        sessionId: string;        // stable ID for deterministic ping creation
+        linkedPingId: string | null; // set after first successful ping — prevents duplicates
         // Street Intelligence — null if no segment matched
         segmentId: string | null;
         parkingSide: string | null;
@@ -121,6 +123,11 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 localStorage.removeItem(SAVED_SPOT_KEY);
                 return null;
             }
+            // Migrate sessions that predate sessionId/linkedPingId fields
+            let changed = false;
+            if (!s.sessionId) { s.sessionId = Date.now().toString(36); changed = true; }
+            if (s.linkedPingId === undefined) { (s as any).linkedPingId = null; changed = true; }
+            if (changed) localStorage.setItem(SAVED_SPOT_KEY, JSON.stringify(s));
             return s;
         } catch { return null; }
     });
@@ -153,7 +160,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const [myCarDepartureTime, setMyCarDepartureTime] = useState(() => new Date(Date.now() + 2 * 60_000));
     const [myCarDepartureLoading, setMyCarDepartureLoading] = useState(false);
     const [myCarDepartureError, setMyCarDepartureError] = useState<string | null>(null);
-    const [myCarPingSuccess, setMyCarPingSuccess] = useState<'leaving_now' | 'leaving_later' | null>(null);
+    const [myCarPingSuccess, setMyCarPingSuccess] = useState<'leaving_now' | 'leaving_later' | 'already_shared' | null>(null);
 
     // Live duration counter for active session
     useEffect(() => {
@@ -257,6 +264,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             lng,
             address,
             savedAt: Date.now(),
+            sessionId: crypto.randomUUID(),
+            linkedPingId: null,
             segmentId: segmentMatch?.segmentId ?? null,
             parkingSide: segmentMatch?.parkingSide ?? null,
             restrictionVersionId: segmentMatch?.restrictionVersionId ?? null,
@@ -621,13 +630,14 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         return () => clearTimeout(t);
     }, [pingError]);
 
-    // Reset My Car departure sub-state each time the sheet opens
+    // Reset My Car departure sub-state each time the sheet opens.
+    // If the session already has a linked ping, show "already shared" immediately.
     useEffect(() => {
         if (showDepartureSheet) {
             setMyCarDepartureView('prompt');
             setMyCarDepartureTime(new Date(Date.now() + 2 * 60_000));
             setMyCarDepartureError(null);
-            setMyCarPingSuccess(null);
+            setMyCarPingSuccess(savedSpot?.linkedPingId ? 'already_shared' : null);
         }
     }, [showDepartureSheet]);
 
@@ -640,20 +650,31 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     };
 
     // Directly creates a ping from the saved My Car location — no SpotModal.
+    // Uses a deterministic spot ID (mycar_uid_sessionId) so retries are idempotent.
     const handleMyCarPing = async (departureTime: Date | null) => {
         if (!savedSpot || !user) return;
+
+        // Gate 1: session already has a confirmed linked ping
+        if (savedSpot.linkedPingId) {
+            setMyCarPingSuccess('already_shared');
+            return;
+        }
+
         setMyCarDepartureLoading(true);
         setMyCarDepartureError(null);
 
         const now = Date.now();
         const reportedAt = departureTime ? Timestamp.fromDate(departureTime) : Timestamp.fromMillis(now);
         const expiresAt = Timestamp.fromMillis(reportedAt.toMillis() + 60 * 60 * 1000);
+        const spotId = `mycar_${user.id}_${savedSpot.sessionId}`;
+        const spotRef = doc(db, 'spots', spotId);
 
-        // Rate-limit check (same as handleSaveSpot)
+        // Rate-limit check — exclude this session's own spot from the count
         try {
             const oneHourAgo = now - 60 * 60 * 1000;
             const snap = await getDocs(query(collection(db, 'spots'), where('finderId', '==', user.id)));
             const recentSpots = snap.docs.filter(d => {
+                if (d.id === spotId) return false;
                 const t = d.data().reportedAt?.toMillis?.() ?? new Date(d.data().reportedAt).getTime();
                 return t >= oneHourAgo;
             });
@@ -669,8 +690,23 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             }
         } catch { /* non-fatal */ }
 
+        // Gate 2: pre-flight check — spot may already exist if a previous attempt
+        // succeeded but the session update (linkedPingId) failed
         try {
-            await addDoc(collection(db, 'spots'), {
+            const existing = await getDoc(spotRef);
+            if (existing.exists()) {
+                const updated = { ...savedSpot, linkedPingId: spotId };
+                localStorage.setItem(SAVED_SPOT_KEY, JSON.stringify(updated));
+                setSavedSpot(updated);
+                setMyCarPingSuccess('already_shared');
+                setMyCarDepartureLoading(false);
+                return;
+            }
+        } catch { /* non-fatal, proceed to create */ }
+
+        // Create the ping with the deterministic ID
+        try {
+            await setDoc(spotRef, {
                 lat: savedSpot.lat,
                 lng: savedSpot.lng,
                 type: 'free',
@@ -687,6 +723,11 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 geohash: geofire.geohashForLocation([savedSpot.lat, savedSpot.lng]),
                 address: savedSpot.address,
             });
+
+            // Lock the session: no further pings from this session
+            const updated = { ...savedSpot, linkedPingId: spotId };
+            localStorage.setItem(SAVED_SPOT_KEY, JSON.stringify(updated));
+            setSavedSpot(updated);
 
             const mode = departureTime ? 'leaving_later' : 'leaving_now';
             setMyCarPingSuccess(mode);
@@ -1145,7 +1186,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             <BottomSheet isOpen={showDepartureSheet} onClose={() => setShowDepartureSheet(false)}>
                 {savedSpot && (
                     <div>
-                        {/* Success state */}
+                        {/* Success / already-shared state */}
                         {myCarPingSuccess && (
                             <div className="flex flex-col items-center py-6">
                                 <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4"
@@ -1153,13 +1194,24 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     <CheckCircle2 size={30} className="text-white" />
                                 </div>
                                 <p className="text-xl font-extrabold text-[var(--color-text)] mb-1">
-                                    {myCarPingSuccess === 'leaving_now' ? 'Spot shared.' : 'Spot scheduled.'}
+                                    {myCarPingSuccess === 'leaving_now' ? 'Spot shared.'
+                                     : myCarPingSuccess === 'leaving_later' ? 'Spot scheduled.'
+                                     : 'This spot has already been shared.'}
                                 </p>
                                 <p className="text-sm text-[var(--color-text-secondary)] text-center">
                                     {myCarPingSuccess === 'leaving_now'
                                         ? 'Nearby drivers can now see it.'
-                                        : "We'll let nearby drivers know when you're leaving."}
+                                        : myCarPingSuccess === 'leaving_later'
+                                        ? "We'll let nearby drivers know when you're leaving."
+                                        : 'Nearby drivers can already see your spot.'}
                                 </p>
+                                {myCarPingSuccess === 'already_shared' && (
+                                    <button
+                                        onClick={() => setShowDepartureSheet(false)}
+                                        className="mt-4 text-sm font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors">
+                                        Got it
+                                    </button>
+                                )}
                             </div>
                         )}
 
