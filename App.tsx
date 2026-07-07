@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import SplashScreen from './assets/splash_screen.svg';
+import { LoadingScreen } from './components/LoadingScreen';
 import { OnboardingView } from './views/OnboardingView';
 
 // All other views are lazy-loaded so the initial bundle only contains what's
@@ -326,18 +327,7 @@ export default function App() {
     <div className="h-screen w-screen flex flex-col bg-[var(--color-bg)] text-[var(--color-text)] font-sans selection:bg-queen-500 selection:text-white transition-colors duration-300">
       <main className={`flex-1 relative ${isMapView ? 'overflow-hidden' : 'overflow-y-auto'}`}>
         <ErrorBoundary>
-          <Suspense fallback={
-            <div
-              className="h-full w-full bg-cover bg-center bg-no-repeat flex flex-col items-center justify-end pb-16"
-              style={{ backgroundImage: `url(${SplashScreen})` }}
-              role="status"
-              aria-label="Loading ParQueen"
-            >
-              <p className="text-sm font-medium text-white/70 animate-pulse tracking-wide">
-                Preparing your parking map…
-              </p>
-            </div>
-          }>
+          <Suspense fallback={<LoadingScreen />}>
             {renderView()}
           </Suspense>
         </ErrorBoundary>
