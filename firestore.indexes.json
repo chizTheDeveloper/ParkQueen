@@ -4,13 +4,6 @@
       "collectionGroup": "streetSegments",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "geohash", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "streetSegments",
-      "queryScope": "COLLECTION",
-      "fields": [
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "updatedAt", "order": "DESCENDING" }
       ]
@@ -61,7 +54,8 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "targetUserId", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
+        { "fieldPath": "createdAt", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
       ]
     }
   ],
