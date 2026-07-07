@@ -873,15 +873,14 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     geohash: geofire.geohashForLocation([userLocation[1], userLocation[0]]),
                     address: await reverseGeocode(userLocation[0], userLocation[1]),
                 };
-                setShowPingConfirmation(true);
-                setTimeout(() => setShowPingConfirmation(false), 4000);
-                onSaveSuccess();
-
-                addDoc(collection(db, "spots"), newSpotData)
-                    .catch(error => {
-                        console.error("Optimistic save failed:", error);
-                        setPingError("Couldn't sync your ping — please try again.");
-                    });
+                try {
+                    await addDoc(collection(db, "spots"), newSpotData);
+                    setShowPingConfirmation(true);
+                    setTimeout(() => setShowPingConfirmation(false), 4000);
+                    onSaveSuccess();
+                } catch (error) {
+                    onSaveError(error);
+                }
             } else {
                 navigator.geolocation.getCurrentPosition(
                     async (position) => {
@@ -904,15 +903,14 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                             geohash,
                             address: await reverseGeocode(location[0], location[1]),
                         };
-                        setShowPingConfirmation(true);
-                        setTimeout(() => setShowPingConfirmation(false), 4000);
-                        onSaveSuccess();
-
-                        addDoc(collection(db, "spots"), newSpotData)
-                            .catch(error => {
-                                console.error("Optimistic save failed:", error);
-                                setPingError("Couldn't sync your ping — please try again.");
-                            });
+                        try {
+                            await addDoc(collection(db, "spots"), newSpotData);
+                            setShowPingConfirmation(true);
+                            setTimeout(() => setShowPingConfirmation(false), 4000);
+                            onSaveSuccess();
+                        } catch (error) {
+                            onSaveError(error);
+                        }
                     },
                     (error) => {
                         console.error("Error getting position for ping:", error);
