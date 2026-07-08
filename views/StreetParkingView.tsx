@@ -1155,8 +1155,13 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                             Navigate to my car
                         </button>
 
-                        {/* Reminder */}
-                        <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-2">Reminder</p>
+                        {/* Private: move reminder */}
+                        <div className="flex items-center gap-2 mb-1.5">
+                            <span className="text-[10px] font-semibold text-[var(--color-text-secondary)]/50 uppercase tracking-widest shrink-0">Private</span>
+                            <div className="flex-1 h-px bg-[var(--color-border)]/40" />
+                        </div>
+                        <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-0.5">Remind me to move</p>
+                        <p className="text-[10px] text-[var(--color-text-secondary)]/60 mb-2">Only you will get this reminder.</p>
                         {parkingTimer.timer ? (
                             <div className="flex items-center gap-2.5 px-3 py-3 rounded-2xl bg-[#1e75ff]/10 border border-[#1e75ff]/20 mb-4">
                                 <Clock size={14} className="text-[#38bdf8] shrink-0" />
@@ -1281,7 +1286,11 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                             </div>
                         )}
 
-                        {/* Linked My Car Ping — managed here, not as a separate map marker */}
+                        {/* Community: share this spot */}
+                        <div className="flex items-center gap-2 mb-2">
+                            <span className="text-[10px] font-semibold text-[var(--color-text-secondary)]/50 uppercase tracking-widest shrink-0">Community</span>
+                            <div className="flex-1 h-px bg-[var(--color-border)]/40" />
+                        </div>
                         {savedSpot.linkedPingId ? (() => {
                             const linkedSpot = spotData.activeSpots.find(s => s.id === savedSpot.linkedPingId);
                             const depTime = linkedSpot?.reportedAt
@@ -1305,7 +1314,11 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                 <div className="rounded-2xl border border-[#1e75ff]/25 bg-[#1e75ff]/8 px-4 py-3 mb-3">
                                     <div className="flex items-center gap-2 mb-1">
                                         <div className="w-2 h-2 rounded-full bg-[#38bdf8] shrink-0" />
-                                        <p className="text-sm font-bold text-[var(--color-text)]">Spot scheduled</p>
+                                        <p className="text-sm font-bold text-[var(--color-text)]">
+                                            {depTime && depTime.getTime() > Date.now() + 60_000
+                                                ? `Sharing at ${depTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                                                : 'Spot shared'}
+                                        </p>
                                     </div>
                                     <p className="text-xs text-[var(--color-text-secondary)] mb-3">{depText}</p>
                                     <div className="flex gap-2">
@@ -1317,7 +1330,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                         <button
                                             onClick={cancelLinkedPing}
                                             className="flex-1 py-2 rounded-xl text-xs font-bold border border-red-500/25 bg-red-500/8 hover:bg-red-500/15 text-red-400 transition-all active:scale-95">
-                                            Cancel share
+                                            Stop sharing
                                         </button>
                                     </div>
                                     {linkedPingError && (
@@ -1326,17 +1339,20 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                 </div>
                             );
                         })() : (
-                            <button
-                                onClick={() => {
-                                    departureSheetOriginRef.current = 'session';
-                                    departureSheetInitialViewRef.current = 'timePicker';
-                                    setShowSessionSheet(false);
-                                    setShowDepartureSheet(true);
-                                }}
-                                className="w-full mb-3 py-3 rounded-2xl text-sm font-bold border border-[#1e75ff]/40 bg-[#1e75ff]/12 hover:bg-[#1e75ff]/20 transition-all active:scale-95 text-[#38bdf8] flex items-center justify-center gap-2">
-                                <Clock size={14} />
-                                Share when I leave
-                            </button>
+                            <>
+                                <button
+                                    onClick={() => {
+                                        departureSheetOriginRef.current = 'session';
+                                        departureSheetInitialViewRef.current = 'timePicker';
+                                        setShowSessionSheet(false);
+                                        setShowDepartureSheet(true);
+                                    }}
+                                    className="w-full mb-1.5 py-3 rounded-2xl text-sm font-bold border border-[#1e75ff]/40 bg-[#1e75ff]/12 hover:bg-[#1e75ff]/20 transition-all active:scale-95 text-[#38bdf8] flex items-center justify-center gap-2">
+                                    <Clock size={14} />
+                                    Share this spot when I leave
+                                </button>
+                                <p className="text-[10px] text-[var(--color-text-secondary)]/60 text-center mb-3">Nearby drivers will see it when you're leaving.</p>
+                            </>
                         )}
 
                         {/* Remove saved car */}
@@ -1409,7 +1425,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                             className="w-full py-3.5 rounded-full text-white font-bold text-sm flex items-center justify-center gap-2 active:scale-95 transition-transform mb-2"
                             style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}>
                             <Clock size={16} />
-                            Share when I leave
+                            Share this spot when I leave
                         </button>
                         <button
                             onClick={() => { setShowPostSaveOffer(false); setShowSessionSheet(true); }}
@@ -1433,7 +1449,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                 </div>
                                 <p className="text-xl font-extrabold text-[var(--color-text)] mb-1">
                                     {myCarPingSuccess === 'leaving_now' ? 'Spot shared.'
-                                     : myCarPingSuccess === 'leaving_later' ? 'Spot scheduled.'
+                                     : myCarPingSuccess === 'leaving_later' ? 'Share scheduled.'
                                      : 'This spot has already been shared.'}
                                 </p>
                                 <p className="text-sm text-[var(--color-text-secondary)] text-center">
@@ -1473,7 +1489,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     className="w-full py-3.5 rounded-full text-white font-bold text-sm flex items-center justify-center gap-2 active:scale-95 transition-transform mb-2 disabled:opacity-50"
                                     style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}>
                                     <MapPin size={16} />
-                                    {myCarDepartureLoading ? 'Sharing…' : 'Leaving now'}
+                                    {myCarDepartureLoading ? 'Sharing…' : "I'm leaving now"}
                                 </button>
                                 <button
                                     onClick={() => {
@@ -1484,7 +1500,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     disabled={myCarDepartureLoading}
                                     className="w-full py-3 rounded-full text-sm font-bold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 transition-all active:scale-95 text-[var(--color-text)] flex items-center justify-center gap-2 mb-3 disabled:opacity-50">
                                     <Clock size={15} />
-                                    Leaving later
+                                    I'll leave at…
                                 </button>
                                 <button
                                     onClick={() => setShowDepartureSheet(false)}
@@ -1830,7 +1846,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     <>
                                         <MapPin size={24} className="absolute left-9 top-1/2 -translate-y-1/2" />
                                         <span className="text-[19px] font-bold absolute top-1/2 -translate-y-1/2 whitespace-nowrap" style={{ left: 'calc(50% + 12px)', transform: 'translate(-50%, -50%)' }}>
-                                            {hasActivePing ? 'My Active Ping' : 'Ping Parking'}
+                                            {hasActivePing ? 'My Shared Spot' : 'Share a Spot'}
                                         </span>
                                     </>
                                 )}

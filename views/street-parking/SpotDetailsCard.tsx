@@ -397,7 +397,7 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
     if (state === 'my_ping_available') {
         return (
             <div>
-                <p className="text-[11px] font-bold text-[#38bdf8] uppercase tracking-widest text-center mb-4">Your active ping</p>
+                <p className="text-[11px] font-bold text-[#38bdf8] uppercase tracking-widest text-center mb-4">Your shared spot</p>
 
                 <div className="flex items-center gap-3 mb-4">
                     <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 text-white font-bold text-xl"

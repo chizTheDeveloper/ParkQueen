@@ -90,7 +90,7 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                                 <Zap size={18} />
                             </div>
                             <div className="flex-1 text-left">
-                                <div className="text-sm font-bold text-[var(--color-text)]">Leaving Now</div>
+                                <div className="text-sm font-bold text-[var(--color-text)]">I'm leaving now</div>
                                 <div className="text-[11px] text-[var(--color-text-secondary)]">Spot opens immediately</div>
                             </div>
                             <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
@@ -114,7 +114,7 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                                 <Clock size={18} />
                             </div>
                             <div className="flex-1 text-left">
-                                <div className="text-sm font-bold text-[var(--color-text)]">Leaving Later</div>
+                                <div className="text-sm font-bold text-[var(--color-text)]">I'll leave at…</div>
                                 <div className="text-[11px] text-[var(--color-text-secondary)]">
                                     {pingType === 'later'
                                         ? (() => {
