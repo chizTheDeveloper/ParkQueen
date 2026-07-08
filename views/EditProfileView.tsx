@@ -6,7 +6,7 @@ import { getApp } from 'firebase/app';
 import { db } from '../firebase';
 import { ChevronLeft, Check, X, Loader2, ChevronDown } from 'lucide-react';
 
-import { moderateUsername } from '../utils/moderation';
+import { moderateUsername, moderateDisplayName } from '../utils/moderation';
 
 const USERNAME_REGEX = /^[a-zA-Z][a-zA-Z0-9_]*$/;
 
@@ -86,6 +86,13 @@ export const EditProfileView = ({ onBack }) => {
 
     const handleSave = async () => {
         if (!user || saving) return;
+
+        const nameError = moderateDisplayName(fullName.trim());
+        if (nameError) {
+            setUsernameError(nameError);
+            return;
+        }
+
         setSaving(true);
         setUsernameError('');
 

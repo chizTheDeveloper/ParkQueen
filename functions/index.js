@@ -383,12 +383,15 @@ exports.moderateAvatarUpload = onObjectFinalized(
 // 7) Validate and claim a username
 // --- Shared Moderation System ---
 
-const RESERVED_USERNAMES = new Set([
-  "admin", "support", "parqueen", "parkqueen", "system", "moderator",
-  "official", "help", "info", "contact", "team", "staff", "root",
-  "null", "undefined", "test", "api", "www", "app", "mod", "owner",
-  "ceo", "founder", "parking", "driver", "police", "nypd", "nyc",
-]);
+// Tier 1: substring block after compact normalization (unambiguous terms)
+const BRAND_TERMS = ['parqueen', 'parkqueen'];
+const STRONG_RESERVED = [
+  'admin', 'administrator', 'support', 'official', 'system', 'root',
+  'security', 'firebase', 'backend', 'moderator', 'staff', 'owner',
+  'founder', 'developer',
+];
+// Tier 2: exact token match only — avoids blocking "modernDriver", "devonParks", "steam"
+const SHORT_RESERVED = ['mod', 'dev', 'api', 'team', 'help'];
 
 const BANNED_WORDS = new Set([
   // English profanity
@@ -414,6 +417,25 @@ function normalizeText(str) {
     .replace(/3/g, 'e').replace(/\$/g, 's').replace(/5/g, 's').replace(/7/g, 't')
     .replace(/4/g, 'a').replace(/8/g, 'b').replace(/9/g, 'g')
     .replace(/[_\-.\s]/g, '');
+}
+
+function tokenize(str) {
+  return str.toLowerCase().split(/[_\-.\s]+/).filter(Boolean);
+}
+
+function checkImpersonation(text) {
+  const compact = normalizeText(text);
+  for (const term of BRAND_TERMS) {
+    if (compact.includes(term)) return true;
+  }
+  for (const term of STRONG_RESERVED) {
+    if (compact.includes(term)) return true;
+  }
+  const tokens = tokenize(text);
+  for (const term of SHORT_RESERVED) {
+    if (tokens.includes(term)) return true;
+  }
+  return false;
 }
 
 const CONTACT_PATTERNS = [
@@ -468,8 +490,8 @@ exports.moderateContent = onCall(
       reason = 'contact_info';
     }
 
-    // Reserved words check (usernames only)
-    if (!blocked && type === 'username' && RESERVED_USERNAMES.has(text.toLowerCase())) {
+    // Impersonation check (usernames only — brand + internal term two-tier match)
+    if (!blocked && type === 'username' && checkImpersonation(text)) {
       blocked = true;
       reason = 'reserved';
     }
@@ -505,8 +527,8 @@ exports.claimUsername = onCall(
 
     const normalized = trimmed.toLowerCase();
 
-    // Reserved check
-    if (RESERVED_USERNAMES.has(normalized)) throw new HttpsError("invalid-argument", "This username is not available.");
+    // Impersonation check — two-tier brand + internal term match
+    if (checkImpersonation(trimmed)) throw new HttpsError("invalid-argument", "Please choose a different username.");
 
     // Profanity check using shared system
     if (checkBannedWords(trimmed)) throw new HttpsError("invalid-argument", "This username is not available.");

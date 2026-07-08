@@ -1,8 +1,13 @@
-const RESERVED = new Set([
-    'admin','support','parqueen','parkqueen','system','moderator','official','help',
-    'info','contact','team','staff','root','null','undefined','test','api','www','app',
-    'mod','owner','ceo','founder','parking','driver','police','nypd','nyc',
-]);
+// Tier 1: substring block after compact normalization (unambiguous terms)
+const BRAND_TERMS = ['parqueen', 'parkqueen'];
+const STRONG_RESERVED = [
+    'admin', 'administrator', 'support', 'official', 'system', 'root',
+    'security', 'firebase', 'backend', 'moderator', 'staff', 'owner',
+    'founder', 'developer',
+];
+
+// Tier 2: exact token match only — avoids blocking "modernDriver", "devonParks", "steam"
+const SHORT_RESERVED = ['mod', 'dev', 'api', 'team', 'help'];
 
 const BANNED_WORDS = new Set([
     'fuck','fuk','fuq','fvck','shit','asshole','bitch','dick','pussy','cunt','damn','bastard','piss',
@@ -23,7 +28,8 @@ const BANNED_EXACT = new Set(['ass','fuk','fuq','cum','pee','poo']);
 // Banned when they appear at the start OR end of a username (catches "bigass", "asshat", "bigcock")
 const BANNED_AFFIXES = ['ass','cock','dick','tit','cum','piss','shit','fuck','cunt','slut','whore'];
 
-function normalize(str: string): string {
+// Compact normalization: l33tspeak substitutions + strip separators
+function compactNormalize(str: string): string {
     return str.toLowerCase()
         .replace(/@/g, 'a')
         .replace(/0/g, 'o')
@@ -39,18 +45,20 @@ function normalize(str: string): string {
         .replace(/[_\-.\s]/g, '');
 }
 
-export function checkBannedWords(text: string): boolean {
-    const cleaned = normalize(text);
+// Token splitting: used for short ambiguous terms to avoid false positives
+function tokenize(str: string): string[] {
+    return str.toLowerCase().split(/[_\-.\s]+/).filter(Boolean);
+}
 
-    // Substring match — catches compound dirty words that are clearly bad in any position
+export function checkBannedWords(text: string): boolean {
+    const cleaned = compactNormalize(text);
+
     for (const word of BANNED_WORDS) {
         if (cleaned.includes(word)) return true;
     }
 
-    // Exact match — catches standalone words that are fine as substrings (e.g. "ass" in "cassandra")
     if (BANNED_EXACT.has(cleaned)) return true;
 
-    // Affix match — catches compound usernames like "bigass", "asshat", "bigcock"
     for (const affix of BANNED_AFFIXES) {
         if (cleaned.startsWith(affix) || cleaned.endsWith(affix)) return true;
     }
@@ -58,8 +66,25 @@ export function checkBannedWords(text: string): boolean {
     return false;
 }
 
-export function checkReservedUsername(text: string): boolean {
-    return RESERVED.has(text.toLowerCase());
+// Two-tier impersonation check:
+// Tier 1 — compact substring for brand + strong terms
+// Tier 2 — exact token for short ambiguous terms
+export function checkImpersonation(text: string): boolean {
+    const compact = compactNormalize(text);
+
+    for (const term of BRAND_TERMS) {
+        if (compact.includes(term)) return true;
+    }
+    for (const term of STRONG_RESERVED) {
+        if (compact.includes(term)) return true;
+    }
+
+    const tokens = tokenize(text);
+    for (const term of SHORT_RESERVED) {
+        if (tokens.includes(term)) return true;
+    }
+
+    return false;
 }
 
 const CONTACT_PATTERNS = [
@@ -82,8 +107,14 @@ export function checkContactInfo(text: string): boolean {
 }
 
 export function moderateUsername(val: string): string | null {
-    if (checkReservedUsername(val)) return 'This username is not available';
-    if (checkBannedWords(val)) return 'This username is not available';
+    if (checkImpersonation(val)) return 'Please choose a different username.';
+    if (checkBannedWords(val)) return 'Please choose a different username.';
+    return null;
+}
+
+export function moderateDisplayName(val: string): string | null {
+    if (checkImpersonation(val)) return "That name can't be used. Please choose another.";
+    if (checkBannedWords(val)) return "That name can't be used. Please choose another.";
     return null;
 }
 
