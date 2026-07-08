@@ -55,10 +55,9 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const activeSpots = snapshot.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...docSnap.data()
-      })) as any[];
+      const activeSpots = snapshot.docs
+        .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }) as any)
+        .filter((s) => s.finderId !== user?.id);
 
       // Sort descending by reportedAt time
       activeSpots.sort((a, b) => {
