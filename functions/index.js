@@ -263,7 +263,7 @@ exports.notifyNearbyUsers = onDocumentCreated(
                   title: "👑 New Spot Near You!",
                   body: "Someone just left a spot " + distLabel + "."
               },
-              data: { spotId: event.params.spotId, lat: String(spotData.lat), lng: String(spotData.lng) }
+              data: { spotId: event.params.spotId, lat: String(spotData.lat), lng: String(spotData.lng), finderId: String(spotData.finderId || '') }
           });
       });
 

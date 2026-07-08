@@ -92,7 +92,9 @@ export default function App() {
                 });
 
                 onMessage(messaging, (payload) => {
-                    console.log("Foreground message received:", payload);
+                    // Skip spot notifications the current user created — defense in depth
+                    // against the CF self-filter failing or running a stale version.
+                    if (payload.data?.finderId && payload.data.finderId === firebaseUser.uid) return;
                     setPushToast({ title: payload.notification?.title || '', body: payload.notification?.body || '' });
                     setTimeout(() => setPushToast(null), 5000);
                 });
