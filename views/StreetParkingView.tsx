@@ -53,6 +53,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const [searchCenter, setSearchCenter] = useState<[number, number] | null>(null);
     const [mapReady, setMapReady] = useState(false);
     const [searchRadius] = useState<number>(2000);
+    const [mapFilterRadiusMiles, setMapFilterRadiusMiles] = useState(2.0);
     const [nowMs, setNowMs] = useState(Date.now());
 
     const [showFree, setShowFree] = useState(true);
@@ -91,6 +92,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         showFree,
         showPaid,
         showPublic,
+        filterRadiusMiles: mapFilterRadiusMiles,
     });
 
     const itemsRef = useRef<MapItem[]>([]);
@@ -427,12 +429,23 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
             map.on('load', () => { map.resize(); });
 
+            const updateViewportRadius = () => {
+                const b = map.getBounds();
+                const ne = b.getNorthEast();
+                const sw = b.getSouthWest();
+                const halfDiagMiles = getDistance(ne.lat, ne.lng, sw.lat, sw.lng) * 0.621371 / 2;
+                setMapFilterRadiusMiles(Math.min(10, Math.max(2, Math.round(halfDiagMiles * 10) / 10)));
+            };
+
+            updateViewportRadius();
+
             let moveEndTimeout: ReturnType<typeof setTimeout> | undefined;
             map.on('moveend', () => {
                 if (moveEndTimeout) clearTimeout(moveEndTimeout);
                 moveEndTimeout = setTimeout(() => {
                     const c = map.getCenter();
                     setSearchCenter([c.lng, c.lat]);
+                    updateViewportRadius();
                 }, 400);
             });
         };

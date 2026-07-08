@@ -13,9 +13,10 @@ interface UseSpotDataOptions {
     showFree: boolean;
     showPaid: boolean;
     showPublic: boolean;
+    filterRadiusMiles?: number;
 }
 
-export function useSpotData({ userId, blockedUsers, searchCenter, searchRadius, showFree, showPaid, showPublic }: UseSpotDataOptions) {
+export function useSpotData({ userId, blockedUsers, searchCenter, searchRadius, showFree, showPaid, showPublic, filterRadiusMiles }: UseSpotDataOptions) {
     const [freeSpots, setFreeSpots] = useState<MapItem[]>([]);
     const [paidListings, setPaidListings] = useState<MapItem[]>([]);
     const [publicGarages, setPublicGarages] = useState<MapItem[]>([]);
@@ -169,9 +170,9 @@ export function useSpotData({ userId, blockedUsers, searchCenter, searchRadius, 
         return visibleItems.filter(item => {
             const distanceVal = getDistance(centerLat, centerLng, item.lat, item.lng);
             const distanceInMiles = distanceVal * 0.621371;
-            return distanceInMiles <= 2.0;
+            return distanceInMiles <= (filterRadiusMiles ?? 2.0);
         });
-    }, [showFree, showPaid, showPublic, freeSpots, paidListings, publicGarages, searchCenter]);
+    }, [showFree, showPaid, showPublic, freeSpots, paidListings, publicGarages, searchCenter, filterRadiusMiles]);
 
     return {
         freeSpots,
