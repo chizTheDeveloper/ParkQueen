@@ -1742,14 +1742,9 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                 )}
                             </div>
                         ) : mapReady && !spotData.activeSpots.find(s => s.finderId === user?.id) && (
-                            <div className="bg-[var(--color-card)] backdrop-blur-xl border border-[var(--color-border)] rounded-2xl px-4 py-3 shadow-xl flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-xl bg-[#1e75ff]/15 border border-[#1e75ff]/25 flex items-center justify-center shrink-0">
-                                    <MapPin size={15} className="text-[#38bdf8]" />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                    <p className="text-xs font-bold text-[var(--color-text)]">No spots pinged nearby</p>
-                                    <p className="text-[10px] text-[var(--color-text-secondary)] mt-0.5">Leaving soon? Be the first to ping one!</p>
-                                </div>
+                            <div className="inline-flex items-center gap-1.5 bg-[var(--color-card)] backdrop-blur-xl border border-rose-500/15 rounded-full px-2.5 py-1 text-[10px] font-semibold text-[var(--color-text-secondary)] shadow-md">
+                                <div className="w-1.5 h-1.5 rounded-full bg-rose-700/60 shrink-0" />
+                                No active spots nearby
                             </div>
                         )}
                     </div>
