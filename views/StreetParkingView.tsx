@@ -11,7 +11,7 @@ import { getApp } from 'firebase/app';
 import mapboxgl from 'mapbox-gl';
 import * as geofire from 'geofire-common';
 
-import { MAPBOX_TOKEN, NYC_CENTER, createMarkerElement, clearRoute, drawRoute, getDistance } from './street-parking/utils';
+import { MAPBOX_TOKEN, NYC_CENTER, createMarkerElement, createStackMarkerElement, clearRoute, drawRoute, getDistance } from './street-parking/utils';
 import { VehicleIcon } from '../utils/vehicleIcon';
 import { getTitleForCrowns } from '../utils/crowns';
 
@@ -53,6 +53,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const [searchCenter, setSearchCenter] = useState<[number, number] | null>(null);
     const [mapReady, setMapReady] = useState(false);
     const [searchRadius] = useState<number>(2000);
+    const [stackGroup, setStackGroup] = useState<MapItem[] | null>(null);
     const [mapFilterRadiusMiles, setMapFilterRadiusMiles] = useState(2.0);
     const [nowMs, setNowMs] = useState(Date.now());
 
@@ -501,29 +502,33 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         };
     }, []);
 
-    // Marker rendering with clustering for nearby spots
+    // Marker rendering — community spots get premium stack grouping; paid/public render individually
     useEffect(() => {
         if (!mapRef.current) return;
         const map = mapRef.current;
 
-        // Clear all markers and rebuild — clustering changes which IDs map to which markers
         Object.values(allMarkersRef.current).forEach(m => m.remove());
         allMarkersRef.current = {};
 
-        // Filter out the owner's own My Car-linked ping — it's managed inside the session sheet,
-        // not shown as a separate yellow map marker. Manual pings (different IDs) are unaffected.
-        const items = spotData.radiusFilteredItems.filter(
+        // Filter out the owner's own My Car-linked ping — managed inside session sheet.
+        const allItems = spotData.radiusFilteredItems.filter(
             item => item.id !== (savedSpot?.linkedPingId ?? '')
         );
-        const assigned = new Set<string>();
 
-        for (const item of items) {
+        // Split: community shared spots vs. paid/public (rendered individually, no stacking)
+        const communityItems = allItems.filter(item => item.type === 'free');
+        const otherItems = allItems.filter(item => item.type !== 'free');
+
+        const markerNowMs = Date.now();
+
+        // --- Community spots: group within 30m, stack marker for groups > 1 ---
+        const assigned = new Set<string>();
+        for (const item of communityItems) {
             if (assigned.has(item.id)) continue;
 
-            // Find all spots within 30m
-            const group = [item];
+            const group: MapItem[] = [item];
             assigned.add(item.id);
-            for (const other of items) {
+            for (const other of communityItems) {
                 if (assigned.has(other.id)) continue;
                 if (getDistance(item.lat, item.lng, other.lat, other.lng) < 0.03) {
                     group.push(other);
@@ -531,16 +536,14 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 }
             }
 
-            const lngLat: [number, number] = [item.lng, item.lat];
-
             if (group.length === 1) {
                 const reportedMs = item.reportedAt
                     ? (typeof item.reportedAt.toMillis === 'function' ? item.reportedAt.toMillis()
                         : typeof item.reportedAt.seconds === 'number' ? item.reportedAt.seconds * 1000 : 0)
                     : 0;
-                const markerNowMs = Date.now();
                 const isScheduled = reportedMs > markerNowMs;
                 const el = createMarkerElement(isScheduled, reportedMs);
+                const lngLat: [number, number] = [item.lng, item.lat];
                 const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
                     .setLngLat(lngLat).addTo(map);
                 marker.getElement().addEventListener('click', (e) => {
@@ -551,24 +554,48 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 });
                 allMarkersRef.current[item.id] = marker;
             } else {
-                // Cluster badge — tap to zoom in and see individual pins
-                const clusterEl = document.createElement('div');
-                clusterEl.style.cssText = [
-                    'width:38px', 'height:38px', 'border-radius:50%',
-                    'background:#1e75ff', 'border:2.5px solid white',
-                    'box-shadow:0 2px 10px rgba(30,117,255,0.45)',
-                    'display:flex', 'align-items:center', 'justify-content:center',
-                    'color:white', 'font-weight:800', 'font-size:13px', 'cursor:pointer',
-                ].join(';');
-                clusterEl.textContent = String(group.length);
-                const marker = new mapboxgl.Marker({ element: clusterEl, anchor: 'center' })
-                    .setLngLat(lngLat).addTo(map);
+                // Centroid placement — average lat/lng of the group
+                const centroidLat = group.reduce((s, i) => s + i.lat, 0) / group.length;
+                const centroidLng = group.reduce((s, i) => s + i.lng, 0) / group.length;
+                const centroid: [number, number] = [centroidLng, centroidLat];
+
+                const hasAvailableNow = group.some(i => {
+                    const ms = i.reportedAt
+                        ? (typeof i.reportedAt.toMillis === 'function' ? i.reportedAt.toMillis()
+                            : typeof i.reportedAt.seconds === 'number' ? i.reportedAt.seconds * 1000 : 0)
+                        : 0;
+                    return ms <= markerNowMs;
+                });
+
+                const el = createStackMarkerElement(group.length, hasAvailableNow);
+                const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
+                    .setLngLat(centroid).addTo(map);
                 marker.getElement().addEventListener('click', (e) => {
                     e.stopPropagation();
-                    map.flyTo({ center: lngLat, zoom: 19, duration: 600 });
+                    setStackGroup(group);
                 });
                 allMarkersRef.current[item.id] = marker;
             }
+        }
+
+        // --- Paid/public items: individual markers, no stacking ---
+        for (const item of otherItems) {
+            const reportedMs = item.reportedAt
+                ? (typeof item.reportedAt.toMillis === 'function' ? item.reportedAt.toMillis()
+                    : typeof item.reportedAt.seconds === 'number' ? item.reportedAt.seconds * 1000 : 0)
+                : 0;
+            const isScheduled = reportedMs > markerNowMs;
+            const el = createMarkerElement(isScheduled, reportedMs);
+            const lngLat: [number, number] = [item.lng, item.lat];
+            const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
+                .setLngLat(lngLat).addTo(map);
+            marker.getElement().addEventListener('click', (e) => {
+                e.stopPropagation();
+                const fresh = itemsRef.current.find(i => i.id === item.id) || item;
+                setSelectedItem(fresh);
+                map.flyTo({ center: lngLat, zoom: 16 });
+            });
+            allMarkersRef.current[item.id] = marker;
         }
     }, [spotData.radiusFilteredItems, savedSpot?.linkedPingId, nowMs]);
 
@@ -1601,6 +1628,56 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                         onSkip={interestFlow.handleSkipDeparture}
                     />
                 )}
+            </BottomSheet>
+
+            {/* Spot stack sheet — multiple community shared spots nearby */}
+            <BottomSheet isOpen={!!stackGroup} onClose={() => setStackGroup(null)}>
+                {stackGroup && (() => {
+                    const nowMs2 = Date.now();
+                    const formatStackRow = (item: MapItem) => {
+                        const ms = item.reportedAt
+                            ? (typeof item.reportedAt.toMillis === 'function' ? item.reportedAt.toMillis()
+                                : typeof item.reportedAt.seconds === 'number' ? item.reportedAt.seconds * 1000 : 0)
+                            : 0;
+                        const isScheduled = ms > nowMs2;
+                        if (isScheduled) {
+                            const d = new Date(ms);
+                            const h = d.getHours() % 12 || 12;
+                            const m = String(d.getMinutes()).padStart(2, '0');
+                            const ampm = d.getHours() >= 12 ? 'PM' : 'AM';
+                            return { label: `Leaving at ${h}:${m} ${ampm}`, isScheduled: true };
+                        }
+                        const ageMin = Math.floor((nowMs2 - ms) / 60000);
+                        const age = ageMin < 1 ? 'just now' : `${ageMin} min ago`;
+                        return { label: `Available now · ${age}`, isScheduled: false };
+                    };
+                    return (
+                        <div>
+                            <p className="text-base font-bold text-[var(--color-text)] mb-0.5">{stackGroup.length} shared spots nearby</p>
+                            <p className="text-xs text-[var(--color-text-secondary)] mb-4">Choose a spot to view details.</p>
+                            <div className="flex flex-col gap-2">
+                                {stackGroup.map(item => {
+                                    const { label, isScheduled } = formatStackRow(item);
+                                    return (
+                                        <button
+                                            key={item.id}
+                                            onClick={() => {
+                                                const fresh = itemsRef.current.find(i => i.id === item.id) || item;
+                                                setSelectedItem(fresh);
+                                                setStackGroup(null);
+                                            }}
+                                            className="flex items-center gap-3 w-full px-4 py-3.5 rounded-2xl bg-[var(--color-card)] border border-[var(--color-border)] text-left hover:border-[#1e75ff]/40 transition-all active:scale-[0.98]"
+                                        >
+                                            <div className={`w-2 h-2 rounded-full shrink-0 ${isScheduled ? 'bg-yellow-400' : 'bg-[#1e75ff]'}`} />
+                                            <span className="text-sm font-semibold text-[var(--color-text)] flex-1">{label}</span>
+                                            <span className="text-[var(--color-text-secondary)] text-xs">›</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    );
+                })()}
             </BottomSheet>
 
             {/* Parking Activity Explorer */}
