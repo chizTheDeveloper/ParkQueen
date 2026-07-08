@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Edit, Mail, Bell, MapPin, Moon, LogOut, Trash2, Check, Navigation, ScanLine } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Edit, Mail, Bell, MapPin, Moon, LogOut, Trash2, Check, Navigation, ScanLine, Play } from 'lucide-react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getApp } from 'firebase/app';
@@ -257,6 +257,28 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                                 <Toggle checked={theme === 'dark'} onChange={toggleTheme} />
                             </div>
                         </div>
+                    </div>
+
+                    {/* Help */}
+                    <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl overflow-hidden">
+                        <div className="px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]">
+                            <p className="text-xs font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">Help</p>
+                        </div>
+                        <button
+                            onClick={() => {
+                                localStorage.removeItem('parqueenAppTourSeen_v1');
+                                setView(AppView.MAP);
+                            }}
+                            className="w-full px-4 py-3.5 flex items-center gap-3 text-left hover:bg-white/5 active:bg-white/10 transition-colors"
+                        >
+                            <div className="w-9 h-9 rounded-xl bg-[#1e75ff]/10 flex items-center justify-center text-[#1e75ff] shrink-0">
+                                <Play size={17} />
+                            </div>
+                            <div>
+                                <p className="text-sm font-semibold text-[var(--color-text)]">App Tour</p>
+                                <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">See how ParQueen works</p>
+                            </div>
+                        </button>
                     </div>
 
                     {/* Account Actions */}

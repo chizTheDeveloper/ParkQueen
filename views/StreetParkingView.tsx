@@ -37,6 +37,7 @@ import { ParkingActivitySheet } from './street-parking/ParkingActivitySheet';
 import { HeaderBar } from './street-parking/HeaderBar';
 import { StreetIntelligenceCard } from './street-parking/StreetIntelligenceCard';
 import { useParkingTimer } from './street-parking/useParkingTimer';
+import { AppTour, TOUR_KEY } from './street-parking/AppTour';
 
 
 export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }) => {
@@ -57,6 +58,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const [spotDetailsBackStack, setSpotDetailsBackStack] = useState<MapItem[] | null>(null);
     const [mapFilterRadiusMiles, setMapFilterRadiusMiles] = useState(2.0);
     const [nowMs, setNowMs] = useState(Date.now());
+    const [showTour, setShowTour] = useState(false);
 
     const [showFree, setShowFree] = useState(true);
     const [showPaid, setShowPaid] = useState(false);
@@ -80,6 +82,14 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         const id = setInterval(() => setNowMs(Date.now()), 30_000);
         return () => clearInterval(id);
     }, []);
+
+    // Show first-run tutorial once map is ready and user is authenticated
+    useEffect(() => {
+        if (!mapReady || !user?.id) return;
+        if (localStorage.getItem(TOUR_KEY)) return;
+        const t = setTimeout(() => setShowTour(true), 400);
+        return () => clearTimeout(t);
+    }, [mapReady, user?.id]);
 
     // --- Custom hooks ---
 
@@ -1955,6 +1965,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
                 </div>
             </div>
+
+            {showTour && <AppTour onDone={() => setShowTour(false)} />}
         </div>
     );
 };
