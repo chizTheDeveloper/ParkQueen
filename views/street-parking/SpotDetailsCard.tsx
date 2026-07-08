@@ -31,9 +31,36 @@ interface SpotDetailsCardProps {
     maxEtaMinutes: number;
     manageMode?: boolean;
     nowMs?: number;
+    backLabel?: string;
+    onBack?: () => void;
 }
 
 export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
+    selectedItem, freeSpots, user, userLocation, spotAddress,
+    onHeadingThere, onEditSpot, onDeletePing, onArrival,
+    onCancelByFinder, onCancelByClaimer, onDriverArrived, onMessageUser,
+    nearbyInterestCount = 0, interestError, estDriveMinutes, isWithinArrivalRange, maxEtaMinutes, manageMode = false, nowMs = Date.now(),
+    backLabel, onBack,
+}) => {
+    if (!selectedItem) return null;
+
+    return (
+        <>
+            {onBack && (
+                <button
+                    onClick={onBack}
+                    className="flex items-center gap-1 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors mb-3"
+                >
+                    <span>‹</span>
+                    <span>{backLabel ?? 'Back'}</span>
+                </button>
+            )}
+            <SpotDetailsCardInner {...{ selectedItem, freeSpots, user, userLocation, spotAddress, onHeadingThere, onEditSpot, onDeletePing, onArrival, onCancelByFinder, onCancelByClaimer, onDriverArrived, onMessageUser, nearbyInterestCount, interestError, estDriveMinutes, isWithinArrivalRange, maxEtaMinutes, manageMode, nowMs }} />
+        </>
+    );
+};
+
+const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'onBack'>> = ({
     selectedItem, freeSpots, user, userLocation, spotAddress,
     onHeadingThere, onEditSpot, onDeletePing, onArrival,
     onCancelByFinder, onCancelByClaimer, onDriverArrived, onMessageUser,
@@ -43,9 +70,6 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
     const [messageSent, setMessageSent] = useState(false);
     const [showClaimerReasons, setShowClaimerReasons] = useState(false);
     const [showFinderReasons, setShowFinderReasons] = useState(false);
-
-    if (!selectedItem) return null;
-
     const distanceVal = userLocation ? getDistance(userLocation[1], userLocation[0], selectedItem.lat, selectedItem.lng) : null;
     const distanceText = distanceVal
         ? (distanceVal * 0.621371 < 0.1 ? `${Math.round(distanceVal * 1000 * 1.09361)} yd` : `${(distanceVal * 0.621371).toFixed(1)} mi`)

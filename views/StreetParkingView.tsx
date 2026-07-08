@@ -54,6 +54,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const [mapReady, setMapReady] = useState(false);
     const [searchRadius] = useState<number>(2000);
     const [stackGroup, setStackGroup] = useState<MapItem[] | null>(null);
+    const [spotDetailsBackStack, setSpotDetailsBackStack] = useState<MapItem[] | null>(null);
     const [mapFilterRadiusMiles, setMapFilterRadiusMiles] = useState(2.0);
     const [nowMs, setNowMs] = useState(Date.now());
 
@@ -549,6 +550,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 marker.getElement().addEventListener('click', (e) => {
                     e.stopPropagation();
                     const fresh = itemsRef.current.find(i => i.id === item.id) || item;
+                    setSpotDetailsBackStack(null);
                     setSelectedItem(fresh);
                     map.flyTo({ center: lngLat, zoom: 16 });
                 });
@@ -592,6 +594,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             marker.getElement().addEventListener('click', (e) => {
                 e.stopPropagation();
                 const fresh = itemsRef.current.find(i => i.id === item.id) || item;
+                setSpotDetailsBackStack(null);
                 setSelectedItem(fresh);
                 map.flyTo({ center: lngLat, zoom: 16 });
             });
@@ -1088,9 +1091,11 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             />
 
             {/* Spot details bottom sheet */}
-            <BottomSheet isOpen={!!selectedItem && !isSpotModalOpen} onClose={() => { setSelectedItem(null); setSelectedItemManageMode(false); }}>
+            <BottomSheet isOpen={!!selectedItem && !isSpotModalOpen} onClose={() => { setSelectedItem(null); setSelectedItemManageMode(false); setSpotDetailsBackStack(null); }}>
                 <SpotDetailsCard
                     selectedItem={selectedItem}
+                    backLabel={spotDetailsBackStack ? `Back to ${spotDetailsBackStack.length} spots` : undefined}
+                    onBack={spotDetailsBackStack ? () => { setSelectedItem(null); setStackGroup(spotDetailsBackStack); setSpotDetailsBackStack(null); } : undefined}
                     freeSpots={spotData.freeSpots}
                     user={user}
                     userLocation={userLocation}
@@ -1666,6 +1671,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                             key={item.id}
                                             onClick={() => {
                                                 const fresh = itemsRef.current.find(i => i.id === item.id) || item;
+                                                setSpotDetailsBackStack(stackGroup);
                                                 setSelectedItem(fresh);
                                                 setStackGroup(null);
                                             }}
