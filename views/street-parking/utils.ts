@@ -87,21 +87,29 @@ export const createMarkerElement = (scheduled = false, reportedMs = 0) => {
 
 export const createStackMarkerElement = (count: number, hasAvailableNow: boolean): HTMLElement => {
     const el = document.createElement('div');
-    el.style.cssText = 'position:relative;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:10;overflow:visible';
+    el.style.position = 'relative';
+    el.style.display = 'inline-flex';
+    el.style.cursor = 'pointer';
+    el.style.zIndex = '10';
+    el.style.overflow = 'visible';
 
     const color = hasAvailableNow ? '#1e75ff' : '#eab308';
     const size = 46;
 
+    // Inner wrapper has explicit fixed size so the badge's position:absolute
+    // is relative to this known 46×46 box, not the outer el or Mapbox container.
     el.innerHTML = `
-        <div style="width:${size}px;height:${size}px;flex-shrink:0;pointer-events:none;">
-          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;filter:drop-shadow(0px 4px 10px rgba(0,0,0,0.5));">
-            <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="${color}" stroke="rgba(255,255,255,0.25)" stroke-width="0.5"/>
-            <rect x="8.5" y="5.5" width="7" height="7" rx="1.5" fill="rgba(255,255,255,0.2)" stroke="rgba(255,255,255,0.5)" stroke-width="0.8"/>
-            <text x="12" y="11" font-size="5.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-weight="900" text-anchor="middle" fill="white">P</text>
-          </svg>
-        </div>
-        <div style="position:absolute;top:-4px;right:-6px;min-width:18px;height:18px;background:white;border:2px solid ${color};border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 4px;box-sizing:border-box;pointer-events:none;">
+        <div style="position:relative;width:${size}px;height:${size}px;flex-shrink:0;">
+          <div style="width:100%;height:100%;pointer-events:none;">
+            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;filter:drop-shadow(0px 4px 10px rgba(0,0,0,0.5));">
+              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="${color}" stroke="rgba(255,255,255,0.25)" stroke-width="0.5"/>
+              <rect x="8.5" y="5.5" width="7" height="7" rx="1.5" fill="rgba(255,255,255,0.2)" stroke="rgba(255,255,255,0.5)" stroke-width="0.8"/>
+              <text x="12" y="11" font-size="5.5" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-weight="900" text-anchor="middle" fill="white">P</text>
+            </svg>
+          </div>
+          <div style="position:absolute;top:-5px;right:-7px;min-width:18px;height:18px;background:white;border:2px solid ${color};border-radius:9px;display:flex;align-items:center;justify-content:center;padding:0 4px;box-sizing:border-box;pointer-events:none;z-index:1;">
             <span style="font-size:10px;font-weight:900;color:${color};line-height:1;">${count}</span>
+          </div>
         </div>
     `;
     return el;
