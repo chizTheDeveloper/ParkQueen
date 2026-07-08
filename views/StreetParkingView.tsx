@@ -1275,7 +1275,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                             const target = new Date(`${dateStr}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`);
                                             const minutes = Math.round((target.getTime() - Date.now()) / 60000);
                                             if (minutes > 0) {
-                                                parkingTimer.startTimer(minutes, savedSpot!.address || '', () => setShowDepartureSheet(true));
+                                                parkingTimer.startTimer(minutes, savedSpot!.address || '', () => setShowSessionSheet(true));
                                                 setShowCustomReminder(false);
                                             }
                                         }}
@@ -1290,7 +1290,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     <button key={opt.minutes}
                                         onClick={() => {
                                             if (opt.minutes === -1) { setReminderHour(''); setReminderMinute(''); setShowCustomReminder(true); return; }
-                                            parkingTimer.startTimer(opt.minutes, savedSpot.address || '', () => setShowDepartureSheet(true));
+                                            parkingTimer.startTimer(opt.minutes, savedSpot.address || '', () => setShowSessionSheet(true));
                                         }}
                                         className="py-3 rounded-2xl text-xs font-bold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 text-[var(--color-text)] transition-all active:scale-95">
                                         {opt.label}

@@ -44,8 +44,8 @@ export function useParkingTimer() {
             if (notifiedRef.current) return;
             notifiedRef.current = true;
             if ('Notification' in window && Notification.permission === 'granted') {
-                new Notification('ParkQueen — Time to move!', {
-                    body: `Your parking time is up${timer.address ? ` at ${timer.address}` : ''}.`,
+                new Notification('ParQueen — Time to check your car', {
+                    body: `Your parking reminder is up${timer.address ? ` at ${timer.address}` : ''}.`,
                     icon: '/Parqueen_Logo.png',
                 });
             }
