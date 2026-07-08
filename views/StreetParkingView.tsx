@@ -525,7 +525,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     ? (typeof item.reportedAt.toMillis === 'function' ? item.reportedAt.toMillis()
                         : typeof item.reportedAt.seconds === 'number' ? item.reportedAt.seconds * 1000 : 0)
                     : 0;
-                const isScheduled = reportedMs > nowMs;
+                const markerNowMs = Date.now();
+                const isScheduled = reportedMs > markerNowMs;
                 const el = createMarkerElement(isScheduled, reportedMs);
                 const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
                     .setLngLat(lngLat).addTo(map);
