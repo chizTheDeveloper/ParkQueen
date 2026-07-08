@@ -54,6 +54,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const [mapReady, setMapReady] = useState(false);
     const [searchRadius] = useState<number>(2000);
     const [stackGroup, setStackGroup] = useState<MapItem[] | null>(null);
+    const [stackSelectedItem, setStackSelectedItem] = useState<MapItem | null>(null);
     const [mapFilterRadiusMiles, setMapFilterRadiusMiles] = useState(2.0);
     const [nowMs, setNowMs] = useState(Date.now());
 
@@ -554,9 +555,9 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 });
                 allMarkersRef.current[item.id] = marker;
             } else {
-                // Centroid placement — average lat/lng of the group
-                const centroidLat = group.reduce((s, i) => s + i.lat, 0) / group.length;
-                const centroidLng = group.reduce((s, i) => s + i.lng, 0) / group.length;
+                // Centroid placement — average lat/lng of the group (explicit Number() guards against string coercion)
+                const centroidLat = group.reduce((s, i) => s + Number(i.lat), 0) / group.length;
+                const centroidLng = group.reduce((s, i) => s + Number(i.lng), 0) / group.length;
                 const centroid: [number, number] = [centroidLng, centroidLat];
 
                 const hasAvailableNow = group.some(i => {
@@ -1631,46 +1632,85 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             </BottomSheet>
 
             {/* Spot stack sheet — multiple community shared spots nearby */}
-            <BottomSheet isOpen={!!stackGroup} onClose={() => setStackGroup(null)}>
+            <BottomSheet isOpen={!!stackGroup} onClose={() => { setStackGroup(null); setStackSelectedItem(null); }}>
                 {stackGroup && (() => {
                     const nowMs2 = Date.now();
-                    const formatStackRow = (item: MapItem) => {
+                    const getSpotMeta = (item: MapItem) => {
                         const ms = item.reportedAt
                             ? (typeof item.reportedAt.toMillis === 'function' ? item.reportedAt.toMillis()
                                 : typeof item.reportedAt.seconds === 'number' ? item.reportedAt.seconds * 1000 : 0)
                             : 0;
                         const isScheduled = ms > nowMs2;
+                        let statusLabel: string;
                         if (isScheduled) {
                             const d = new Date(ms);
                             const h = d.getHours() % 12 || 12;
                             const m = String(d.getMinutes()).padStart(2, '0');
                             const ampm = d.getHours() >= 12 ? 'PM' : 'AM';
-                            return { label: `Leaving at ${h}:${m} ${ampm}`, isScheduled: true };
+                            statusLabel = `Leaving at ${h}:${m} ${ampm}`;
+                        } else {
+                            const ageMin = Math.floor((nowMs2 - ms) / 60000);
+                            statusLabel = `Available now · ${ageMin < 1 ? 'just now' : `${ageMin} min ago`}`;
                         }
-                        const ageMin = Math.floor((nowMs2 - ms) / 60000);
-                        const age = ageMin < 1 ? 'just now' : `${ageMin} min ago`;
-                        return { label: `Available now · ${age}`, isScheduled: false };
+                        const address = item.address || item.title || 'Nearby shared spot';
+                        return { statusLabel, isScheduled, address };
                     };
+
+                    // Detail view — user tapped a row
+                    if (stackSelectedItem) {
+                        const fresh = itemsRef.current.find(i => i.id === stackSelectedItem.id) || stackSelectedItem;
+                        const { statusLabel, isScheduled, address } = getSpotMeta(fresh);
+                        return (
+                            <div>
+                                <button
+                                    onClick={() => setStackSelectedItem(null)}
+                                    className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors mb-4"
+                                >
+                                    <span>‹</span>
+                                    <span>Back to {stackGroup.length} spots</span>
+                                </button>
+                                <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl px-4 py-4 mb-4">
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <div className={`w-2 h-2 rounded-full shrink-0 ${isScheduled ? 'bg-yellow-400' : 'bg-[#1e75ff]'}`} />
+                                        <p className="text-sm font-bold text-[var(--color-text)]">{statusLabel}</p>
+                                    </div>
+                                    <p className="text-xs text-[var(--color-text-secondary)] pl-4">{address}</p>
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        setSelectedItem(fresh);
+                                        setStackGroup(null);
+                                        setStackSelectedItem(null);
+                                    }}
+                                    className="w-full py-3.5 rounded-2xl text-sm font-bold text-white active:scale-95 transition-all"
+                                    style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)', boxShadow: '0 4px 20px rgba(30,117,255,0.35)' }}
+                                >
+                                    View full details
+                                </button>
+                            </div>
+                        );
+                    }
+
+                    // List view
                     return (
                         <div>
                             <p className="text-base font-bold text-[var(--color-text)] mb-0.5">{stackGroup.length} shared spots nearby</p>
                             <p className="text-xs text-[var(--color-text-secondary)] mb-4">Choose a spot to view details.</p>
                             <div className="flex flex-col gap-2">
                                 {stackGroup.map(item => {
-                                    const { label, isScheduled } = formatStackRow(item);
+                                    const { statusLabel, isScheduled, address } = getSpotMeta(item);
                                     return (
                                         <button
                                             key={item.id}
-                                            onClick={() => {
-                                                const fresh = itemsRef.current.find(i => i.id === item.id) || item;
-                                                setSelectedItem(fresh);
-                                                setStackGroup(null);
-                                            }}
-                                            className="flex items-center gap-3 w-full px-4 py-3.5 rounded-2xl bg-[var(--color-card)] border border-[var(--color-border)] text-left hover:border-[#1e75ff]/40 transition-all active:scale-[0.98]"
+                                            onClick={() => setStackSelectedItem(item)}
+                                            className="flex items-start gap-3 w-full px-4 py-3.5 rounded-2xl bg-[var(--color-card)] border border-[var(--color-border)] text-left hover:border-[#1e75ff]/40 transition-all active:scale-[0.98]"
                                         >
-                                            <div className={`w-2 h-2 rounded-full shrink-0 ${isScheduled ? 'bg-yellow-400' : 'bg-[#1e75ff]'}`} />
-                                            <span className="text-sm font-semibold text-[var(--color-text)] flex-1">{label}</span>
-                                            <span className="text-[var(--color-text-secondary)] text-xs">›</span>
+                                            <div className={`w-2 h-2 rounded-full shrink-0 mt-1 ${isScheduled ? 'bg-yellow-400' : 'bg-[#1e75ff]'}`} />
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-semibold text-[var(--color-text)]">{statusLabel}</p>
+                                                <p className="text-xs text-[var(--color-text-secondary)] truncate">{address}</p>
+                                            </div>
+                                            <span className="text-[var(--color-text-secondary)] text-xs mt-0.5">›</span>
                                         </button>
                                     );
                                 })}
