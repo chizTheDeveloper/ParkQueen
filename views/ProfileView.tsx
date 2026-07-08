@@ -13,6 +13,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
   const [uploadStatus, setUploadStatus] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [recentActivity, setRecentActivity] = useState<{ id: string; icon: string; action: string; address: string; timeAgo: string; reward: string | null }[]>([]);
+  const [showCrownsInfo, setShowCrownsInfo] = useState(false);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -132,7 +133,8 @@ export const ProfileView = ({ user, onBack, setView }) => {
             <h2 className="text-xl font-bold text-[var(--color-text)] tracking-wide">Profile</h2>
             <button
               onClick={() => setView(AppView.SETTINGS)}
-              className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] text-[var(--color-text)] hover:bg-white/10 active:scale-95 transition-all shrink-0"
+              aria-label="Settings"
+              className="w-10 h-10 rounded-full flex items-center justify-center bg-[#1e75ff]/10 border border-[#1e75ff]/20 text-[#38bdf8] hover:bg-[#1e75ff]/20 active:scale-95 transition-all shrink-0"
             >
               <Settings size={20} />
             </button>
@@ -200,9 +202,16 @@ export const ProfileView = ({ user, onBack, setView }) => {
                           return <span className="text-xs text-[var(--color-text-secondary)]">· Joined {d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>;
                         })()}
                       </div>
-                      <div className="flex items-center gap-1 text-sm font-bold text-[var(--color-text)]">
+                      <div className="flex items-center gap-1.5 text-sm font-bold text-[var(--color-text)]">
                         <Crown size={14} className="text-yellow-400" />
                         <span>{crowns} Crown{crowns !== 1 ? 's' : ''}</span>
+                        <button
+                          onClick={() => setShowCrownsInfo(true)}
+                          aria-label="What are crowns?"
+                          className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors active:scale-90"
+                        >
+                          <Info size={13} />
+                        </button>
                       </div>
                     </div>
                   );
@@ -386,6 +395,36 @@ export const ProfileView = ({ user, onBack, setView }) => {
         </div>
       ) : (
         <div className="text-center py-10">Please log in to see your profile.</div>
+      )}
+
+      {/* Crowns info modal */}
+      {showCrownsInfo && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center p-4 bg-black/60 backdrop-blur-sm"
+          onClick={() => setShowCrownsInfo(false)}
+        >
+          <div
+            className="w-full max-w-md bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl p-5 space-y-3"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2">
+              <Crown size={18} className="text-yellow-400 shrink-0" />
+              <h3 className="text-base font-extrabold text-[var(--color-text)]">Crowns</h3>
+            </div>
+            <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed">
+              Crowns show how helpful you are in the ParQueen community. Earn crowns by sharing useful spots and confirming parking outcomes.
+            </p>
+            <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed">
+              More crowns can unlock higher community titles over time.
+            </p>
+            <button
+              onClick={() => setShowCrownsInfo(false)}
+              className="w-full py-3 rounded-xl bg-white/8 border border-[var(--color-border)] text-sm font-bold text-[var(--color-text)] hover:bg-white/12 active:scale-[0.98] transition-all"
+            >
+              Got it
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
