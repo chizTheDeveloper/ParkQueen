@@ -831,7 +831,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         if (isPinging || !user) return;
 
         if (!selectedItem) {
-            const activeQ = query(collection(db, 'spots'), where('finderId', '==', user.id), where('status', 'in', ['available', 'interested']));
+            const activeQ = query(collection(db, 'spots'), where('finderId', '==', user.id), where('status', 'in', ['available', 'interested']), where('expiresAt', '>', Timestamp.now()));
             const activeSnap = await getDocs(activeQ);
             if (!activeSnap.empty) {
                 setPingError('You already have an active ping — cancel it first.');
