@@ -9,6 +9,7 @@ export const AssistantView = () => {
   const [analysis, setAnalysis] = useState<SignAnalysisResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
   const { startTimer, timer } = useParkingTimer();
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -152,17 +153,39 @@ export const AssistantView = () => {
             capture="environment"
             className="hidden"
           />
+          <input
+            type="file"
+            ref={galleryInputRef}
+            onChange={handleFileChange}
+            accept="image/*"
+            className="hidden"
+          />
 
           {!image ? (
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              className="w-full max-w-sm aspect-square rounded-3xl border-2 border-dashed border-[var(--color-border)] bg-[var(--color-surface)] flex flex-col items-center justify-center cursor-pointer hover:border-queen-500 hover:bg-[var(--color-card)]/50 transition-all group"
-            >
-              <div className="w-20 h-20 bg-[var(--color-card)] rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-                <Camera size={40} className="text-queen-400" />
+            <div className="w-full max-w-sm flex flex-col items-center pt-4">
+              <div className="w-24 h-24 rounded-full flex items-center justify-center mb-5"
+                style={{ background: 'linear-gradient(135deg, #1e75ff22, #0ea5e922)', border: '2px solid #1e75ff33' }}>
+                <Camera size={44} className="text-[#38bdf8]" />
               </div>
-              <span className="font-bold text-[var(--color-text-secondary)]">Tap to Scan Sign</span>
-              <span className="text-xs text-gray-500 mt-2">or upload from gallery</span>
+              <p className="text-sm text-[var(--color-text-secondary)] text-center mb-6 leading-relaxed">
+                Take a clear photo of the full parking sign.
+              </p>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full py-3.5 rounded-2xl font-bold text-white text-sm active:scale-[0.98] transition-transform mb-3"
+                style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}
+              >
+                Open camera
+              </button>
+              <button
+                onClick={() => galleryInputRef.current?.click()}
+                className="text-sm font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors py-2"
+              >
+                Choose from photos
+              </button>
+              <p className="text-[11px] text-gray-500 text-center mt-6 leading-relaxed px-4">
+                Camera access is only used to scan the sign you choose.
+              </p>
             </div>
           ) : (
             <div className="w-full max-w-sm">
