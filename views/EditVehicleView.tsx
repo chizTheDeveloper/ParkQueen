@@ -198,6 +198,15 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
             {saving ? 'Saving...' : 'Save Vehicle'}
           </button>
 
+          {isOnboarding && onSkip && (
+            <button
+              onClick={onSkip}
+              className="w-full py-3 text-sm font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors active:scale-[0.98]"
+            >
+              Skip for now
+            </button>
+          )}
+
 
           {/* Remove vehicle — only when editing and vehicle exists */}
           {!isOnboarding && hasVehicle && (
