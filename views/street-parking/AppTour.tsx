@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import ParqueenLogo from '../../assets/Parqueen_Logo.png';
 
 export const TOUR_KEY = 'parqueenAppTourSeen_v1';
 
@@ -14,11 +15,11 @@ const WELCOME = {
 };
 
 const COACH_STEPS: CoachStep[] = [
-    { target: 'search',     title: 'Find Parking Nearby', body: 'Search a neighborhood or street to explore parking around you.' },
-    { target: 'ai',         title: 'Scan Street Signs',   body: 'Confused by a sign? Use AI to understand parking rules.' },
-    { target: 'bell',       title: 'Nearby Activity',     body: 'See shared spots near you and get notified when parking opens up.' },
     { target: 'share-spot', title: 'Share a Spot',        body: 'Leaving? Tap here to ping your spot so a neighbor can grab it.' },
     { target: 'my-car',     title: 'My Car',              body: 'Save where you parked and set a private reminder.' },
+    { target: 'search',     title: 'Find Parking Nearby', body: 'Search a neighborhood or street to explore parking around you.' },
+    { target: 'bell',       title: 'Nearby Activity',     body: 'See shared spots near you and get notified when parking opens up.' },
+    { target: 'ai',         title: 'Scan Street Signs',   body: 'Confused by a sign? Use AI to understand parking rules.' },
 ];
 
 function getTargetRect(target: string): DOMRect | null {
@@ -107,7 +108,7 @@ export const AppTour: React.FC<AppTourProps> = ({ onDone }) => {
                     role="dialog"
                     aria-modal="true"
                     aria-label="Welcome to ParQueen"
-                    className="relative w-full max-w-[320px] bg-[var(--color-card)] rounded-3xl shadow-2xl border border-white/10 px-6 py-7"
+                    className="relative w-full max-w-[320px] bg-[var(--color-card)] rounded-3xl shadow-2xl border border-white/10 px-6 py-8"
                     style={{
                         transform: visible ? 'scale(1)' : 'scale(0.92)',
                         opacity: visible ? 1 : 0,
@@ -116,15 +117,12 @@ export const AppTour: React.FC<AppTourProps> = ({ onDone }) => {
                             : 'transform 280ms cubic-bezier(0.34,1.56,0.64,1), opacity 200ms ease-out',
                     }}
                 >
-                    <div className="w-11 h-11 rounded-2xl bg-[#1e75ff]/15 border border-[#1e75ff]/20 flex items-center justify-center mb-4">
-                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                            <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="#38bdf8" />
-                            <circle cx="12" cy="9" r="2.8" fill="var(--color-card)" />
-                        </svg>
+                    <div className="flex justify-center mb-5">
+                        <img src={ParqueenLogo} alt="ParQueen" className="w-16 h-16 object-contain drop-shadow-lg" />
                     </div>
 
-                    <h2 className="text-[20px] font-bold text-[var(--color-text)] mb-2 leading-tight">{WELCOME.title}</h2>
-                    <p className="text-[14px] text-[var(--color-text-secondary)] leading-relaxed mb-7">{WELCOME.body}</p>
+                    <h2 className="text-[20px] font-bold text-[var(--color-text)] mb-2 leading-tight text-center">{WELCOME.title}</h2>
+                    <p className="text-[14px] text-[var(--color-text-secondary)] leading-relaxed mb-7 text-center">{WELCOME.body}</p>
 
                     <div className="flex gap-3">
                         <button
