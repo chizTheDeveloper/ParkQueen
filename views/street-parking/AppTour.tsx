@@ -118,7 +118,7 @@ export const AppTour: React.FC<AppTourProps> = ({ onDone }) => {
                     }}
                 >
                     <div className="flex justify-center mb-5">
-                        <img src={ParqueenLogo} alt="ParQueen" className="w-16 h-16 object-contain drop-shadow-lg" />
+                        <img src={ParqueenLogo} alt="ParQueen" className="w-32 h-32 object-contain drop-shadow-lg" />
                     </div>
 
                     <h2 className="text-[20px] font-bold text-[var(--color-text)] mb-2 leading-tight text-center">{WELCOME.title}</h2>
