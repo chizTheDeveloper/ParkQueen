@@ -1,189 +1,218 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, MapPin } from 'lucide-react';
+import { ArrowLeft, MapPin, Bell } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, where, onSnapshot, Timestamp } from 'firebase/firestore';
 
-const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
-
 interface NotificationsViewProps {
-  user: any;
-  onBack: () => void;
+    user: any;
+    onBack: () => void;
 }
 
-const deg2rad = (deg: number) => deg * (Math.PI / 180);
+const getDistanceKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
 
-const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-  const R = 6371; // Earth radius in km
-  const dLat = deg2rad(lat2 - lat1);
-  const dLon = deg2rad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c; // Distance in km
+const formatDistance = (km: number): string => {
+    const miles = km * 0.621371;
+    if (miles < 0.1) return `${Math.round(km * 3280.84)} ft`;
+    return `${miles.toFixed(1)} mi`;
+};
+
+const relativeTime = (ts: any): string => {
+    if (!ts) return '';
+    const ms = typeof ts.toMillis === 'function' ? ts.toMillis() : (ts.seconds ?? 0) * 1000;
+    const diff = Math.floor((Date.now() - ms) / 1000);
+    if (diff < 60) return 'just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
 };
 
 export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBack }) => {
-  const [spots, setSpots] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
-  const [addresses, setAddresses] = useState<Record<string, string>>({});
+    const [spots, setSpots] = useState<any[]>([]);
+    const [spotsLoading, setSpotsLoading] = useState(true);
+    const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
+    const [locationLoading, setLocationLoading] = useState(true);
 
-  // 1. Get user's current geolocation
-  useEffect(() => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setUserLocation([position.coords.latitude, position.coords.longitude]);
-        },
-        (error) => {
-          console.warn("Could not get location for distance calculation", error);
-        },
-        { enableHighAccuracy: true, timeout: 10000 }
-      );
-    }
-  }, []);
+    const lastViewed = parseInt(localStorage.getItem('lastViewedNotifications') || '0', 10);
 
-  // 2. Query active spots from Firestore
-  useEffect(() => {
-    if (!db) return;
-    const now = Timestamp.now();
-    const q = query(
-      collection(db, "spots"),
-      where("expiresAt", ">", now)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const activeSpots = snapshot.docs
-        .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }) as any)
-        .filter((s) => s.finderId !== user?.id);
-
-      // Sort descending by reportedAt time
-      activeSpots.sort((a, b) => {
-        const timeA = a.reportedAt?.toMillis() || 0;
-        const timeB = b.reportedAt?.toMillis() || 0;
-        return timeB - timeA;
-      });
-
-      setSpots(activeSpots);
-      setLoading(false);
-    }, (error) => {
-      console.error("Error listening to spots:", error);
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  // 3. Geocode spots to get real street addresses using Mapbox API
-  useEffect(() => {
-    if (spots.length === 0 || !MAPBOX_TOKEN) return;
-
-    spots.forEach(async (spot) => {
-      const cacheKey = `${spot.lat},${spot.lng}`;
-      if (addresses[cacheKey]) return; // already geocoded
-
-      try {
-        const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${spot.lng},${spot.lat}.json?access_token=${MAPBOX_TOKEN}&limit=1`;
-        const res = await fetch(url);
-        const data = await res.json();
-        if (data.features && data.features.length > 0) {
-          const address = data.features[0].place_name;
-          setAddresses((prev) => ({ ...prev, [cacheKey]: address }));
-        } else {
-          setAddresses((prev) => ({ ...prev, [cacheKey]: `${spot.lat.toFixed(4)}, ${spot.lng.toFixed(4)}` }));
+    // Geolocation — max 5s wait before showing location-needed state
+    useEffect(() => {
+        if (!navigator.geolocation) {
+            setLocationLoading(false);
+            return;
         }
-      } catch (err) {
-        console.warn("Mapbox geocoding error:", err);
-      }
-    });
-  }, [spots, addresses]);
+        const timer = setTimeout(() => setLocationLoading(false), 5000);
+        navigator.geolocation.getCurrentPosition(
+            pos => {
+                clearTimeout(timer);
+                setUserLocation([pos.coords.latitude, pos.coords.longitude]);
+                setLocationLoading(false);
+            },
+            () => {
+                clearTimeout(timer);
+                setLocationLoading(false);
+            },
+            { enableHighAccuracy: true, timeout: 10000 }
+        );
+        return () => clearTimeout(timer);
+    }, []);
 
-  return (
-    <div className="h-full bg-[var(--color-bg)] flex flex-col pt-4">
-      {/* Header */}
-      <div className="flex items-center gap-4 px-4 py-4 border-b border-[var(--color-border)]">
-        <button 
-          onClick={onBack} 
-          className="p-2 -ml-2 text-[var(--color-text)] hover:bg-white/5 rounded-full transition-colors"
-        >
-          <ArrowLeft size={24} />
-        </button>
-        <h1 className="text-xl font-bold text-[var(--color-text)]">Notifications</h1>
-      </div>
+    // Active spots listener — own pings excluded
+    useEffect(() => {
+        if (!db) return;
+        const q = query(collection(db, 'spots'), where('expiresAt', '>', Timestamp.now()));
+        return onSnapshot(q, snap => {
+            const all = snap.docs
+                .map(d => ({ id: d.id, ...d.data() }) as any)
+                .filter(s => s.finderId !== user?.id);
+            all.sort((a, b) => (b.reportedAt?.toMillis() || 0) - (a.reportedAt?.toMillis() || 0));
+            setSpots(all);
+            setSpotsLoading(false);
+        }, () => setSpotsLoading(false));
+    }, [user?.id]);
 
-      {/* List */}
-      <div className="flex-1 overflow-y-auto no-scrollbar pb-24">
-        {loading ? (
-          <div className="flex justify-center p-10">
-            <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full"></div>
-          </div>
-        ) : spots.length === 0 ? (
-          <div className="text-center p-10 text-gray-500">
-            <p>No active parking alerts near you.</p>
-          </div>
-        ) : (
-          spots.map((spot, index) => {
-            const cacheKey = `${spot.lat},${spot.lng}`;
-            const address = addresses[cacheKey] || "Resolving address...";
-            
-            let distanceStr = "";
-            let isNear = false;
-            
-            if (userLocation) {
-              const distanceKm = getDistance(userLocation[0], userLocation[1], spot.lat, spot.lng);
-              isNear = distanceKm <= 2.0; // Mark as near if within 2km
-              if (distanceKm < 1.0) {
-                distanceStr = `${Math.round(distanceKm * 1000)} m`;
-              } else {
-                distanceStr = `${distanceKm.toFixed(1)} km`;
-              }
-            }
+    const isLoading = spotsLoading || locationLoading;
 
-            return (
-              <div 
-                key={spot.id} 
-                className={`flex items-start gap-4 p-4 border-b border-[var(--color-border)] hover:bg-white/5/50 transition-colors cursor-pointer ${
-                  index % 2 === 0 ? 'bg-[var(--color-bg)]' : 'bg-[var(--color-surface)]'
-                }`}
-              >
-                {/* Map Pin Icon Container */}
-                <div className="w-14 h-14 rounded-2xl overflow-hidden shrink-0 border border-[var(--color-border)] shadow-sm bg-blue-900/20 flex items-center justify-center text-blue-400">
-                  <MapPin size={24} />
-                </div>
+    // Only show spots within 2km when location is available
+    const nearbySpots = userLocation
+        ? spots.filter(s => getDistanceKm(userLocation[0], userLocation[1], s.lat, s.lng) <= 2.0)
+        : [];
 
-                {/* Content */}
-                <div className="flex-1 min-w-0 pt-0.5">
-                  <div className="flex flex-wrap items-baseline gap-x-1 mb-1">
-                    <span className="font-bold text-[var(--color-text)] text-sm leading-tight">
-                      {spot.finderName || "Someone"}
-                    </span>
-                    <span className="text-[var(--color-text-secondary)] text-sm leading-tight">
-                      pinged a {spot.type} spot
-                    </span>
-                  </div>
-                  
-                  <div className="text-queen-400 text-xs font-bold mb-1 tracking-wide">
-                    {isNear ? "Near you" : "Parking Alert"}
-                  </div>
-                  
-                  <div className="text-gray-500 text-xs truncate">
-                    {address}
-                  </div>
-                </div>
+    const showList = !isLoading && !!userLocation && nearbySpots.length > 0;
+    const showEmpty = !isLoading && !!userLocation && nearbySpots.length === 0;
+    const showNoLocation = !isLoading && !userLocation;
 
-                {/* Distance */}
-                {distanceStr && (
-                  <div className="text-[var(--color-text-secondary)] text-xs font-medium whitespace-nowrap self-end mb-1">
-                    {distanceStr}
-                  </div>
+    return (
+        <div className="h-full bg-[var(--color-bg)] flex flex-col">
+            {/* Header */}
+            <div
+                className="flex items-center gap-3 px-4 pb-4 border-b border-[var(--color-border)] shrink-0"
+                style={{ paddingTop: 'calc(env(safe-area-inset-top) + 16px)' }}
+            >
+                <button
+                    onClick={onBack}
+                    className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-white/5 text-[var(--color-text)] transition-colors"
+                    aria-label="Back"
+                >
+                    <ArrowLeft size={20} />
+                </button>
+                <h1 className="text-[18px] font-bold text-[var(--color-text)]">Nearby Activity</h1>
+            </div>
+
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto no-scrollbar">
+
+                {/* Loading */}
+                {isLoading && (
+                    <div className="flex justify-center items-center h-48">
+                        <div className="w-7 h-7 rounded-full border-2 border-[#1e75ff] border-t-transparent animate-spin" />
+                    </div>
                 )}
-              </div>
-            );
-          })
-        )}
-      </div>
-    </div>
-  );
+
+                {/* Location unavailable */}
+                {showNoLocation && (
+                    <div className="flex flex-col items-center justify-center px-8 py-24 text-center gap-3">
+                        <div className="w-16 h-16 rounded-full bg-[#1e75ff]/10 border border-[#1e75ff]/20 flex items-center justify-center mb-1">
+                            <MapPin size={28} className="text-[#38bdf8]" />
+                        </div>
+                        <p className="text-[17px] font-bold text-[var(--color-text)]">Location needed</p>
+                        <p className="text-[13px] text-[var(--color-text-secondary)] leading-relaxed max-w-[240px]">
+                            Turn on location to see shared spots near you.
+                        </p>
+                    </div>
+                )}
+
+                {/* Location available, no nearby spots */}
+                {showEmpty && (
+                    <div className="flex flex-col items-center justify-center px-8 py-24 text-center gap-3">
+                        <div className="w-16 h-16 rounded-full bg-[#1e75ff]/10 border border-[#1e75ff]/20 flex items-center justify-center mb-1">
+                            <Bell size={28} className="text-[#38bdf8]" />
+                        </div>
+                        <p className="text-[17px] font-bold text-[var(--color-text)]">All clear nearby</p>
+                        <p className="text-[13px] text-[var(--color-text-secondary)] leading-relaxed max-w-[240px]">
+                            No shared spots right now. When a neighbor leaves, you'll see it here first.
+                        </p>
+                    </div>
+                )}
+
+                {/* Spot list */}
+                {showList && (
+                    <div className="px-3 py-3 flex flex-col gap-2 pb-10">
+                        {nearbySpots.map(spot => {
+                            const km = userLocation
+                                ? getDistanceKm(userLocation[0], userLocation[1], spot.lat, spot.lng)
+                                : null;
+                            const distStr = km !== null ? formatDistance(km) : null;
+                            const time = relativeTime(spot.reportedAt);
+                            const isNew = (spot.reportedAt?.toMillis?.() || 0) > lastViewed;
+                            const isClaimed = spot.status === 'interested';
+                            const expiresMs = spot.expiresAt?.toMillis?.() || 0;
+                            const expiringSoon = expiresMs > 0 && (expiresMs - Date.now()) < 5 * 60 * 1000;
+                            const address = spot.address || 'Shared spot nearby';
+                            const finderName = spot.finderName || spot.username || 'Someone nearby';
+
+                            return (
+                                <button
+                                    key={spot.id}
+                                    onClick={onBack}
+                                    className="w-full text-left bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl px-4 py-3.5 flex items-start gap-3 active:scale-[0.99] transition-transform"
+                                >
+                                    {/* Icon with unread dot */}
+                                    <div className="relative shrink-0 mt-0.5">
+                                        <div className="w-9 h-9 rounded-full bg-[#1e75ff]/12 border border-[#1e75ff]/25 flex items-center justify-center">
+                                            <MapPin size={16} className="text-[#38bdf8]" />
+                                        </div>
+                                        {isNew && (
+                                            <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[#38bdf8] border-2 border-[var(--color-card)]" />
+                                        )}
+                                    </div>
+
+                                    {/* Content */}
+                                    <div className="flex-1 min-w-0">
+                                        {/* Name + time */}
+                                        <div className="flex items-baseline justify-between gap-2 mb-0.5">
+                                            <p className="text-[13px] text-[var(--color-text)] leading-snug truncate">
+                                                <span className="font-semibold">{finderName}</span>
+                                                <span className="text-[var(--color-text-secondary)] font-normal"> shared a spot</span>
+                                            </p>
+                                            {time && (
+                                                <span className="text-[11px] text-[var(--color-text-secondary)] shrink-0">{time}</span>
+                                            )}
+                                        </div>
+
+                                        {/* Address */}
+                                        <p className="text-[12px] text-[var(--color-text-secondary)] truncate mb-2">{address}</p>
+
+                                        {/* Distance + status chip */}
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                            {distStr && (
+                                                <span className="text-[11px] text-[var(--color-text-secondary)]">{distStr} away</span>
+                                            )}
+                                            {distStr && (
+                                                <span className="text-[var(--color-border)] text-[10px] leading-none">·</span>
+                                            )}
+                                            {expiringSoon ? (
+                                                <span className="text-[11px] font-semibold text-amber-400">Expiring soon</span>
+                                            ) : isClaimed ? (
+                                                <span className="text-[11px] font-semibold text-[#38bdf8]">Someone's on the way</span>
+                                            ) : (
+                                                <span className="text-[11px] font-semibold text-emerald-400">Available now</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
 };
