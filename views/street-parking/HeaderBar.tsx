@@ -65,7 +65,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 }) => {
     return (
         <header style={{ paddingTop: 'env(safe-area-inset-top)' }} className="w-full flex flex-col gap-1.5 pointer-events-auto">
-            <div className="w-full max-w-[380px] mx-auto bg-[var(--color-card)] backdrop-blur-xl border border-[var(--color-border)] rounded-full h-[50px] px-3.5 flex items-center justify-between shadow-xl transition-all duration-300">
+            <div data-tour="search" className="w-full max-w-[380px] mx-auto bg-[var(--color-card)] backdrop-blur-xl border border-[var(--color-border)] rounded-full h-[50px] px-3.5 flex items-center justify-between shadow-xl transition-all duration-300">
                 <UserAvatar user={user} onClick={() => setView(AppView.PROFILE)} />
 
                 <div className="flex-1 mx-2.5 flex items-center gap-2.5">
@@ -83,6 +83,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 
                 <div className="flex items-center gap-1">
                     <button
+                        data-tour="ai"
                         type="button"
                         aria-label="AI Sign Scanner"
                         onClick={() => setView(AppView.AI_ASSISTANT)}
@@ -107,6 +108,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                     </button>
 
                     <button
+                        data-tour="bell"
                         type="button"
                         aria-label="Notifications"
                         onClick={() => {

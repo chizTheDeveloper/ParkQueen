@@ -87,9 +87,10 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     useEffect(() => {
         if (!mapReady || !user?.id) return;
         if (localStorage.getItem(TOUR_KEY)) return;
+        if (selectedItem || stackGroup) return;
         const t = setTimeout(() => setShowTour(true), 400);
         return () => clearTimeout(t);
-    }, [mapReady, user?.id]);
+    }, [mapReady, user?.id, selectedItem, stackGroup]);
 
     // --- Custom hooks ---
 
@@ -1871,6 +1872,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     <div className="flex flex-col items-end gap-2 max-w-[380px] mx-auto w-full mb-2">
                         {userLocation && (
                             <button
+                                data-tour="my-car"
                                 onClick={() => {
                                     if (!savedSpot) saveMySpot();
                                     else if (isNearSavedSpot) setShowDepartureSheet(true);
@@ -1916,6 +1918,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                         const isMyCarMode = !!savedSpot;
                         return (
                             <button
+                                data-tour="share-spot"
                                 onClick={() => {
                                     if (isMyCarMode) {
                                         if (mapRef.current) {

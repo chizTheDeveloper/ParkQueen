@@ -1,138 +1,238 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { MapPin, Car, Share2, Bell, ScanLine } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 
 export const TOUR_KEY = 'parqueenAppTourSeen_v1';
 
-const TOUR_STEPS = [
-    {
-        Icon: MapPin,
-        title: 'Welcome to ParQueen',
-        body: 'Save your car, find shared spots, and help nearby drivers.',
-    },
-    {
-        Icon: Car,
-        title: 'Save Your Spot',
-        body: 'Tap My Car to remember where you parked and set a private reminder.',
-    },
-    {
-        Icon: Share2,
-        title: 'Share a Spot',
-        body: 'Leaving? Ping your spot so a neighbor can grab it.',
-    },
-    {
-        Icon: Bell,
-        title: 'Nearby Activity',
-        body: 'See shared spots around you and get notified when parking opens nearby.',
-    },
-    {
-        Icon: ScanLine,
-        title: 'Scan Street Signs',
-        body: 'Use the AI assistant to understand confusing parking signs.',
-    },
-] as const;
+interface CoachStep {
+    target: string;
+    title: string;
+    body: string;
+}
+
+const WELCOME = {
+    title: 'Welcome to ParQueen',
+    body: 'Save your car, find shared spots, and help nearby drivers.',
+};
+
+const COACH_STEPS: CoachStep[] = [
+    { target: 'search',     title: 'Find Parking Nearby', body: 'Search a neighborhood or street to explore parking around you.' },
+    { target: 'ai',         title: 'Scan Street Signs',   body: 'Confused by a sign? Use AI to understand parking rules.' },
+    { target: 'bell',       title: 'Nearby Activity',     body: 'See shared spots near you and get notified when parking opens up.' },
+    { target: 'share-spot', title: 'Share a Spot',        body: 'Leaving? Tap here to ping your spot so a neighbor can grab it.' },
+    { target: 'my-car',     title: 'My Car',              body: 'Save where you parked and set a private reminder.' },
+];
+
+function getTargetRect(target: string): DOMRect | null {
+    const el = document.querySelector<HTMLElement>(`[data-tour="${target}"]`);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) return null;
+    return r;
+}
 
 interface AppTourProps {
     onDone: () => void;
 }
 
 export const AppTour: React.FC<AppTourProps> = ({ onDone }) => {
-    const [step, setStep] = useState(0);
+    const [phase, setPhase] = useState<'welcome' | 'coach'>('welcome');
+    const [steps, setSteps] = useState<CoachStep[]>([]);
+    const [stepIndex, setStepIndex] = useState(0);
+    const [rect, setRect] = useState<DOMRect | null>(null);
     const [visible, setVisible] = useState(false);
     const dismissedRef = useRef(false);
-    const total = TOUR_STEPS.length;
-    const isLast = step === total - 1;
-
-    // Slide-up entrance — same requestAnimationFrame pattern as BottomSheet
-    useEffect(() => {
-        requestAnimationFrame(() => setVisible(true));
-    }, []);
-
-    const dismiss = () => {
-        if (dismissedRef.current) return;
-        dismissedRef.current = true;
-        setVisible(false);
-        localStorage.setItem(TOUR_KEY, '1');
-        setTimeout(onDone, 300);
-    };
-
-    useEffect(() => {
-        const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') dismiss(); };
-        window.addEventListener('keydown', handler);
-        return () => window.removeEventListener('keydown', handler);
-    }, []);
 
     const prefersReducedMotion =
         typeof window !== 'undefined' &&
         window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    const { Icon, title, body } = TOUR_STEPS[step];
+    useEffect(() => {
+        requestAnimationFrame(() => setVisible(true));
+    }, []);
+
+    const dismiss = useCallback(() => {
+        if (dismissedRef.current) return;
+        dismissedRef.current = true;
+        setVisible(false);
+        localStorage.setItem(TOUR_KEY, '1');
+        setTimeout(onDone, prefersReducedMotion ? 0 : 300);
+    }, [onDone, prefersReducedMotion]);
+
+    useEffect(() => {
+        const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') dismiss(); };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, [dismiss]);
+
+    const updateRect = useCallback(() => {
+        if (phase !== 'coach' || steps.length === 0) return;
+        const step = steps[stepIndex];
+        if (step) setRect(getTargetRect(step.target));
+    }, [phase, steps, stepIndex]);
+
+    useEffect(() => { updateRect(); }, [updateRect]);
+
+    useEffect(() => {
+        let t: ReturnType<typeof setTimeout>;
+        const h = () => { clearTimeout(t); t = setTimeout(updateRect, 150); };
+        window.addEventListener('resize', h);
+        return () => { window.removeEventListener('resize', h); clearTimeout(t); };
+    }, [updateRect]);
+
+    const startTour = () => {
+        const available = COACH_STEPS.filter(s => getTargetRect(s.target) !== null);
+        setSteps(available);
+        setStepIndex(0);
+        setPhase('coach');
+    };
+
+    const advance = () => {
+        if (stepIndex < steps.length - 1) {
+            setStepIndex(i => i + 1);
+        } else {
+            dismiss();
+        }
+    };
+
+    // ── WELCOME CARD ─────────────────────────────────────────────
+    if (phase === 'welcome') {
+        return (
+            <div
+                className="fixed inset-0 flex items-center justify-center p-6"
+                style={{ zIndex: 40 }}
+            >
+                {/* Dark backdrop — no onClick, does not dismiss */}
+                <div className="absolute inset-0 bg-black/65" aria-hidden="true" />
+
+                <div
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Welcome to ParQueen"
+                    className="relative w-full max-w-[320px] bg-[var(--color-card)] rounded-3xl shadow-2xl border border-white/10 px-6 py-7"
+                    style={{
+                        transform: visible ? 'scale(1)' : 'scale(0.92)',
+                        opacity: visible ? 1 : 0,
+                        transition: prefersReducedMotion
+                            ? 'none'
+                            : 'transform 280ms cubic-bezier(0.34,1.56,0.64,1), opacity 200ms ease-out',
+                    }}
+                >
+                    <div className="w-11 h-11 rounded-2xl bg-[#1e75ff]/15 border border-[#1e75ff]/20 flex items-center justify-center mb-4">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="#38bdf8" />
+                            <circle cx="12" cy="9" r="2.8" fill="var(--color-card)" />
+                        </svg>
+                    </div>
+
+                    <h2 className="text-[20px] font-bold text-[var(--color-text)] mb-2 leading-tight">{WELCOME.title}</h2>
+                    <p className="text-[14px] text-[var(--color-text-secondary)] leading-relaxed mb-7">{WELCOME.body}</p>
+
+                    <div className="flex gap-3">
+                        <button
+                            onClick={dismiss}
+                            className="flex-1 py-3 rounded-full border border-[var(--color-border)] text-[13px] font-semibold text-[var(--color-text-secondary)] hover:bg-white/5 active:scale-[0.98] transition-all min-h-[44px]"
+                        >
+                            Skip
+                        </button>
+                        <button
+                            onClick={startTour}
+                            className="flex-1 py-3 rounded-full text-[13px] font-bold text-white active:scale-[0.98] transition-all min-h-[44px]"
+                            style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}
+                        >
+                            Start Tour
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // ── COACH MARK ───────────────────────────────────────────────
+    const step = steps[stepIndex];
+    if (!step || !rect) return null;
+
+    const PAD = 10;
+    const MIN = 44;
+    const ringW = Math.max(rect.width + PAD * 2, MIN);
+    const ringH = Math.max(rect.height + PAD * 2, MIN);
+    const ringTop = rect.top + rect.height / 2 - ringH / 2;
+    const ringLeft = rect.left + rect.width / 2 - ringW / 2;
+
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const tooltipW = Math.min(300, vw - 32);
+    const tooltipLeft = Math.max(16, Math.min(vw - tooltipW - 16, vw / 2 - tooltipW / 2));
+    const belowTarget = (rect.top + rect.height / 2) < vh / 2;
 
     return (
-        <div className="absolute inset-0 z-40 flex flex-col justify-end">
-            {/* Backdrop — blocks map taps, clicking it skips */}
+        <>
+            {/* Transparent click-blocker: absorbs all taps, never dismisses */}
             <div
-                className={`absolute inset-0 bg-black/50 transition-opacity duration-300 ${visible ? 'opacity-100' : 'opacity-0'}`}
-                onClick={dismiss}
                 aria-hidden="true"
+                style={{ position: 'fixed', inset: 0, zIndex: 40 }}
             />
 
-            {/* Panel */}
+            {/* Spotlight ring — transparent center, box-shadow scrim fills the rest */}
+            <div
+                aria-hidden="true"
+                style={{
+                    position: 'fixed',
+                    top: ringTop,
+                    left: ringLeft,
+                    width: ringW,
+                    height: ringH,
+                    borderRadius: 9999,
+                    zIndex: 41,
+                    pointerEvents: 'none',
+                    boxShadow: visible
+                        ? '0 0 0 9999px rgba(0,0,0,0.65), 0 0 0 3px #38bdf8, 0 0 20px rgba(56,189,248,0.4)'
+                        : '0 0 0 9999px rgba(0,0,0,0)',
+                    transition: prefersReducedMotion
+                        ? 'none'
+                        : 'box-shadow 300ms ease, top 250ms cubic-bezier(0.4,0,0.2,1), left 250ms cubic-bezier(0.4,0,0.2,1), width 250ms cubic-bezier(0.4,0,0.2,1), height 250ms cubic-bezier(0.4,0,0.2,1)',
+                }}
+            />
+
+            {/* Tooltip card */}
             <div
                 role="dialog"
                 aria-modal="true"
-                aria-label={`App tour, step ${step + 1} of ${total}`}
-                className="relative bg-[var(--color-surface)] rounded-t-3xl shadow-2xl px-6 pb-10 pt-6"
+                aria-label={`App tour, step ${stepIndex + 1} of ${steps.length}`}
+                className="bg-[var(--color-card)] border border-white/10 rounded-2xl shadow-2xl px-5 py-4"
                 style={{
-                    transform: visible ? 'translateY(0)' : 'translateY(100%)',
-                    transition: prefersReducedMotion ? 'none' : 'transform 300ms ease-out',
+                    position: 'fixed',
+                    ...(belowTarget
+                        ? { top: ringTop + ringH + 14 }
+                        : { bottom: vh - ringTop + 14 }),
+                    left: tooltipLeft,
+                    width: tooltipW,
+                    zIndex: 42,
+                    opacity: visible ? 1 : 0,
+                    transform: visible ? 'none' : (belowTarget ? 'translateY(6px)' : 'translateY(-6px)'),
+                    transition: prefersReducedMotion ? 'none' : 'opacity 200ms ease, transform 200ms ease',
                 }}
             >
-                {/* Step icon */}
-                <div className="w-12 h-12 rounded-2xl bg-[#1e75ff]/15 flex items-center justify-center mb-4">
-                    <Icon size={24} className="text-[#1e75ff]" />
-                </div>
+                <p className="text-[10px] font-bold tracking-[0.15em] text-[#38bdf8] uppercase mb-2">
+                    {stepIndex + 1} of {steps.length}
+                </p>
+                <h3 className="text-[16px] font-bold text-[var(--color-text)] mb-1 leading-tight">{step.title}</h3>
+                <p className="text-[13px] text-[var(--color-text-secondary)] leading-relaxed mb-4">{step.body}</p>
 
-                {/* Copy */}
-                <h2 className="text-lg font-bold text-[var(--color-text)] mb-1.5">{title}</h2>
-                <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed mb-6">{body}</p>
-
-                {/* Progress dots */}
-                <div className="flex gap-1.5 mb-6" aria-hidden="true">
-                    {TOUR_STEPS.map((_, i) => (
-                        <div
-                            key={i}
-                            className={`h-1.5 rounded-full transition-all duration-300 ${
-                                i === step ? 'w-5 bg-[#1e75ff]' : 'w-1.5 bg-[var(--color-border)]'
-                            }`}
-                        />
-                    ))}
-                </div>
-
-                {/* Buttons */}
-                <div className="flex gap-3">
+                <div className="flex gap-2.5">
                     <button
                         onClick={dismiss}
-                        className="flex-1 py-3 rounded-full border border-[var(--color-border)] text-sm font-semibold text-[var(--color-text-secondary)] hover:bg-white/5 active:scale-[0.98] transition-all min-h-[44px]"
+                        className="flex-1 py-2.5 rounded-full border border-[var(--color-border)] text-[12px] font-semibold text-[var(--color-text-secondary)] hover:bg-white/5 active:scale-[0.98] transition-all min-h-[44px]"
                     >
                         Skip
                     </button>
-                    {isLast ? (
-                        <button
-                            onClick={dismiss}
-                            className="flex-1 py-3 rounded-full bg-gradient-to-r from-blue-600 to-blue-500 text-sm font-bold text-white shadow-lg shadow-blue-500/20 active:scale-[0.98] transition-all min-h-[44px]"
-                        >
-                            Done
-                        </button>
-                    ) : (
-                        <button
-                            onClick={() => setStep(s => s + 1)}
-                            className="flex-1 py-3 rounded-full bg-gradient-to-r from-blue-600 to-blue-500 text-sm font-bold text-white shadow-lg shadow-blue-500/20 active:scale-[0.98] transition-all min-h-[44px]"
-                        >
-                            Next
-                        </button>
-                    )}
+                    <button
+                        onClick={advance}
+                        className="flex-1 py-2.5 rounded-full text-[12px] font-bold text-white active:scale-[0.98] transition-all min-h-[44px]"
+                        style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}
+                    >
+                        {stepIndex === steps.length - 1 ? 'Done' : 'Next'}
+                    </button>
                 </div>
             </div>
-        </div>
+        </>
     );
 };
