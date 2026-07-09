@@ -5,7 +5,7 @@ import Screen3 from '../assets/ParQueenScreen3.jpg';
 
 const sections = [
     { image: Screen1, eyebrow: 'THE PROBLEM', headline: 'Still circling the block?', subtext: 'Stop driving in circles looking for parking' },
-    { image: Screen2, eyebrow: 'THE SOLUTION', headline: 'Know before it opens up', subtext: 'Get notified the moment a spot frees up nearby' },
+    { image: Screen2, eyebrow: 'THE SOLUTION', headline: 'Know before it opens up', subtext: 'See shared spots open up near you in real time' },
     { image: Screen3, eyebrow: 'THE COMMUNITY', headline: 'Help your neighbors', subtext: 'Get help from your neighbors, too' },
 ] as const;
 
@@ -14,14 +14,15 @@ export const OnboardingView = ({ onComplete }: { onComplete: () => void }) => {
     const [animating, setAnimating] = useState(false);
     const touchStartX = useRef<number | null>(null);
 
-    const advance = () => {
-        if (animating) return;
-        if (current < sections.length - 1) {
-            setAnimating(true);
-            setCurrent(c => c + 1);
-            setTimeout(() => setAnimating(false), 400);
-        }
+    const goTo = (index: number) => {
+        if (animating || index === current) return;
+        setAnimating(true);
+        setCurrent(index);
+        setTimeout(() => setAnimating(false), 400);
     };
+
+    const advance = () => goTo(Math.min(current + 1, sections.length - 1));
+    const goBack = () => goTo(Math.max(current - 1, 0));
 
     const handleTouchStart = (e: React.TouchEvent) => {
         touchStartX.current = e.touches[0].clientX;
@@ -32,6 +33,7 @@ export const OnboardingView = ({ onComplete }: { onComplete: () => void }) => {
         const dx = e.changedTouches[0].clientX - touchStartX.current;
         touchStartX.current = null;
         if (dx < -40) advance();
+        else if (dx > 40) goBack();
     };
 
     return (
@@ -55,7 +57,7 @@ export const OnboardingView = ({ onComplete }: { onComplete: () => void }) => {
                 >
                     <img
                         src={s.image}
-                        alt={s.headline}
+                        alt=""
                         className="absolute inset-0 w-full h-full object-cover"
                         draggable={false}
                     />
@@ -91,8 +93,10 @@ export const OnboardingView = ({ onComplete }: { onComplete: () => void }) => {
 
             <div className="absolute bottom-0 inset-x-0 flex justify-center gap-2 pb-5">
                 {sections.map((_, i) => (
-                    <div
+                    <button
                         key={i}
+                        aria-label={`Go to slide ${i + 1}`}
+                        onClick={(e) => { e.stopPropagation(); goTo(i); }}
                         className={`h-1.5 rounded-full transition-all duration-300 ${
                             i === current
                                 ? 'w-6 bg-blue-500'
