@@ -108,7 +108,7 @@ export const AppTour: React.FC<AppTourProps> = ({ onDone }) => {
                     role="dialog"
                     aria-modal="true"
                     aria-label="Welcome to ParQueen"
-                    className="relative w-full max-w-[320px] bg-[var(--color-card)] rounded-3xl shadow-2xl border border-white/10 px-6 py-8"
+                    className="relative w-full max-w-[320px] flex flex-col items-center"
                     style={{
                         transform: visible ? 'scale(1)' : 'scale(0.92)',
                         opacity: visible ? 1 : 0,
@@ -117,12 +117,21 @@ export const AppTour: React.FC<AppTourProps> = ({ onDone }) => {
                             : 'transform 280ms cubic-bezier(0.34,1.56,0.64,1), opacity 200ms ease-out',
                     }}
                 >
-                    <div className="flex justify-center mb-5">
-                        <img src={ParqueenLogo} alt="ParQueen" className="w-32 h-32 object-contain drop-shadow-lg" />
-                    </div>
+                    {/* Logo floats above the card, overlapping its top edge */}
+                    <img
+                        src={ParqueenLogo}
+                        alt="ParQueen"
+                        className="w-32 h-32 object-contain relative z-10"
+                        style={{
+                            marginBottom: '-32px',
+                            filter: 'drop-shadow(0 0 14px rgba(56,189,248,0.75)) drop-shadow(0 0 32px rgba(30,117,255,0.45))',
+                        }}
+                    />
 
-                    <h2 className="text-[20px] font-bold text-[var(--color-text)] mb-2 leading-tight text-center">{WELCOME.title}</h2>
-                    <p className="text-[14px] text-[var(--color-text-secondary)] leading-relaxed mb-7 text-center">{WELCOME.body}</p>
+                    {/* Card body — top padding makes room for the overlapping logo */}
+                    <div className="w-full bg-[var(--color-card)] rounded-3xl shadow-2xl border border-white/10 px-6 pt-12 pb-7">
+                        <h2 className="text-[20px] font-bold text-[var(--color-text)] mb-2 leading-tight text-center">{WELCOME.title}</h2>
+                        <p className="text-[14px] text-[var(--color-text-secondary)] leading-relaxed mb-7 text-center">{WELCOME.body}</p>
 
                     <div className="flex gap-3">
                         <button
@@ -138,6 +147,7 @@ export const AppTour: React.FC<AppTourProps> = ({ onDone }) => {
                         >
                             Start Tour
                         </button>
+                    </div>
                     </div>
                 </div>
             </div>
