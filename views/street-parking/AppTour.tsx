@@ -118,15 +118,57 @@ export const AppTour: React.FC<AppTourProps> = ({ onDone }) => {
                     }}
                 >
                     {/* Logo floats above the card, overlapping its top edge */}
-                    <img
-                        src={ParqueenLogo}
-                        alt="ParQueen"
-                        className="w-32 h-32 object-contain relative z-10"
-                        style={{
-                            marginBottom: '-32px',
-                            filter: 'drop-shadow(0 0 14px rgba(56,189,248,0.75)) drop-shadow(0 0 32px rgba(30,117,255,0.45))',
-                        }}
-                    />
+                    <div
+                        className="relative w-32 h-32 z-10"
+                        style={{ marginBottom: '-32px' }}
+                    >
+                        <img
+                            src={ParqueenLogo}
+                            alt="ParQueen"
+                            className="w-full h-full object-contain"
+                            style={{
+                                filter: 'drop-shadow(0 0 14px rgba(56,189,248,0.75)) drop-shadow(0 0 32px rgba(30,117,255,0.45))',
+                            }}
+                        />
+                        {/* Shine sweep — CSS-masked to logo shape so light only hits logo pixels */}
+                        <div
+                            aria-hidden="true"
+                            style={{
+                                position: 'absolute',
+                                inset: 0,
+                                WebkitMaskImage: `url(${ParqueenLogo})`,
+                                maskImage: `url(${ParqueenLogo})`,
+                                WebkitMaskSize: 'contain',
+                                maskSize: 'contain',
+                                WebkitMaskRepeat: 'no-repeat',
+                                maskRepeat: 'no-repeat',
+                                WebkitMaskPosition: 'center',
+                                maskPosition: 'center',
+                                overflow: 'hidden',
+                                pointerEvents: 'none',
+                            }}
+                        >
+                            <div
+                                style={{
+                                    position: 'absolute',
+                                    top: '-10%',
+                                    left: '-60%',
+                                    width: '45%',
+                                    height: '120%',
+                                    background: 'linear-gradient(105deg, transparent 0%, rgba(255,255,255,0.65) 50%, transparent 100%)',
+                                    transform: 'skewX(-18deg)',
+                                    animation: prefersReducedMotion ? 'none' : 'parqueen-shine 2.6s ease-in-out infinite',
+                                }}
+                            />
+                        </div>
+                        <style>{`
+                            @keyframes parqueen-shine {
+                                0%   { left: -60%; }
+                                38%  { left: 120%; }
+                                100% { left: 120%; }
+                            }
+                        `}</style>
+                    </div>
 
                     {/* Card body — top padding makes room for the overlapping logo */}
                     <div className="w-full bg-[var(--color-card)] rounded-3xl shadow-2xl border border-white/10 px-6 pt-12 pb-7">
