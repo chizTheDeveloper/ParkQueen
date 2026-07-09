@@ -13,6 +13,7 @@ export const OnboardingView = ({ onComplete }: { onComplete: () => void }) => {
     const [current, setCurrent] = useState(0);
     const [animating, setAnimating] = useState(false);
     const touchStartX = useRef<number | null>(null);
+    const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     const goTo = (index: number) => {
         if (animating || index === current) return;
@@ -50,7 +51,7 @@ export const OnboardingView = ({ onComplete }: { onComplete: () => void }) => {
                     style={{
                         transform: i === current ? 'translateX(0)' :
                             i < current ? 'translateX(-100%)' : 'translateX(100%)',
-                        transitionDuration: '400ms',
+                        transitionDuration: prefersReducedMotion ? '0ms' : '400ms',
                         transitionProperty: 'transform',
                         transitionTimingFunction: 'ease-out',
                     }}

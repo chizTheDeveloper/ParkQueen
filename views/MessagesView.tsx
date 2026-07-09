@@ -466,7 +466,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
        <div className="flex items-center justify-between px-4 mb-6">
          <div className="flex items-center gap-3">
            {onBack && (
-             <button onClick={onBack} className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] text-[var(--color-text)] hover:bg-white/10 transition-all shrink-0">
+             <button onClick={onBack} aria-label="Back" className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] text-[var(--color-text)] hover:bg-white/10 transition-all shrink-0">
                <ArrowLeft size={20} />
              </button>
            )}
@@ -505,7 +505,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
                        )}
                     </div>
                     {hasUnread && (
-                      <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-[#1e75ff] border-2 border-dark-900 rounded-full animate-pulse" />
+                      <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-[#1e75ff] border-2 border-dark-900 rounded-full animate-pulse motion-reduce:animate-none" />
                     )}
                   </div>
 
@@ -550,8 +550,8 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
             <div className="relative mb-3 flex items-center justify-center">
               <div className="w-14 h-14 rounded-full bg-[var(--color-glass)] border border-[var(--color-border)] flex items-center justify-center text-[#1e75ff] shadow-lg relative">
                 <MessageSquare size={22} fill="#1e75ff" className="text-[#1e75ff]" />
-                <Sparkles size={14} className="absolute -top-1 -right-1 text-blue-400 animate-pulse" />
-                <Sparkles size={10} className="absolute -bottom-1 -left-1 text-blue-300 animate-pulse" />
+                <Sparkles size={14} className="absolute -top-1 -right-1 text-blue-400 animate-pulse motion-reduce:animate-none" />
+                <Sparkles size={10} className="absolute -bottom-1 -left-1 text-blue-300 animate-pulse motion-reduce:animate-none" />
               </div>
             </div>
             <h3 className="text-[var(--color-text)] font-bold text-sm">All caught up!</h3>

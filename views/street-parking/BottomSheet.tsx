@@ -4,11 +4,13 @@ interface BottomSheetProps {
     isOpen: boolean;
     onClose: () => void;
     children: React.ReactNode;
+    ariaLabel?: string;
 }
 
-export const BottomSheet: React.FC<BottomSheetProps> = ({ isOpen, onClose, children }) => {
+export const BottomSheet: React.FC<BottomSheetProps> = ({ isOpen, onClose, children, ariaLabel }) => {
     const [visible, setVisible] = useState(false);
     const dragStartY = useRef<number | null>(null);
+    const sheetRef = useRef<HTMLDivElement>(null);
     const [dragOffset, setDragOffset] = useState(0);
 
     useEffect(() => {
@@ -23,6 +25,34 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({ isOpen, onClose, child
         setVisible(false);
         setTimeout(onClose, 300);
     };
+
+    useEffect(() => {
+        if (!isOpen) return;
+        const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') dismiss(); };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, [isOpen, dismiss]);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        const FOCUSABLE = 'button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href],[tabindex]:not([tabindex="-1"])';
+        const trap = (e: KeyboardEvent) => {
+            if (e.key !== 'Tab') return;
+            const container = sheetRef.current;
+            if (!container) return;
+            const focusable = Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE));
+            if (focusable.length === 0) return;
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (e.shiftKey) {
+                if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+            } else {
+                if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+            }
+        };
+        window.addEventListener('keydown', trap);
+        return () => window.removeEventListener('keydown', trap);
+    }, [isOpen]);
 
     const handleTouchStart = (e: React.TouchEvent) => {
         dragStartY.current = e.touches[0].clientY;
@@ -49,6 +79,10 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({ isOpen, onClose, child
                 onClick={dismiss}
             />
             <div
+                ref={sheetRef}
+                role="dialog"
+                aria-modal="true"
+                aria-label={ariaLabel}
                 className="absolute bottom-0 left-0 right-0 bg-[var(--color-surface)] rounded-t-3xl shadow-2xl transition-transform duration-300 ease-out max-h-[85vh] overflow-y-auto"
                 style={{ transform: visible ? `translateY(${dragOffset}px)` : 'translateY(100%)' }}
                 onTouchStart={handleTouchStart}

@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useFocusOnMount } from '../hooks/useFocusOnMount';
 import { ArrowLeft, MapPin, Bell } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, where, onSnapshot, Timestamp } from 'firebase/firestore';
@@ -39,6 +40,8 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
     const [spotsLoading, setSpotsLoading] = useState(true);
     const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
     const [locationLoading, setLocationLoading] = useState(true);
+    const headingRef = useRef<HTMLHeadingElement>(null);
+    useFocusOnMount(headingRef);
 
     const lastViewed = parseInt(localStorage.getItem('lastViewedNotifications') || '0', 10);
 
@@ -103,7 +106,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
                 >
                     <ArrowLeft size={20} />
                 </button>
-                <h1 className="text-[18px] font-bold text-[var(--color-text)]">Nearby Activity</h1>
+                <h1 ref={headingRef} tabIndex={-1} className="text-[18px] font-bold text-[var(--color-text)] focus:outline-none">Nearby Activity</h1>
             </div>
 
             {/* Body */}

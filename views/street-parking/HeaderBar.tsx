@@ -74,11 +74,14 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                         ref={inputRef}
                         type="text"
                         aria-label="Search a neighborhood"
+                        aria-expanded={searchOpen && (loading || results.length > 0)}
+                        aria-haspopup="listbox"
                         placeholder="Search a neighborhood"
                         className="bg-transparent border-none outline-none text-[var(--color-text)] text-[14px] w-full placeholder-[var(--color-text-secondary)] font-medium"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         onFocus={() => setSearchOpen(true)}
+                        onKeyDown={(e) => { if (e.key === 'Escape') handleCancelSearch(); }}
                     />
                 </div>
 
@@ -87,6 +90,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                         data-tour="ai"
                         type="button"
                         aria-label="AI Sign Scanner"
+                        title="AI Sign Scanner"
                         onClick={() => setView(AppView.AI_ASSISTANT)}
                         className="flex items-center gap-1 bg-[#1e75ff]/15 border border-[#1e75ff]/30 rounded-full px-2 py-1 text-[#38bdf8] hover:bg-[#1e75ff]/25 active:scale-95 transition-all shrink-0"
                     >
@@ -97,13 +101,14 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                     <button
                         type="button"
                         aria-label="Chat"
+                        title="Chat"
                         onClick={() => setView(AppView.MESSAGES)}
                         className="p-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-overlay)] rounded-full transition-colors relative shrink-0"
                     >
                         <div className="relative">
                             <MessageSquare size={17} />
                             {unreadMessagesCount > 0 && (
-                                <span className="absolute -top-0.5 -right-0.5 bg-[#1e75ff] w-1.5 h-1.5 rounded-full animate-pulse shadow-md" />
+                                <span className="absolute -top-0.5 -right-0.5 bg-[#1e75ff] w-1.5 h-1.5 rounded-full animate-pulse motion-reduce:animate-none shadow-md" />
                             )}
                         </div>
                     </button>
@@ -112,6 +117,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                         data-tour="bell"
                         type="button"
                         aria-label="Notifications"
+                        title="Nearby Activity"
                         onClick={() => {
                             localStorage.setItem('lastViewedNotifications', Date.now().toString());
                             localStorage.setItem('pendingUpdatesCount', '0');
@@ -123,14 +129,14 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                         <div className="relative">
                             <Bell size={17} />
                             {pendingUpdatesCount > 0 && (
-                                <span className="absolute -top-0.5 -right-0.5 bg-[#1e75ff] w-1.5 h-1.5 rounded-full animate-pulse shadow-md" />
+                                <span className="absolute -top-0.5 -right-0.5 bg-[#1e75ff] w-1.5 h-1.5 rounded-full animate-pulse motion-reduce:animate-none shadow-md" />
                             )}
                         </div>
                     </button>
                 </div>
 
                 {searchOpen && (loading || results.length > 0) && (
-                    <div className="absolute left-0 right-0 mt-2 top-full z-[9999] bg-[var(--color-glass)] backdrop-blur-xl rounded-2xl max-h-60 overflow-y-auto border border-[var(--color-border)] shadow-2xl p-2">
+                    <div aria-live="polite" className="absolute left-0 right-0 mt-2 top-full z-[9999] bg-[var(--color-glass)] backdrop-blur-xl rounded-2xl max-h-60 overflow-y-auto border border-[var(--color-border)] shadow-2xl p-2">
                         {loading && <div className="px-4 py-3 text-[var(--color-text-secondary)] text-xs">Searching…</div>}
 
                         {!loading && results.map((r: any) => (

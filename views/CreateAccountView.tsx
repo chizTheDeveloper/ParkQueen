@@ -61,6 +61,7 @@ export const CreateAccountView: React.FC<CreateAccountViewProps> = ({ onContinue
                     </div>
                     <input
                         type="tel"
+                        aria-label="Phone number"
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
                         placeholder="(555) 555-1234"

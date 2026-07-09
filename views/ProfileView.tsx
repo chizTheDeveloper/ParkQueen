@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useFocusOnMount } from '../hooks/useFocusOnMount';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { doc, updateDoc, onSnapshot, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -12,8 +13,10 @@ export const ProfileView = ({ user, onBack, setView }) => {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const [recentActivity, setRecentActivity] = useState<{ id: string; icon: string; action: string; address: string; timeAgo: string; reward: string | null }[]>([]);
   const [showCrownsInfo, setShowCrownsInfo] = useState(false);
+  useFocusOnMount(headingRef);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -130,7 +133,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
             >
               <ChevronLeft size={20} />
             </button>
-            <h2 className="text-xl font-bold text-[var(--color-text)] tracking-wide">Profile</h2>
+            <h2 ref={headingRef} tabIndex={-1} className="text-xl font-bold text-[var(--color-text)] tracking-wide focus:outline-none">Profile</h2>
             <button
               onClick={() => setView(AppView.SETTINGS)}
               aria-label="Settings"
@@ -156,14 +159,15 @@ export const ProfileView = ({ user, onBack, setView }) => {
                       <i className="fa-solid fa-user text-4xl"></i>
                     )}
                     {isUploading && (
-                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center animate-pulse">
+                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center animate-pulse motion-reduce:animate-none">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
                       </div>
                     )}
                   </div>
                   <button
                     onClick={triggerUpload}
-                    className="absolute bottom-1 right-1 w-[31px] h-[31px] rounded-full bg-[#1e75ff] border-2 border-[var(--color-bg)] flex items-center justify-center text-white cursor-pointer hover:bg-blue-600 active:scale-95 transition-all shadow-md"
+                    disabled={isUploading}
+                    className="absolute bottom-1 right-1 w-[31px] h-[31px] rounded-full bg-[#1e75ff] border-2 border-[var(--color-bg)] flex items-center justify-center text-white cursor-pointer hover:bg-blue-600 active:scale-95 transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
                     aria-label="Upload photo"
                   >
                     <Edit size={14} />
@@ -255,11 +259,12 @@ export const ProfileView = ({ user, onBack, setView }) => {
                   );
                 })()}
 
-                {uploadStatus && (
-                  <p className={`text-xs mt-2 font-semibold ${uploadStatus.includes('couldn') ? 'text-red-400' : 'text-blue-400'}`}>
-                    {uploadStatus}
-                  </p>
-                )}
+                <p
+                  aria-live="polite"
+                  className={`text-xs mt-2 font-semibold ${uploadStatus.includes('couldn') ? 'text-red-400' : 'text-blue-400'}`}
+                >
+                  {uploadStatus}
+                </p>
               </div>
             </div>
 

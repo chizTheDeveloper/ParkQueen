@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useFocusOnMount } from '../hooks/useFocusOnMount';
 import { ChevronLeft, ChevronRight, Edit, Mail, Bell, MapPin, Moon, LogOut, Trash2, Check, Navigation, ScanLine, Play } from 'lucide-react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
@@ -33,6 +34,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
     const [emailError, setEmailError] = useState('');
     const [emailSending, setEmailSending] = useState(false);
     const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
+    const headingRef = useRef<HTMLHeadingElement>(null);
+    useFocusOnMount(headingRef);
 
     useEffect(() => {
         if (otpCooldown <= 0) return;
@@ -94,10 +97,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
 
                 {/* Header */}
                 <div className="flex items-center justify-between mb-4">
-                    <button onClick={onBack} className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] text-[var(--color-text)] hover:bg-white/10 active:scale-95 transition-all shrink-0">
+                    <button onClick={onBack} aria-label="Back" className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] text-[var(--color-text)] hover:bg-white/10 active:scale-95 transition-all shrink-0">
                         <ChevronLeft size={20} />
                     </button>
-                    <h2 className="text-xl font-bold text-[var(--color-text)] tracking-wide">Settings</h2>
+                    <h2 ref={headingRef} tabIndex={-1} className="text-xl font-bold text-[var(--color-text)] tracking-wide focus:outline-none">Settings</h2>
                     <div className="w-10" />
                 </div>
 

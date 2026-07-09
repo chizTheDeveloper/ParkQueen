@@ -7,6 +7,7 @@ import { db } from '../firebase';
 import { ChevronLeft, Check, X, Loader2, ChevronDown } from 'lucide-react';
 
 import { moderateUsername, moderateDisplayName } from '../utils/moderation';
+import { useFocusOnMount } from '../hooks/useFocusOnMount';
 
 const USERNAME_REGEX = /^[a-zA-Z][a-zA-Z0-9_]*$/;
 
@@ -129,6 +130,9 @@ export const EditProfileView = ({ onBack }) => {
         (usernameChanged && usernameAvailability === 'available')
     );
 
+    const headingRef = useRef<HTMLHeadingElement>(null);
+    useFocusOnMount(headingRef);
+
     const fieldClass = "block w-full px-4 py-3.5 bg-transparent text-[var(--color-text)] outline-none text-sm placeholder:text-[var(--color-text-secondary)]";
     const rowClass = "bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl overflow-hidden";
 
@@ -140,11 +144,12 @@ export const EditProfileView = ({ onBack }) => {
                 <div className="flex items-center gap-4 mb-8">
                     <button
                         onClick={onBack}
+                        aria-label="Back"
                         className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] text-[var(--color-text)] hover:bg-white/10 transition-all shrink-0"
                     >
                         <ChevronLeft size={20} />
                     </button>
-                    <h1 className="text-xl font-bold tracking-wide">Edit Profile</h1>
+                    <h1 ref={headingRef} tabIndex={-1} className="text-xl font-bold tracking-wide focus:outline-none">Edit Profile</h1>
                 </div>
 
                 {loading ? (
@@ -163,6 +168,7 @@ export const EditProfileView = ({ onBack }) => {
                                 <div className="relative">
                                     <input
                                         type="text"
+                                        aria-label="Username"
                                         value={username}
                                         onChange={(e) => setUsername(e.target.value.replace(/\s/g, ''))}
                                         maxLength={20}
@@ -193,6 +199,7 @@ export const EditProfileView = ({ onBack }) => {
                                     </div>
                                     <input
                                         type="text"
+                                        aria-label="Full name"
                                         value={fullName}
                                         onChange={(e) => setFullName(e.target.value)}
                                         className={`${fieldClass} pb-3.5`}
@@ -208,6 +215,7 @@ export const EditProfileView = ({ onBack }) => {
                                     </div>
                                     <input
                                         type="text"
+                                        aria-label="Home area"
                                         value={homeArea}
                                         onChange={(e) => setHomeArea(e.target.value)}
                                         className={`${fieldClass} pb-3.5`}
@@ -222,6 +230,7 @@ export const EditProfileView = ({ onBack }) => {
                                         <span className="text-[10px] text-[var(--color-text-secondary)] ml-1.5 opacity-50">optional</span>
                                     </div>
                                     <select
+                                        aria-label="Driver type"
                                         value={driverType}
                                         onChange={(e) => setDriverType(e.target.value)}
                                         className={`${fieldClass} pb-3.5 pr-10 appearance-none cursor-pointer dark:[color-scheme:dark]`}
@@ -261,6 +270,7 @@ export const EditProfileView = ({ onBack }) => {
                                         ].map(({ value, setter, placeholder, options, labels }) => (
                                             <div key={placeholder} className="relative flex-1">
                                                 <select
+                                                    aria-label={`Birth ${placeholder.toLowerCase()}`}
                                                     value={value}
                                                     onChange={(e) => setter(e.target.value)}
                                                     className="w-full py-2.5 pl-3 pr-7 rounded-xl text-sm appearance-none cursor-pointer border border-[var(--color-border)] text-[var(--color-text)] outline-none focus:border-[#1e75ff] transition-all dark:[color-scheme:dark]"
@@ -284,6 +294,7 @@ export const EditProfileView = ({ onBack }) => {
                                         <span className="text-[10px] text-[var(--color-text-secondary)] ml-1.5 opacity-50">optional</span>
                                     </div>
                                     <select
+                                        aria-label="Gender"
                                         value={gender}
                                         onChange={(e) => setGender(e.target.value)}
                                         className={`${fieldClass} pb-3.5 pr-10 appearance-none cursor-pointer dark:[color-scheme:dark]`}

@@ -15,6 +15,9 @@ import { MAPBOX_TOKEN, NYC_CENTER, createMarkerElement, createStackMarkerElement
 import { VehicleIcon } from '../utils/vehicleIcon';
 import { getTitleForCrowns } from '../utils/crowns';
 
+const IMMEDIATE_PING_EXPIRY_MS = 30 * 60 * 1000;
+const SCHEDULED_PING_EXPIRY_MS = 60 * 60 * 1000;
+
 const reverseGeocode = async (lng: number, lat: number): Promise<string> => {
     try {
         const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?types=address&limit=1&access_token=${MAPBOX_TOKEN}`);
@@ -522,10 +525,10 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         Object.values(allMarkersRef.current).forEach(m => m.remove());
         allMarkersRef.current = {};
 
-        // Exclude own pings entirely — own My Car ping is managed in the session sheet,
-        // and own manual pings should not appear as community markers to the creator.
+        // Exclude only the My Car session's linked ping (shown separately in the session sheet).
+        // Own manual pings remain visible so the creator sees their own marker on the map.
         const allItems = spotData.radiusFilteredItems.filter(
-            item => item.finderId !== user?.id && item.id !== (savedSpot?.linkedPingId ?? '')
+            item => item.id !== (savedSpot?.linkedPingId ?? '')
         );
 
         // Split: community shared spots vs. paid/public (rendered individually, no stacking)
@@ -758,7 +761,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
         const now = Date.now();
         const reportedAt = departureTime ? Timestamp.fromDate(departureTime) : Timestamp.fromMillis(now);
-        const expiresAt = Timestamp.fromMillis(reportedAt.toMillis() + 60 * 60 * 1000);
+        const expiresAt = Timestamp.fromMillis(reportedAt.toMillis() + (departureTime ? SCHEDULED_PING_EXPIRY_MS : IMMEDIATE_PING_EXPIRY_MS));
         const spotId = `mycar_${user.id}_${savedSpot.sessionId}`;
         const spotRef = doc(db, 'spots', spotId);
 
@@ -858,7 +861,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
         const now = Date.now();
         const reportedAt = departureTime ? Timestamp.fromDate(departureTime) : Timestamp.fromMillis(now);
-        const expiresAt = Timestamp.fromMillis(reportedAt.toMillis() + 60 * 60 * 1000);
+        const expiresAt = Timestamp.fromMillis(reportedAt.toMillis() + (departureTime ? SCHEDULED_PING_EXPIRY_MS : IMMEDIATE_PING_EXPIRY_MS));
 
         const onSaveSuccess = () => {
             setIsPinging(false);
@@ -1105,7 +1108,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             />
 
             {/* Spot details bottom sheet */}
-            <BottomSheet isOpen={!!selectedItem && !isSpotModalOpen} onClose={() => { setSelectedItem(null); setSelectedItemManageMode(false); setSpotDetailsBackStack(null); }}>
+            <BottomSheet isOpen={!!selectedItem && !isSpotModalOpen} ariaLabel="Spot details" onClose={() => { setSelectedItem(null); setSelectedItemManageMode(false); setSpotDetailsBackStack(null); }}>
                 <SpotDetailsCard
                     selectedItem={selectedItem}
                     backLabel={spotDetailsBackStack ? `Back to ${spotDetailsBackStack.length} spots` : undefined}
@@ -1137,7 +1140,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
 
             {/* My Car — Parking Session sheet (personal only) */}
-            <BottomSheet isOpen={showSessionSheet} onClose={() => { setShowSessionSheet(false); setShowCustomReminder(false); }}>
+            <BottomSheet isOpen={showSessionSheet} ariaLabel="My Car session" onClose={() => { setShowSessionSheet(false); setShowCustomReminder(false); }}>
                 {savedSpot && (
                     <div>
                         {/* Header: left = icon + My Car + duration, right = Address label + value */}
@@ -1463,7 +1466,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             </BottomSheet>
 
             {/* Post-save offer — shown once after saveMySpot() succeeds */}
-            <BottomSheet isOpen={showPostSaveOffer} onClose={() => { setShowPostSaveOffer(false); setShowSessionSheet(true); }}>
+            <BottomSheet isOpen={showPostSaveOffer} ariaLabel="Share a spot" onClose={() => { setShowPostSaveOffer(false); setShowSessionSheet(true); }}>
                 {savedSpot && (
                     <div className="text-center">
                         <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
@@ -1496,7 +1499,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             </BottomSheet>
 
             {/* Departure prompt — inline, no SpotModal required */}
-            <BottomSheet isOpen={showDepartureSheet} onClose={() => setShowDepartureSheet(false)}>
+            <BottomSheet isOpen={showDepartureSheet} ariaLabel="Set departure time" onClose={() => setShowDepartureSheet(false)}>
                 {savedSpot && (
                     <div>
                         {/* Success / already-shared state */}
@@ -1635,7 +1638,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             </BottomSheet>
 
             {/* Post-arrival handoff flow */}
-            <BottomSheet isOpen={interestFlow.handoffStep !== null} onClose={interestFlow.handleSkipDeparture}>
+            <BottomSheet isOpen={interestFlow.handoffStep !== null} ariaLabel="Handoff" onClose={interestFlow.handleSkipDeparture}>
                 {interestFlow.handoffStep && (
                     <HandoffFlow
                         step={interestFlow.handoffStep}
@@ -1650,7 +1653,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             </BottomSheet>
 
             {/* Spot stack sheet — multiple community shared spots nearby */}
-            <BottomSheet isOpen={!!stackGroup} onClose={() => setStackGroup(null)}>
+            <BottomSheet isOpen={!!stackGroup} ariaLabel="Nearby shared spots" onClose={() => setStackGroup(null)}>
                 {stackGroup && (() => {
                     const nowMs2 = Date.now();
                     const getSpotMeta = (item: MapItem) => {
@@ -1667,11 +1670,14 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                             const ampm = d.getHours() >= 12 ? 'PM' : 'AM';
                             statusLabel = `Leaving at ${h}:${m} ${ampm}`;
                         } else {
-                            const ageMin = Math.floor((nowMs2 - ms) / 60000);
-                            statusLabel = `Available now · ${ageMin < 1 ? 'just now' : `${ageMin} min ago`}`;
+                            statusLabel = 'Leaving now';
                         }
+                        const expiresMs = item.expiresAt
+                            ? (typeof item.expiresAt.toMillis === 'function' ? item.expiresAt.toMillis() : 0)
+                            : 0;
+                        const expiryMin = !isScheduled && expiresMs > nowMs2 ? Math.round((expiresMs - nowMs2) / 60000) : 0;
                         const address = item.address || item.title || 'Nearby shared spot';
-                        return { statusLabel, isScheduled, address };
+                        return { statusLabel, isScheduled, address, expiryMin };
                     };
                     return (
                         <div>
@@ -1679,7 +1685,23 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                             <p className="text-xs text-[var(--color-text-secondary)] mb-4">Choose a spot to view details.</p>
                             <div className="flex flex-col gap-2">
                                 {stackGroup.map(item => {
-                                    const { statusLabel, isScheduled, address } = getSpotMeta(item);
+                                    const { statusLabel, isScheduled, address, expiryMin } = getSpotMeta(item);
+                                    const isOwnSpot = item.finderId === user?.id;
+                                    if (isOwnSpot) {
+                                        return (
+                                            <div
+                                                key={item.id}
+                                                aria-disabled="true"
+                                                className="flex items-start gap-3 w-full px-4 py-3.5 rounded-2xl bg-[var(--color-card)] border border-[var(--color-border)] opacity-50 cursor-default"
+                                            >
+                                                <div className="w-2 h-2 rounded-full shrink-0 mt-1 bg-[var(--color-text-secondary)]" />
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-sm font-semibold text-[var(--color-text)]">Your spot</p>
+                                                    <p className="text-xs text-[var(--color-text-secondary)] truncate">This is your shared spot</p>
+                                                </div>
+                                            </div>
+                                        );
+                                    }
                                     return (
                                         <button
                                             key={item.id}
@@ -1695,6 +1717,9 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                             <div className="flex-1 min-w-0">
                                                 <p className="text-sm font-semibold text-[var(--color-text)]">{statusLabel}</p>
                                                 <p className="text-xs text-[var(--color-text-secondary)] truncate">{address}</p>
+                                                {expiryMin > 0 && (
+                                                    <p className="text-xs text-[var(--color-text-secondary)]">Expires in {expiryMin} min</p>
+                                                )}
                                             </div>
                                             <span className="text-[var(--color-text-secondary)] text-xs mt-0.5">›</span>
                                         </button>
@@ -1847,12 +1872,12 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                         {spotCount > 0 ? (
                             <div className="flex items-center gap-1.5 flex-wrap">
                                 <div className="inline-flex items-center gap-1.5 bg-[var(--color-card)] backdrop-blur-xl border border-emerald-500/20 rounded-full px-2.5 py-1 text-[10px] font-semibold text-emerald-400 shadow-md">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse motion-reduce:animate-none" />
                                     {spotCount} free spot{spotCount !== 1 ? 's' : ''} nearby
                                 </div>
                                 {nearbyInterestCount > 0 && (
                                     <div className="inline-flex items-center gap-1.5 bg-[var(--color-card)] backdrop-blur-xl border border-[#1e75ff]/25 rounded-full px-2.5 py-1 text-[10px] font-semibold text-[#38bdf8] shadow-md">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-[#38bdf8] animate-pulse" />
+                                        <div className="w-1.5 h-1.5 rounded-full bg-[#38bdf8] animate-pulse motion-reduce:animate-none" />
                                         {nearbyInterestCount} en route
                                     </div>
                                 )}

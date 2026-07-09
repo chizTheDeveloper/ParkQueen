@@ -387,7 +387,7 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
                                 <span className="text-sm font-bold text-[var(--color-text-secondary)]">{distanceText}</span>
                             )}
                             {timeLeftMs > 0 && (
-                                <span className="text-xs text-[var(--color-text-secondary)]">{formatTimeLeft(timeLeftMs)} left</span>
+                                <span className="text-xs text-[var(--color-text-secondary)]">Expires in {formatTimeLeft(timeLeftMs)}</span>
                             )}
                         </div>
                     </div>
@@ -451,7 +451,7 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
                             </span>
                         </div>
                         {timeLeftMs > 0 && (
-                            <span className="text-xs text-[var(--color-text-secondary)]">{formatTimeLeft(timeLeftMs)} left</span>
+                            <span className="text-xs text-[var(--color-text-secondary)]">Expires in {formatTimeLeft(timeLeftMs)}</span>
                         )}
                     </div>
                 </div>

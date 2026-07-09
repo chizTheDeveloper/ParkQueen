@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { useFocusOnMount } from '../hooks/useFocusOnMount';
 import { Camera, RefreshCw, AlertCircle, CheckCircle2, Clock, Bell, ChevronLeft, Ruler, Shield } from 'lucide-react';
 import { analyzeParkingSign, SignAnalysisResult } from '../services/geminiService';
 import { useParkingTimer } from './street-parking/useParkingTimer';
@@ -10,7 +11,9 @@ export const AssistantView = () => {
   const [isLoading, setIsLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const { startTimer, timer } = useParkingTimer();
+  useFocusOnMount(headingRef);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -86,7 +89,7 @@ export const AssistantView = () => {
           </button>
         )}
         <div>
-          <h2 className="text-xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-queen-400 to-blue-400">
+          <h2 ref={headingRef} tabIndex={-1} className="text-xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-queen-400 to-blue-400 focus:outline-none">
             ParQueen Assistant
           </h2>
           <p className="text-xs text-[var(--color-text-secondary)]">Street-smart parking help</p>
@@ -206,7 +209,7 @@ export const AssistantView = () => {
                 {isLoading ? (
                   <div className="flex flex-col items-center justify-center py-8">
                     <div className="w-10 h-10 border-4 border-queen-500 border-t-transparent rounded-full animate-spin mb-4" />
-                    <p className="text-[var(--color-text-secondary)] animate-pulse text-sm">Reading the sign...</p>
+                    <p className="text-[var(--color-text-secondary)] animate-pulse motion-reduce:animate-none text-sm">Reading the sign...</p>
                   </div>
                 ) : analysis ? (
                   <div className="animate-in fade-in duration-500">

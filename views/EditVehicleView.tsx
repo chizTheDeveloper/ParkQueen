@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
+import { useFocusOnMount } from '../hooks/useFocusOnMount';
 import { ChevronLeft, ChevronDown, Trash2 } from 'lucide-react';
 import { VehicleIcon } from '../utils/vehicleIcon';
 import { doc, updateDoc } from 'firebase/firestore';
@@ -36,6 +37,8 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
   const [color, setColor] = useState(user?.vehicleColor || '');
   const [type, setType] = useState(user?.vehicleType || '');
   const [saving, setSaving] = useState(false);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  useFocusOnMount(headingRef);
 
   const hasVehicle = user?.vehicleBrand || user?.vehicleColor || user?.vehicleType;
   const hasSelection = brand || color || type;
@@ -73,11 +76,12 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
         <div className="flex items-center justify-between mb-4">
           <button
             onClick={isOnboarding ? onSkip : onBack}
+            aria-label="Back"
             className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] text-[var(--color-text)] hover:bg-white/10 active:scale-95 transition-all shrink-0"
           >
             <ChevronLeft size={20} />
           </button>
-          <h2 className="text-xl font-bold text-[var(--color-text)] tracking-wide">
+          <h2 ref={headingRef} tabIndex={-1} className="text-xl font-bold text-[var(--color-text)] tracking-wide focus:outline-none">
             {isOnboarding ? 'Add Your Vehicle' : 'My Vehicle'}
           </h2>
           {isOnboarding && onSkip ? (
@@ -125,6 +129,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
             </div>
             <div className="relative px-4 py-1">
               <select
+                aria-label="Vehicle brand"
                 value={brand}
                 onChange={e => setBrand(e.target.value)}
                 className="w-full appearance-none text-[var(--color-text)] py-3.5 pr-8 text-sm focus:outline-none dark:[color-scheme:dark]"
@@ -151,6 +156,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
                   onClick={() => setColor(color === c.name ? '' : c.name)}
                   className="flex flex-col items-center gap-1 group"
                   aria-label={c.name}
+                  aria-pressed={color === c.name}
                 >
                   <div
                     className="w-8 h-8 rounded-full transition-all duration-150 active:scale-90"
@@ -177,6 +183,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
                 <button
                   key={t}
                   onClick={() => setType(type === t ? '' : t)}
+                  aria-pressed={type === t}
                   className={`px-3.5 py-1.5 rounded-full text-xs font-semibold border transition-all duration-150 active:scale-95 ${
                     type === t
                       ? 'bg-[#1e75ff] border-[#1e75ff] text-white'

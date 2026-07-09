@@ -106,13 +106,13 @@ export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({ phone, confirm
         <div className="h-full w-full bg-[var(--color-bg)] flex flex-col px-7 pt-14">
             <div>
                 <ProgressBar step={2} />
-                <h1 className="text-[24px] font-bold text-[var(--color-text)] leading-tight">Enter your code</h1>
+                <h1 id="otp-heading" className="text-[24px] font-bold text-[var(--color-text)] leading-tight">Enter your code</h1>
                 <p className="text-[15px] text-[var(--color-text-secondary)] mt-2">
                     Sent to {phone}{' '}
                     <button onClick={onEditNumber} className="text-blue-400 font-semibold">Edit</button>
                 </p>
 
-                <div className="flex gap-2.5 justify-center mt-10">
+                <div role="group" aria-labelledby="otp-heading" className="flex gap-2.5 justify-center mt-10">
                     {digits.map((d, i) => (
                         <input
                             key={i}
@@ -120,6 +120,7 @@ export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({ phone, confirm
                             type="text"
                             inputMode="numeric"
                             maxLength={1}
+                            aria-label={`Verification code digit ${i + 1} of 6`}
                             value={d}
                             onChange={e => handleChange(i, e.target.value)}
                             onKeyDown={e => handleKeyDown(i, e)}
@@ -129,7 +130,7 @@ export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({ phone, confirm
                     ))}
                 </div>
 
-                {error && <p className="text-red-400 text-sm mt-4 text-center">{error}</p>}
+                {error && <p role="alert" className="text-red-400 text-sm mt-4 text-center">{error}</p>}
 
                 <p className="text-center text-[14px] text-[var(--color-text-secondary)] mt-6">
                     {cooldown > 0 ? (
