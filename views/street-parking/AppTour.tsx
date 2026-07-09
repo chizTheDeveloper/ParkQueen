@@ -41,6 +41,8 @@ export const AppTour: React.FC<AppTourProps> = ({ onDone }) => {
     const [rect, setRect] = useState<DOMRect | null>(null);
     const [visible, setVisible] = useState(false);
     const dismissedRef = useRef(false);
+    const welcomeRef = useRef<HTMLDivElement>(null);
+    const tooltipRef = useRef<HTMLDivElement>(null);
 
     const prefersReducedMotion =
         typeof window !== 'undefined' &&
@@ -49,6 +51,19 @@ export const AppTour: React.FC<AppTourProps> = ({ onDone }) => {
     useEffect(() => {
         requestAnimationFrame(() => setVisible(true));
     }, []);
+
+    // Move focus into active card when welcome opens or step changes
+    useEffect(() => {
+        if (phase === 'welcome') {
+            requestAnimationFrame(() => welcomeRef.current?.focus());
+        }
+    }, [phase]);
+
+    useEffect(() => {
+        if (phase === 'coach') {
+            requestAnimationFrame(() => tooltipRef.current?.focus());
+        }
+    }, [phase, stepIndex]);
 
     const dismiss = useCallback(() => {
         if (dismissedRef.current) return;
@@ -105,10 +120,12 @@ export const AppTour: React.FC<AppTourProps> = ({ onDone }) => {
                 <div className="absolute inset-0 bg-black/65" aria-hidden="true" />
 
                 <div
+                    ref={welcomeRef}
+                    tabIndex={-1}
                     role="dialog"
                     aria-modal="true"
                     aria-label="Welcome to ParQueen"
-                    className="relative w-full max-w-[320px] flex flex-col items-center"
+                    className="relative w-full max-w-[320px] flex flex-col items-center focus:outline-none"
                     style={{
                         transform: visible ? 'scale(1)' : 'scale(0.92)',
                         opacity: visible ? 1 : 0,
@@ -244,10 +261,12 @@ export const AppTour: React.FC<AppTourProps> = ({ onDone }) => {
 
             {/* Tooltip card */}
             <div
+                ref={tooltipRef}
+                tabIndex={-1}
                 role="dialog"
                 aria-modal="true"
                 aria-label={`App tour, step ${stepIndex + 1} of ${steps.length}`}
-                className="bg-[var(--color-card)] border border-white/10 rounded-2xl shadow-2xl px-5 py-4"
+                className="bg-[var(--color-card)] border border-white/10 rounded-2xl shadow-2xl px-5 py-4 focus:outline-none"
                 style={{
                     position: 'fixed',
                     ...(belowTarget

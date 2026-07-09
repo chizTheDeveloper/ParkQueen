@@ -111,14 +111,14 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
 
                 {/* Loading */}
                 {isLoading && (
-                    <div className="flex justify-center items-center h-48">
+                    <div aria-live="polite" role="status" className="flex justify-center items-center h-48">
                         <div className="w-7 h-7 rounded-full border-2 border-[#1e75ff] border-t-transparent animate-spin" />
                     </div>
                 )}
 
                 {/* Location unavailable */}
                 {showNoLocation && (
-                    <div className="flex flex-col items-center justify-center px-8 py-24 text-center gap-3">
+                    <div aria-live="polite" className="flex flex-col items-center justify-center px-8 py-24 text-center gap-3">
                         <div className="w-16 h-16 rounded-full bg-[#1e75ff]/10 border border-[#1e75ff]/20 flex items-center justify-center mb-1">
                             <MapPin size={28} className="text-[#38bdf8]" />
                         </div>
@@ -131,7 +131,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
 
                 {/* Location available, no nearby spots */}
                 {showEmpty && (
-                    <div className="flex flex-col items-center justify-center px-8 py-24 text-center gap-3">
+                    <div aria-live="polite" className="flex flex-col items-center justify-center px-8 py-24 text-center gap-3">
                         <div className="w-16 h-16 rounded-full bg-[#1e75ff]/10 border border-[#1e75ff]/20 flex items-center justify-center mb-1">
                             <Bell size={28} className="text-[#38bdf8]" />
                         </div>

@@ -43,6 +43,7 @@ export const AssistantView = () => {
   };
 
   const triggerUpload = () => {
+    if (isLoading) return;
     setMode('scan');
     // defer so the input is mounted before click
     setTimeout(() => fileInputRef.current?.click(), 50);
@@ -171,15 +172,17 @@ export const AssistantView = () => {
                 Take a clear photo of the full parking sign.
               </p>
               <button
-                onClick={() => fileInputRef.current?.click()}
-                className="w-full py-3.5 rounded-2xl font-bold text-white text-sm active:scale-[0.98] transition-transform mb-3"
+                onClick={() => { if (!isLoading) fileInputRef.current?.click(); }}
+                disabled={isLoading}
+                className="w-full py-3.5 rounded-2xl font-bold text-white text-sm active:scale-[0.98] transition-transform mb-3 disabled:opacity-50 disabled:active:scale-100"
                 style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}
               >
                 Open camera
               </button>
               <button
-                onClick={() => galleryInputRef.current?.click()}
-                className="text-sm font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors py-2"
+                onClick={() => { if (!isLoading) galleryInputRef.current?.click(); }}
+                disabled={isLoading}
+                className="text-sm font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors py-2 disabled:opacity-50"
               >
                 Choose from photos
               </button>
@@ -199,7 +202,7 @@ export const AssistantView = () => {
                 </button>
               </div>
 
-              <div className="bg-[var(--color-surface)] rounded-2xl p-6 border border-[var(--color-border)] min-h-[150px]">
+              <div aria-live="polite" role="status" className="bg-[var(--color-surface)] rounded-2xl p-6 border border-[var(--color-border)] min-h-[150px]">
                 {isLoading ? (
                   <div className="flex flex-col items-center justify-center py-8">
                     <div className="w-10 h-10 border-4 border-queen-500 border-t-transparent rounded-full animate-spin mb-4" />

@@ -38,9 +38,9 @@ export const ProfileView = ({ user, onBack, setView }) => {
         if (s.status === 'occupied') {
           items.push({ id: `f-${d.id}`, icon: 'handshake', action: 'Helped Driver', address: addr, reward: '+2', ts });
         } else if (s.pingMode === 'later') {
-          items.push({ id: `f-${d.id}`, icon: 'clock', action: 'Leaving Later', address: addr, reward: null, ts });
+          items.push({ id: `f-${d.id}`, icon: 'clock', action: 'Scheduled departure', address: addr, reward: null, ts });
         } else {
-          items.push({ id: `f-${d.id}`, icon: 'pin', action: 'Pinged Spot', address: addr, reward: null, ts });
+          items.push({ id: `f-${d.id}`, icon: 'pin', action: 'Shared a spot', address: addr, reward: null, ts });
         }
       });
 

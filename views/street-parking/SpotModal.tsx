@@ -158,6 +158,7 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                         <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-2">Date</p>
                         <input
                             type="date"
+                            aria-label="Departure date"
                             value={selectedDateStr}
                             min={localDateStr()}
                             onChange={e => { if (e.target.value) setSelectedDateStr(e.target.value); }}
