@@ -522,9 +522,10 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         Object.values(allMarkersRef.current).forEach(m => m.remove());
         allMarkersRef.current = {};
 
-        // Filter out the owner's own My Car-linked ping — managed inside session sheet.
+        // Exclude own pings entirely — own My Car ping is managed in the session sheet,
+        // and own manual pings should not appear as community markers to the creator.
         const allItems = spotData.radiusFilteredItems.filter(
-            item => item.id !== (savedSpot?.linkedPingId ?? '')
+            item => item.finderId !== user?.id && item.id !== (savedSpot?.linkedPingId ?? '')
         );
 
         // Split: community shared spots vs. paid/public (rendered individually, no stacking)

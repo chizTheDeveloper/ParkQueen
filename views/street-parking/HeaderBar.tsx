@@ -73,7 +73,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                     <input
                         ref={inputRef}
                         type="text"
-                        placeholder="Search a neighborhood or address"
+                        placeholder="Search a neighborhood"
                         className="bg-transparent border-none outline-none text-[var(--color-text)] text-[14px] w-full placeholder-[var(--color-text-secondary)] font-medium"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
