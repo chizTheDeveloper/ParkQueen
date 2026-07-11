@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Car, CheckCircle2, XCircle, Users, MapPin, Clock, HelpCircle, Crown, Bell } from 'lucide-react';
+import { Car, CheckCircle2, XCircle, Users, MapPin, Clock, HelpCircle, Crown, Bell, ChevronLeft } from 'lucide-react';
+import { TimePicker } from './TimePicker';
+import { t, useLang } from '../../i18n';
 
 const FAILURE_REASONS = [
     { label: 'Someone else got it', icon: Users },
@@ -8,11 +10,10 @@ const FAILURE_REASONS = [
     { label: 'Other', icon: HelpCircle },
 ];
 
-const OPTIONS = [
+const REMINDER_OPTIONS = [
     { label: '30 min', minutes: 30 },
     { label: '1 hr', minutes: 60 },
     { label: '2 hr', minutes: 120 },
-    { label: '4 hr', minutes: 240 },
 ];
 
 interface HandoffFlowProps {
@@ -20,42 +21,57 @@ interface HandoffFlowProps {
     finderName?: string | null;
     onOutcome: (outcome: 'success' | 'failed') => void;
     onFailureReason: (reason: string) => void;
-    onDeparturePing: (durationMinutes: number) => void;
     onSetTimer: (minutes: number) => void;
     onSkip: () => void;
 }
 
 export const HandoffFlow: React.FC<HandoffFlowProps> = ({
-    step, finderName, onOutcome, onFailureReason, onDeparturePing, onSetTimer, onSkip,
+    step, finderName, onOutcome, onFailureReason, onSetTimer, onSkip,
 }) => {
+    useLang();
     const [submitted, setSubmitted] = useState(false);
-    const [innerStep, setInnerStep] = useState<'reminder' | 'departure'>('reminder');
     const [timerSet, setTimerSet] = useState(false);
-    const [sharing, setSharing] = useState(false);
-    const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [showCustom, setShowCustom] = useState(false);
+    const [customTime, setCustomTime] = useState<Date>(() => {
+        const d = new Date();
+        d.setHours(d.getHours() + 2, 0, 0, 0);
+        return d;
+    });
+    const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    // Stable ref so the auto-close timeout always calls the latest onSkip
+    const onSkipRef = useRef(onSkip);
+    onSkipRef.current = onSkip;
 
-    // Reset inner celebration state each time the celebration step opens
     useEffect(() => {
         if (step === 'celebration') {
-            setInnerStep('reminder');
             setTimerSet(false);
-            setSharing(false);
+            setShowCustom(false);
+            const d = new Date();
+            d.setHours(d.getHours() + 2, 0, 0, 0);
+            setCustomTime(d);
         }
         return () => {
-            if (timerRef.current) clearTimeout(timerRef.current);
+            if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
         };
     }, [step]);
+
+    // Auto-close 1.5s after reminder confirmation
+    useEffect(() => {
+        if (!timerSet) return;
+        closeTimerRef.current = setTimeout(() => onSkipRef.current(), 1500);
+        return () => {
+            if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+        };
+    }, [timerSet]);
 
     const handleSetTimer = (minutes: number) => {
         onSetTimer(minutes);
         setTimerSet(true);
-        timerRef.current = setTimeout(() => setInnerStep('departure'), 1500);
     };
 
-    const handleDeparturePing = (minutes: number) => {
-        if (sharing) return;
-        setSharing(true);
-        timerRef.current = setTimeout(() => onDeparturePing(minutes), 1000);
+    const handleSetCustomTimer = () => {
+        const minutes = Math.max(1, Math.round((customTime.getTime() - Date.now()) / 60000));
+        handleSetTimer(minutes);
     };
 
     if (step === 'outcome') {
@@ -93,7 +109,6 @@ export const HandoffFlow: React.FC<HandoffFlowProps> = ({
     }
 
     if (step === 'celebration') {
-        // Hero — shown in both inner steps
         const hero = (
             <div className="rounded-3xl p-5 mb-6 text-center relative overflow-hidden"
                 style={{ background: 'linear-gradient(135deg, #1e75ff18, #0ea5e918)', border: '1.5px solid #1e75ff33' }}>
@@ -106,98 +121,104 @@ export const HandoffFlow: React.FC<HandoffFlowProps> = ({
                         <Car size={36} className="text-white" />
                     </div>
                 </div>
-                <h3 className="font-extrabold text-2xl text-[var(--color-text)] mb-1">You're parked!</h3>
+                <h3 className="font-extrabold text-2xl text-[var(--color-text)] mb-1">{t('handoff.youre_parked')}</h3>
                 <p className="text-sm text-[var(--color-text-secondary)]">
                     {finderName
-                        ? `${finderName} helped you find this spot.`
-                        : 'Someone helped you find this spot.'}
+                        ? t('handoff.finder_helped').replace('{name}', finderName)
+                        : t('handoff.finder_helped_anon')}
                 </p>
-                <div className="flex items-center justify-center gap-1.5 mt-3">
+                <div className="flex items-center justify-center gap-1.5 mt-2 mb-3">
                     <Crown size={13} className="text-yellow-400" />
-                    <p className="text-[11px] font-bold text-yellow-400">+1 Crown earned</p>
+                    <p className="text-[11px] font-bold text-yellow-400">{t('handoff.crown_earned')}</p>
+                </div>
+                <div className="pt-3 border-t border-white/10">
+                    <div className="flex items-center justify-center gap-1.5 mb-0.5">
+                        <Car size={11} className="text-[#38bdf8]" />
+                        <p className="text-[11px] font-bold text-[#38bdf8] uppercase tracking-widest">{t('handoff.saved_to_my_car')}</p>
+                    </div>
+                    <p className="text-[11px] text-[var(--color-text-secondary)] leading-relaxed">{t('handoff.saved_to_my_car_body')}</p>
                 </div>
             </div>
         );
 
-        if (innerStep === 'reminder') {
+        // Confirmation shown after any reminder is set — auto-closes via useEffect
+        if (timerSet) {
             return (
                 <div>
                     {hero}
-
-                    <div className="flex items-center gap-1.5 mb-3">
-                        <Bell size={12} className="text-[var(--color-text-secondary)]" />
-                        <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest">Set a move reminder</p>
-                    </div>
-
-                    {timerSet ? (
-                        <div className="flex items-center justify-center gap-2 py-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 mb-4">
+                    <div className="rounded-2xl bg-emerald-500/10 border border-emerald-500/20 p-4 mb-4">
+                        <div className="flex items-center gap-2 mb-1">
                             <CheckCircle2 size={14} className="text-emerald-400" />
-                            <p className="text-sm font-semibold text-emerald-400">Reminder set.</p>
+                            <p className="text-sm font-bold text-emerald-400">{t('handoff.reminder_set')}</p>
                         </div>
-                    ) : (
-                        <div className="grid grid-cols-4 gap-2 mb-4">
-                            {OPTIONS.map(opt => (
-                                <button
-                                    key={opt.minutes}
-                                    onClick={() => handleSetTimer(opt.minutes)}
-                                    className="py-3 rounded-2xl text-xs font-bold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 transition-all active:scale-95 text-[var(--color-text)]"
-                                >
-                                    {opt.label}
-                                </button>
-                            ))}
-                        </div>
-                    )}
-
-                    {!timerSet && (
-                        <button
-                            onClick={() => setInnerStep('departure')}
-                            className="w-full py-2.5 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-all"
-                        >
-                            Skip reminder
-                        </button>
-                    )}
+                        <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed">{t('handoff.reminder_set_body')}</p>
+                    </div>
                 </div>
             );
         }
 
-        // innerStep === 'departure'
+        // Custom time picker sub-screen
+        if (showCustom) {
+            return (
+                <div>
+                    {hero}
+                    <div className="flex items-center gap-1.5 mb-4">
+                        <Bell size={12} className="text-[var(--color-text-secondary)]" />
+                        <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest">{t('handoff.reminder_title')}</p>
+                    </div>
+                    <TimePicker initialTime={customTime} onTimeChange={setCustomTime} />
+                    <button
+                        onClick={handleSetCustomTimer}
+                        className="w-full mt-5 py-3.5 rounded-2xl text-sm font-bold text-white transition-all active:scale-95"
+                        style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}
+                    >
+                        {t('handoff.reminder_set_button')}
+                    </button>
+                    <button
+                        onClick={() => setShowCustom(false)}
+                        className="w-full mt-2 py-2.5 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-all flex items-center justify-center gap-1"
+                    >
+                        <ChevronLeft size={13} />
+                        Back
+                    </button>
+                </div>
+            );
+        }
+
+        // Main celebration screen
         return (
             <div>
                 {hero}
-
-                <div className="flex items-center gap-1.5 mb-1">
-                    <Users size={12} className="text-[var(--color-text-secondary)]" />
-                    <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest">Pay it forward</p>
+                <div className="flex items-center gap-1.5 mb-3">
+                    <Bell size={12} className="text-[var(--color-text-secondary)]" />
+                    <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest">{t('handoff.reminder_title')}</p>
                 </div>
-                <p className="text-[11px] text-[var(--color-text-secondary)] mb-3">When are you leaving? Let the next driver know.</p>
-
-                {sharing ? (
-                    <div className="flex items-center justify-center gap-2 py-3 rounded-2xl bg-blue-500/10 border border-blue-500/20 mb-4">
-                        <CheckCircle2 size={14} className="text-[#38bdf8]" />
-                        <p className="text-sm font-semibold text-[#38bdf8]">Spot shared.</p>
-                    </div>
-                ) : (
-                    <div className="grid grid-cols-4 gap-2 mb-4">
-                        {OPTIONS.map(opt => (
-                            <button
-                                key={opt.minutes}
-                                onClick={() => handleDeparturePing(opt.minutes)}
-                                className="py-3 rounded-2xl text-xs font-bold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 transition-all active:scale-95 text-[var(--color-text)]"
-                            >
-                                {opt.label}
-                            </button>
-                        ))}
-                    </div>
-                )}
-
-                {!sharing && (
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                    {REMINDER_OPTIONS.map(opt => (
+                        <button
+                            key={opt.minutes}
+                            onClick={() => handleSetTimer(opt.minutes)}
+                            className="py-3 rounded-2xl text-xs font-bold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 transition-all active:scale-95 text-[var(--color-text)]"
+                        >
+                            {opt.label}
+                        </button>
+                    ))}
                     <button
-                        onClick={onSkip}
-                        className="w-full py-2.5 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-all"
+                        onClick={() => setShowCustom(true)}
+                        className="py-3 rounded-2xl text-xs font-bold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 transition-all active:scale-95 text-[var(--color-text-secondary)]"
                     >
-                        Not now
+                        {t('handoff.reminder_custom')}
                     </button>
-                )}
+                </div>
+                <p className="text-[11px] text-center text-[var(--color-text-secondary)] mb-4 leading-relaxed px-2">
+                    {t('handoff.pay_it_forward_body')}
+                </p>
+                <button
+                    onClick={onSkip}
+                    className="w-full py-2.5 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-all"
+                >
+                    {t('my_car.not_now')}
+                </button>
             </div>
         );
     }

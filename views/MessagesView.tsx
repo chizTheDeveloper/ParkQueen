@@ -4,6 +4,7 @@ import { generateSmartReplies } from '../services/geminiService';
 import { collection, query, where, onSnapshot, addDoc, doc, setDoc, orderBy, serverTimestamp, getDocs, getDoc, writeBatch, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { moderateMessage } from '../utils/moderation';
+import { t, useLang } from '../i18n';
 
 interface MessagesViewProps {
   user: any;
@@ -12,6 +13,7 @@ interface MessagesViewProps {
 }
 
 export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatContext, onBack }) => {
+  useLang();
   const [conversations, setConversations] = useState<any[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<any[]>([]);
@@ -38,7 +40,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
       setActiveConversationId(null);
     } catch (e) {
       console.error("Error deleting chat:", e);
-      showToast('Failed to delete conversation.');
+      showToast(t('messages.toast_delete_failed'));
     }
   };
 
@@ -46,6 +48,15 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
   const [actionToast, setActionToast] = useState('');
 
   const showToast = (msg: string) => { setActionToast(msg); setTimeout(() => setActionToast(''), 3000); };
+
+  // Report reasons: value written to Firestore (English stays), label is translated display
+  const reportReasons = [
+    { value: 'Harassment or abuse', label: t('messages.report_harassment') },
+    { value: 'Inappropriate messages', label: t('messages.report_inappropriate') },
+    { value: 'Spam', label: t('messages.report_spam') },
+    { value: 'Scam or fraud', label: t('messages.report_scam') },
+    { value: 'Other', label: t('messages.report_other') },
+  ];
 
   const handleBlockUser = async () => {
     if (!activeConversation) return;
@@ -57,11 +68,11 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
           blockedUsers: [...currentBlocked, otherUserId]
         });
       }
-      showToast('User blocked');
+      showToast(t('messages.toast_blocked'));
       setActiveConversationId(null);
     } catch (e) {
       console.error("Error blocking user:", e);
-      showToast('Failed to block user');
+      showToast(t('messages.toast_block_failed'));
     }
   };
 
@@ -78,11 +89,11 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
         conversationId: activeConversationId,
         createdAt: serverTimestamp()
       });
-      showToast('Report submitted. Thank you.');
+      showToast(t('messages.toast_reported'));
       setShowReportModal(false);
     } catch (e) {
       console.error("Error reporting user:", e);
-      showToast('Failed to submit report');
+      showToast(t('messages.toast_report_failed'));
     }
   };
 
@@ -93,7 +104,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
       const missingUserIds = conversations
         .map(c => c.otherUser.id)
         .filter(id => id && !userProfilesCache[id]);
-      
+
       if (missingUserIds.length === 0) return;
 
       const newCache = { ...userProfilesCache };
@@ -106,7 +117,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
           if (userDocSnap.exists()) {
              const data = userDocSnap.data();
              newCache[uid] = {
-               name: data.fullName || "User",
+               name: data.fullName || '',
                avatarUrl: data.avatarUrl || null
              };
              updated = true;
@@ -135,8 +146,9 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
       const list = snap.docs.map(docSnap => {
         const data = docSnap.data();
         const otherUserId = data.participants.find((p: string) => p !== user.id) || '';
-        const otherUserName = data.participantNames?.[otherUserId] || 'Anonymous';
-        
+        // Store raw name (empty string if missing); translate fallback at render time
+        const otherUserName = data.participantNames?.[otherUserId] || '';
+
         let timestampDate = new Date();
         if (data.lastMessageTimestamp) {
           if (typeof data.lastMessageTimestamp.toDate === 'function') {
@@ -158,7 +170,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
       });
       // Sort desc by last message timestamp
       list.sort((a, b) => b.lastMessageTimestamp.getTime() - a.lastMessageTimestamp.getTime());
-      
+
       const blockedList = user?.blockedUsers || [];
       const filteredList = list.filter(conv => !blockedList.includes(conv.otherUser.id));
       setConversations(filteredList);
@@ -169,11 +181,12 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
   // 2. Handle activeChatContext passed from spot click
   useEffect(() => {
     if (!user || !activeChatContext || !db) return;
-    
+
     const initChat = async () => {
       const chatId = [user.id, activeChatContext.userId].sort().join("_");
       const chatRef = doc(db, "chats", chatId);
-      
+
+      // These values go to Firestore — keep as English
       let otherUserName = "User";
       try {
         const userDocRef = doc(db, "users", activeChatContext.userId);
@@ -200,7 +213,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
 
       setActiveConversationId(chatId);
     };
-    
+
     initChat();
   }, [user?.id, activeChatContext]);
 
@@ -242,7 +255,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
   useEffect(() => {
     if (activeConversationId && messages.length > 0) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      
+
       const lastMsg = messages[messages.length - 1];
       if (lastMsg && !lastMsg.isMe) {
         generateSmartReplies(lastMsg.text, activeConversation?.relatedSpotTitle || "Parking Spot").then(replies => {
@@ -272,13 +285,13 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
     localStorage.setItem(`lastReadChat_${activeConversationId}`, Date.now().toString());
     const chatRef = doc(db, "chats", activeConversationId);
     const messagesRef = collection(db, "chats", activeConversationId, "messages");
-    
+
     const messageData = {
         senderId: user.id,
         text: text.trim(),
         timestamp: serverTimestamp()
     };
-    
+
     setInputText('');
     setSmartReplies([]);
 
@@ -295,12 +308,16 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
   };
 
   if (activeConversationId && activeConversation) {
+    const displayName = userProfilesCache[activeConversation.otherUser.id]?.name
+      || activeConversation.otherUser.name
+      || t('messages.anonymous');
+
     return (
       <div className="h-full flex flex-col bg-[var(--color-bg)] pt-4 pb-20">
         {/* Chat Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
           <div className="flex items-center gap-3">
-            <button onClick={() => setActiveConversationId(null)} className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)]">
+            <button onClick={() => setActiveConversationId(null)} aria-label={t('messages.back_chat_aria')} className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)]">
               <ChevronLeft size={24} />
             </button>
             <div className="w-10 h-10 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-center text-gray-500 overflow-hidden shrink-0">
@@ -311,37 +328,37 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
                )}
             </div>
             <div>
-              <h3 className="font-bold text-[var(--color-text)]">{userProfilesCache[activeConversation.otherUser.id]?.name || activeConversation.otherUser.name}</h3>
+              <h3 className="font-bold text-[var(--color-text)]">{displayName}</h3>
               {activeConversation.relatedSpotTitle && (
                 <p className="text-xs text-queen-400">{activeConversation.relatedSpotTitle}</p>
               )}
             </div>
           </div>
           <div className="relative">
-            <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)] p-2 hover:bg-white/5 rounded-full transition-colors">
+            <button onClick={() => setIsMenuOpen(!isMenuOpen)} aria-label={t('messages.menu_aria')} className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)] p-2 hover:bg-white/5 rounded-full transition-colors">
               <MoreVertical size={20} />
             </button>
             {isMenuOpen && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setIsMenuOpen(false)} />
                 <div className="absolute right-0 mt-2 w-48 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl shadow-xl z-50 overflow-hidden py-1">
-                  <button 
+                  <button
                     onClick={() => { setIsMenuOpen(false); setShowDeleteConfirm(true); }}
                     className="w-full text-left px-4 py-3 text-sm text-red-500 hover:bg-white/5 flex items-center gap-2 transition-colors font-medium"
                   >
-                    Delete Chat
+                    {t('messages.delete_chat')}
                   </button>
                   <button
                     onClick={() => { setIsMenuOpen(false); handleBlockUser(); }}
                     className="w-full text-left px-4 py-3 text-sm text-[var(--color-text)] hover:bg-white/5 flex items-center gap-2 transition-colors font-medium"
                   >
-                    Block User
+                    {t('messages.block_user')}
                   </button>
                   <button
                     onClick={() => { setIsMenuOpen(false); setShowReportModal(true); }}
                     className="w-full text-left px-4 py-3 text-sm text-[var(--color-text)] hover:bg-white/5 flex items-center gap-2 transition-colors font-medium"
                   >
-                    Report User
+                    {t('messages.report_user')}
                   </button>
                 </div>
               </>
@@ -354,8 +371,8 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
           {messages.map((msg) => (
             <div key={msg.id} className={`flex ${msg.isMe ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[75%] rounded-2xl px-4 py-3 ${
-                msg.isMe 
-                  ? 'bg-queen-600 text-white rounded-br-none' 
+                msg.isMe
+                  ? 'bg-queen-600 text-white rounded-br-none'
                   : 'bg-[var(--color-surface)] text-[var(--color-text)] border border-[var(--color-border)] rounded-bl-none'
               }`}>
                 <p className="text-sm">{msg.text}</p>
@@ -395,14 +412,14 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
         {showDeleteConfirm && (
           <div className="absolute inset-0 z-50 bg-black/50 flex items-end justify-center pb-10">
             <div className="bg-[var(--color-surface)] rounded-3xl p-6 mx-4 w-full max-w-sm border border-[var(--color-border)] shadow-2xl">
-              <p className="text-base font-bold text-[var(--color-text)] text-center mb-1">Delete this conversation?</p>
-              <p className="text-sm text-[var(--color-text-secondary)] text-center mb-6">This can't be undone.</p>
+              <p className="text-base font-bold text-[var(--color-text)] text-center mb-1">{t('messages.delete_confirm_title')}</p>
+              <p className="text-sm text-[var(--color-text-secondary)] text-center mb-6">{t('messages.delete_confirm_body')}</p>
               <div className="flex gap-3">
                 <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 py-3 rounded-2xl border border-[var(--color-border)] text-[var(--color-text)] font-semibold text-sm">
-                  Cancel
+                  {t('messages.cancel')}
                 </button>
                 <button onClick={doDeleteChat} className="flex-1 py-3 rounded-2xl bg-red-500/20 border border-red-500/40 text-red-400 font-bold text-sm">
-                  Delete
+                  {t('messages.delete')}
                 </button>
               </div>
             </div>
@@ -412,19 +429,19 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
         {showReportModal && (
           <div className="absolute inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
             <div className="bg-[var(--color-surface)] rounded-3xl p-5 w-full max-w-sm border border-[var(--color-border)] shadow-2xl">
-              <h3 className="font-bold text-[var(--color-text)] mb-3">Report User</h3>
-              <p className="text-xs text-[var(--color-text-secondary)] mb-4">Why are you reporting this user?</p>
+              <h3 className="font-bold text-[var(--color-text)] mb-3">{t('messages.report_title')}</h3>
+              <p className="text-xs text-[var(--color-text-secondary)] mb-4">{t('messages.report_subtitle')}</p>
               <div className="space-y-2">
-                {['Harassment or abuse', 'Inappropriate messages', 'Spam', 'Scam or fraud', 'Other'].map(reason => (
-                  <button key={reason} onClick={() => handleReportUser(reason)}
+                {reportReasons.map(({ value, label }) => (
+                  <button key={value} onClick={() => handleReportUser(value)}
                     className="w-full py-2.5 rounded-xl text-sm font-semibold bg-white/5 border border-[var(--color-border)] hover:bg-white/10 transition-all text-[var(--color-text)] text-left px-4">
-                    {reason}
+                    {label}
                   </button>
                 ))}
               </div>
               <button onClick={() => setShowReportModal(false)}
                 className="w-full mt-3 text-[var(--color-text-secondary)] text-sm text-center py-2">
-                Cancel
+                {t('messages.cancel')}
               </button>
             </div>
           </div>
@@ -439,15 +456,15 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
         {/* Input Area */}
         <div className="p-4 border-t border-[var(--color-border)] bg-[var(--color-bg)]">
           <div className="flex items-center gap-2 bg-[var(--color-surface)] rounded-full px-4 py-2 border border-[var(--color-border)] focus-within:border-queen-500 transition-colors">
-            <input 
-              type="text" 
+            <input
+              type="text"
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
-              placeholder="Type a message..."
+              placeholder={t('messages.type_placeholder')}
               className="flex-1 bg-transparent border-none outline-none text-[var(--color-text)] text-sm"
               onKeyDown={(e) => e.key === 'Enter' && handleSend(inputText)}
             />
-            <button 
+            <button
               onClick={() => handleSend(inputText)}
               disabled={!inputText.trim()}
               className="p-2 bg-queen-600 rounded-full text-white disabled:opacity-50 disabled:bg-[var(--color-surface)]"
@@ -466,13 +483,13 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
        <div className="flex items-center justify-between px-4 mb-6">
          <div className="flex items-center gap-3">
            {onBack && (
-             <button onClick={onBack} aria-label="Back" className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] text-[var(--color-text)] hover:bg-white/10 transition-all shrink-0">
+             <button onClick={onBack} aria-label={t('messages.back_aria')} className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] text-[var(--color-text)] hover:bg-white/10 transition-all shrink-0">
                <ArrowLeft size={20} />
              </button>
            )}
            <div>
-             <h2 className="text-2xl font-bold text-[var(--color-text)] tracking-wide">Inbox</h2>
-             <p className="text-xs text-[var(--color-text-secondary)]">Stay updated with your parking community</p>
+             <h2 className="text-2xl font-bold text-[var(--color-text)] tracking-wide">{t('messages.title')}</h2>
+             <p className="text-xs text-[var(--color-text-secondary)]">{t('messages.subtitle')}</p>
            </div>
          </div>
        </div>
@@ -481,17 +498,20 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
        <div className="flex-1 overflow-y-auto px-4 space-y-4 no-scrollbar">
           {conversations.length === 0 ? (
             <div className="text-center p-10 text-gray-500">
-              <p>Claim a spot or offer yours to start a conversation.</p>
+              <p>{t('messages.empty')}</p>
             </div>
           ) : (
             conversations.map(conv => {
               const lastReadStr = localStorage.getItem(`lastReadChat_${conv.id}`);
               const lastReadTime = lastReadStr ? parseInt(lastReadStr, 10) : 0;
               const hasUnread = conv.lastMessageTimestamp.getTime() > lastReadTime && conv.lastSenderId !== user.id;
+              const convDisplayName = userProfilesCache[conv.otherUser.id]?.name
+                || conv.otherUser.name
+                || t('messages.anonymous');
 
               return (
-                <button 
-                  key={conv.id} 
+                <button
+                  key={conv.id}
                   onClick={() => setActiveConversationId(conv.id)}
                   className="w-full bg-[var(--color-card)] border border-[var(--color-border)] backdrop-blur-md rounded-2xl p-4 flex items-start gap-4 text-left transition-all hover:bg-[#0b2240]/60 relative"
                 >
@@ -513,12 +533,12 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
                   <div className="flex-1 min-w-0 text-left">
                     <div className="flex justify-between items-start mb-0.5">
                       <h3 className="font-bold text-[var(--color-text)] text-base truncate pr-2">
-                        {userProfilesCache[conv.otherUser.id]?.name || conv.otherUser.name}
+                        {convDisplayName}
                       </h3>
                       <span className="text-xs text-gray-500 shrink-0 mt-0.5">
-                        {conv.lastMessageTimestamp instanceof Date 
-                          ? conv.lastMessageTimestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
-                          : 'Just now'}
+                        {conv.lastMessageTimestamp instanceof Date
+                          ? conv.lastMessageTimestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                          : t('messages.just_now')}
                       </span>
                     </div>
 
@@ -554,8 +574,8 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
                 <Sparkles size={10} className="absolute -bottom-1 -left-1 text-blue-300 animate-pulse motion-reduce:animate-none" />
               </div>
             </div>
-            <h3 className="text-[var(--color-text)] font-bold text-sm">All caught up!</h3>
-            <p className="text-[11px] text-gray-500 mt-0.5">You'll see new messages here.</p>
+            <h3 className="text-[var(--color-text)] font-bold text-sm">{t('messages.all_caught_up')}</h3>
+            <p className="text-[11px] text-gray-500 mt-0.5">{t('messages.all_caught_up_hint')}</p>
           </div>
        </div>
     </div>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useFocusOnMount } from '../hooks/useFocusOnMount';
+import { t, useLang } from '../i18n';
 import { ArrowLeft, MapPin, Bell } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, where, onSnapshot, Timestamp } from 'firebase/firestore';
@@ -7,6 +8,7 @@ import { collection, query, where, onSnapshot, Timestamp } from 'firebase/firest
 interface NotificationsViewProps {
     user: any;
     onBack: () => void;
+    onSelectSpot?: (spotId: string) => void;
 }
 
 const getDistanceKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
@@ -35,13 +37,14 @@ const relativeTime = (ts: any): string => {
     return `${Math.floor(diff / 86400)}d ago`;
 };
 
-export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBack }) => {
+export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBack, onSelectSpot }) => {
     const [spots, setSpots] = useState<any[]>([]);
     const [spotsLoading, setSpotsLoading] = useState(true);
     const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
     const [locationLoading, setLocationLoading] = useState(true);
     const headingRef = useRef<HTMLHeadingElement>(null);
     useFocusOnMount(headingRef);
+    useLang(); // re-render on language change
 
     const lastViewed = parseInt(localStorage.getItem('lastViewedNotifications') || '0', 10);
 
@@ -83,14 +86,17 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
 
     const isLoading = spotsLoading || locationLoading;
 
-    // Only show spots within 2km when location is available
-    const nearbySpots = userLocation
+    // Filter to 2km when location is known; show all when location unavailable
+    const filteredSpots = userLocation
         ? spots.filter(s => getDistanceKm(userLocation[0], userLocation[1], s.lat, s.lng) <= 2.0)
-        : [];
+        : spots;
+    const nearbySpots = filteredSpots.slice(0, 10);
+    const hasMore = filteredSpots.length > 10;
+    const showNoLocationBanner = !userLocation && spots.length > 0;
 
-    const showList = !isLoading && !!userLocation && nearbySpots.length > 0;
-    const showEmpty = !isLoading && !!userLocation && nearbySpots.length === 0;
-    const showNoLocation = !isLoading && !userLocation;
+    const showList = !isLoading && nearbySpots.length > 0;
+    const showEmpty = !isLoading && nearbySpots.length === 0 && (!!userLocation || spots.length === 0);
+    const showNoLocation = !isLoading && !userLocation && spots.length === 0;
 
     return (
         <div className="h-full bg-[var(--color-bg)] flex flex-col">
@@ -106,7 +112,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
                 >
                     <ArrowLeft size={20} />
                 </button>
-                <h1 ref={headingRef} tabIndex={-1} className="text-[18px] font-bold text-[var(--color-text)] focus:outline-none">Nearby Activity</h1>
+                <h1 ref={headingRef} tabIndex={-1} className="text-[18px] font-bold text-[var(--color-text)] focus:outline-none">{t('common.nearby_activity')}</h1>
             </div>
 
             {/* Body */}
@@ -125,9 +131,9 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
                         <div className="w-16 h-16 rounded-full bg-[#1e75ff]/10 border border-[#1e75ff]/20 flex items-center justify-center mb-1">
                             <MapPin size={28} className="text-[#38bdf8]" />
                         </div>
-                        <p className="text-[17px] font-bold text-[var(--color-text)]">Location needed</p>
+                        <p className="text-[17px] font-bold text-[var(--color-text)]">{t('nearby_activity.location_needed')}</p>
                         <p className="text-[13px] text-[var(--color-text-secondary)] leading-relaxed max-w-[240px]">
-                            Turn on location to see shared spots near you.
+                            {t('nearby_activity.location_needed_body')}
                         </p>
                     </div>
                 )}
@@ -138,9 +144,9 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
                         <div className="w-16 h-16 rounded-full bg-[#1e75ff]/10 border border-[#1e75ff]/20 flex items-center justify-center mb-1">
                             <Bell size={28} className="text-[#38bdf8]" />
                         </div>
-                        <p className="text-[17px] font-bold text-[var(--color-text)]">All clear nearby</p>
+                        <p className="text-[17px] font-bold text-[var(--color-text)]">{t('nearby_activity.all_clear')}</p>
                         <p className="text-[13px] text-[var(--color-text-secondary)] leading-relaxed max-w-[240px]">
-                            No shared spots right now. When a neighbor leaves, you'll see it here first.
+                            {t('nearby_activity.no_pings')}
                         </p>
                     </div>
                 )}
@@ -148,6 +154,17 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
                 {/* Spot list */}
                 {showList && (
                     <div className="px-3 py-3 flex flex-col gap-2 pb-10">
+                        {showNoLocationBanner && (
+                            <div className="flex items-start gap-3 px-4 py-3 rounded-2xl bg-amber-500/10 border border-amber-500/25 mb-1">
+                                <MapPin size={16} className="text-amber-400 shrink-0 mt-0.5" />
+                                <div>
+                                    <p className="text-[13px] font-bold text-amber-400">{t('common.location_off')}</p>
+                                    <p className="text-[12px] text-[var(--color-text-secondary)] leading-snug mt-0.5">
+                                        {t('common.location_off_body')}
+                                    </p>
+                                </div>
+                            </div>
+                        )}
                         {nearbySpots.map(spot => {
                             const km = userLocation
                                 ? getDistanceKm(userLocation[0], userLocation[1], spot.lat, spot.lng)
@@ -164,7 +181,8 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
                             return (
                                 <button
                                     key={spot.id}
-                                    onClick={onBack}
+                                    onClick={() => { onSelectSpot?.(spot.id); onBack(); }}
+                                    aria-label={t('nearby_activity.open_ping_aria', { name: finderName })}
                                     className="w-full text-left bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl px-4 py-3.5 flex items-start gap-3 active:scale-[0.99] transition-transform"
                                 >
                                     {/* Icon with unread dot */}
@@ -183,7 +201,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
                                         <div className="flex items-baseline justify-between gap-2 mb-0.5">
                                             <p className="text-[13px] text-[var(--color-text)] leading-snug truncate">
                                                 <span className="font-semibold">{finderName}</span>
-                                                <span className="text-[var(--color-text-secondary)] font-normal"> shared a spot</span>
+                                                <span className="text-[var(--color-text-secondary)] font-normal"> {t('nearby_activity.pinged_a_spot')}</span>
                                             </p>
                                             {time && (
                                                 <span className="text-[11px] text-[var(--color-text-secondary)] shrink-0">{time}</span>
@@ -196,23 +214,30 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
                                         {/* Distance + status chip */}
                                         <div className="flex items-center gap-1.5 flex-wrap">
                                             {distStr && (
-                                                <span className="text-[11px] text-[var(--color-text-secondary)]">{distStr} away</span>
+                                                <span className="text-[11px] text-[var(--color-text-secondary)]">{t('nearby_activity.distance_away', { dist: distStr })}</span>
                                             )}
                                             {distStr && (
                                                 <span className="text-[var(--color-border)] text-[10px] leading-none">·</span>
                                             )}
                                             {expiringSoon ? (
-                                                <span className="text-[11px] font-semibold text-amber-400">Expiring soon</span>
+                                                <span className="text-[11px] font-semibold text-amber-400">{t('nearby_activity.expiring_soon')}</span>
                                             ) : isClaimed ? (
-                                                <span className="text-[11px] font-semibold text-[#38bdf8]">Someone's on the way</span>
+                                                <span className="text-[11px] font-semibold text-[#38bdf8]">{t('nearby_activity.someone_on_way')}</span>
                                             ) : (
-                                                <span className="text-[11px] font-semibold text-emerald-400">Available now</span>
+                                                <span className="text-[11px] font-semibold text-emerald-400">{t('nearby_activity.available_now')}</span>
                                             )}
                                         </div>
                                     </div>
                                 </button>
                             );
                         })}
+                        {hasMore && (
+                            <p className="text-center text-[12px] text-[var(--color-text-secondary)] pt-1 pb-2">
+                                {userLocation
+                                    ? t('nearby_activity.showing_closest', { more: filteredSpots.length - 10 })
+                                    : t('nearby_activity.showing_recent', { more: filteredSpots.length - 10 })}
+                            </p>
+                        )}
                     </div>
                 )}
             </div>

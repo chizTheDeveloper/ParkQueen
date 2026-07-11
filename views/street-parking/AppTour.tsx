@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ParqueenLogo from '../../assets/Parqueen_Logo.png';
+import { t, useLang } from '../../i18n';
 
 export const TOUR_KEY = 'parqueenAppTourSeen_v1';
 
@@ -9,18 +10,14 @@ interface CoachStep {
     body: string;
 }
 
-const WELCOME = {
-    title: 'Welcome to ParQueen',
-    body: 'Save your car, find shared spots, and help nearby drivers.',
-};
-
-const COACH_STEPS: CoachStep[] = [
-    { target: 'share-spot', title: 'Share a Spot',        body: 'Leaving? Tap here to ping your spot so a neighbor can grab it.' },
-    { target: 'my-car',     title: 'My Car',              body: 'Save where you parked and set a private reminder.' },
-    { target: 'search',     title: 'Find Parking Nearby', body: 'Search a neighborhood or street to explore parking around you.' },
-    { target: 'bell',       title: 'Nearby Activity',     body: 'See shared spots near you and get notified when parking opens up.' },
-    { target: 'ai',         title: 'Scan Street Signs',   body: 'Confused by a sign? Use AI to understand parking rules.' },
-];
+// Step target IDs are stable; titles/bodies are resolved via t() inside the component.
+const STEP_TARGETS = [
+    { target: 'share-spot', key: 'ping_your_spot' },
+    { target: 'my-car',     key: 'my_car' },
+    { target: 'search',     key: 'search' },
+    { target: 'bell',       key: 'bell' },
+    { target: 'ai',         key: 'ai' },
+] as const;
 
 function getTargetRect(target: string): DOMRect | null {
     const el = document.querySelector<HTMLElement>(`[data-tour="${target}"]`);
@@ -35,6 +32,18 @@ interface AppTourProps {
 }
 
 export const AppTour: React.FC<AppTourProps> = ({ onDone }) => {
+    useLang(); // re-render when language changes
+
+    const welcome = {
+        title: t('tour.welcome.title'),
+        body: t('tour.welcome.body'),
+    };
+    const coachSteps: CoachStep[] = STEP_TARGETS.map(({ target, key }) => ({
+        target,
+        title: t(`tour.step.${key}.title`),
+        body: t(`tour.step.${key}.body`),
+    }));
+
     const [phase, setPhase] = useState<'welcome' | 'coach'>('welcome');
     const [steps, setSteps] = useState<CoachStep[]>([]);
     const [stepIndex, setStepIndex] = useState(0);
@@ -88,14 +97,14 @@ export const AppTour: React.FC<AppTourProps> = ({ onDone }) => {
     useEffect(() => { updateRect(); }, [updateRect]);
 
     useEffect(() => {
-        let t: ReturnType<typeof setTimeout>;
-        const h = () => { clearTimeout(t); t = setTimeout(updateRect, 150); };
+        let tid: ReturnType<typeof setTimeout>;
+        const h = () => { clearTimeout(tid); tid = setTimeout(updateRect, 150); };
         window.addEventListener('resize', h);
-        return () => { window.removeEventListener('resize', h); clearTimeout(t); };
+        return () => { window.removeEventListener('resize', h); clearTimeout(tid); };
     }, [updateRect]);
 
     const startTour = () => {
-        const available = COACH_STEPS.filter(s => getTargetRect(s.target) !== null);
+        const available = coachSteps.filter(s => getTargetRect(s.target) !== null);
         setSteps(available);
         setStepIndex(0);
         setPhase('coach');
@@ -124,7 +133,7 @@ export const AppTour: React.FC<AppTourProps> = ({ onDone }) => {
                     tabIndex={-1}
                     role="dialog"
                     aria-modal="true"
-                    aria-label="Welcome to ParQueen"
+                    aria-label={t('tour.welcome.title')}
                     className="relative w-full max-w-[320px] flex flex-col items-center focus:outline-none"
                     style={{
                         transform: visible ? 'scale(1)' : 'scale(0.92)',
@@ -189,22 +198,22 @@ export const AppTour: React.FC<AppTourProps> = ({ onDone }) => {
 
                     {/* Card body — top padding makes room for the overlapping logo */}
                     <div className="w-full bg-[var(--color-card)] rounded-3xl shadow-2xl border border-white/10 px-6 pt-12 pb-7">
-                        <h2 className="text-[20px] font-bold text-[var(--color-text)] mb-2 leading-tight text-center">{WELCOME.title}</h2>
-                        <p className="text-[14px] text-[var(--color-text-secondary)] leading-relaxed mb-7 text-center">{WELCOME.body}</p>
+                        <h2 className="text-[20px] font-bold text-[var(--color-text)] mb-2 leading-tight text-center">{welcome.title}</h2>
+                        <p className="text-[14px] text-[var(--color-text-secondary)] leading-relaxed mb-7 text-center">{welcome.body}</p>
 
                     <div className="flex gap-3">
                         <button
                             onClick={dismiss}
                             className="flex-1 py-3 rounded-full border border-[var(--color-border)] text-[13px] font-semibold text-[var(--color-text-secondary)] hover:bg-white/5 active:scale-[0.98] transition-all min-h-[44px]"
                         >
-                            Skip
+                            {t('tour.skip')}
                         </button>
                         <button
                             onClick={startTour}
                             className="flex-1 py-3 rounded-full text-[13px] font-bold text-white active:scale-[0.98] transition-all min-h-[44px]"
                             style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}
                         >
-                            Start Tour
+                            {t('tour.start')}
                         </button>
                     </div>
                     </div>
@@ -281,7 +290,7 @@ export const AppTour: React.FC<AppTourProps> = ({ onDone }) => {
                 }}
             >
                 <p className="text-[10px] font-bold tracking-[0.15em] text-[#38bdf8] uppercase mb-2">
-                    {stepIndex + 1} of {steps.length}
+                    {t('tour.step_counter', { current: stepIndex + 1, total: steps.length })}
                 </p>
                 <h3 className="text-[16px] font-bold text-[var(--color-text)] mb-1 leading-tight">{step.title}</h3>
                 <p className="text-[13px] text-[var(--color-text-secondary)] leading-relaxed mb-4">{step.body}</p>
@@ -291,14 +300,14 @@ export const AppTour: React.FC<AppTourProps> = ({ onDone }) => {
                         onClick={dismiss}
                         className="flex-1 py-2.5 rounded-full border border-[var(--color-border)] text-[12px] font-semibold text-[var(--color-text-secondary)] hover:bg-white/5 active:scale-[0.98] transition-all min-h-[44px]"
                     >
-                        Skip
+                        {t('tour.skip')}
                     </button>
                     <button
                         onClick={advance}
                         className="flex-1 py-2.5 rounded-full text-[12px] font-bold text-white active:scale-[0.98] transition-all min-h-[44px]"
                         style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}
                     >
-                        {stepIndex === steps.length - 1 ? 'Done' : 'Next'}
+                        {stepIndex === steps.length - 1 ? t('tour.done') : t('tour.next')}
                     </button>
                 </div>
             </div>

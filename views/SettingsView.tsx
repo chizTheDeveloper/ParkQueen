@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useFocusOnMount } from '../hooks/useFocusOnMount';
-import { ChevronLeft, ChevronRight, Edit, Mail, Bell, MapPin, Moon, LogOut, Trash2, Check, Navigation, ScanLine, Play } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Edit, Mail, Bell, MapPin, Moon, LogOut, Trash2, Check, Navigation, ScanLine, Play, Globe } from 'lucide-react';
+import { t, useLang, setLang, getLang } from '../i18n';
 import { doc, updateDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getApp } from 'firebase/app';
@@ -24,6 +25,7 @@ const Toggle = ({ checked, onChange }: { checked: boolean; onChange: (v: boolean
 );
 
 export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBack, onLogout, onDeleteAccount, theme, toggleTheme }) => {
+    useLang();
     const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(user?.notificationsEnabled ?? true);
     const [notificationRadius, setNotificationRadius] = useState<number>(user?.notificationRadius ?? 1);
     const [sharePreciseLocation, setSharePreciseLocation] = useState<boolean>(user?.sharePreciseLocation ?? true);
@@ -39,8 +41,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
 
     useEffect(() => {
         if (otpCooldown <= 0) return;
-        const t = setTimeout(() => setOtpCooldown(c => c - 1), 1000);
-        return () => clearTimeout(t);
+        const timer = setTimeout(() => setOtpCooldown(c => c - 1), 1000);
+        return () => clearTimeout(timer);
     }, [otpCooldown]);
 
     const handleSendEmailOTP = async () => {
@@ -53,7 +55,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
             setOtpDigits(Array(6).fill(''));
             setOtpCooldown(60);
         } catch (e: any) {
-            setEmailError(e.details || e.message || 'Failed to send code.');
+            setEmailError(e.details || e.message || t('settings.email_send_failed'));
         } finally {
             setEmailSending(false);
         }
@@ -67,7 +69,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
             await httpsCallable(functions, 'verifyEmailOTP')({ email: emailDraft.trim(), code: otpDigits.join('') });
             setEmailStep('view');
         } catch (e: any) {
-            setEmailError(e.details || e.message || 'Verification failed.');
+            setEmailError(e.details || e.message || t('settings.email_verify_failed'));
         } finally {
             setEmailSending(false);
         }
@@ -97,10 +99,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
 
                 {/* Header */}
                 <div className="flex items-center justify-between mb-4">
-                    <button onClick={onBack} aria-label="Back" className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] text-[var(--color-text)] hover:bg-white/10 active:scale-95 transition-all shrink-0">
+                    <button onClick={onBack} aria-label={t('settings.back_aria')} className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] text-[var(--color-text)] hover:bg-white/10 active:scale-95 transition-all shrink-0">
                         <ChevronLeft size={20} />
                     </button>
-                    <h2 ref={headingRef} tabIndex={-1} className="text-xl font-bold text-[var(--color-text)] tracking-wide focus:outline-none">Settings</h2>
+                    <h2 ref={headingRef} tabIndex={-1} className="text-xl font-bold text-[var(--color-text)] tracking-wide focus:outline-none">{t('settings.title')}</h2>
                     <div className="w-10" />
                 </div>
 
@@ -109,7 +111,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                     {/* Account */}
                     <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl overflow-hidden">
                         <div className="px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]">
-                            <p className="text-xs font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">Account</p>
+                            <p className="text-xs font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">{t('settings.section_account')}</p>
                         </div>
                         <div className="divide-y divide-[var(--color-border)]">
 
@@ -118,8 +120,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                                 <div className="flex items-center gap-3.5">
                                     <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><Edit size={18} /></div>
                                     <div>
-                                        <h4 className="font-bold text-[var(--color-text)] text-sm">Edit profile</h4>
-                                        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Update your name, username and more</p>
+                                        <h4 className="font-bold text-[var(--color-text)] text-sm">{t('settings.edit_profile')}</h4>
+                                        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('settings.edit_profile_subtitle')}</p>
                                     </div>
                                 </div>
                                 <ChevronRight size={16} className="text-[var(--color-text-secondary)]" />
@@ -132,8 +134,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                                         <div className="flex items-center gap-3.5 mb-4">
                                             <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><Mail size={18} /></div>
                                             <div>
-                                                <h4 className="font-bold text-[var(--color-text)] text-sm">Enter code</h4>
-                                                <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Sent to {emailDraft}</p>
+                                                <h4 className="font-bold text-[var(--color-text)] text-sm">{t('settings.email_enter_code')}</h4>
+                                                <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('settings.email_sent_to', { email: emailDraft })}</p>
                                             </div>
                                         </div>
                                         <div className="flex gap-2 justify-center mb-3">
@@ -146,15 +148,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                                         </div>
                                         {emailError && <p className="text-red-400 text-xs text-center mb-2">{emailError}</p>}
                                         <div className="flex items-center justify-between mb-3">
-                                            <button onClick={() => setEmailStep('input')} className="text-[var(--color-text-secondary)] text-xs hover:text-[var(--color-text)] transition-colors">Back</button>
+                                            <button onClick={() => setEmailStep('input')} className="text-[var(--color-text-secondary)] text-xs hover:text-[var(--color-text)] transition-colors">{t('settings.email_back')}</button>
                                             <p className="text-xs text-[var(--color-text-secondary)]">
-                                                {otpCooldown > 0 ? `Resend in ${otpCooldown}s` : <button onClick={handleSendEmailOTP} className="text-[#38bdf8] font-semibold">Resend</button>}
+                                                {otpCooldown > 0 ? t('settings.email_resend_in', { seconds: otpCooldown }) : <button onClick={handleSendEmailOTP} className="text-[#38bdf8] font-semibold">{t('settings.email_resend')}</button>}
                                             </p>
                                         </div>
                                         <button onClick={handleVerifyEmailOTP} disabled={otpDigits.some(d => !d) || emailSending}
                                             className="w-full py-2.5 rounded-xl font-bold text-white text-sm active:scale-95 transition-transform disabled:opacity-40"
                                             style={{ background: 'linear-gradient(90deg, #378ADD, #1D9E75)' }}>
-                                            {emailSending ? 'Verifying...' : 'Verify'}
+                                            {emailSending ? t('settings.email_verifying') : t('settings.email_verify')}
                                         </button>
                                     </div>
                                 ) : emailStep === 'input' ? (
@@ -167,7 +169,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                                         </div>
                                         <button onClick={handleSendEmailOTP} disabled={!emailDraft.includes('@') || emailSending}
                                             className="text-[#38bdf8] font-bold text-xs shrink-0 disabled:opacity-40">
-                                            {emailSending ? 'Sending...' : 'Send code'}
+                                            {emailSending ? t('settings.email_sending') : t('settings.email_send_code')}
                                         </button>
                                     </div>
                                 ) : (
@@ -175,14 +177,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                                         <div className="flex items-center gap-3.5">
                                             <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><Mail size={18} /></div>
                                             <div>
-                                                <h4 className="font-bold text-[var(--color-text)] text-sm">Email address</h4>
+                                                <h4 className="font-bold text-[var(--color-text)] text-sm">{t('settings.email_address')}</h4>
                                                 <div className="flex items-center gap-2 mt-0.5">
-                                                    <p className="text-xs text-[var(--color-text-secondary)]">{user?.email || 'Add email'}</p>
+                                                    <p className="text-xs text-[var(--color-text-secondary)]">{user?.email || t('settings.email_add')}</p>
                                                     {user?.email && user?.emailVerified && (
-                                                        <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded flex items-center gap-0.5"><Check size={8} />Verified</span>
+                                                        <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded flex items-center gap-0.5"><Check size={8} />{t('settings.email_verified')}</span>
                                                     )}
                                                     {user?.email && !user?.emailVerified && (
-                                                        <span className="text-[9px] font-bold text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded">Unverified</span>
+                                                        <span className="text-[9px] font-bold text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded">{t('settings.email_unverified')}</span>
                                                     )}
                                                 </div>
                                             </div>
@@ -197,7 +199,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                     {/* Preferences */}
                     <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl overflow-hidden">
                         <div className="px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]">
-                            <p className="text-xs font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">Preferences</p>
+                            <p className="text-xs font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">{t('settings.section_preferences')}</p>
                         </div>
                         <div className="divide-y divide-[var(--color-border)]">
 
@@ -206,8 +208,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                                 <div className="flex items-center gap-3.5">
                                     <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><Bell size={18} /></div>
                                     <div>
-                                        <h4 className="font-bold text-[var(--color-text)] text-sm">Notifications</h4>
-                                        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Spot alerts and updates</p>
+                                        <h4 className="font-bold text-[var(--color-text)] text-sm">{t('settings.notifications')}</h4>
+                                        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('settings.notifications_subtitle')}</p>
                                     </div>
                                 </div>
                                 <Toggle checked={notificationsEnabled} onChange={(v) => { setNotificationsEnabled(v); updatePref('notificationsEnabled', v); }} />
@@ -218,8 +220,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                                 <div className="flex items-center gap-3.5 mb-3">
                                     <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><ScanLine size={18} /></div>
                                     <div>
-                                        <h4 className="font-bold text-[var(--color-text)] text-sm">Notification radius</h4>
-                                        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Only alert for spots within this distance</p>
+                                        <h4 className="font-bold text-[var(--color-text)] text-sm">{t('settings.notif_radius')}</h4>
+                                        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('settings.notif_radius_subtitle')}</p>
                                     </div>
                                 </div>
                                 <div className="flex gap-2">
@@ -241,8 +243,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                                 <div className="flex items-center gap-3.5">
                                     <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><Navigation size={18} /></div>
                                     <div>
-                                        <h4 className="font-bold text-[var(--color-text)] text-sm">Precise location</h4>
-                                        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Used for nearby spot detection</p>
+                                        <h4 className="font-bold text-[var(--color-text)] text-sm">{t('settings.precise_location')}</h4>
+                                        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('settings.precise_location_subtitle')}</p>
                                     </div>
                                 </div>
                                 <Toggle checked={sharePreciseLocation} onChange={(v) => { setSharePreciseLocation(v); updatePref('sharePreciseLocation', v); }} />
@@ -253,19 +255,37 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                                 <div className="flex items-center gap-3.5">
                                     <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><Moon size={18} /></div>
                                     <div>
-                                        <h4 className="font-bold text-[var(--color-text)] text-sm">Dark theme</h4>
-                                        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Easier on the eyes at night</p>
+                                        <h4 className="font-bold text-[var(--color-text)] text-sm">{t('settings.dark_theme')}</h4>
+                                        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('settings.dark_theme_subtitle')}</p>
                                     </div>
                                 </div>
                                 <Toggle checked={theme === 'dark'} onChange={toggleTheme} />
                             </div>
+
+                            {/* Language */}
+                            <button
+                                onClick={() => setLang(getLang() === 'en' ? 'es' : 'en')}
+                                className="w-full p-4 flex items-center justify-between text-left hover:bg-white/5 active:bg-white/10 transition-colors"
+                                aria-label={t('settings.language_toggle_aria')}
+                            >
+                                <div className="flex items-center gap-3.5">
+                                    <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><Globe size={18} /></div>
+                                    <div>
+                                        <h4 className="font-bold text-[var(--color-text)] text-sm">{t('settings.language.title')}</h4>
+                                        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">
+                                            {getLang() === 'en' ? t('language.english') : t('language.spanish')}
+                                        </p>
+                                    </div>
+                                </div>
+                                <ChevronRight size={16} className="text-[var(--color-text-secondary)]" />
+                            </button>
                         </div>
                     </div>
 
                     {/* Help */}
                     <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl overflow-hidden">
                         <div className="px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]">
-                            <p className="text-xs font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">Help</p>
+                            <p className="text-xs font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">{t('settings.section_help')}</p>
                         </div>
                         <button
                             onClick={() => {
@@ -278,8 +298,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                                 <Play size={17} />
                             </div>
                             <div>
-                                <p className="text-sm font-semibold text-[var(--color-text)]">App Tour</p>
-                                <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">See how ParQueen works</p>
+                                <p className="text-sm font-semibold text-[var(--color-text)]">{t('tour.replay_label')}</p>
+                                <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('tour.replay_subtitle')}</p>
                             </div>
                         </button>
                     </div>
@@ -287,7 +307,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                     {/* Account Actions */}
                     <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl overflow-hidden">
                         <div className="px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]">
-                            <p className="text-xs font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">Account Actions</p>
+                            <p className="text-xs font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">{t('settings.section_account_actions')}</p>
                         </div>
                         <div className="divide-y divide-[var(--color-border)]">
                             <button onClick={onLogout} className="w-full px-4 py-3.5 flex items-center gap-3 text-left hover:bg-white/5 active:bg-white/10 transition-colors">
@@ -295,8 +315,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                                     <LogOut size={17} />
                                 </div>
                                 <div>
-                                    <p className="text-sm font-semibold text-[#38bdf8]">Log out</p>
-                                    <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Sign out of your account</p>
+                                    <p className="text-sm font-semibold text-[#38bdf8]">{t('settings.logout')}</p>
+                                    <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('settings.logout_subtitle')}</p>
                                 </div>
                             </button>
                             <button onClick={onDeleteAccount} className="w-full px-4 py-3.5 flex items-center gap-3 text-left hover:bg-white/5 active:bg-white/10 transition-colors">
@@ -304,8 +324,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                                     <Trash2 size={17} />
                                 </div>
                                 <div>
-                                    <p className="text-sm font-semibold text-red-400">Delete account</p>
-                                    <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Permanently remove your data</p>
+                                    <p className="text-sm font-semibold text-red-400">{t('settings.delete_account')}</p>
+                                    <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('settings.delete_account_subtitle')}</p>
                                 </div>
                             </button>
                         </div>

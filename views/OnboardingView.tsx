@@ -2,16 +2,22 @@ import React, { useState, useRef } from 'react';
 import Screen1 from '../assets/ParQueenScreen1.jpg';
 import Screen2 from '../assets/ParQueenScreen2.jpg';
 import Screen3 from '../assets/ParQueenScreen3.jpg';
+import { t, useLang } from '../i18n';
 
-const sections = [
-    { image: Screen1, eyebrow: 'THE PROBLEM', headline: 'Still circling the block?', subtext: 'Stop driving in circles looking for parking' },
-    { image: Screen2, eyebrow: 'THE SOLUTION', headline: 'Know before it opens up', subtext: 'See shared spots open up near you in real time' },
-    { image: Screen3, eyebrow: 'THE COMMUNITY', headline: 'Help your neighbors', subtext: 'Get help from your neighbors, too' },
-] as const;
+const SLIDE_IMAGES = [Screen1, Screen2, Screen3] as const;
+const SLIDE_KEYS = ['slide1', 'slide2', 'slide3'] as const;
 
 export const OnboardingView = ({ onComplete }: { onComplete: () => void }) => {
+    useLang(); // re-render when language changes
     const [current, setCurrent] = useState(0);
     const [animating, setAnimating] = useState(false);
+
+    const sections = SLIDE_KEYS.map((k, i) => ({
+        image: SLIDE_IMAGES[i],
+        eyebrow: t(`onboarding.${k}.eyebrow`),
+        headline: t(`onboarding.${k}.title`),
+        subtext: t(`onboarding.${k}.body`),
+    }));
     const touchStartX = useRef<number | null>(null);
     const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -85,7 +91,7 @@ export const OnboardingView = ({ onComplete }: { onComplete: () => void }) => {
                                 onClick={(e) => { e.stopPropagation(); onComplete(); }}
                                 className="mt-6 w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 active:scale-[0.98] text-white font-bold py-3.5 rounded-full text-sm shadow-lg shadow-blue-500/30 transition-all"
                             >
-                                Get Started
+                                {t('onboarding.get_started')}
                             </button>
                         )}
                     </div>

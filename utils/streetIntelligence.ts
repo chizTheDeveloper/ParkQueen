@@ -7,6 +7,7 @@ export interface CleaningSchedule {
   days: string[];      // ["Mon", "Thu"]
   startTime: string;   // "08:00"
   endTime: string;     // "11:00"
+  ruleType?: string;   // "metered_no_parking_window" for short metered-street windows; absent for classic ASP
 }
 
 export interface StreetRuleDoc {

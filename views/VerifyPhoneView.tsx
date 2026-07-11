@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ConfirmationResult, RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth';
 import { auth } from '../firebaseConfig';
+import { t, useLang } from '../i18n';
 
 const ProgressBar = ({ step, total = 2 }: { step: number; total?: number }) => (
     <div className="flex gap-1.5 w-full max-w-xs mx-auto mb-10">
@@ -18,6 +19,7 @@ interface VerifyPhoneViewProps {
 }
 
 export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({ phone, confirmationResult: initialConfirmation, onVerify, onEditNumber }) => {
+    useLang();
     const [digits, setDigits] = useState<string[]>(Array(6).fill(''));
     const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
     const [cooldown, setCooldown] = useState(30);
@@ -28,8 +30,8 @@ export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({ phone, confirm
 
     useEffect(() => {
         if (cooldown <= 0) return;
-        const t = setTimeout(() => setCooldown(c => c - 1), 1000);
-        return () => clearTimeout(t);
+        const timer = setTimeout(() => setCooldown(c => c - 1), 1000);
+        return () => clearTimeout(timer);
     }, [cooldown]);
 
     const handleChange = (index: number, value: string) => {
@@ -53,7 +55,7 @@ export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({ phone, confirm
             onVerify(confirmation);
         } catch (e: any) {
             console.error('OTP verification failed:', e);
-            setError(e.code === 'auth/invalid-verification-code' ? 'Invalid code. Please check and try again.' : (e.message || 'Verification failed.'));
+            setError(e.code === 'auth/invalid-verification-code' ? t('verify_phone.invalid_code') : (e.message || t('verify_phone.failed')));
         } finally {
             setVerifying(false);
         }
@@ -75,9 +77,9 @@ export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({ phone, confirm
         } catch (e: any) {
             console.error('OTP verification failed:', e);
             if (e.code === 'auth/invalid-verification-code') {
-                setError('Invalid code. Please check and try again.');
+                setError(t('verify_phone.invalid_code'));
             } else {
-                setError(e.message || 'Verification failed. Please try again.');
+                setError(e.message || t('verify_phone.failed_retry'));
             }
         } finally {
             setVerifying(false);
@@ -96,7 +98,7 @@ export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({ phone, confirm
             setCooldown(30);
         } catch (e: any) {
             console.error('Resend failed:', e);
-            setError('Failed to resend code. Please try again.');
+            setError(t('verify_phone.resend_failed'));
         }
     };
 
@@ -106,10 +108,10 @@ export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({ phone, confirm
         <div className="h-full w-full bg-[var(--color-bg)] flex flex-col px-7 pt-14">
             <div>
                 <ProgressBar step={2} />
-                <h1 id="otp-heading" className="text-[24px] font-bold text-[var(--color-text)] leading-tight">Enter your code</h1>
+                <h1 id="otp-heading" className="text-[24px] font-bold text-[var(--color-text)] leading-tight">{t('verify_phone.heading')}</h1>
                 <p className="text-[15px] text-[var(--color-text-secondary)] mt-2">
-                    Sent to {phone}{' '}
-                    <button onClick={onEditNumber} className="text-blue-400 font-semibold">Edit</button>
+                    {t('verify_phone.sent_to', { phone })}{' '}
+                    <button onClick={onEditNumber} className="text-blue-400 font-semibold">{t('verify_phone.edit')}</button>
                 </p>
 
                 <div role="group" aria-labelledby="otp-heading" className="flex gap-2.5 justify-center mt-10">
@@ -120,7 +122,7 @@ export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({ phone, confirm
                             type="text"
                             inputMode="numeric"
                             maxLength={1}
-                            aria-label={`Verification code digit ${i + 1} of 6`}
+                            aria-label={t('verify_phone.digit_aria', { n: i + 1 })}
                             value={d}
                             onChange={e => handleChange(i, e.target.value)}
                             onKeyDown={e => handleKeyDown(i, e)}
@@ -134,9 +136,9 @@ export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({ phone, confirm
 
                 <p className="text-center text-[14px] text-[var(--color-text-secondary)] mt-6">
                     {cooldown > 0 ? (
-                        <>Resend code in {cooldown}s</>
+                        <>{t('verify_phone.resend_cooldown', { seconds: cooldown })}</>
                     ) : (
-                        <button onClick={handleResend} className="text-blue-400 font-semibold">Resend code</button>
+                        <button onClick={handleResend} className="text-blue-400 font-semibold">{t('verify_phone.resend')}</button>
                     )}
                 </p>
             </div>
@@ -149,7 +151,7 @@ export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({ phone, confirm
                     disabled={!allFilled || verifying}
                     className="w-full bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 active:scale-[0.98] text-white font-semibold text-[16px] py-4 rounded-full shadow-lg shadow-blue-500/30 transition-all disabled:opacity-40 disabled:active:scale-100"
                 >
-                    {verifying ? 'Verifying...' : 'Verify'}
+                    {verifying ? t('verify_phone.verifying') : t('verify_phone.verify')}
                 </button>
             </div>
             <div id="recaptcha-container-verify" />

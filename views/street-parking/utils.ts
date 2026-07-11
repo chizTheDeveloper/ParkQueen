@@ -132,7 +132,7 @@ export const drawRoute = async (map: mapboxgl.Map, start: [number, number], end:
 
     try {
         const response = await fetch(
-            `https://api.mapbox.com/directions/v5/mapbox/driving/${start[0]},${start[1]};${end[0]},${end[1]}?geometries=geojson&access_token=${MAPBOX_TOKEN}`
+            `https://api.mapbox.com/directions/v5/mapbox/walking/${start[0]},${start[1]};${end[0]},${end[1]}?geometries=geojson&access_token=${MAPBOX_TOKEN}`
         );
         const data = await response.json();
         if (!data.routes || data.routes.length === 0) return;

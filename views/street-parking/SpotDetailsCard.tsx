@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { MessageSquare, MapPin, Clock, Navigation, Car } from 'lucide-react';
 import { MapItem } from './types';
+import { t, useLang } from '../../i18n';
 import { getDistance, formatTimeLeft } from './utils';
 import { getVehicleHex, VehicleIcon } from '../../utils/vehicleIcon';
 import { getTierForTitle, TIER_VISUALS } from '../../utils/crowns';
@@ -8,7 +9,7 @@ import { CrownBadge } from '../../utils/CrownBadge';
 import { db } from '../../firebase';
 import { doc, setDoc, addDoc, collection, serverTimestamp } from 'firebase/firestore';
 
-const QUICK_REPLIES = ['On my way out', 'Be there in a few minutes', 'Already left, go ahead', 'Running a bit late'];
+// QUICK_REPLIES moved inside SpotDetailsCardInner so they re-resolve on language change
 
 interface SpotDetailsCardProps {
     selectedItem: any;
@@ -24,7 +25,6 @@ interface SpotDetailsCardProps {
     onCancelByClaimer: (reason: string) => void;
     onDriverArrived: () => void;
     onMessageUser: (userId: string, context: string) => void;
-    nearbyInterestCount?: number;
     interestError: string | null;
     estDriveMinutes: number | null;
     isWithinArrivalRange: boolean;
@@ -39,7 +39,7 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
     selectedItem, freeSpots, user, userLocation, spotAddress,
     onHeadingThere, onEditSpot, onDeletePing, onArrival,
     onCancelByFinder, onCancelByClaimer, onDriverArrived, onMessageUser,
-    nearbyInterestCount = 0, interestError, estDriveMinutes, isWithinArrivalRange, maxEtaMinutes, manageMode = false, nowMs = Date.now(),
+    interestError, estDriveMinutes, isWithinArrivalRange, maxEtaMinutes, manageMode = false, nowMs = Date.now(),
     backLabel, onBack,
 }) => {
     if (!selectedItem) return null;
@@ -55,7 +55,7 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                     <span>{backLabel ?? 'Back'}</span>
                 </button>
             )}
-            <SpotDetailsCardInner {...{ selectedItem, freeSpots, user, userLocation, spotAddress, onHeadingThere, onEditSpot, onDeletePing, onArrival, onCancelByFinder, onCancelByClaimer, onDriverArrived, onMessageUser, nearbyInterestCount, interestError, estDriveMinutes, isWithinArrivalRange, maxEtaMinutes, manageMode, nowMs }} />
+            <SpotDetailsCardInner {...{ selectedItem, freeSpots, user, userLocation, spotAddress, onHeadingThere, onEditSpot, onDeletePing, onArrival, onCancelByFinder, onCancelByClaimer, onDriverArrived, onMessageUser, interestError, estDriveMinutes, isWithinArrivalRange, maxEtaMinutes, manageMode, nowMs }} />
         </>
     );
 };
@@ -64,8 +64,24 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
     selectedItem, freeSpots, user, userLocation, spotAddress,
     onHeadingThere, onEditSpot, onDeletePing, onArrival,
     onCancelByFinder, onCancelByClaimer, onDriverArrived, onMessageUser,
-    nearbyInterestCount = 0, interestError, estDriveMinutes, isWithinArrivalRange, maxEtaMinutes, manageMode = false, nowMs = Date.now(),
+    interestError, estDriveMinutes, isWithinArrivalRange, maxEtaMinutes, manageMode = false, nowMs = Date.now(),
 }) => {
+    useLang();
+    const quickReplies = [
+        t('claim_flow.quick_reply_1'),
+        t('claim_flow.quick_reply_2'),
+        t('claim_flow.quick_reply_3'),
+        t('claim_flow.quick_reply_4'),
+    ];
+    const claimerCancelReasons = [
+        { key: 'found_other', label: t('claim_flow.cancel_reason_found_other'), value: 'Found parking elsewhere' },
+        { key: 'traffic',     label: t('claim_flow.cancel_reason_traffic'),     value: 'Traffic is too heavy' },
+        { key: 'changed',     label: t('claim_flow.cancel_reason_changed_mind'), value: 'Changed my mind' },
+    ];
+    const finderCancelReasons = [
+        { key: 'cant_wait',  label: t('claim_flow.cancel_reason_cant_wait'), value: "Can't wait anymore" },
+        { key: 'spot_gone',  label: t('claim_flow.cancel_reason_spot_gone'), value: 'Spot no longer available' },
+    ];
     const [showQuickReplies, setShowQuickReplies] = useState(false);
     const [messageSent, setMessageSent] = useState(false);
     const [showClaimerReasons, setShowClaimerReasons] = useState(false);
@@ -76,8 +92,8 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
         : '';
 
     const departureDate = selectedItem.reportedAt ? (typeof selectedItem.reportedAt.toDate === 'function' ? selectedItem.reportedAt.toDate() : new Date(selectedItem.reportedAt)) : null;
-    const isScheduled = departureDate && departureDate.getTime() > nowMs;
-    const departureText = departureDate ? (isScheduled ? departureDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Leaving Now') : '';
+    const isScheduled = selectedItem.pingMode === 'later' || (!selectedItem.pingMode && !!(departureDate && departureDate.getTime() > nowMs + 5 * 60_000));
+    const departureText = departureDate ? (isScheduled ? departureDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : t('spot_details.leaving_now')) : '';
     const timeLeftMs = selectedItem.expiresAt ? (typeof selectedItem.expiresAt.toMillis === 'function' ? selectedItem.expiresAt.toMillis() : new Date(selectedItem.expiresAt).getTime()) - Date.now() : 0;
 
     const isFinder = user?.id === selectedItem.finderId;
@@ -130,18 +146,18 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
 
     // Status badge config
     const badgeConfig = state === 'my_claim'
-        ? { label: 'En Route', color: 'text-blue-400 bg-blue-500/10 border-blue-500/20' }
+        ? { label: t('spot_details.badge_en_route'), color: 'text-blue-400 bg-blue-500/10 border-blue-500/20' }
         : spotStatus === 'available' && isScheduled
-        ? { label: 'Soon', color: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20' }
+        ? { label: t('spot_details.badge_soon'), color: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20' }
         : spotStatus === 'available'
-        ? { label: 'Free', color: 'text-green-400 bg-green-500/10 border-green-500/20' }
-        : { label: 'Reserved', color: 'text-amber-400 bg-amber-500/10 border-amber-500/20' };
+        ? { label: t('spot_details.badge_free'), color: 'text-green-400 bg-green-500/10 border-green-500/20' }
+        : { label: t('spot_details.badge_reserved'), color: 'text-amber-400 bg-amber-500/10 border-amber-500/20' };
 
     // Claimer heading to spot — finder's vehicle is the hero
     if (state === 'my_claim') {
         return (
             <div>
-                <p className="text-[11px] font-bold text-[#38bdf8] uppercase tracking-widest text-center mb-4">You're on your way</p>
+                <p className="text-[11px] font-bold text-[#38bdf8] uppercase tracking-widest text-center mb-4">{t('spot_details.on_your_way')}</p>
 
                 {/* Finder avatar + name */}
                 <div className="flex items-center gap-3 mb-4">
@@ -166,7 +182,7 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
                 {/* Vehicle hero — what to look out for */}
                 {hasVehicle && (
                     <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] p-4 mb-4">
-                        <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-3">Look out for</p>
+                        <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-3">{t('claim_flow.look_out_for')}</p>
                         <div className="flex items-center gap-4">
                             <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 border border-white/10"
                                 style={{ background: vehicleHex + '33' }}>
@@ -185,12 +201,12 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
                 )}
 
                 {interestError && <p className="text-red-400 text-xs mb-2 text-center">{interestError}</p>}
-                {messageSent && <p className="text-emerald-400 text-xs mb-2 text-center font-semibold">Message sent</p>}
+                {messageSent && <p className="text-emerald-400 text-xs mb-2 text-center font-semibold">{t('claim_flow.message_sent')}</p>}
 
                 {showQuickReplies && (
                     <div className="mb-3 grid grid-cols-2 gap-1.5">
-                        {QUICK_REPLIES.map(msg => (
-                            <button key={msg} onClick={() => sendQuickReply(msg)}
+                        {quickReplies.map((msg, i) => (
+                            <button key={i} onClick={() => sendQuickReply(msg)}
                                 className="bg-white/5 border border-[var(--color-border)] hover:bg-white/10 text-[var(--color-text)] font-semibold py-2.5 px-2 rounded-2xl text-xs transition-all active:scale-95">
                                 {msg}
                             </button>
@@ -200,25 +216,25 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
 
                 {showClaimerReasons ? (
                     <div>
-                        <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest text-center mb-3">Why are you canceling?</p>
+                        <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest text-center mb-3">{t('claim_flow.why_canceling')}</p>
                         <div className="space-y-2 mb-2">
-                            {["Found parking elsewhere", "Traffic is too heavy", "Changed my mind"].map(reason => (
-                                <button key={reason} onClick={() => onCancelByClaimer(reason)}
+                            {claimerCancelReasons.map(({ key, label, value }) => (
+                                <button key={key} onClick={() => onCancelByClaimer(value)}
                                     className="w-full py-3 px-4 rounded-2xl text-sm font-semibold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 transition-all active:scale-95 text-[var(--color-text)] text-left">
-                                    {reason}
+                                    {label}
                                 </button>
                             ))}
                         </div>
                         <button onClick={() => setShowClaimerReasons(false)}
                             className="w-full py-2.5 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-all">
-                            ← Back
+                            ← {t('ping_modal.back')}
                         </button>
                     </div>
                 ) : (
                     <div className="flex gap-2">
                         <button onClick={() => setShowClaimerReasons(true)}
                             className="px-4 border border-red-500/40 hover:bg-red-500/10 text-red-400 font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95">
-                            Cancel
+                            {t('claim_flow.cancel')}
                         </button>
                         <button onClick={() => setShowQuickReplies(!showQuickReplies)}
                             className="p-3.5 rounded-2xl bg-white/10 hover:bg-white/20 text-[var(--color-text)] flex items-center justify-center transition-all shrink-0 active:scale-95">
@@ -227,7 +243,7 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
                         <button onClick={onArrival} disabled={!isWithinArrivalRange}
                             className="flex-1 font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95 text-white disabled:opacity-40"
                             style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}>
-                            {isWithinArrivalRange ? "I've arrived" : (distanceText ? `${distanceText} away` : "Get closer")}
+                            {isWithinArrivalRange ? t('claim_flow.ive_arrived') : (distanceText ? t('claim_flow.dist_away', { dist: distanceText }) : t('claim_flow.get_closer'))}
                         </button>
                     </div>
                 )}
@@ -248,7 +264,7 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
         return (
             <div>
                 {/* Label */}
-                <p className="text-[11px] font-bold text-[#38bdf8] uppercase tracking-widest text-center mb-4">On their way to your spot</p>
+                <p className="text-[11px] font-bold text-[#38bdf8] uppercase tracking-widest text-center mb-4">{t('en_route.heading')}</p>
 
                 {/* Avatar + name + ETA */}
                 <div className="flex items-center gap-3 mb-4">
@@ -270,15 +286,15 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
                     </div>
                     <div className="text-right shrink-0">
                         <p className="text-3xl font-extrabold text-[var(--color-text)]">{selectedItem.etaMinutes}</p>
-                        <p className="text-[9px] font-bold text-[#38bdf8] uppercase tracking-wide">min away</p>
-                        <p className="text-[8px] text-[var(--color-text-secondary)] mt-0.5">est. arrival</p>
+                        <p className="text-[9px] font-bold text-[#38bdf8] uppercase tracking-wide">{t('claim_flow.min_away')}</p>
+                        <p className="text-[8px] text-[var(--color-text-secondary)] mt-0.5">{t('claim_flow.est_arrival')}</p>
                     </div>
                 </div>
 
                 {/* Vehicle hero — what to look out for */}
                 {hasClaimerVehicle && (
                     <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] p-4 mb-4">
-                        <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-3">Look out for</p>
+                        <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-3">{t('claim_flow.look_out_for')}</p>
                         <div className="flex items-center gap-4">
                             <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 border border-white/10"
                                 style={{ background: vehicleHexClaimer + '33' }}>
@@ -296,11 +312,11 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
                     </div>
                 )}
 
-                {messageSent && <p className="text-emerald-400 text-xs mb-2 text-center font-semibold">Message sent</p>}
+                {messageSent && <p className="text-emerald-400 text-xs mb-2 text-center font-semibold">{t('claim_flow.message_sent')}</p>}
                 {showQuickReplies && (
                     <div className="mb-3 grid grid-cols-2 gap-1.5">
-                        {QUICK_REPLIES.map(msg => (
-                            <button key={msg} onClick={() => sendQuickReply(msg)}
+                        {quickReplies.map((msg, i) => (
+                            <button key={i} onClick={() => sendQuickReply(msg)}
                                 className="bg-white/5 border border-[var(--color-border)] hover:bg-white/10 text-[var(--color-text)] font-semibold py-2.5 px-2 rounded-2xl text-xs transition-all active:scale-95">
                                 {msg}
                             </button>
@@ -310,35 +326,35 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
 
                 {showFinderReasons ? (
                     <div>
-                        <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest text-center mb-3">What's happening?</p>
+                        <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest text-center mb-3">{t('claim_flow.whats_happening')}</p>
                         <div className="space-y-2 mb-2">
                             <button onClick={onDriverArrived}
                                 className="w-full py-3 px-4 rounded-2xl text-sm font-semibold border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/15 transition-all active:scale-95 text-emerald-400 text-left">
-                                The driver arrived ✓
+                                {t('claim_flow.driver_arrived')}
                             </button>
-                            {["Can't wait anymore", "Spot no longer available"].map(reason => (
-                                <button key={reason} onClick={() => onCancelByFinder(reason)}
+                            {finderCancelReasons.map(({ key, label, value }) => (
+                                <button key={key} onClick={() => onCancelByFinder(value)}
                                     className="w-full py-3 px-4 rounded-2xl text-sm font-semibold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 transition-all active:scale-95 text-[var(--color-text)] text-left">
-                                    {reason}
+                                    {label}
                                 </button>
                             ))}
                         </div>
                         <button onClick={() => setShowFinderReasons(false)}
                             className="w-full py-2.5 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-all">
-                            ← Back
+                            ← {t('ping_modal.back')}
                         </button>
                     </div>
                 ) : (
                     <div className="flex gap-2">
                         <button onClick={() => setShowFinderReasons(true)}
                             className="px-4 border border-red-500/40 hover:bg-red-500/10 text-red-400 font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95">
-                            Cancel
+                            {t('claim_flow.cancel')}
                         </button>
                         <button onClick={() => setShowQuickReplies(!showQuickReplies)}
                             className="flex-1 text-white font-bold py-3.5 rounded-2xl flex items-center justify-center gap-1.5 transition-all text-sm active:scale-95"
                             style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}>
                             <MessageSquare size={14} />
-                            Message
+                            {t('claim_flow.message')}
                         </button>
                     </div>
                 )}
@@ -350,7 +366,7 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
     if (state === 'available') {
         return (
             <div>
-                <p className="text-[11px] font-bold text-[#38bdf8] uppercase tracking-widest text-center mb-4">Available spot</p>
+                <p className="text-[11px] font-bold text-[#38bdf8] uppercase tracking-widest text-center mb-4">{t('spot_details.available')}</p>
 
                 <div className="flex items-center gap-3 mb-4">
                     <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 text-white font-bold text-xl"
@@ -379,7 +395,7 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
                         <div className="flex items-center gap-2">
                             <Clock size={14} className={isScheduled ? 'text-yellow-400 shrink-0' : 'text-green-400 shrink-0'} />
                             <span className="text-sm font-bold text-[var(--color-text)]">
-                                {isScheduled ? `Leaving at ${departureText}` : 'Leaving now'}
+                                {isScheduled ? t('spot_details.leaving_at', { time: departureText }) : t('spot_details.leaving_now')}
                             </span>
                         </div>
                         <div className="flex items-center gap-2">
@@ -387,7 +403,7 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
                                 <span className="text-sm font-bold text-[var(--color-text-secondary)]">{distanceText}</span>
                             )}
                             {timeLeftMs > 0 && (
-                                <span className="text-xs text-[var(--color-text-secondary)]">Expires in {formatTimeLeft(timeLeftMs)}</span>
+                                <span className="text-xs text-[var(--color-text-secondary)]">{t('spot_details.expires_in', { time: formatTimeLeft(timeLeftMs) })}</span>
                             )}
                         </div>
                     </div>
@@ -402,14 +418,14 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
                     </button>
                     {estDriveMinutes !== null && estDriveMinutes > maxEtaMinutes ? (
                         <span className="flex-1 text-xs text-[var(--color-text-secondary)] self-center text-center">
-                            Too far (~{estDriveMinutes} min drive)
+                            {t('claim_flow.too_far_drive', { min: estDriveMinutes })}
                         </span>
                     ) : (
                         <button onClick={onHeadingThere}
                             className="flex-1 font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95 text-white flex items-center justify-center gap-1.5"
                             style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}>
                             <Navigation size={14} />
-                            I'm heading there
+                            {t('claim_flow.im_heading_there')}
                         </button>
                     )}
                 </div>
@@ -421,7 +437,7 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
     if (state === 'my_ping_available') {
         return (
             <div>
-                <p className="text-[11px] font-bold text-[#38bdf8] uppercase tracking-widest text-center mb-4">Your shared spot</p>
+                <p className="text-[11px] font-bold text-[#38bdf8] uppercase tracking-widest text-center mb-4">{t('spot_details.your_ping')}</p>
 
                 <div className="flex items-center gap-3 mb-4">
                     <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 text-white font-bold text-xl"
@@ -447,11 +463,11 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
                         <div className="flex items-center gap-2">
                             <Clock size={14} className={isScheduled ? 'text-yellow-400 shrink-0' : 'text-green-400 shrink-0'} />
                             <span className="text-sm font-bold text-[var(--color-text)]">
-                                {isScheduled ? `Leaving at ${departureText}` : 'Leaving now'}
+                                {isScheduled ? t('spot_details.leaving_at', { time: departureText }) : t('spot_details.leaving_now')}
                             </span>
                         </div>
                         {timeLeftMs > 0 && (
-                            <span className="text-xs text-[var(--color-text-secondary)]">Expires in {formatTimeLeft(timeLeftMs)}</span>
+                            <span className="text-xs text-[var(--color-text-secondary)]">{t('spot_details.expires_in', { time: formatTimeLeft(timeLeftMs) })}</span>
                         )}
                     </div>
                 </div>
@@ -459,11 +475,11 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
                 <div className="flex gap-2">
                     <button onClick={() => onEditSpot(selectedItem)}
                         className="flex-1 bg-white/10 hover:bg-white/20 text-[var(--color-text)] font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95">
-                        Edit
+                        {t('spot_details.edit')}
                     </button>
                     <button onClick={onDeletePing}
                         className="flex-1 border border-red-500/50 hover:bg-red-500/10 text-red-400 font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95">
-                        Delete
+                        {t('spot_details.delete')}
                     </button>
                 </div>
             </div>
@@ -486,7 +502,7 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
                 </div>
             </div>
             <span className="flex w-full text-xs font-bold text-amber-400 justify-center px-2 py-3 bg-amber-500/10 rounded-2xl border border-amber-500/20">
-                Someone is already heading there
+                {t('spot_details.someone_on_way')}
             </span>
         </div>
     );

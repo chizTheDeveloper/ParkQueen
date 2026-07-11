@@ -36,6 +36,7 @@ export function useInterestFlow({
         id: string; lat: number; lng: number; address?: string;
         finderId: string; finderName: string; geohash?: string;
     } | null>(null);
+    const [handoffSpotCoords, setHandoffSpotCoords] = useState<{ lat: number; lng: number; address: string } | null>(null);
     const [finderToast, setFinderToast] = useState<string | null>(null);
     const [driverNotification, setDriverNotification] = useState<string | null>(null);
 
@@ -337,6 +338,7 @@ export function useInterestFlow({
                 },
                 claimCount: increment(1),
             });
+            setHandoffSpotCoords({ lat: spotSnap.lat, lng: spotSnap.lng, address: spotSnap.address || '' });
             setHandoffStep('celebration');
         } else {
             setHandoffStep('failure_reason');
@@ -400,6 +402,7 @@ export function useInterestFlow({
         setHandoffStep(null);
         setHandoffFinderName(null);
         setHandoffAddress('');
+        setHandoffSpotCoords(null);
         handoffSpotRef.current = null;
         setSelectedItem(null);
     };
@@ -411,6 +414,7 @@ export function useInterestFlow({
         handoffStep,
         handoffFinderName,
         handoffAddress,
+        handoffSpotCoords,
         finderToast,
         driverNotification,
         handleExpressInterest,

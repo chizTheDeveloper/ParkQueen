@@ -8,18 +8,20 @@ import { ChevronLeft, Check, X, Loader2, ChevronDown } from 'lucide-react';
 
 import { moderateUsername, moderateDisplayName } from '../utils/moderation';
 import { useFocusOnMount } from '../hooks/useFocusOnMount';
+import { t, useLang, getLang } from '../i18n';
 
 const USERNAME_REGEX = /^[a-zA-Z][a-zA-Z0-9_]*$/;
 
 function validateUsername(val: string): string | null {
-    if (val.length < 3) return 'At least 3 characters';
-    if (val.length > 20) return '20 characters max';
-    if (!USERNAME_REGEX.test(val)) return 'Letters, numbers, underscores only. Must start with a letter.';
-    if (/__/.test(val)) return 'No consecutive underscores';
+    if (val.length < 3) return t('edit_profile.username_min_length');
+    if (val.length > 20) return t('edit_profile.username_max_length');
+    if (!USERNAME_REGEX.test(val)) return t('edit_profile.username_invalid_chars');
+    if (/__/.test(val)) return t('edit_profile.username_no_double_underscores');
     return moderateUsername(val);
 }
 
 export const EditProfileView = ({ onBack }) => {
+    useLang();
     const [user, setUser] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [username, setUsername] = useState('');
@@ -117,7 +119,7 @@ export const EditProfileView = ({ onBack }) => {
 
             onBack();
         } catch (e: any) {
-            const msg = e?.details || e?.message || 'Failed to save';
+            const msg = e?.details || e?.message || t('edit_profile.save_failed');
             setUsernameError(msg);
         } finally {
             setSaving(false);
@@ -133,8 +135,23 @@ export const EditProfileView = ({ onBack }) => {
     const headingRef = useRef<HTMLHeadingElement>(null);
     useFocusOnMount(headingRef);
 
+    const locale = getLang() === 'es' ? 'es' : 'en';
+    const monthLabels = Array.from({ length: 12 }, (_, i) =>
+        new Intl.DateTimeFormat(locale, { month: 'long' }).format(new Date(2000, i, 1))
+    );
+
     const fieldClass = "block w-full px-4 py-3.5 bg-transparent text-[var(--color-text)] outline-none text-sm placeholder:text-[var(--color-text-secondary)]";
     const rowClass = "bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl overflow-hidden";
+
+    const dobFields = [
+        { value: dobMonth, setter: setDobMonth, placeholder: t('edit_profile.dob_month'), ariaLabel: t('edit_profile.dob_month_aria'),
+          options: ['01','02','03','04','05','06','07','08','09','10','11','12'],
+          labels: monthLabels },
+        { value: dobDay, setter: setDobDay, placeholder: t('edit_profile.dob_day'), ariaLabel: t('edit_profile.dob_day_aria'),
+          options: Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, '0')), labels: null },
+        { value: dobYear, setter: setDobYear, placeholder: t('edit_profile.dob_year'), ariaLabel: t('edit_profile.dob_year_aria'),
+          options: Array.from({ length: 100 }, (_, i) => String(new Date().getFullYear() - 13 - i)), labels: null },
+    ];
 
     return (
         <div className="min-h-full bg-[var(--color-bg)] text-[var(--color-text)] pt-4 pb-24 px-4">
@@ -144,12 +161,12 @@ export const EditProfileView = ({ onBack }) => {
                 <div className="flex items-center gap-4 mb-8">
                     <button
                         onClick={onBack}
-                        aria-label="Back"
+                        aria-label={t('edit_profile.back_aria')}
                         className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] text-[var(--color-text)] hover:bg-white/10 transition-all shrink-0"
                     >
                         <ChevronLeft size={20} />
                     </button>
-                    <h1 ref={headingRef} tabIndex={-1} className="text-xl font-bold tracking-wide focus:outline-none">Edit Profile</h1>
+                    <h1 ref={headingRef} tabIndex={-1} className="text-xl font-bold tracking-wide focus:outline-none">{t('edit_profile.title')}</h1>
                 </div>
 
                 {loading ? (
@@ -161,19 +178,19 @@ export const EditProfileView = ({ onBack }) => {
 
                         {/* Identity section */}
                         <div>
-                            <div className={rowClass}><div className="px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]"><p className="text-xs font-bold text-[var(--color-text)] uppercase tracking-wider">Identity</p></div>
+                            <div className={rowClass}><div className="px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]"><p className="text-xs font-bold text-[var(--color-text)] uppercase tracking-wider">{t('edit_profile.identity_section')}</p></div>
                                 <div className="px-4 pt-3 pb-1">
-                                    <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">Username</span>
+                                    <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">{t('edit_profile.username_label')}</span>
                                 </div>
                                 <div className="relative">
                                     <input
                                         type="text"
-                                        aria-label="Username"
+                                        aria-label={t('edit_profile.username_label')}
                                         value={username}
                                         onChange={(e) => setUsername(e.target.value.replace(/\s/g, ''))}
                                         maxLength={20}
                                         className={`${fieldClass} pr-12 pb-3.5`}
-                                        placeholder="Choose a username"
+                                        placeholder={t('edit_profile.username_placeholder')}
                                     />
                                     <div className="absolute right-4 top-1/2 -translate-y-1/2">
                                         {usernameAvailability === 'checking' && <Loader2 size={16} className="text-[var(--color-text-secondary)] animate-spin" />}
@@ -183,39 +200,39 @@ export const EditProfileView = ({ onBack }) => {
                                     </div>
                                 </div>
                             </div>
-                            {usernameAvailability === 'available' && <p className="text-emerald-400 text-[10px] mt-1.5 px-2 font-semibold">Username available</p>}
-                            {usernameAvailability === 'taken' && <p className="text-red-400 text-[10px] mt-1.5 px-2 font-semibold">Username already taken</p>}
+                            {usernameAvailability === 'available' && <p className="text-emerald-400 text-[10px] mt-1.5 px-2 font-semibold">{t('edit_profile.username_available')}</p>}
+                            {usernameAvailability === 'taken' && <p className="text-red-400 text-[10px] mt-1.5 px-2 font-semibold">{t('edit_profile.username_taken')}</p>}
                             {usernameError && usernameAvailability === 'invalid' && <p className="text-red-400 text-[10px] mt-1.5 px-2">{usernameError}</p>}
                         </div>
 
                         {/* Personal Info section */}
                         <div>
-                            <div className={`${rowClass} divide-y divide-[var(--color-border)]`}><div className="px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]"><p className="text-xs font-bold text-[var(--color-text)] uppercase tracking-wider">Personal Info</p></div>
+                            <div className={`${rowClass} divide-y divide-[var(--color-border)]`}><div className="px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]"><p className="text-xs font-bold text-[var(--color-text)] uppercase tracking-wider">{t('edit_profile.personal_section')}</p></div>
 
                                 {/* Name */}
                                 <div>
                                     <div className="px-4 pt-3 pb-1">
-                                        <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">Name</span>
+                                        <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">{t('edit_profile.name_label')}</span>
                                     </div>
                                     <input
                                         type="text"
-                                        aria-label="Full name"
+                                        aria-label={t('edit_profile.name_label')}
                                         value={fullName}
                                         onChange={(e) => setFullName(e.target.value)}
                                         className={`${fieldClass} pb-3.5`}
-                                        placeholder="Your name (optional)"
+                                        placeholder={t('edit_profile.name_placeholder')}
                                     />
                                 </div>
 
                                 {/* Home Area */}
                                 <div>
                                     <div className="px-4 pt-3 pb-1">
-                                        <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">Home Area</span>
-                                        <span className="text-[10px] text-[var(--color-text-secondary)] ml-1.5 opacity-50">optional</span>
+                                        <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">{t('edit_profile.home_area_label')}</span>
+                                        <span className="text-[10px] text-[var(--color-text-secondary)] ml-1.5 opacity-50">{t('edit_profile.optional')}</span>
                                     </div>
                                     <input
                                         type="text"
-                                        aria-label="Home area"
+                                        aria-label={t('edit_profile.home_area_label')}
                                         value={homeArea}
                                         onChange={(e) => setHomeArea(e.target.value)}
                                         className={`${fieldClass} pb-3.5`}
@@ -226,20 +243,20 @@ export const EditProfileView = ({ onBack }) => {
                                 {/* Driver Type */}
                                 <div className="relative">
                                     <div className="px-4 pt-3 pb-1">
-                                        <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">Driver Type</span>
-                                        <span className="text-[10px] text-[var(--color-text-secondary)] ml-1.5 opacity-50">optional</span>
+                                        <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">{t('edit_profile.driver_type_label')}</span>
+                                        <span className="text-[10px] text-[var(--color-text-secondary)] ml-1.5 opacity-50">{t('edit_profile.optional')}</span>
                                     </div>
                                     <select
-                                        aria-label="Driver type"
+                                        aria-label={t('edit_profile.driver_type_label')}
                                         value={driverType}
                                         onChange={(e) => setDriverType(e.target.value)}
                                         className={`${fieldClass} pb-3.5 pr-10 appearance-none cursor-pointer dark:[color-scheme:dark]`}
                                         style={{ backgroundColor: 'var(--color-card)' }}
                                     >
-                                        <option value="">Select driver type</option>
-                                        <option value="Daily commuter">Daily commuter</option>
-                                        <option value="Occasional driver">Occasional driver</option>
-                                        <option value="Rideshare / delivery">Rideshare / delivery</option>
+                                        <option value="">{t('edit_profile.driver_type_placeholder')}</option>
+                                        <option value="Daily commuter">{t('edit_profile.driver_type_commuter')}</option>
+                                        <option value="Occasional driver">{t('edit_profile.driver_type_occasional')}</option>
+                                        <option value="Rideshare / delivery">{t('edit_profile.driver_type_rideshare')}</option>
                                     </select>
                                     <ChevronDown size={16} className="absolute right-4 bottom-4 text-[var(--color-text-secondary)] pointer-events-none" />
                                 </div>
@@ -247,30 +264,14 @@ export const EditProfileView = ({ onBack }) => {
                                 {/* Date of Birth */}
                                 <div>
                                     <div className="px-4 pt-3 pb-1">
-                                        <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">Date of Birth</span>
-                                        <span className="text-[10px] text-[var(--color-text-secondary)] ml-1.5 opacity-50">optional</span>
+                                        <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">{t('edit_profile.dob_label')}</span>
+                                        <span className="text-[10px] text-[var(--color-text-secondary)] ml-1.5 opacity-50">{t('edit_profile.optional')}</span>
                                     </div>
                                     <div className="flex gap-2 px-4 pb-3.5">
-                                        {[
-                                            {
-                                                value: dobMonth, setter: setDobMonth, placeholder: 'Month',
-                                                options: ['01','02','03','04','05','06','07','08','09','10','11','12'],
-                                                labels: ['January','February','March','April','May','June','July','August','September','October','November','December'],
-                                            },
-                                            {
-                                                value: dobDay, setter: setDobDay, placeholder: 'Day',
-                                                options: Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, '0')),
-                                                labels: null,
-                                            },
-                                            {
-                                                value: dobYear, setter: setDobYear, placeholder: 'Year',
-                                                options: Array.from({ length: 100 }, (_, i) => String(new Date().getFullYear() - 13 - i)),
-                                                labels: null,
-                                            },
-                                        ].map(({ value, setter, placeholder, options, labels }) => (
-                                            <div key={placeholder} className="relative flex-1">
+                                        {dobFields.map(({ value, setter, placeholder, ariaLabel, options, labels }) => (
+                                            <div key={ariaLabel} className="relative flex-1">
                                                 <select
-                                                    aria-label={`Birth ${placeholder.toLowerCase()}`}
+                                                    aria-label={ariaLabel}
                                                     value={value}
                                                     onChange={(e) => setter(e.target.value)}
                                                     className="w-full py-2.5 pl-3 pr-7 rounded-xl text-sm appearance-none cursor-pointer border border-[var(--color-border)] text-[var(--color-text)] outline-none focus:border-[#1e75ff] transition-all dark:[color-scheme:dark]"
@@ -290,25 +291,24 @@ export const EditProfileView = ({ onBack }) => {
                                 {/* Gender */}
                                 <div className="relative">
                                     <div className="px-4 pt-3 pb-1">
-                                        <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">Gender</span>
-                                        <span className="text-[10px] text-[var(--color-text-secondary)] ml-1.5 opacity-50">optional</span>
+                                        <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]">{t('edit_profile.gender_label')}</span>
+                                        <span className="text-[10px] text-[var(--color-text-secondary)] ml-1.5 opacity-50">{t('edit_profile.optional')}</span>
                                     </div>
                                     <select
-                                        aria-label="Gender"
+                                        aria-label={t('edit_profile.gender_label')}
                                         value={gender}
                                         onChange={(e) => setGender(e.target.value)}
                                         className={`${fieldClass} pb-3.5 pr-10 appearance-none cursor-pointer dark:[color-scheme:dark]`}
                                         style={{ backgroundColor: 'var(--color-card)' }}
                                     >
-                                        <option value="">Select gender</option>
-                                        <option value="Male">Male</option>
-                                        <option value="Female">Female</option>
-                                        <option value="Other">Other</option>
-                                        <option value="Prefer not to say">Prefer not to say</option>
+                                        <option value="">{t('edit_profile.gender_placeholder')}</option>
+                                        <option value="Male">{t('edit_profile.gender_male')}</option>
+                                        <option value="Female">{t('edit_profile.gender_female')}</option>
+                                        <option value="Other">{t('edit_profile.gender_other')}</option>
+                                        <option value="Prefer not to say">{t('edit_profile.gender_prefer_not')}</option>
                                     </select>
                                     <ChevronDown size={16} className="absolute right-4 bottom-4 text-[var(--color-text-secondary)] pointer-events-none" />
                                 </div>
-
 
                             </div>
                         </div>
@@ -330,13 +330,13 @@ export const EditProfileView = ({ onBack }) => {
                                 boxShadow: canSave ? '0 4px 20px rgba(30,117,255,0.35)' : 'none',
                             }}
                         >
-                            {saving ? 'Saving...' : 'Save Changes'}
+                            {saving ? t('edit_profile.saving') : t('edit_profile.save')}
                         </button>
 
                     </div>
                 ) : (
                     <div className="text-center py-10 bg-[var(--color-card)] border border-[var(--color-border)] backdrop-blur-md rounded-2xl text-[var(--color-text-secondary)]">
-                        Please log in to edit your profile.
+                        {t('edit_profile.not_logged_in')}
                     </div>
                 )}
             </div>

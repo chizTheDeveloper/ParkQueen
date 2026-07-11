@@ -6,21 +6,22 @@ import SplashScreen from '../assets/splash_screen.svg';
 import { sendPasswordResetEmail } from '../database';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../firebaseConfig';
+import { t, useLang } from '../i18n';
 
 function mapAuthError(code: string): string {
   switch (code) {
     case 'auth/wrong-password':
     case 'auth/invalid-credential':
     case 'auth/user-not-found':
-      return 'Incorrect email or password. Please try again.';
+      return t('auth.error_wrong_password');
     case 'auth/too-many-requests':
-      return 'Too many attempts. Please wait a moment and try again.';
+      return t('auth.error_too_many');
     case 'auth/user-disabled':
-      return 'This account has been disabled. Please contact support.';
+      return t('auth.error_disabled');
     case 'auth/network-request-failed':
-      return 'Network error. Check your connection and try again.';
+      return t('auth.error_network');
     default:
-      return 'Something went wrong. Please try again.';
+      return t('auth.error_unknown');
   }
 }
 
@@ -48,6 +49,7 @@ const InputField = ({ icon, label, value, onChange, placeholder, type = 'text', 
 };
 
 export const LoginView: React.FC<LoginViewProps> = ({ onSuccess, onNavigateToCreateAccount }) => {
+  useLang();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -73,7 +75,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSuccess, onNavigateToCre
 
   const handleResetPassword = async () => {
     if (!email) {
-      setResetError("Please enter your email address.");
+      setResetError(t('auth.reset_email_required'));
       return;
     }
     setIsResetting(true);
@@ -81,9 +83,9 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSuccess, onNavigateToCre
     setResetMessage('');
     try {
       await sendPasswordResetEmail(email);
-      setResetMessage("Password reset email sent! Check your inbox (and spam folder).");
+      setResetMessage(t('auth.reset_email_sent'));
     } catch (error: any) {
-      setResetError(error.message || "Failed to send reset email.");
+      setResetError(error.message || t('auth.reset_email_error'));
     } finally {
       setIsResetting(false);
     }
@@ -97,16 +99,16 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSuccess, onNavigateToCre
           <div className="flex justify-center mb-6">
               <img src={ParqueenLogo} alt="Logo" className="h-16" />
           </div>
-          <h1 className="text-2xl font-bold text-center text-[var(--color-text)]">Reset Password</h1>
-          <p className="text-center text-[var(--color-text-secondary)] mb-6 text-sm">Enter your email to receive a password reset link.</p>
+          <h1 className="text-2xl font-bold text-center text-[var(--color-text)]">{t('auth.reset_password_title')}</h1>
+          <p className="text-center text-[var(--color-text-secondary)] mb-6 text-sm">{t('auth.reset_password_subtitle')}</p>
 
           <div className="space-y-4">
             <InputField
               icon={<Mail size={20} />}
-              label="Email"
+              label={t('auth.email')}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="Email"
+              placeholder={t('auth.email')}
               type="email"
               autoComplete="email"
             />
@@ -120,7 +122,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSuccess, onNavigateToCre
               onClick={handleResetPassword}
               disabled={isResetting}
               className={`w-full bg-[#1e75ff] hover:bg-blue-600 active:scale-95 text-white font-bold py-3.5 rounded-2xl transition-all shadow-md shadow-blue-500/20 ${isResetting ? 'opacity-70 cursor-not-allowed' : ''}`}>
-              {isResetting ? "Sending..." : "Send Reset Link"}
+              {isResetting ? t('auth.sending') : t('auth.send_reset_link')}
             </button>
           </div>
 
@@ -132,7 +134,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSuccess, onNavigateToCre
                   setResetError('');
                 }}
                 className="font-bold text-[#38bdf8] hover:underline text-sm">
-                  Back to Login
+                  {t('auth.back_to_login')}
               </button>
           </div>
         </div>
@@ -147,25 +149,25 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSuccess, onNavigateToCre
         <div className="flex justify-center mb-6">
             <img src={ParqueenLogo} alt="Logo" className="h-16" />
         </div>
-        <h1 className="text-2xl font-bold text-center text-[var(--color-text)]">Welcome Back!</h1>
-        <p className="text-center text-[var(--color-text-secondary)] mb-8 text-sm">Please log in to your account.</p>
+        <h1 className="text-2xl font-bold text-center text-[var(--color-text)]">{t('auth.welcome_back')}</h1>
+        <p className="text-center text-[var(--color-text-secondary)] mb-8 text-sm">{t('auth.sign_in_subtitle')}</p>
 
         <div className="space-y-4">
           <InputField
             icon={<Mail size={20} />}
-            label="Email"
+            label={t('auth.email')}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="Email"
+            placeholder={t('auth.email')}
             type="email"
             autoComplete="email"
           />
           <InputField
             icon={<Lock size={20} />}
-            label="Password"
+            label={t('auth.password')}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password"
+            placeholder={t('auth.password')}
             type="password"
             autoComplete="current-password"
           />
@@ -185,7 +187,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSuccess, onNavigateToCre
                 setIsForgotPassword(true);
               }}
               className="text-sm font-semibold text-[#38bdf8] hover:underline">
-              Forgot password?
+              {t('auth.forgot_password')}
             </button>
         </div>
 
@@ -195,15 +197,15 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSuccess, onNavigateToCre
             disabled={isLoading}
             className="w-full bg-[#1e75ff] hover:bg-blue-600 active:scale-95 text-white font-bold py-3.5 rounded-2xl transition-all shadow-md shadow-blue-500/20 disabled:opacity-70 disabled:cursor-not-allowed disabled:active:scale-100"
           >
-            {isLoading ? 'Signing in…' : 'Log In'}
+            {isLoading ? t('auth.signing_in') : t('auth.log_in')}
           </button>
         </div>
 
         <div className="text-center mt-6">
             <p className="text-sm text-[var(--color-text-secondary)]">
-              Don't have an account?{' '}
+              {t('auth.no_account')}{' '}
               <button onClick={onNavigateToCreateAccount} className="font-bold text-[#38bdf8] hover:underline">
-                Sign Up
+                {t('auth.sign_up')}
               </button>
             </p>
         </div>

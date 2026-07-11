@@ -12,6 +12,7 @@ import mapboxgl from 'mapbox-gl';
 import * as geofire from 'geofire-common';
 
 import { MAPBOX_TOKEN, NYC_CENTER, createMarkerElement, createStackMarkerElement, clearRoute, drawRoute, getDistance } from './street-parking/utils';
+import { t, useLang } from '../i18n';
 import { VehicleIcon } from '../utils/vehicleIcon';
 import { getTitleForCrowns } from '../utils/crowns';
 
@@ -43,7 +44,8 @@ import { useParkingTimer } from './street-parking/useParkingTimer';
 import { AppTour, TOUR_KEY } from './street-parking/AppTour';
 
 
-export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }) => {
+export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, pendingSpotId, onPendingSpotConsumed }) => {
+    useLang(); // re-render on language change
     const mapContainerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
     const allMarkersRef = useRef<Record<string, mapboxgl.Marker>>({});
@@ -73,7 +75,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const [pingError, setPingError] = useState<string | null>(null);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [isSpotModalOpen, setSpotModalOpen] = useState(false);
-    const [spotAddress, setSpotAddress] = useState<string>("Loading address...");
+    const [spotAddress, setSpotAddress] = useState<string>(() => t('my_car.resolving_address'));
 
 
     const userRef = useRef(user);
@@ -114,6 +116,16 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const itemsRef = useRef<MapItem[]>([]);
     itemsRef.current = spotData.radiusFilteredItems;
 
+    // Consume pendingSpotId from Nearby Activity tap — fly to spot and open SpotDetailsCard
+    useEffect(() => {
+        if (!pendingSpotId || !mapReady) return;
+        const item = spotData.freeSpots.find(s => s.id === pendingSpotId);
+        onPendingSpotConsumed?.();
+        if (!item) return;
+        mapRef.current?.flyTo({ center: [item.lng, item.lat], zoom: 17, duration: 800 });
+        setSelectedItem(item);
+    }, [pendingSpotId, mapReady, spotData.freeSpots]);
+
     const interestFlow = useInterestFlow({
         selectedItem,
         setSelectedItem,
@@ -139,6 +151,24 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         parkingSide: string | null;
         restrictionVersionId: string | null;
         segmentStreetName: string | null;
+        // Street Intelligence lookup outcome
+        streetIntelStatus: 'found' | 'unavailable' | 'failed' | null;
+        streetIntelReason: string | null;
+        streetIntelCheckedAt: string | null;
+    };
+
+    type SegmentMatch = {
+        segmentId: string | null;
+        parkingSide: string | null;
+        restrictionVersionId: string | null;
+        segmentStreetName: string | null;
+        streetIntelStatus: 'found' | 'unavailable' | 'failed';
+        streetIntelReason: string | null;
+    };
+
+    const cfReasonToIntelStatus = (reason: string | undefined): 'unavailable' | 'failed' => {
+        const unavailableReasons = ['no_sweepnyc_notes', 'no_signs', 'no_sweepnyc_data', 'archived_segment'];
+        return reason && unavailableReasons.includes(reason) ? 'unavailable' : 'failed';
     };
 
     const [savedSpot, setSavedSpot] = useState<SavedSpot | null>(() => {
@@ -199,13 +229,116 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     // Tracks where the departure sheet was opened from, so back arrow knows where to return.
     const departureSheetOriginRef = useRef<'session' | 'post_save' | 'change_time' | 'prompt'>('prompt');
 
+    // ?debugStreet=1 — in-app street intelligence debug panel (no-op for normal users)
+    const isDebugMode = useMemo(() => new URLSearchParams(window.location.search).has('debugStreet'), []);
+    const [isDebugAdmin, setIsDebugAdmin] = useState(false);
+    useEffect(() => {
+        if (!isDebugMode) return;
+        auth.currentUser?.getIdTokenResult().then(token => {
+            if (token.claims.role === 'admin') setIsDebugAdmin(true);
+        }).catch(() => {});
+    }, [isDebugMode]);
+    const debugLinesRef = useRef<string[]>([]);
+    const [debugLines, setDebugLines] = useState<string[]>([]);
+    const [debugPanelOpen, setDebugPanelOpen] = useState(true);
+    const dbg = useCallback((msg: string) => {
+        if (!isDebugMode) return;
+        const line = `${new Date().toLocaleTimeString()} ${msg}`;
+        console.log('[StreetIntelDebug]', msg);
+        debugLinesRef.current = [...debugLinesRef.current, line];
+        setDebugLines([...debugLinesRef.current]);
+    }, [isDebugMode]);
+
+    const [manualLat, setManualLat] = useState('');
+    const [manualLng, setManualLng] = useState('');
+    const [cfManualLoading, setCfManualLoading] = useState(false);
+    const testCFManual = useCallback(async () => {
+        if (!isDebugMode) return;
+        const lat = parseFloat(manualLat);
+        const lng = parseFloat(manualLng);
+        if (isNaN(lat) || isNaN(lng)) { dbg('Manual CF: invalid lat/lng'); return; }
+        setCfManualLoading(true);
+        dbg(`--- DIRECT MANUAL CF TEST lat:${lat} lng:${lng} ---`);
+        try {
+            const fn = httpsCallable(getFunctions(getApp(), 'us-central1'), 'createSegmentFromSweepNYC');
+            const result = await fn({ lat, lng });
+            const data = result.data as any;
+            const hasDiag = data._diag != null;
+            const d = data._diag ?? {};
+            const dv = (v: any) => hasDiag ? (v == null ? 'null' : String(v)) : '?';
+            dbg(`Manual CF result: success=${data.success} reason=${data.reason ?? 'none'} segmentId=${data.segmentId ?? 'null'} parkingSide=${data.parkingSide ?? 'null'} streetName=${data.streetName ?? 'null'}`);
+            dbg(`  _diag: stage=${dv(d.stage)} geo=${dv(d.geometrySource)} segStatus=${dv(d.segmentStatus)} signs=${dv(d.signsCount)} parsed=${dv(d.parsedCount)} failures=${dv(d.parseFailureCount)}`);
+            dbg(`  _diag: extractedStreet="${dv(d.extractedStreetName)}" extractedSide="${dv(d.extractedSide)}" errMsg="${dv(d.errorMessage)}"`);
+        } catch (e: any) {
+            dbg(`Manual CF THREW: code=${e?.code ?? '?'} msg=${e?.message ?? String(e)}`);
+            console.error('[StreetIntelDebug] Manual CF error:', e);
+        } finally {
+            setCfManualLoading(false);
+            dbg('--- MANUAL CF TEST DONE ---');
+        }
+    }, [isDebugMode, manualLat, manualLng, dbg]);
+
+    const [cfTestLoading, setCfTestLoading] = useState(false);
+    const testCFDirect = useCallback(() => {
+        if (!isDebugMode) return;
+        setCfTestLoading(true);
+        dbg('--- DIRECT CF TEST ---');
+        navigator.geolocation.getCurrentPosition(async pos => {
+            const lat = pos.coords.latitude;
+            const lng = pos.coords.longitude;
+            dbg(`CF test lat:${lat.toFixed(6)} lng:${lng.toFixed(6)}`);
+            try {
+                const fn = httpsCallable(getFunctions(getApp(), 'us-central1'), 'createSegmentFromSweepNYC');
+                const result = await fn({ lat, lng });
+                const data = result.data as any;
+                dbg(`CF test result: ${JSON.stringify(data)}`);
+            } catch (e: any) {
+                dbg(`CF test THREW: code=${e?.code ?? '?'} msg=${e?.message ?? String(e)}`);
+                console.error('[StreetIntelDebug] CF test error:', e);
+            } finally {
+                setCfTestLoading(false);
+                dbg('--- CF TEST DONE ---');
+            }
+        }, err => {
+            dbg(`CF test geolocation error: ${err.message}`);
+            setCfTestLoading(false);
+        });
+    }, [isDebugMode, dbg]);
+
+    // Retry segmentId lookup once per session for legacy saved spots that have no streetIntelStatus.
+    // Skip if a fresh lookup already ran (streetIntelStatus is set) — the UI should show that result.
+    const segmentRetrySessionRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (!showSessionSheet || !savedSpot) return;
+        if (savedSpot.segmentId !== null) return;                // already have segment
+        if (segmentRetrySessionRef.current === savedSpot.sessionId) return; // already retried this session
+        // Skip if the lookup already ran and produced a valid outcome — don't clobber it
+        if (savedSpot.streetIntelStatus === 'unavailable' || savedSpot.streetIntelStatus === 'failed') {
+            console.log('[segmentRetry] skipped — existing streetIntelStatus=' + savedSpot.streetIntelStatus + ' reason=' + (savedSpot.streetIntelReason ?? 'none'));
+            return;
+        }
+        segmentRetrySessionRef.current = savedSpot.sessionId;
+        // Use the saved spot's own coordinates — not current GPS — so retry targets the parked location
+        const { lat, lng } = savedSpot;
+        console.log('[segmentRetry] retrying using savedSpot coordinates lat:' + lat + ' lng:' + lng);
+        (async () => {
+            const match = await matchNearestSegment(lat, lng);
+            if (!match.segmentId) { console.warn('[segmentRetry] retry also returned null, status:', match.streetIntelStatus); return; }
+            console.log('[segmentRetry] retry succeeded:', match.segmentId);
+            const updated = { ...savedSpot, ...match, streetIntelCheckedAt: new Date().toISOString() };
+            setSavedSpot(updated);
+            localStorage.setItem(SAVED_SPOT_KEY, JSON.stringify(updated));
+        })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [showSessionSheet, savedSpot?.sessionId]);
+
     // Live duration counter for active session
     useEffect(() => {
         if (!savedSpot) { setParkedDuration(''); return; }
         const update = () => {
             const mins = Math.floor((Date.now() - savedSpot.savedAt) / 60000);
-            if (mins < 1) setParkedDuration('Just parked');
-            else if (mins < 60) setParkedDuration(`${mins} ${mins === 1 ? 'minute' : 'minutes'}`);
+            if (mins < 1) setParkedDuration(t('my_car.just_parked'));
+            else if (mins < 60) setParkedDuration(mins === 1 ? t('my_car.duration_minute', { min: mins }) : t('my_car.duration_minutes', { min: mins }));
             else {
                 const h = Math.floor(mins / 60);
                 const m = mins % 60;
@@ -219,9 +352,11 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
     const matchNearestSegment = async (userLat: number, userLng: number) => {
         try {
+            dbg(`matchNearestSegment started — lat:${userLat.toFixed(6)} lng:${userLng.toFixed(6)}`);
             const radiusM = 80;
             const center: [number, number] = [userLat, userLng];
             const bounds = geofire.geohashQueryBounds(center, radiusM);
+            dbg(`geohash bounds queried: ${bounds.length} ranges`);
 
             const snaps = await Promise.all(
                 bounds.map(([start, end]) =>
@@ -236,29 +371,50 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 ),
             );
 
-            const candidates = snaps.flatMap(s =>
+            const allCandidates = snaps.flatMap(s =>
                 s.docs.map(d => ({ id: d.id, ...(d.data() as any) }))
             );
+            // Exclude archived segments so stale data doesn't block a fresh SweepNYC lookup
+            const candidates = allCandidates.filter(
+                (c: any) => !c.status || c.status === 'active' || c.status === 'needs_review'
+            );
+            console.log('[matchNearestSegment] lat:', userLat, 'lng:', userLng,
+                '| raw candidates:', allCandidates.length, '| active candidates:', candidates.length,
+                '| statuses:', allCandidates.map((c: any) => c.status || 'none').join(', '));
+            dbg(`raw candidates: ${allCandidates.length} | active: ${candidates.length}`);
+            if (allCandidates.length) {
+                allCandidates.forEach((c: any) =>
+                    dbg(`  candidate: ${c.id} | status:${c.status ?? 'none'} | street:${c.streetName ?? '?'}`)
+                );
+            }
 
             if (!candidates.length) {
-                // No Firestore segment — lazy-populate via CF (server-controlled write)
+                // No active Firestore segment — lazy-populate via CF (server-controlled write)
+                console.log('[matchNearestSegment] no active segments — calling createSegmentFromSweepNYC');
+                dbg('no active segments — calling createSegmentFromSweepNYC');
                 try {
                     const fn = httpsCallable(getFunctions(getApp(), 'us-central1'), 'createSegmentFromSweepNYC');
                     const result = await fn({ lat: userLat, lng: userLng });
                     const data = result.data as { success: boolean; segmentId?: string; parkingSide?: string; streetName?: string; reason?: string };
+                    console.log('[matchNearestSegment] CF result:', JSON.stringify(data));
+                    dbg(`CF result: success=${data.success} segmentId=${data.segmentId ?? 'null'} parkingSide=${data.parkingSide ?? 'null'} street=${data.streetName ?? 'null'} reason=${data.reason ?? 'none'}`);
                     if (!data.success || !data.segmentId) {
+                        const status = cfReasonToIntelStatus(data.reason);
                         console.warn('[SweepNYC] lookup failed:', data.reason ?? 'unknown');
-                        return null;
+                        return { segmentId: null, parkingSide: null, restrictionVersionId: null, segmentStreetName: null, streetIntelStatus: status, streetIntelReason: data.reason ?? null };
                     }
                     return {
                         segmentId: data.segmentId,
-                        parkingSide: data.parkingSide ?? 'North',
+                        parkingSide: data.parkingSide ?? null,
                         restrictionVersionId: null,
-                        segmentStreetName: data.streetName ?? '',
+                        segmentStreetName: data.streetName ?? null,
+                        streetIntelStatus: 'found' as const,
+                        streetIntelReason: null,
                     };
                 } catch (e: any) {
                     console.warn('[SweepNYC] cloud function error:', e?.code ?? e?.message ?? 'unknown');
-                    return null;
+                    dbg(`CF threw: code=${e?.code ?? '?'} msg=${e?.message ?? '?'}`);
+                    return { segmentId: null, parkingSide: null, restrictionVersionId: null, segmentStreetName: null, streetIntelStatus: 'failed' as const, streetIntelReason: e?.code ?? 'cf_error' };
                 }
             }
 
@@ -268,6 +424,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             }));
             withDist.sort((a: any, b: any) => a.dist - b.dist);
             const nearest = withDist[0];
+            dbg(`selected nearest: ${nearest.id} | street:${nearest.streetName ?? '?'} | status:${nearest.status ?? 'none'} | dist:${(nearest.dist * 1000).toFixed(0)}m`);
 
             const parkingSide = nearest.source === 'sweepnyc'
                 ? detectCardinalSide(userLat, userLng, nearest.fromLat, nearest.fromLng, nearest.toLat, nearest.toLng, nearest.bearing ?? 90)
@@ -280,26 +437,77 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                 ),
             );
             const restrictionVersionId = rulesSnap.docs[0]?.id || null;
+            dbg(`streetRules count: ${rulesSnap.docs.length} | restrictionVersionId: ${restrictionVersionId ?? 'null'}`);
+            if (rulesSnap.docs.length === 0) {
+                dbg('⚠️ Existing segment found but no streetRules detected. SweepNYC was NOT called.');
+                console.warn('[StreetIntelDebug] Existing segment found but no streetRules detected. segmentId:', nearest.id);
+            }
 
             return {
                 segmentId: nearest.id as string,
                 parkingSide,
                 restrictionVersionId,
                 segmentStreetName: nearest.streetName as string,
+                streetIntelStatus: 'found' as const,
+                streetIntelReason: null,
             };
         } catch (e) {
+            dbg(`matchNearestSegment threw: ${(e as any)?.message ?? String(e)}`);
             console.warn('Segment match failed:', e);
-            return null;
+            return { segmentId: null, parkingSide: null, restrictionVersionId: null, segmentStreetName: null, streetIntelStatus: 'failed' as const, streetIntelReason: 'match_error' };
+        }
+    };
+
+    const [simSaveLoading, setSimSaveLoading] = useState(false);
+    const simulateMyCarSave = async () => {
+        if (!isDebugMode) return;
+        const lat = parseFloat(manualLat);
+        const lng = parseFloat(manualLng);
+        if (isNaN(lat) || isNaN(lng)) { dbg('Simulate save: invalid lat/lng'); return; }
+        setSimSaveLoading(true);
+        dbg(`--- SIMULATED MY CAR SAVE lat:${lat} lng:${lng} ---`);
+        try {
+            const match = await matchNearestSegment(lat, lng);
+            dbg(`match: segmentId=${match.segmentId ?? 'null'} parkingSide=${match.parkingSide ?? 'null'} street=${match.segmentStreetName ?? 'null'} status=${match.streetIntelStatus} reason=${match.streetIntelReason ?? 'none'}`);
+            const spot: SavedSpot = {
+                lat, lng,
+                address: `${lat.toFixed(5)}, ${lng.toFixed(5)} (simulated)`,
+                savedAt: Date.now(),
+                sessionId: crypto.randomUUID(),
+                linkedPingId: null,
+                segmentId: match.segmentId,
+                parkingSide: match.parkingSide,
+                restrictionVersionId: match.restrictionVersionId,
+                segmentStreetName: match.segmentStreetName,
+                streetIntelStatus: match.streetIntelStatus,
+                streetIntelReason: match.streetIntelReason,
+                streetIntelCheckedAt: new Date().toISOString(),
+            };
+            localStorage.setItem(SAVED_SPOT_KEY, JSON.stringify(spot));
+            setSavedSpot(spot);
+            setShowSessionSheet(true);
+            const willRenderCard = !!(spot.segmentId && spot.segmentStreetName);
+            const willRenderUnavailable = !willRenderCard && (spot.streetIntelStatus === 'unavailable' || spot.streetIntelStatus === 'failed');
+            dbg(`savedSpot set: segmentId=${spot.segmentId ?? 'null'} parkingSide=${spot.parkingSide ?? 'null'} street=${spot.segmentStreetName ?? 'null'}`);
+            dbg(`  streetIntelStatus=${spot.streetIntelStatus} streetIntelReason=${spot.streetIntelReason ?? 'null'}`);
+            dbg(`  StreetIntelligenceCard renders: ${willRenderCard} | unavailable card renders: ${willRenderUnavailable}`);
+        } catch (e: any) {
+            dbg(`Simulate save THREW: ${e?.message ?? String(e)}`);
+        } finally {
+            setSimSaveLoading(false);
+            dbg('--- SIMULATED MY CAR SAVE DONE ---');
         }
     };
 
     const saveMySpot = async () => {
         if (!userLocation) return;
         const [lng, lat] = userLocation;
+        dbg(`saveMySpot started — lng:${lng.toFixed(6)} lat:${lat.toFixed(6)}`);
         const [address, segmentMatch] = await Promise.all([
             reverseGeocode(lng, lat),
             matchNearestSegment(lat, lng),
         ]);
+        dbg(`segmentMatch: segmentId=${segmentMatch.segmentId ?? 'null'} parkingSide=${segmentMatch.parkingSide ?? 'null'} street=${segmentMatch.segmentStreetName ?? 'null'} status=${segmentMatch.streetIntelStatus}`);
         const spot: SavedSpot = {
             lat,
             lng,
@@ -307,14 +515,40 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             savedAt: Date.now(),
             sessionId: crypto.randomUUID(),
             linkedPingId: null,
-            segmentId: segmentMatch?.segmentId ?? null,
-            parkingSide: segmentMatch?.parkingSide ?? null,
-            restrictionVersionId: segmentMatch?.restrictionVersionId ?? null,
-            segmentStreetName: segmentMatch?.segmentStreetName ?? null,
+            segmentId: segmentMatch.segmentId,
+            parkingSide: segmentMatch.parkingSide,
+            restrictionVersionId: segmentMatch.restrictionVersionId,
+            segmentStreetName: segmentMatch.segmentStreetName,
+            streetIntelStatus: segmentMatch.streetIntelStatus,
+            streetIntelReason: segmentMatch.streetIntelReason,
+            streetIntelCheckedAt: new Date().toISOString(),
         };
+        const cardCondition = !!(spot.segmentId && spot.segmentStreetName);
+        dbg(`StreetIntelligenceCard will render: ${cardCondition} (segmentId=${spot.segmentId ?? 'null'} status=${spot.streetIntelStatus} reason=${spot.streetIntelReason ?? 'none'})`);
         localStorage.setItem(SAVED_SPOT_KEY, JSON.stringify(spot));
         setSavedSpot(spot);
         setShowPostSaveOffer(true);
+    };
+
+    // Used after handoff — skips GPS, uses the already-known claimed Ping coordinates
+    const saveMySpotFromCoords = async (lat: number, lng: number, address: string) => {
+        const segmentMatch = await matchNearestSegment(lat, lng);
+        const spot: SavedSpot = {
+            lat, lng, address,
+            savedAt: Date.now(),
+            sessionId: crypto.randomUUID(),
+            linkedPingId: null,
+            segmentId: segmentMatch.segmentId,
+            parkingSide: segmentMatch.parkingSide,
+            restrictionVersionId: segmentMatch.restrictionVersionId,
+            segmentStreetName: segmentMatch.segmentStreetName,
+            streetIntelStatus: segmentMatch.streetIntelStatus,
+            streetIntelReason: segmentMatch.streetIntelReason,
+            streetIntelCheckedAt: new Date().toISOString(),
+        };
+        localStorage.setItem(SAVED_SPOT_KEY, JSON.stringify(spot));
+        setSavedSpot(spot);
+        setShowSessionSheet(true);
     };
 
     const writeCleaningReminder = async (safeUntil: Date | null, enabled: boolean, streetName: string | null) => {
@@ -378,10 +612,6 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
     const otherSpots = spotData.radiusFilteredItems.filter(s => s.finderId !== user?.id);
     const spotCount = otherSpots.length;
 
-    // Count active claim sessions nearby — proxy for demand, shown to finders
-    const nearbyInterestCount = spotData.freeSpots.filter(
-        s => s.status === 'interested' && s.interestedUserId !== user?.id
-    ).length;
 
 
     // Reset remove-car confirmation state whenever the session sheet closes
@@ -640,7 +870,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
               </svg>
             </div>
         `;
-        el.title = loc.address || 'Last parked here';
+        el.title = loc.address || t('my_car.last_parked_here');
 
         const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
             .setLngLat([loc.lng, loc.lat])
@@ -670,9 +900,9 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
         if (!coords) { setSpotAddress(""); return; }
         if (coords.title) { setSpotAddress(coords.title); return; }
         if (coords.address) { setSpotAddress(coords.address); return; }
-        if (!MAPBOX_TOKEN) { setSpotAddress("Street Spot"); return; }
+        if (!MAPBOX_TOKEN) { setSpotAddress(t('my_car.street_spot')); return; }
 
-        setSpotAddress("Resolving address...");
+        setSpotAddress(t('my_car.resolving_address'));
         fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${coords.lng},${coords.lat}.json?types=address&access_token=${MAPBOX_TOKEN}&limit=1`)
             .then(res => res.json())
             .then(data => {
@@ -682,7 +912,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     setSpotAddress(`Coordinates: ${coords.lat.toFixed(4)}, ${coords.lng.toFixed(4)}`);
                 }
             })
-            .catch(() => { setSpotAddress("Street Spot"); });
+            .catch(() => { setSpotAddress(t('my_car.street_spot')); });
     }, [selectedItem, spotData.freeSpots, userLocation, MAPBOX_TOKEN]);
 
     // User location marker
@@ -780,7 +1010,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     return t;
                 }));
                 const minutesLeft = Math.ceil((oldestMs + 60 * 60 * 1000 - now) / 60000);
-                setMyCarDepartureError(`Ping limit reached — try again in ${minutesLeft} min.`);
+                setMyCarDepartureError(t('my_car.ping_limit_reached', { minutes: minutesLeft }));
                 setMyCarDepartureLoading(false);
                 return;
             }
@@ -837,7 +1067,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             }, 1500);
         } catch (e) {
             console.error('My Car ping failed:', e);
-            setMyCarDepartureError("Couldn't share this spot. Please try again.");
+            setMyCarDepartureError(t('my_car.share_error'));
             setMyCarDepartureLoading(false);
         }
     };
@@ -851,7 +1081,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             const nowMs = Date.now();
             const hasActive = activeSnap.docs.some(d => (d.data().expiresAt?.toMillis?.() ?? 0) > nowMs);
             if (hasActive) {
-                setPingError('You already have an active ping — cancel it first.');
+                setPingError(t('ping_errors.duplicate'));
                 return;
             }
         }
@@ -874,7 +1104,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
         const onSaveError = (error: any) => {
             console.error("Error saving spot:", error);
-            setPingError("Couldn't save your ping — please try again.");
+            setPingError(t('ping_errors.save_failed'));
             setIsPinging(false);
         };
 
@@ -924,11 +1154,11 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
                 if (recentSpots.length >= 5) {
                     const oldestMs = Math.min(...recentSpots.map(d => {
-                        const t = d.data().reportedAt?.toMillis ? d.data().reportedAt.toMillis() : new Date(d.data().reportedAt).getTime();
-                        return t;
+                        const ts = d.data().reportedAt?.toMillis ? d.data().reportedAt.toMillis() : new Date(d.data().reportedAt).getTime();
+                        return ts;
                     }));
                     const minutesLeft = Math.ceil((oldestMs + 60 * 60 * 1000 - now) / 60000);
-                    setPingError(`Ping limit reached — try again in ${minutesLeft} min.`);
+                    setPingError(t('ping_errors.rate_limit', { min: minutesLeft }));
                     setIsPinging(false);
                     return;
                 }
@@ -995,7 +1225,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     },
                     (error) => {
                         console.error("Error getting position for ping:", error);
-                        setPingError("Location unavailable — please enable location services.");
+                        setPingError(t('ping_errors.location'));
                         setIsPinging(false);
                     },
                     { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
@@ -1018,7 +1248,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             await deleteDoc(doc(db, 'spots', savedSpot.linkedPingId));
         } catch (e) {
             console.error('Error canceling linked ping:', e);
-            setLinkedPingError("Couldn't cancel shared spot. Please try again.");
+            setLinkedPingError(t('my_car.cancel_shared_error'));
             return;
         }
         const updated = { ...savedSpot, linkedPingId: null };
@@ -1036,7 +1266,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             snap = await getDoc(doc(db, 'spots', savedSpot.linkedPingId));
         } catch (e) {
             console.error('Error checking linked ping before remove:', e);
-            setLinkedPingError("Couldn't remove saved car. Please try again.");
+            setLinkedPingError(t('my_car.remove_error'));
             setRemoveCarLoading(false);
             return;
         }
@@ -1054,7 +1284,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             await deleteDoc(doc(db, 'spots', savedSpot.linkedPingId));
         } catch (e) {
             console.error('Error canceling linked ping before remove:', e);
-            setLinkedPingError("Couldn't remove saved car. Please try again.");
+            setLinkedPingError(t('my_car.remove_error'));
             setRemoveCarLoading(false);
             return;
         }
@@ -1068,7 +1298,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             await deleteDoc(doc(db, 'spots', savedSpot.linkedPingId));
         } catch (e) {
             console.error('Error updating linked ping:', e);
-            setLinkedPingError("Couldn't update shared spot. Please try again.");
+            setLinkedPingError(t('my_car.update_error'));
             return;
         }
         const updated = { ...savedSpot, linkedPingId: null };
@@ -1128,7 +1358,6 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                     onCancelByClaimer={interestFlow.handleCancelByClaimer}
                     onDriverArrived={interestFlow.handleFinderConfirmsArrival}
                     onMessageUser={onMessageUser}
-                    nearbyInterestCount={nearbyInterestCount}
                     interestError={interestFlow.interestError}
                     estDriveMinutes={selectedItem ? interestFlow.getEstDriveMinutes(selectedItem) : null}
                     isWithinArrivalRange={selectedItem ? interestFlow.isWithinArrivalRange(selectedItem) : false}
@@ -1151,12 +1380,12 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                             </div>
                             <div className="flex-1 min-w-0 flex justify-between gap-3">
                                 <div className="min-w-0">
-                                    <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-0.5">My Car</p>
-                                    <p className="text-xl font-extrabold text-[var(--color-text)] leading-tight">{parkedDuration || 'Just parked'}</p>
+                                    <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-0.5">{t('common.my_car')}</p>
+                                    <p className="text-xl font-extrabold text-[var(--color-text)] leading-tight">{parkedDuration || t('my_car.just_parked')}</p>
                                 </div>
                                 {savedSpot.address && (
                                     <div className="text-right shrink-0 max-w-[48%]">
-                                        <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-0.5">Address</p>
+                                        <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-0.5">{t('my_car.address')}</p>
                                         <p className="text-sm font-bold text-white leading-tight">{savedSpot.address}</p>
                                     </div>
                                 )}
@@ -1164,7 +1393,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                         </div>
 
                         {/* Street Intelligence */}
-                        {savedSpot.segmentId && savedSpot.parkingSide && savedSpot.segmentStreetName ? (
+                        {savedSpot.segmentId && savedSpot.segmentStreetName ? (
                             <>
                                 <StreetIntelligenceCard
                                     segmentId={savedSpot.segmentId}
@@ -1189,16 +1418,37 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                 >
                                     <div className="flex items-center gap-2">
                                         <Bell size={15} className={reminderEnabled ? 'text-blue-400' : 'text-[var(--color-text-secondary)]'} />
-                                        <span className="text-sm text-[var(--color-text)]">Remind me 1 hr before cleaning</span>
+                                        <span className="text-sm text-[var(--color-text)]">{t('my_car.cleaning_reminder')}</span>
                                     </div>
                                     <div className={`w-10 h-6 rounded-full transition-colors relative ${reminderEnabled ? 'bg-blue-600' : 'bg-white/20'}`}>
                                         <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${reminderEnabled ? 'left-5' : 'left-1'}`} />
                                     </div>
                                 </button>
                             </>
+                        ) : savedSpot.streetIntelStatus === 'unavailable' || savedSpot.streetIntelStatus === 'failed' ? (
+                            <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-4 mb-4">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <MapPin size={14} className="text-[var(--color-text-secondary)]" />
+                                    <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest">
+                                        {savedSpot.streetIntelStatus === 'failed' ? 'Street cleaning lookup failed' :
+                                         savedSpot.streetIntelReason === 'no_sweepnyc_notes' || savedSpot.streetIntelReason === 'no_signs' ? 'No street cleaning data found' :
+                                         'Street cleaning unavailable'}
+                                    </p>
+                                </div>
+                                <p className="text-sm text-[var(--color-text-secondary)] mb-1">
+                                    {savedSpot.streetIntelStatus === 'failed'
+                                        ? "We could not verify cleaning rules for this spot."
+                                        : savedSpot.streetIntelReason === 'no_sweepnyc_notes' || savedSpot.streetIntelReason === 'no_signs'
+                                        ? "SweepNYC did not return cleaning rules for this location."
+                                        : "We could not find street cleaning data for this spot yet."}
+                                </p>
+                                <p className="text-xs text-[var(--color-text-secondary)]">
+                                    {savedSpot.streetIntelStatus === 'failed' ? 'Try again later and check posted signs.' : 'Check the posted signs before leaving your car.'}
+                                </p>
+                            </div>
                         ) : (
                             <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-4 mb-4">
-                                <p className="text-sm text-[var(--color-text-secondary)]">Street cleaning data isn't available for this block yet. Please check posted signs.</p>
+                                <p className="text-sm text-[var(--color-text-secondary)]">{t('my_car.no_cleaning_data')}</p>
                             </div>
                         )}
 
@@ -1214,20 +1464,20 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                             }}
                             className="w-full mb-4 py-3 rounded-2xl text-sm font-bold border border-[#1e75ff]/30 bg-[#1e75ff]/10 hover:bg-[#1e75ff]/15 transition-all active:scale-95 text-[#38bdf8] flex items-center justify-center gap-2">
                             <Navigation size={15} />
-                            Navigate to my car
+                            {t('my_car.navigate')}
                         </button>
 
                         {/* Private: move reminder */}
                         <div className="flex items-center gap-2 mb-1.5">
-                            <span className="text-[10px] font-semibold text-[var(--color-text-secondary)]/50 uppercase tracking-widest shrink-0">Private</span>
+                            <span className="text-[10px] font-semibold text-[var(--color-text-secondary)]/50 uppercase tracking-widest shrink-0">{t('my_car.section_private')}</span>
                             <div className="flex-1 h-px bg-[var(--color-border)]/40" />
                         </div>
-                        <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-0.5">Remind me to move</p>
-                        <p className="text-[10px] text-[var(--color-text-secondary)]/60 mb-2">Only you will get this reminder.</p>
+                        <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-0.5">{t('my_car.remind_to_move')}</p>
+                        <p className="text-[10px] text-[var(--color-text-secondary)]/60 mb-2">{t('my_car.reminder_private')}</p>
                         {parkingTimer.timer ? (
                             <div className="flex items-center gap-2.5 px-3 py-3 rounded-2xl bg-[#1e75ff]/10 border border-[#1e75ff]/20 mb-4">
                                 <Clock size={14} className="text-[#38bdf8] shrink-0" />
-                                <p className="text-xs font-semibold text-[#38bdf8] flex-1">{parkingTimer.minutesRemaining} min remaining</p>
+                                <p className="text-xs font-semibold text-[#38bdf8] flex-1">{t('my_car.min_remaining', { min: parkingTimer.minutesRemaining })}</p>
                                 <button onClick={parkingTimer.clearTimer} className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors">
                                     <X size={13} />
                                 </button>
@@ -1236,7 +1486,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                             <div className="mb-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] overflow-hidden">
                                 <div className="grid grid-cols-2 divide-x divide-[var(--color-border)]">
                                     <div className="px-4 py-3">
-                                        <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-1">Date</p>
+                                        <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-1">{t('ping_modal.date')}</p>
                                         <input
                                             type="date"
                                             id="pq-reminder-date"
@@ -1247,7 +1497,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                         />
                                     </div>
                                     <div className="px-4 py-3">
-                                        <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-1">Time</p>
+                                        <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-1">{t('ping_modal.time')}</p>
                                         <div className="flex items-center gap-2">
                                             <div className="flex items-center gap-0.5 flex-1 min-w-0">
                                                 <input
@@ -1311,7 +1561,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                 <div className="flex divide-x divide-[var(--color-border)]">
                                     <button onClick={() => setShowCustomReminder(false)}
                                         className="flex-1 py-3 text-xs font-bold text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors">
-                                        Cancel
+                                        {t('my_car.cancel')}
                                     </button>
                                     <button
                                         onClick={() => {
@@ -1329,7 +1579,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                             }
                                         }}
                                         className="flex-1 py-3 text-xs font-bold text-[#38bdf8] hover:text-[#1e75ff] transition-colors">
-                                        Set Reminder
+                                        {t('my_car.set_reminder')}
                                     </button>
                                 </div>
                             </div>
@@ -1350,7 +1600,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
 
                         {/* Community: share this spot */}
                         <div className="flex items-center gap-2 mb-2">
-                            <span className="text-[10px] font-semibold text-[var(--color-text-secondary)]/50 uppercase tracking-widest shrink-0">Community</span>
+                            <span className="text-[10px] font-semibold text-[var(--color-text-secondary)]/50 uppercase tracking-widest shrink-0">{t('my_car.section_community')}</span>
                             <div className="flex-1 h-px bg-[var(--color-border)]/40" />
                         </div>
                         {savedSpot.linkedPingId ? (() => {
@@ -1362,15 +1612,15 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                 : null;
                             const depText = (() => {
                                 if (!depTime || depTime.getTime() <= Date.now() + 60_000)
-                                    return "Nearby drivers will see this when you're leaving.";
+                                    return t('my_car.drivers_see_now');
                                 const now = new Date();
                                 const time = depTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                                 if (depTime.toDateString() === now.toDateString())
-                                    return `Nearby drivers will see this at ${time}.`;
+                                    return t('my_car.drivers_see_at', { time });
                                 const tom = new Date(now); tom.setDate(now.getDate() + 1);
                                 if (depTime.toDateString() === tom.toDateString())
-                                    return `Nearby drivers will see this tomorrow at ${time}.`;
-                                return `Nearby drivers will see this on ${depTime.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} at ${time}.`;
+                                    return t('my_car.drivers_see_tomorrow', { time });
+                                return t('my_car.drivers_see_date', { date: depTime.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }), time });
                             })();
                             return (
                                 <div className="rounded-2xl border border-[#1e75ff]/25 bg-[#1e75ff]/8 px-4 py-3 mb-3">
@@ -1378,8 +1628,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                         <div className="w-2 h-2 rounded-full bg-[#38bdf8] shrink-0" />
                                         <p className="text-sm font-bold text-[var(--color-text)]">
                                             {depTime && depTime.getTime() > Date.now() + 60_000
-                                                ? `Sharing at ${depTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                                                : 'Spot shared'}
+                                                ? t('my_car.sharing_at', { time: depTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) })
+                                                : t('my_car.spot_shared')}
                                         </p>
                                     </div>
                                     <p className="text-xs text-[var(--color-text-secondary)] mb-3">{depText}</p>
@@ -1387,12 +1637,12 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                         <button
                                             onClick={changeLinkedPingTime}
                                             className="flex-1 py-2 rounded-xl text-xs font-bold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 text-[var(--color-text)] transition-all active:scale-95">
-                                            Change time
+                                            {t('my_car.change_time')}
                                         </button>
                                         <button
                                             onClick={cancelLinkedPing}
                                             className="flex-1 py-2 rounded-xl text-xs font-bold border border-red-500/25 bg-red-500/8 hover:bg-red-500/15 text-red-400 transition-all active:scale-95">
-                                            Stop sharing
+                                            {t('my_car.stop_sharing')}
                                         </button>
                                     </div>
                                     {linkedPingError && (
@@ -1411,9 +1661,9 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     }}
                                     className="w-full mb-1.5 py-3 rounded-2xl text-sm font-bold border border-[#1e75ff]/40 bg-[#1e75ff]/12 hover:bg-[#1e75ff]/20 transition-all active:scale-95 text-[#38bdf8] flex items-center justify-center gap-2">
                                     <Clock size={14} />
-                                    Share this spot when I leave
+                                    {t('my_car.ping_when_leaving')}
                                 </button>
-                                <p className="text-[10px] text-[var(--color-text-secondary)]/60 text-center mb-3">Nearby drivers will see it when you're leaving.</p>
+                                <p className="text-[10px] text-[var(--color-text-secondary)]/60 text-center mb-3">{t('my_car.community_hint')}</p>
                             </>
                         )}
 
@@ -1423,39 +1673,39 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                 <button
                                     onClick={() => setShowRemoveCarConfirm(true)}
                                     className="w-full py-2.5 text-sm font-semibold text-red-400 hover:text-red-300 transition-colors">
-                                    Remove saved car
+                                    {t('my_car.remove_saved_car')}
                                 </button>
                             ) : savedSpot?.linkedPingId ? (
                                 <div className="space-y-2">
-                                    <p className="text-xs text-[var(--color-text-secondary)] text-center leading-snug">You have a shared spot active. It will be canceled when you remove your saved car.</p>
+                                    <p className="text-xs text-[var(--color-text-secondary)] text-center leading-snug">{t('my_car.remove_with_ping')}</p>
                                     {linkedPingError && <p className="text-xs text-red-400 text-center font-semibold">{linkedPingError}</p>}
                                     <div className="flex gap-2">
                                         <button
                                             onClick={() => { setShowRemoveCarConfirm(false); setLinkedPingError(null); }}
                                             className="flex-1 py-2 rounded-xl text-xs font-bold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 text-[var(--color-text)] transition-all active:scale-95">
-                                            Keep it
+                                            {t('my_car.keep_it')}
                                         </button>
                                         <button
                                             onClick={handleRemoveCar}
                                             disabled={removeCarLoading}
                                             className="flex-1 py-2 rounded-xl text-xs font-bold border border-red-500/25 bg-red-500/8 hover:bg-red-500/15 text-red-400 transition-all active:scale-95 disabled:opacity-50">
-                                            {removeCarLoading ? 'Removing…' : 'Cancel & remove'}
+                                            {removeCarLoading ? t('my_car.removing') : t('my_car.cancel_and_remove')}
                                         </button>
                                     </div>
                                 </div>
                             ) : (
                                 <div className="space-y-2">
-                                    <p className="text-xs text-[var(--color-text-secondary)] text-center">Remove this saved parking spot from My Car?</p>
+                                    <p className="text-xs text-[var(--color-text-secondary)] text-center">{t('my_car.remove_confirm')}</p>
                                     <div className="flex gap-2">
                                         <button
                                             onClick={() => setShowRemoveCarConfirm(false)}
                                             className="flex-1 py-2 rounded-xl text-xs font-bold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 text-[var(--color-text)] transition-all active:scale-95">
-                                            Keep it
+                                            {t('my_car.keep_it')}
                                         </button>
                                         <button
                                             onClick={endSession}
                                             className="flex-1 py-2 rounded-xl text-xs font-bold border border-red-500/25 bg-red-500/8 hover:bg-red-500/15 text-red-400 transition-all active:scale-95">
-                                            Remove
+                                            {t('my_car.remove')}
                                         </button>
                                     </div>
                                 </div>
@@ -1466,16 +1716,16 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             </BottomSheet>
 
             {/* Post-save offer — shown once after saveMySpot() succeeds */}
-            <BottomSheet isOpen={showPostSaveOffer} ariaLabel="Share a spot" onClose={() => { setShowPostSaveOffer(false); setShowSessionSheet(true); }}>
+            <BottomSheet isOpen={showPostSaveOffer} ariaLabel="Ping your spot" onClose={() => { setShowPostSaveOffer(false); setShowSessionSheet(true); }}>
                 {savedSpot && (
                     <div className="text-center">
                         <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
                             style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}>
                             <Car size={26} className="text-white" />
                         </div>
-                        <p className="text-xl font-extrabold text-[var(--color-text)] mb-1">Car saved.</p>
+                        <p className="text-xl font-extrabold text-[var(--color-text)] mb-1">{t('my_car.car_saved')}</p>
                         <p className="text-sm text-[var(--color-text-secondary)] mb-6">
-                            Want to help another driver when you leave?
+                            {t('my_car.help_another_driver')}
                         </p>
                         <button
                             onClick={() => {
@@ -1487,12 +1737,12 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                             className="w-full py-3.5 rounded-full text-white font-bold text-sm flex items-center justify-center gap-2 active:scale-95 transition-transform mb-2"
                             style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}>
                             <Clock size={16} />
-                            Share this spot when I leave
+                            {t('my_car.share_when_leaving')}
                         </button>
                         <button
                             onClick={() => { setShowPostSaveOffer(false); setShowSessionSheet(true); }}
                             className="w-full py-2.5 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-all">
-                            Not now
+                            {t('my_car.not_now')}
                         </button>
                     </div>
                 )}
@@ -1510,22 +1760,22 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     <CheckCircle2 size={30} className="text-white" />
                                 </div>
                                 <p className="text-xl font-extrabold text-[var(--color-text)] mb-1">
-                                    {myCarPingSuccess === 'leaving_now' ? 'Spot shared.'
-                                     : myCarPingSuccess === 'leaving_later' ? 'Share scheduled.'
-                                     : 'This spot has already been shared.'}
+                                    {myCarPingSuccess === 'leaving_now' ? t('my_car.spot_shared_now')
+                                     : myCarPingSuccess === 'leaving_later' ? t('my_car.spot_shared_later')
+                                     : t('my_car.spot_already_shared')}
                                 </p>
                                 <p className="text-sm text-[var(--color-text-secondary)] text-center">
                                     {myCarPingSuccess === 'leaving_now'
-                                        ? 'Nearby drivers can now see it.'
+                                        ? t('my_car.nearby_can_see')
                                         : myCarPingSuccess === 'leaving_later'
-                                        ? "We'll let nearby drivers know when you're leaving."
-                                        : 'Nearby drivers can already see your spot.'}
+                                        ? t('my_car.will_notify')
+                                        : t('my_car.can_already_see')}
                                 </p>
                                 {myCarPingSuccess === 'already_shared' && (
                                     <button
                                         onClick={() => setShowDepartureSheet(false)}
                                         className="mt-4 text-sm font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors">
-                                        Got it
+                                        {t('my_car.got_it')}
                                     </button>
                                 )}
                             </div>
@@ -1538,8 +1788,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}>
                                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#facc15" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m2 4 3 12h14l3-12-6 5-4-5-4 5-6-5zm3 16h14"/></svg>
                                 </div>
-                                <p className="text-xl font-extrabold text-[var(--color-text)] mb-1">Leaving this spot?</p>
-                                <p className="text-sm text-[var(--color-text-secondary)] mb-6">Share your saved parking spot with nearby drivers.</p>
+                                <p className="text-xl font-extrabold text-[var(--color-text)] mb-1">{t('my_car.leaving_this_spot')}</p>
+                                <p className="text-sm text-[var(--color-text-secondary)] mb-6">{t('my_car.share_with_drivers')}</p>
 
                                 {myCarDepartureError && (
                                     <p className="text-sm text-red-400 font-semibold text-center mb-4">{myCarDepartureError}</p>
@@ -1551,7 +1801,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     className="w-full py-3.5 rounded-full text-white font-bold text-sm flex items-center justify-center gap-2 active:scale-95 transition-transform mb-2 disabled:opacity-50"
                                     style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}>
                                     <MapPin size={16} />
-                                    {myCarDepartureLoading ? 'Sharing…' : "I'm leaving now"}
+                                    {myCarDepartureLoading ? t('my_car.sharing') : t('ping_modal.leaving_now')}
                                 </button>
                                 <button
                                     onClick={() => {
@@ -1562,12 +1812,12 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     disabled={myCarDepartureLoading}
                                     className="w-full py-3 rounded-full text-sm font-bold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 transition-all active:scale-95 text-[var(--color-text)] flex items-center justify-center gap-2 mb-3 disabled:opacity-50">
                                     <Clock size={15} />
-                                    I'll leave at…
+                                    {t('ping_modal.leaving_later')}
                                 </button>
                                 <button
                                     onClick={() => setShowDepartureSheet(false)}
                                     className="w-full py-2.5 text-xs font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-all">
-                                    Keep my car saved
+                                    {t('my_car.keep_saved')}
                                 </button>
                             </div>
                         )}
@@ -1590,13 +1840,13 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                         <ChevronLeft size={18} className="text-[var(--color-text-secondary)]" />
                                     </button>
                                     <div>
-                                        <p className="text-base font-extrabold text-[var(--color-text)]">Set departure time</p>
-                                        <p className="text-xs text-[var(--color-text-secondary)]">When are you planning to leave?</p>
+                                        <p className="text-base font-extrabold text-[var(--color-text)]">{t('ping_modal.set_departure')}</p>
+                                        <p className="text-xs text-[var(--color-text-secondary)]">{t('my_car.planning_to_leave')}</p>
                                     </div>
                                 </div>
 
                                 <div className="mb-4">
-                                    <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-2">Date</p>
+                                    <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-2">{t('ping_modal.date')}</p>
                                     <input
                                         type="date"
                                         value={myCarDepartureDate}
@@ -1606,7 +1856,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                         style={{ colorScheme: 'dark' }}
                                     />
                                 </div>
-                                <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-2">Time</p>
+                                <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-2">{t('ping_modal.time')}</p>
                                 <TimePicker
                                     initialTime={myCarDepartureTime}
                                     onTimeChange={setMyCarDepartureTime}
@@ -1620,7 +1870,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     onClick={() => {
                                         const combined = combineDateAndTime(myCarDepartureDate, myCarDepartureTime);
                                         if (combined.getTime() <= Date.now()) {
-                                            setMyCarDepartureError('Please choose a future time.');
+                                            setMyCarDepartureError(t('ping_modal.future_time_error'));
                                             return;
                                         }
                                         handleMyCarPing(combined);
@@ -1629,7 +1879,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     className="w-full mt-4 font-bold py-3.5 rounded-full flex items-center justify-center gap-2 text-white active:scale-95 transition-transform disabled:opacity-50"
                                     style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}>
                                     <MapPin size={18} />
-                                    {myCarDepartureLoading ? 'Scheduling…' : 'Schedule spot'}
+                                    {myCarDepartureLoading ? t('my_car.scheduling') : t('my_car.schedule_spot')}
                                 </button>
                             </div>
                         )}
@@ -1638,22 +1888,37 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             </BottomSheet>
 
             {/* Post-arrival handoff flow */}
-            <BottomSheet isOpen={interestFlow.handoffStep !== null} ariaLabel="Handoff" onClose={interestFlow.handleSkipDeparture}>
+            <BottomSheet isOpen={interestFlow.handoffStep !== null} ariaLabel="Handoff" onClose={() => {
+                const wasCelebration = interestFlow.handoffStep === 'celebration';
+                const coords = interestFlow.handoffSpotCoords;
+                interestFlow.handleSkipDeparture();
+                if (wasCelebration) {
+                    if (!savedSpot && coords) saveMySpotFromCoords(coords.lat, coords.lng, coords.address);
+                    else setShowSessionSheet(true);
+                }
+            }}>
                 {interestFlow.handoffStep && (
                     <HandoffFlow
                         step={interestFlow.handoffStep}
                         finderName={interestFlow.handoffFinderName}
                         onOutcome={interestFlow.handleHandoffOutcome}
                         onFailureReason={interestFlow.handleFailureReason}
-                        onDeparturePing={interestFlow.handleDeparturePing}
                         onSetTimer={(minutes) => parkingTimer.startTimer(minutes, interestFlow.handoffAddress)}
-                        onSkip={interestFlow.handleSkipDeparture}
+                        onSkip={() => {
+                            const wasCelebration = interestFlow.handoffStep === 'celebration';
+                            const coords = interestFlow.handoffSpotCoords;
+                            interestFlow.handleSkipDeparture();
+                            if (wasCelebration) {
+                                if (!savedSpot && coords) saveMySpotFromCoords(coords.lat, coords.lng, coords.address);
+                                else setShowSessionSheet(true);
+                            }
+                        }}
                     />
                 )}
             </BottomSheet>
 
             {/* Spot stack sheet — multiple community shared spots nearby */}
-            <BottomSheet isOpen={!!stackGroup} ariaLabel="Nearby shared spots" onClose={() => setStackGroup(null)}>
+            <BottomSheet isOpen={!!stackGroup} ariaLabel="Nearby pings" onClose={() => setStackGroup(null)}>
                 {stackGroup && (() => {
                     const nowMs2 = Date.now();
                     const getSpotMeta = (item: MapItem) => {
@@ -1661,28 +1926,28 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                             ? (typeof item.reportedAt.toMillis === 'function' ? item.reportedAt.toMillis()
                                 : typeof item.reportedAt.seconds === 'number' ? item.reportedAt.seconds * 1000 : 0)
                             : 0;
-                        const isScheduled = ms > nowMs2;
+                        const isScheduled = item.pingMode === 'later' || (!item.pingMode && ms > nowMs2 + 5 * 60_000);
                         let statusLabel: string;
                         if (isScheduled) {
                             const d = new Date(ms);
                             const h = d.getHours() % 12 || 12;
                             const m = String(d.getMinutes()).padStart(2, '0');
                             const ampm = d.getHours() >= 12 ? 'PM' : 'AM';
-                            statusLabel = `Leaving at ${h}:${m} ${ampm}`;
+                            statusLabel = t('map.leaving_at_time', { time: `${h}:${m} ${ampm}` });
                         } else {
-                            statusLabel = 'Leaving now';
+                            statusLabel = t('spot_details.leaving_now');
                         }
                         const expiresMs = item.expiresAt
                             ? (typeof item.expiresAt.toMillis === 'function' ? item.expiresAt.toMillis() : 0)
                             : 0;
                         const expiryMin = !isScheduled && expiresMs > nowMs2 ? Math.round((expiresMs - nowMs2) / 60000) : 0;
-                        const address = item.address || item.title || 'Nearby shared spot';
+                        const address = item.address || item.title || t('map.nearby_shared_spot');
                         return { statusLabel, isScheduled, address, expiryMin };
                     };
                     return (
                         <div>
-                            <p className="text-base font-bold text-[var(--color-text)] mb-0.5">{stackGroup.length} shared spots nearby</p>
-                            <p className="text-xs text-[var(--color-text-secondary)] mb-4">Choose a spot to view details.</p>
+                            <p className="text-base font-bold text-[var(--color-text)] mb-0.5">{t('map.pings_nearby', { count: stackGroup.length })}</p>
+                            <p className="text-xs text-[var(--color-text-secondary)] mb-4">{t('map.choose_spot')}</p>
                             <div className="flex flex-col gap-2">
                                 {stackGroup.map(item => {
                                     const { statusLabel, isScheduled, address, expiryMin } = getSpotMeta(item);
@@ -1696,8 +1961,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                             >
                                                 <div className="w-2 h-2 rounded-full shrink-0 mt-1 bg-[var(--color-text-secondary)]" />
                                                 <div className="flex-1 min-w-0">
-                                                    <p className="text-sm font-semibold text-[var(--color-text)]">Your spot</p>
-                                                    <p className="text-xs text-[var(--color-text-secondary)] truncate">This is your shared spot</p>
+                                                    <p className="text-sm font-semibold text-[var(--color-text)]">{t('map.your_spot')}</p>
+                                                    <p className="text-xs text-[var(--color-text-secondary)] truncate">{t('map.your_ping_label')}</p>
                                                 </div>
                                             </div>
                                         );
@@ -1718,7 +1983,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                                 <p className="text-sm font-semibold text-[var(--color-text)]">{statusLabel}</p>
                                                 <p className="text-xs text-[var(--color-text-secondary)] truncate">{address}</p>
                                                 {expiryMin > 0 && (
-                                                    <p className="text-xs text-[var(--color-text-secondary)]">Expires in {expiryMin} min</p>
+                                                    <p className="text-xs text-[var(--color-text-secondary)]">{t('map.expires_in_min', { min: expiryMin })}</p>
                                                 )}
                                             </div>
                                             <span className="text-[var(--color-text-secondary)] text-xs mt-0.5">›</span>
@@ -1766,11 +2031,12 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                 {initial}
                             </div>
                             <div className="flex-1 min-w-0">
-                                <p className="text-[11px] font-semibold text-[#38bdf8] uppercase tracking-wider mb-0.5">On their way to your spot</p>
+                                <p className="text-[11px] font-semibold text-[#38bdf8] uppercase tracking-wider mb-0.5">{t('en_route.heading')}</p>
                                 <p className="text-sm font-bold text-white truncate">{name}</p>
-                                {interestedSpot.etaMinutes && (
-                                    <p className="text-[11px] text-white/55 mt-0.5">ETA ~{interestedSpot.etaMinutes} min · Tap to see details</p>
-                                )}
+                                {interestedSpot.etaMinutes != null
+                                    ? <p className="text-[11px] text-white/55 mt-0.5">{interestedSpot.etaMinutes < 1 ? t('en_route.eta_under_1') : t('en_route.eta', { eta: interestedSpot.etaMinutes })} · {t('en_route.tap_details')}</p>
+                                    : <p className="text-[11px] text-white/55 mt-0.5">{t('en_route.calculating')}</p>
+                                }
                             </div>
                             <ChevronRight size={16} className="text-white/30 shrink-0" />
                         </div>
@@ -1799,14 +2065,14 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             {showDeleteConfirm && (
                 <div className="absolute inset-0 z-[200] flex items-end justify-center pb-10 bg-black/50 backdrop-blur-sm">
                     <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-3xl p-6 mx-4 w-full max-w-sm shadow-2xl">
-                        <p className="text-base font-bold text-[var(--color-text)] text-center mb-1">Delete this spot?</p>
-                        <p className="text-sm text-[var(--color-text-secondary)] text-center mb-6">This can't be undone.</p>
+                        <p className="text-base font-bold text-[var(--color-text)] text-center mb-1">{t('map.delete_confirm_title')}</p>
+                        <p className="text-sm text-[var(--color-text-secondary)] text-center mb-6">{t('map.delete_confirm_body')}</p>
                         <div className="flex gap-3">
                             <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 py-3 rounded-2xl border border-[var(--color-border)] text-[var(--color-text)] font-semibold text-sm">
-                                Cancel
+                                {t('map.delete_cancel')}
                             </button>
                             <button onClick={doDeletePing} className="flex-1 py-3 rounded-2xl bg-red-500/20 border border-red-500/40 text-red-400 font-bold text-sm">
-                                Delete Spot
+                                {t('map.delete_confirm_btn')}
                             </button>
                         </div>
                     </div>
@@ -1827,8 +2093,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                             />
                         </div>
                         <div className="ping-text-fade text-center">
-                            <p className="text-2xl font-extrabold text-white tracking-tight drop-shadow-lg">Spot Pinged!</p>
-                            <p className="text-sm text-white/70 mt-1 font-medium">Nearby drivers will be notified</p>
+                            <p className="text-2xl font-extrabold text-white tracking-tight drop-shadow-lg">{t('my_car.spot_pinged')}</p>
+                            <p className="text-sm text-white/70 mt-1 font-medium">{t('my_car.nearby_notified')}</p>
                         </div>
                     </div>
                 </div>
@@ -1873,19 +2139,13 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                             <div className="flex items-center gap-1.5 flex-wrap">
                                 <div className="inline-flex items-center gap-1.5 bg-[var(--color-card)] backdrop-blur-xl border border-emerald-500/20 rounded-full px-2.5 py-1 text-[10px] font-semibold text-emerald-400 shadow-md">
                                     <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse motion-reduce:animate-none" />
-                                    {spotCount} free spot{spotCount !== 1 ? 's' : ''} nearby
+                                    {spotCount === 1 ? t('map.free_spot_singular') : t('map.free_spots_plural', { count: spotCount })}
                                 </div>
-                                {nearbyInterestCount > 0 && (
-                                    <div className="inline-flex items-center gap-1.5 bg-[var(--color-card)] backdrop-blur-xl border border-[#1e75ff]/25 rounded-full px-2.5 py-1 text-[10px] font-semibold text-[#38bdf8] shadow-md">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-[#38bdf8] animate-pulse motion-reduce:animate-none" />
-                                        {nearbyInterestCount} en route
-                                    </div>
-                                )}
                             </div>
                         ) : mapReady && !spotData.activeSpots.find(s => s.finderId === user?.id) && (
                             <div className="inline-flex items-center gap-1.5 bg-[var(--color-card)] backdrop-blur-xl border border-rose-500/15 rounded-full px-2.5 py-1 text-[10px] font-semibold text-[var(--color-text-secondary)] shadow-md">
                                 <div className="w-1.5 h-1.5 rounded-full bg-rose-700/60 shrink-0" />
-                                No active spots nearby
+                                {t('map.no_spots_nearby')}
                             </div>
                         )}
                     </div>
@@ -1904,7 +2164,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     else if (isNearSavedSpot) setShowDepartureSheet(true);
                                     else setShowSessionSheet(true);
                                 }}
-                                title="My Car"
+                                title={t('common.my_car')}
                                 className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-all active:scale-90 backdrop-blur-xl border ${
                                     savedSpot
                                         ? 'bg-[#1e75ff] border-[#1e75ff] hover:bg-[#1e75ff]/80'
@@ -1930,7 +2190,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                 onClick={() => setShowSessionSheet(true)}
                                 className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-full bg-[var(--color-card)] backdrop-blur-xl border border-[#1e75ff]/20 shadow-md">
                                 <Clock size={11} className="text-[#38bdf8]" />
-                                <p className="text-[11px] font-semibold text-[#38bdf8]">{parkingTimer.minutesRemaining}m remaining · tap to view</p>
+                                <p className="text-[11px] font-semibold text-[#38bdf8]">{t('my_car.timer_chip', { min: parkingTimer.minutesRemaining })}</p>
                             </button>
                         </div>
                     )}
@@ -1967,7 +2227,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     <div className="flex items-center justify-center gap-2.5 w-full px-8">
                                         <VehicleIcon type={user?.vehicleType} color="White" size={22} />
                                         <div className="text-center">
-                                            <p className="text-[17px] font-bold leading-tight whitespace-nowrap">My Parked Car</p>
+                                            <p className="text-[17px] font-bold leading-tight whitespace-nowrap">{t('my_car.parked_car_label')}</p>
                                             {myCarDistanceLabel && myCarDistanceLabel !== "You're here" && (
                                                 <p className="text-[10px] font-semibold text-white/70 whitespace-nowrap leading-tight">
                                                     {myCarDistanceLabel}
@@ -1975,7 +2235,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                             )}
                                             {myCarDistanceLabel === "You're here" && (
                                                 <p className="text-[10px] font-semibold text-emerald-300 whitespace-nowrap leading-tight">
-                                                    You've arrived
+                                                    {t('my_car.youve_arrived')}
                                                 </p>
                                             )}
                                         </div>
@@ -1984,7 +2244,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
                                     <>
                                         <MapPin size={24} className="absolute left-9 top-1/2 -translate-y-1/2" />
                                         <span className="text-[19px] font-bold absolute top-1/2 -translate-y-1/2 whitespace-nowrap" style={{ left: 'calc(50% + 12px)', transform: 'translate(-50%, -50%)' }}>
-                                            {hasActivePing ? 'My Shared Spot' : 'Share a Spot'}
+                                            {hasActivePing ? t('common.my_ping') : t('common.ping_your_spot')}
                                         </span>
                                     </>
                                 )}
@@ -1996,6 +2256,80 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser }
             </div>
 
             {showTour && <AppTour onDone={() => setShowTour(false)} />}
+
+            {/* ?debugStreet=1 — Street Intelligence debug panel. Never shown to normal users. */}
+            {isDebugMode && (
+                <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 9999, maxHeight: '45vh', display: 'flex', flexDirection: 'column', background: 'rgba(0,0,0,0.92)', borderTop: '1.5px solid #1e75ff', fontFamily: 'monospace', fontSize: 11 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid #1e75ff33' }}>
+                        <div
+                            onClick={() => setDebugPanelOpen(o => !o)}
+                            style={{ flex: 1, padding: '4px 10px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', userSelect: 'none' }}
+                        >
+                            <span style={{ color: '#1e75ff', fontWeight: 700 }}>🛠 StreetIntelDebug {debugLines.length ? `(${debugLines.length})` : ''}</span>
+                            <span style={{ color: '#888' }}>{debugPanelOpen ? '▼' : '▲'}</span>
+                        </div>
+                        {isDebugAdmin && (
+                            <button
+                                onClick={testCFDirect}
+                                disabled={cfTestLoading}
+                                style={{ margin: '2px 6px', padding: '2px 8px', fontSize: 10, fontFamily: 'monospace', background: cfTestLoading ? '#333' : '#1e3a5f', color: '#38bdf8', border: '1px solid #1e75ff', borderRadius: 4, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                            >
+                                {cfTestLoading ? 'testing…' : 'Test CF ⚡'}
+                            </button>
+                        )}
+                    </div>
+                    {debugPanelOpen && (
+                        <div style={{ overflowY: 'auto', flex: 1, padding: '6px 10px 10px' }}>
+                            {isDebugAdmin && (
+                            <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
+                                <input
+                                    value={manualLat}
+                                    onChange={e => setManualLat(e.target.value)}
+                                    placeholder="lat e.g. 40.8419"
+                                    style={{ flex: 1, minWidth: 110, padding: '2px 6px', fontSize: 10, fontFamily: 'monospace', background: '#111', color: '#e2e8f0', border: '1px solid #334', borderRadius: 4 }}
+                                />
+                                <input
+                                    value={manualLng}
+                                    onChange={e => setManualLng(e.target.value)}
+                                    placeholder="lng e.g. -73.8696"
+                                    style={{ flex: 1, minWidth: 110, padding: '2px 6px', fontSize: 10, fontFamily: 'monospace', background: '#111', color: '#e2e8f0', border: '1px solid #334', borderRadius: 4 }}
+                                />
+                                <button
+                                    onClick={testCFManual}
+                                    disabled={cfManualLoading}
+                                    style={{ padding: '2px 8px', fontSize: 10, fontFamily: 'monospace', background: cfManualLoading ? '#333' : '#1a3a1a', color: '#4ade80', border: '1px solid #166534', borderRadius: 4, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                                >
+                                    {cfManualLoading ? 'testing…' : 'Test Manual CF 🗺'}
+                                </button>
+                                <button
+                                    onClick={simulateMyCarSave}
+                                    disabled={simSaveLoading}
+                                    style={{ padding: '2px 8px', fontSize: 10, fontFamily: 'monospace', background: simSaveLoading ? '#333' : '#1a1a3a', color: '#a78bfa', border: '1px solid #4c1d95', borderRadius: 4, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                                >
+                                    {simSaveLoading ? 'simulating…' : 'Simulate My Car Save 🧪'}
+                                </button>
+                            </div>
+                            )}
+                            {savedSpot && (
+                                <p style={{ margin: '2px 0 4px', fontSize: 10, color: '#94a3b8', fontFamily: 'monospace' }}>
+                                    savedSpot: status={savedSpot.streetIntelStatus ?? 'null'} reason={savedSpot.streetIntelReason ?? 'null'} segmentId={savedSpot.segmentId ?? 'null'} checkedAt={savedSpot.streetIntelCheckedAt ?? 'null'}
+                                </p>
+                            )}
+                            {debugLines.length === 0
+                                ? <p style={{ color: '#666', margin: 0 }}>No events yet — save a My Car spot to begin.</p>
+                                : debugLines.map((line, i) => {
+                                    const isWarn = line.includes('⚠️') || line.includes('threw') || line.includes('null');
+                                    return (
+                                        <p key={i} style={{ margin: '1px 0', color: isWarn ? '#f87171' : '#a3e635', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                                            {line}
+                                        </p>
+                                    );
+                                })
+                            }
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 };

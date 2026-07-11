@@ -44,6 +44,7 @@ import { getFCM } from './firebaseConfig';
 export default function App() {
   const [currentView, setCurrentView] = useState(AppView.CREATE_ACCOUNT);
   const [vehicleOnboarding, setVehicleOnboarding] = useState(false);
+  const [pendingSpotId, setPendingSpotId] = useState<string | null>(null);
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useState(() => {
@@ -266,10 +267,12 @@ export default function App() {
         return <EditProfileView onBack={() => setCurrentView(AppView.SETTINGS)} />;
       case AppView.MAP:
         return (
-          <MapView 
+          <MapView
             user={user}
-            onMessageUser={handleMessageUser} 
+            onMessageUser={handleMessageUser}
             setView={setCurrentView}
+            pendingSpotId={pendingSpotId}
+            onPendingSpotConsumed={() => setPendingSpotId(null)}
           />
         );
       case AppView.AI_ASSISTANT:
@@ -303,7 +306,7 @@ export default function App() {
       case AppView.SETTINGS:
         return <SettingsView user={user} setView={setCurrentView} onBack={() => setCurrentView(AppView.PROFILE)} onLogout={handleLogout} onDeleteAccount={handleDeleteAccount} theme={theme} toggleTheme={toggleTheme} />;
       case AppView.NOTIFICATIONS:
-        return <NotificationsView user={user} onBack={() => setCurrentView(AppView.MAP)} />;
+        return <NotificationsView user={user} onBack={() => setCurrentView(AppView.MAP)} onSelectSpot={(id) => { setPendingSpotId(id); setCurrentView(AppView.MAP); }} />;
       case AppView.ADMIN_LOGIN:
         return <AdminLoginView onVerified={() => setCurrentView(AppView.ADMIN_DASHBOARD)} />;
       case AppView.ADMIN_DASHBOARD:

@@ -8,30 +8,50 @@ import { VehicleIcon } from '../utils/vehicleIcon';
 import { AppView } from '../types';
 import { getNextTitle, getTierForCrowns, TIER_VISUALS } from '../utils/crowns';
 import { CrownBadge } from '../utils/CrownBadge';
+import { t, useLang, getLang } from '../i18n';
 
 export const ProfileView = ({ user, onBack, setView }) => {
+  useLang();
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string>('');
+  const [uploadError, setUploadError] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const [recentActivity, setRecentActivity] = useState<{ id: string; icon: string; action: string; address: string; timeAgo: string; reward: string | null }[]>([]);
+  const [recentActivity, setRecentActivity] = useState<{ id: string; icon: string; actionKey: string; address: string; ts: number; reward: string | null }[]>([]);
   const [showCrownsInfo, setShowCrownsInfo] = useState(false);
   useFocusOnMount(headingRef);
+
+  const fmt = (ms: number) => {
+    const min = Math.round((Date.now() - ms) / 60000);
+    if (min < 1) return t('profile.time_just_now');
+    if (min < 60) return t('profile.time_min_ago', { min });
+    const hr = Math.round(min / 60);
+    if (hr < 24) return t('profile.time_hr_ago', { hr });
+    return t('profile.time_days_ago', { d: Math.round(hr / 24) });
+  };
+
+  // Vehicle display label lookups — Firestore values remain English
+  const colorLabels: Record<string, string> = {
+    'Black': t('vehicle.color_black'), 'White': t('vehicle.color_white'),
+    'Silver': t('vehicle.color_silver'), 'Gray': t('vehicle.color_gray'),
+    'Blue': t('vehicle.color_blue'), 'Red': t('vehicle.color_red'),
+    'Green': t('vehicle.color_green'), 'Brown': t('vehicle.color_brown'),
+    'Beige': t('vehicle.color_beige'), 'Gold': t('vehicle.color_gold'),
+    'Yellow': t('vehicle.color_yellow'), 'Orange': t('vehicle.color_orange'),
+    'Purple': t('vehicle.color_purple'),
+  };
+  const typeLabels: Record<string, string> = {
+    'Sedan': t('vehicle.type_sedan'), 'SUV': t('vehicle.type_suv'),
+    'Hatchback': t('vehicle.type_hatchback'), 'Coupe': t('vehicle.type_coupe'),
+    'Pickup Truck': t('vehicle.type_pickup_truck'), 'Van': t('vehicle.type_van'),
+    'Minivan': t('vehicle.type_minivan'), 'Wagon': t('vehicle.type_wagon'),
+    'Convertible': t('vehicle.type_convertible'),
+  };
 
   useEffect(() => {
     if (!user?.id) return;
     const fetchActivity = async () => {
-      const now = Date.now();
-      const fmt = (ms: number) => {
-        const min = Math.round((now - ms) / 60000);
-        if (min < 1) return 'Just now';
-        if (min < 60) return `${min} min ago`;
-        const hr = Math.round(min / 60);
-        if (hr < 24) return `${hr} hr ago`;
-        return `${Math.round(hr / 24)}d ago`;
-      };
-
-      const items: { id: string; icon: string; action: string; address: string; reward: string | null; ts: number }[] = [];
+      const items: { id: string; icon: string; actionKey: string; address: string; reward: string | null; ts: number }[] = [];
 
       const spotsSnap = await getDocs(query(collection(db, 'spots'), where('finderId', '==', user.id)));
       spotsSnap.docs.forEach(d => {
@@ -39,11 +59,11 @@ export const ProfileView = ({ user, onBack, setView }) => {
         const ts = s.reportedAt?.toMillis?.() || 0;
         const addr = s.address || '';
         if (s.status === 'occupied') {
-          items.push({ id: `f-${d.id}`, icon: 'handshake', action: 'Helped Driver', address: addr, reward: '+2', ts });
+          items.push({ id: `f-${d.id}`, icon: 'handshake', actionKey: 'profile.activity_helped_driver', address: addr, reward: '+2', ts });
         } else if (s.pingMode === 'later') {
-          items.push({ id: `f-${d.id}`, icon: 'clock', action: 'Scheduled departure', address: addr, reward: null, ts });
+          items.push({ id: `f-${d.id}`, icon: 'clock', actionKey: 'profile.activity_scheduled', address: addr, reward: null, ts });
         } else {
-          items.push({ id: `f-${d.id}`, icon: 'pin', action: 'Shared a spot', address: addr, reward: null, ts });
+          items.push({ id: `f-${d.id}`, icon: 'pin', actionKey: 'profile.activity_pinged', address: addr, reward: null, ts });
         }
       });
 
@@ -51,11 +71,11 @@ export const ProfileView = ({ user, onBack, setView }) => {
       fbSnap.docs.forEach(d => {
         const f = d.data();
         const ts = f.createdAt?.toMillis?.() || 0;
-        items.push({ id: `d-${d.id}`, icon: 'parking', action: 'Parked', address: f.address || '', reward: '+1', ts });
+        items.push({ id: `d-${d.id}`, icon: 'parking', actionKey: 'profile.activity_parked', address: f.address || '', reward: '+1', ts });
       });
 
       items.sort((a, b) => b.ts - a.ts);
-      setRecentActivity(items.slice(0, 3).map(i => ({ id: i.id, icon: i.icon, action: i.action, address: i.address, reward: i.reward, timeAgo: fmt(i.ts) })));
+      setRecentActivity(items.slice(0, 3).map(i => ({ id: i.id, icon: i.icon, actionKey: i.actionKey, address: i.address, reward: i.reward, ts: i.ts })));
     };
     fetchActivity();
   }, [user?.id]);
@@ -79,17 +99,19 @@ export const ProfileView = ({ user, onBack, setView }) => {
     const file = event.target.files?.[0];
     if (file && user) {
       setIsUploading(true);
-      setUploadStatus('Uploading...');
+      setUploadError(false);
+      setUploadStatus(t('profile.uploading'));
       const storage = getStorage();
       const storageRef = ref(storage, `avatars/${user.id}`);
       try {
         await uploadBytes(storageRef, file);
-        setUploadStatus('Reviewing photo — this may take a moment');
+        setUploadStatus(t('profile.reviewing_photo'));
 
         const moderationRef = doc(db, 'avatarModeration', user.id);
         const timeout = setTimeout(() => {
           unsub();
-          setUploadStatus('Photo check timed out — please try again.');
+          setUploadError(true);
+          setUploadStatus(t('profile.photo_timed_out'));
           setIsUploading(false);
         }, 20000);
 
@@ -103,16 +125,19 @@ export const ProfileView = ({ user, onBack, setView }) => {
           if (data.status === 'approved') {
             const avatarUrl = await getDownloadURL(storageRef);
             await updateDoc(doc(db, 'users', user.id), { avatarUrl });
+            setUploadError(false);
             setUploadStatus('');
           } else {
-            setUploadStatus("This photo couldn't be used. Please choose a different photo.");
+            setUploadError(true);
+            setUploadStatus(t('profile.photo_rejected'));
             setTimeout(() => setUploadStatus(''), 4000);
           }
           setIsUploading(false);
         });
       } catch (error) {
         console.error('Error uploading file:', error);
-        setUploadStatus('Upload failed — please try again.');
+        setUploadError(true);
+        setUploadStatus(t('profile.upload_failed'));
         setIsUploading(false);
       }
     }
@@ -133,10 +158,10 @@ export const ProfileView = ({ user, onBack, setView }) => {
             >
               <ChevronLeft size={20} />
             </button>
-            <h2 ref={headingRef} tabIndex={-1} className="text-xl font-bold text-[var(--color-text)] tracking-wide focus:outline-none">Profile</h2>
+            <h2 ref={headingRef} tabIndex={-1} className="text-xl font-bold text-[var(--color-text)] tracking-wide focus:outline-none">{t('profile.title')}</h2>
             <button
               onClick={() => setView(AppView.SETTINGS)}
-              aria-label="Settings"
+              aria-label={t('profile.settings_aria')}
               className="w-10 h-10 rounded-full flex items-center justify-center bg-[#1e75ff]/10 border border-[#1e75ff]/20 text-[#38bdf8] hover:bg-[#1e75ff]/20 active:scale-95 transition-all shrink-0"
             >
               <Settings size={20} />
@@ -168,7 +193,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
                     onClick={triggerUpload}
                     disabled={isUploading}
                     className="absolute bottom-1 right-1 w-[31px] h-[31px] rounded-full bg-[#1e75ff] border-2 border-[var(--color-bg)] flex items-center justify-center text-white cursor-pointer hover:bg-blue-600 active:scale-95 transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
-                    aria-label="Upload photo"
+                    aria-label={t('profile.upload_photo_aria')}
                   >
                     <Edit size={14} />
                   </button>
@@ -176,14 +201,14 @@ export const ProfileView = ({ user, onBack, setView }) => {
                 </div>
 
                 {/* Username */}
-                <h2 className="text-xl font-extrabold text-[var(--color-text)]">{user.username || user.fullName || 'User'}</h2>
+                <h2 className="text-xl font-extrabold text-[var(--color-text)]">{user.username || user.fullName || t('profile.username_fallback')}</h2>
 
                 {user.username?.startsWith('user_') && (
                   <button
                     onClick={() => setView(AppView.EDIT_PROFILE)}
                     className="mt-1.5 px-3 py-1 rounded-full bg-[#1e75ff]/15 border border-[#1e75ff]/30 text-[#38bdf8] text-xs font-semibold active:scale-95 transition-transform"
                   >
-                    Complete your profile
+                    {t('profile.complete_profile')}
                   </button>
                 )}
 
@@ -197,21 +222,22 @@ export const ProfileView = ({ user, onBack, setView }) => {
                       <CrownBadge tier={tier} size={40} />
                       <div className="flex items-center gap-1.5 flex-wrap justify-center">
                         <span className="text-sm font-bold" style={{ color: visual.textColor }}>
-                          {user.title || 'Newcomer'}
+                          {user.title || t('profile.newcomer')}
                         </span>
                         {(() => {
                           const ts = user.createdAt;
                           if (!ts) return null;
                           const d = typeof ts.toDate === 'function' ? ts.toDate() : new Date(ts);
-                          return <span className="text-xs text-[var(--color-text-secondary)]">· Joined {d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>;
+                          const locale = getLang() === 'es' ? 'es' : 'en-US';
+                          return <span className="text-xs text-[var(--color-text-secondary)]">· {t('profile.joined', { date: d.toLocaleDateString(locale, { month: 'long', year: 'numeric' }) })}</span>;
                         })()}
                       </div>
                       <div className="flex items-center gap-1.5 text-sm font-bold text-[var(--color-text)]">
                         <Crown size={14} className="text-yellow-400" />
-                        <span>{crowns} Crown{crowns !== 1 ? 's' : ''}</span>
+                        <span>{crowns !== 1 ? t('profile.crowns_plural', { count: crowns }) : t('profile.crowns_singular', { count: crowns })}</span>
                         <button
                           onClick={() => setShowCrownsInfo(true)}
-                          aria-label="What are crowns?"
+                          aria-label={t('profile.crowns_what_are')}
                           className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors active:scale-90"
                         >
                           <Info size={13} />
@@ -226,7 +252,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
                   const crowns = user.crowns || 0;
                   const next = getNextTitle(crowns);
                   if (!next) return (
-                    <p className="text-xs font-bold text-[#38bdf8] mt-2">Urban Legend — max rank achieved</p>
+                    <p className="text-xs font-bold text-[#38bdf8] mt-2">{t('profile.max_rank')}</p>
                   );
                   const prevThreshold = (() => {
                     const thresholds = [0, 10, 50, 150, 400, 750, 1500, 3000];
@@ -251,7 +277,8 @@ export const ProfileView = ({ user, onBack, setView }) => {
                       <div className="flex items-center justify-center gap-1.5 mt-2">
                         <Crown size={13} className="text-yellow-400" />
                         <p className="text-xs text-[var(--color-text-secondary)]">
-                          <span className="font-bold text-[var(--color-text)]">{next.crownsNeeded}</span> crowns until{' '}
+                          <span className="font-bold text-[var(--color-text)]">{next.crownsNeeded}</span>{' '}
+                          {t('profile.crowns_until_next')}{' '}
                           <span className="font-bold" style={{ color: TIER_VISUALS[next.tier].textColor }}>{next.title}</span>
                         </p>
                       </div>
@@ -261,7 +288,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
 
                 <p
                   aria-live="polite"
-                  className={`text-xs mt-2 font-semibold ${uploadStatus.includes('couldn') ? 'text-red-400' : 'text-blue-400'}`}
+                  className={`text-xs mt-2 font-semibold ${uploadError ? 'text-red-400' : 'text-blue-400'}`}
                 >
                   {uploadStatus}
                 </p>
@@ -271,7 +298,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
             {/* Vehicle Card */}
             <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl overflow-hidden">
               <div className="px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]">
-                <p className="text-xs font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">Vehicle</p>
+                <p className="text-xs font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">{t('profile.section_vehicle')}</p>
               </div>
               <button
                 onClick={() => setView(AppView.EDIT_VEHICLE)}
@@ -284,13 +311,13 @@ export const ProfileView = ({ user, onBack, setView }) => {
                   <div>
                     {user.vehicleBrand || user.vehicleColor || user.vehicleType ? (
                       <p className="text-sm font-semibold text-[var(--color-text)] text-left">
-                        {[user.vehicleColor, user.vehicleBrand].filter(Boolean).join(' ')}
-                        {user.vehicleType ? <span className="text-[var(--color-text-secondary)] font-normal"> • {user.vehicleType}</span> : null}
+                        {[colorLabels[user.vehicleColor] ?? user.vehicleColor, user.vehicleBrand].filter(Boolean).join(' ')}
+                        {user.vehicleType ? <span className="text-[var(--color-text-secondary)] font-normal"> • {typeLabels[user.vehicleType] ?? user.vehicleType}</span> : null}
                       </p>
                     ) : (
                       <>
-                        <p className="text-sm font-semibold text-[var(--color-text)]">No vehicle added</p>
-                        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Add your vehicle to help drivers identify you</p>
+                        <p className="text-sm font-semibold text-[var(--color-text)]">{t('profile.no_vehicle')}</p>
+                        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('profile.no_vehicle_hint')}</p>
                       </>
                     )}
                   </div>
@@ -302,12 +329,12 @@ export const ProfileView = ({ user, onBack, setView }) => {
             {/* Recent Activity Card */}
             <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl overflow-hidden">
               <div className="px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]">
-                <p className="text-xs font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">Recent Activity</p>
+                <p className="text-xs font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">{t('profile.section_activity')}</p>
               </div>
               {recentActivity.length === 0 ? (
                 <div className="px-4 py-4 text-center">
-                  <p className="text-xs text-[var(--color-text-secondary)]">No recent activity yet</p>
-                  <p className="text-xs text-[var(--color-text-secondary)] mt-0.5 opacity-60">Start by pinging a parking spot</p>
+                  <p className="text-xs text-[var(--color-text-secondary)]">{t('profile.no_activity')}</p>
+                  <p className="text-xs text-[var(--color-text-secondary)] mt-0.5 opacity-60">{t('profile.no_activity_hint')}</p>
                 </div>
               ) : (
                 <div className="divide-y divide-[var(--color-border)]">
@@ -315,9 +342,9 @@ export const ProfileView = ({ user, onBack, setView }) => {
                     <div key={item.id} className="px-4 py-3 flex items-center gap-3">
                       {activityIcon(item.icon)}
                       <p className="flex-1 text-xs font-semibold text-[var(--color-text)] truncate">
-                        {item.action}
+                        {t(item.actionKey)}
                         {item.address ? <span className="text-[var(--color-text-secondary)] font-normal"> · {item.address}</span> : null}
-                        <span className="text-[var(--color-text-secondary)] font-normal"> · {item.timeAgo}</span>
+                        <span className="text-[var(--color-text-secondary)] font-normal"> · {fmt(item.ts)}</span>
                       </p>
                       {item.reward && (
                         <div className="flex items-center gap-0.5 shrink-0">
@@ -333,7 +360,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
                 onClick={() => setView(AppView.PARKING_SPACE)}
                 className="w-full py-3 flex items-center justify-center gap-1.5 text-xs font-semibold text-[#38bdf8] border-t border-[var(--color-border)] hover:bg-white/5 active:bg-white/10 transition-colors"
               >
-                View all activity
+                {t('profile.view_all_activity')}
                 <ChevronRight size={13} />
               </button>
             </div>
@@ -341,7 +368,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
             {/* Account Card */}
             <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl overflow-hidden">
               <div className="px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]">
-                <p className="text-xs font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">Account</p>
+                <p className="text-xs font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">{t('profile.section_account')}</p>
               </div>
               <div className="divide-y divide-[var(--color-border)]">
 
@@ -354,8 +381,8 @@ export const ProfileView = ({ user, onBack, setView }) => {
                       <Shield size={18} />
                     </div>
                     <div>
-                      <h4 className="font-bold text-[var(--color-text)] text-sm">Privacy Policy</h4>
-                      <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Learn how we protect you</p>
+                      <h4 className="font-bold text-[var(--color-text)] text-sm">{t('profile.privacy_policy')}</h4>
+                      <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('profile.privacy_policy_subtitle')}</p>
                     </div>
                   </div>
                   <ChevronRight size={16} className="text-[var(--color-text-secondary)]" />
@@ -370,8 +397,8 @@ export const ProfileView = ({ user, onBack, setView }) => {
                       <Info size={18} />
                     </div>
                     <div>
-                      <h4 className="font-bold text-[var(--color-text)] text-sm">Terms of Use</h4>
-                      <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Read our terms and conditions</p>
+                      <h4 className="font-bold text-[var(--color-text)] text-sm">{t('profile.terms_of_use')}</h4>
+                      <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('profile.terms_subtitle')}</p>
                     </div>
                   </div>
                   <ChevronRight size={16} className="text-[var(--color-text-secondary)]" />
@@ -386,8 +413,8 @@ export const ProfileView = ({ user, onBack, setView }) => {
                       <FileText size={18} />
                     </div>
                     <div>
-                      <h4 className="font-bold text-[var(--color-text)] text-sm">Contact Us</h4>
-                      <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">Get in touch with our team</p>
+                      <h4 className="font-bold text-[var(--color-text)] text-sm">{t('profile.contact_us')}</h4>
+                      <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('profile.contact_subtitle')}</p>
                     </div>
                   </div>
                   <ChevronRight size={16} className="text-[var(--color-text-secondary)]" />
@@ -399,7 +426,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
           </div>
         </div>
       ) : (
-        <div className="text-center py-10">Please log in to see your profile.</div>
+        <div className="text-center py-10">{t('profile.not_logged_in')}</div>
       )}
 
       {/* Crowns info modal */}
@@ -414,19 +441,19 @@ export const ProfileView = ({ user, onBack, setView }) => {
           >
             <div className="flex items-center gap-2">
               <Crown size={18} className="text-yellow-400 shrink-0" />
-              <h3 className="text-base font-extrabold text-[var(--color-text)]">Crowns</h3>
+              <h3 className="text-base font-extrabold text-[var(--color-text)]">{t('profile.crowns_modal_title')}</h3>
             </div>
             <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed">
-              Crowns show how helpful you are in the ParQueen community. Earn crowns by sharing useful spots and confirming parking outcomes.
+              {t('profile.crowns_modal_body1')}
             </p>
             <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed">
-              More crowns can unlock higher community titles over time.
+              {t('profile.crowns_modal_body2')}
             </p>
             <button
               onClick={() => setShowCrownsInfo(false)}
               className="w-full py-3 rounded-xl bg-white/8 border border-[var(--color-border)] text-sm font-bold text-[var(--color-text)] hover:bg-white/12 active:scale-[0.98] transition-all"
             >
-              Got it
+              {t('profile.crowns_modal_dismiss')}
             </button>
           </div>
         </div>

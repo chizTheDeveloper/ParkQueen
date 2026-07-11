@@ -4,6 +4,7 @@ import { StreetSpot } from '../../types';
 import { TimePicker } from './TimePicker';
 import { BottomSheet } from './BottomSheet';
 import { localDateStr, combineDateAndTime } from './dateUtils';
+import { t, useLang } from '../../i18n';
 
 interface SpotModalProps {
     isOpen: boolean;
@@ -15,6 +16,7 @@ interface SpotModalProps {
 }
 
 export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, spot, spotAddress, user }) => {
+    useLang();
     const [view, setView] = useState<'main' | 'timePicker'>('main');
     const [departureTime, setDepartureTime] = useState(new Date());
     const [selectedDateStr, setSelectedDateStr] = useState(() => localDateStr());
@@ -57,11 +59,11 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                     <div className="flex flex-col items-center text-center mb-6">
                         <img src="/Parqueen_Logo.png" alt="ParkQueen" className="w-16 h-16 object-contain mb-3 drop-shadow-lg" />
                         <h2 className="text-lg font-bold text-[var(--color-text)] leading-snug">
-                            {isEditing ? 'Edit spot' : 'When are you leaving?'}
+                            {isEditing ? t('ping_modal.title_edit') : t('ping_modal.title_new')}
                         </h2>
                         <div className="flex items-center gap-1.5 mt-2 px-3 py-1.5 rounded-xl bg-[#1e75ff]/10 border border-[#1e75ff]/20 max-w-full">
                             <MapPin size={12} className="text-[#38bdf8] shrink-0" />
-                            <p className="text-[12px] font-semibold text-[var(--color-text)] truncate">{spotAddress || 'Locating...'}</p>
+                            <p className="text-[12px] font-semibold text-[var(--color-text)] truncate">{spotAddress || t('ping_modal.locating')}</p>
                         </div>
                     </div>
 
@@ -70,7 +72,7 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                         <div className="flex items-center gap-2.5 mb-5 px-3.5 py-3 rounded-2xl bg-[#1e75ff]/10 border border-[#1e75ff]/20">
                             <Users size={15} className="text-[#38bdf8] shrink-0" />
                             <p className="text-xs font-semibold text-[#38bdf8]">
-                                You've claimed {user.claimCount} spot{user.claimCount !== 1 ? 's' : ''} — thanks for giving back!
+                                {t('ping_modal.reciprocity', { count: user.claimCount, s: user.claimCount !== 1 ? 's' : '' })}
                             </p>
                         </div>
                     )}
@@ -90,8 +92,8 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                                 <Zap size={18} />
                             </div>
                             <div className="flex-1 text-left">
-                                <div className="text-sm font-bold text-[var(--color-text)]">I'm leaving now</div>
-                                <div className="text-[11px] text-[var(--color-text-secondary)]">Spot opens immediately</div>
+                                <div className="text-sm font-bold text-[var(--color-text)]">{t('ping_modal.leaving_now')}</div>
+                                <div className="text-[11px] text-[var(--color-text-secondary)]">{t('ping_modal.spot_opens')}</div>
                             </div>
                             <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
                                 pingType === 'now' ? 'border-blue-400 bg-blue-500' : 'border-[var(--color-border)]'
@@ -114,7 +116,7 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                                 <Clock size={18} />
                             </div>
                             <div className="flex-1 text-left">
-                                <div className="text-sm font-bold text-[var(--color-text)]">I'll leave at…</div>
+                                <div className="text-sm font-bold text-[var(--color-text)]">{t('ping_modal.leaving_later')}</div>
                                 <div className="text-[11px] text-[var(--color-text-secondary)]">
                                     {pingType === 'later'
                                         ? (() => {
@@ -123,7 +125,7 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                                             const time = combined.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                                             return isToday ? time : combined.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) + ' · ' + time;
                                         })()
-                                        : 'Set a specific time'}
+                                        : t('ping_modal.set_time')}
                                 </div>
                             </div>
                             <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
@@ -135,7 +137,7 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                     </div>
 
                     {timeError && (
-                        <p className="mt-4 text-sm text-red-400 font-semibold text-center">{timeError}</p>
+                        <p className="mt-4 text-sm text-red-400 font-semibold text-center">{t('ping_modal.future_time_error')}</p>
                     )}
                     <button
                         onClick={handleSetTime}
@@ -143,7 +145,7 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                         style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}
                     >
                         <MapPin size={18} />
-                        <span>{isEditing ? 'Update Spot' : 'Share Spot'}</span>
+                        <span>{isEditing ? t('ping_modal.update') : t('ping_modal.confirm')}</span>
                     </button>
                 </div>
             ) : (
@@ -152,10 +154,10 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                         <div className="w-11 h-11 rounded-full bg-blue-500/15 border border-blue-400/30 flex items-center justify-center mb-1.5">
                             <Clock size={20} className="text-blue-400" />
                         </div>
-                        <h2 className="text-lg font-bold text-[var(--color-text)]">Set departure time</h2>
+                        <h2 className="text-lg font-bold text-[var(--color-text)]">{t('ping_modal.set_departure')}</h2>
                     </div>
                     <div className="mb-4">
-                        <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-2">Date</p>
+                        <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-2">{t('ping_modal.date')}</p>
                         <input
                             type="date"
                             aria-label="Departure date"
@@ -166,12 +168,12 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                             style={{ colorScheme: 'dark' }}
                         />
                     </div>
-                    <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-2">Time</p>
+                    <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-2">{t('ping_modal.time')}</p>
                     <div className="mb-6">
                         <TimePicker initialTime={departureTime} onTimeChange={setDepartureTime} />
                     </div>
                     {timeError && (
-                        <p className="mb-3 text-sm text-red-400 font-semibold text-center">{timeError}</p>
+                        <p className="mb-3 text-sm text-red-400 font-semibold text-center">{t('ping_modal.future_time_error')}</p>
                     )}
                     <button
                         onClick={() => {
@@ -186,14 +188,14 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                         style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}
                     >
                         <MapPin size={18} />
-                        {isEditing ? 'Update Spot' : 'Share Spot'}
+                        {isEditing ? t('ping_modal.update') : t('ping_modal.confirm')}
                     </button>
                     <button
                         onClick={() => setView('main')}
                         className="w-full flex items-center justify-center gap-1.5 mt-3 py-2 text-[var(--color-text-secondary)] hover:text-[var(--color-text)] text-sm font-semibold transition-colors"
                     >
                         <ChevronLeft size={16} />
-                        Back
+                        {t('ping_modal.back')}
                     </button>
                 </>
             )}

@@ -1375,22 +1375,35 @@ exports.createSegmentFromSweepNYC = onCall(
     if (lat < 40.4 || lat > 40.95 || lng < -74.3 || lng > -73.65)
       throw new HttpsError('invalid-argument', 'Coordinates outside NYC bounds.');
 
+    // Top-level catch prevents any data-shape/runtime error from becoming functions/internal.
+    // Auth/argument HttpsErrors are thrown before this try, so they pass through normally.
+    try {
     const SWEEPNYC_BASE = 'https://sweepnyc.nyc.gov/mappingapi/api';
-    const PARSER_VERSION = '1.0';
+    const PARSER_VERSION = '1.1';
 
     // ── SweepNYC API ─────────────────────────────────────────────────────────────
+    const sweepUrl = `${SWEEPNYC_BASE}/highlight/sweepinfo?lat=${lat}&lon=${lng}&t=${Date.now()}&radius=0.5`;
+    console.log('[SweepNYC] requesting lat=' + lat + ' lng=' + lng);
     let apiData;
     try {
-      const res = await fetch(
-        `${SWEEPNYC_BASE}/highlight/sweepinfo?lat=${lat}&lon=${lng}&t=${Date.now()}&radius=0.5`,
-      );
-      if (!res.ok) return { success: false, reason: 'no_sweepnyc_data' };
+      const res = await fetch(sweepUrl);
+      console.log('[SweepNYC] HTTP status:', res.status);
+      if (!res.ok) {
+        console.warn('[SweepNYC] non-OK response:', res.status);
+        return { success: false, reason: 'no_sweepnyc_data' };
+      }
       apiData = await res.json();
-    } catch {
+    } catch (err) {
+      console.warn('[SweepNYC] fetch error:', err && err.message);
       return { success: false, reason: 'no_sweepnyc_data' };
     }
 
-    if (!apiData?.Notes || !apiData?.ObjectId) return { success: false, reason: 'no_sweepnyc_data' };
+    console.log('[SweepNYC] response keys:', Object.keys(apiData || {}).join(', '));
+    console.log('[SweepNYC] ObjectId:', apiData && apiData.ObjectId, '| Notes type:', typeof apiData.Notes);
+    if (!apiData?.Notes || !apiData?.ObjectId) {
+      console.warn('[SweepNYC] missing Notes or ObjectId — no data at this location');
+      return { success: false, reason: 'no_sweepnyc_data' };
+    }
 
     const objectId = String(apiData.ObjectId);
     const docId = `nyc_${objectId}`;
@@ -1404,11 +1417,13 @@ exports.createSegmentFromSweepNYC = onCall(
     if (!existingSnap.empty) {
       const d = existingSnap.docs[0].data();
       if (d.status === 'archived') return { success: false, reason: 'archived_segment' };
+      const ps = _detectCardinalSide(lat, lng, d.fromLat, d.fromLng, d.toLat, d.toLng, d.bearing ?? 90);
       return {
         success: true,
         segmentId: existingSnap.docs[0].id,
-        parkingSide: _detectCardinalSide(lat, lng, d.fromLat, d.fromLng, d.toLat, d.toLng, d.bearing ?? 90),
+        parkingSide: ps,
         streetName: d.streetName,
+        _diag: { stage: 'dedup_index', geometrySource: 'existing', segmentStatus: d.status ?? null, signsCount: null, parsedCount: null, parseFailureCount: null, extractedStreetName: null, extractedSide: ps },
       };
     }
 
@@ -1417,106 +1432,218 @@ exports.createSegmentFromSweepNYC = onCall(
     if (byDocIdSnap.exists) {
       const d = byDocIdSnap.data();
       if (d.status === 'archived') return { success: false, reason: 'archived_segment' };
+      const ps = _detectCardinalSide(lat, lng, d.fromLat, d.fromLng, d.toLat, d.toLng, d.bearing ?? 90);
       return {
         success: true,
         segmentId: docId,
-        parkingSide: _detectCardinalSide(lat, lng, d.fromLat, d.fromLng, d.toLat, d.toLng, d.bearing ?? 90),
+        parkingSide: ps,
         streetName: d.streetName,
+        _diag: { stage: 'dedup_docid', geometrySource: 'existing', segmentStatus: d.status ?? null, signsCount: null, parsedCount: null, parseFailureCount: null, extractedStreetName: null, extractedSide: ps },
       };
     }
 
     // ── Parse sign texts ──────────────────────────────────────────────────────────
     let notes;
-    try { notes = JSON.parse(apiData.Notes); } catch { return { success: false, reason: 'parse_failed' }; }
-    if (!notes.Signs?.length) return { success: false, reason: 'no_sweepnyc_data' };
+    try {
+      notes = typeof apiData.Notes === 'string' ? JSON.parse(apiData.Notes) : apiData.Notes;
+    } catch {
+      console.warn('[SweepNYC] failed to parse Notes JSON');
+      return { success: false, reason: 'parse_failed', _diag: { stage: 'notes', errorMessage: 'Notes JSON parse failed' } };
+    }
+    if (notes === null || typeof notes !== 'object') {
+      console.warn('[SweepNYC] Notes is null or non-object:', notes);
+      return {
+        success: false,
+        reason: 'no_sweepnyc_notes',
+        _diag: {
+          stage: 'notes',
+          sweepStatus: apiData.Status ?? null,
+          responseKeys: Object.keys(apiData || {}).join(', '),
+          notesType: notes === null ? 'null' : typeof notes,
+          errorMessage: 'SweepNYC Notes missing or null',
+        },
+      };
+    }
+    console.log('[SweepNYC] Notes keys:', Object.keys(notes).join(', '));
+    const signsRaw = Array.isArray(notes.Signs) ? notes.Signs : [];
+    console.log('[SweepNYC] Signs count:', signsRaw.length, '| first 3:', JSON.stringify(signsRaw.slice(0, 3)));
+    if (!signsRaw.length) {
+      return {
+        success: false,
+        reason: 'no_signs',
+        _diag: { stage: 'signs', signsCount: 0, errorMessage: 'SweepNYC Signs missing or empty' },
+      };
+    }
 
+    const streetCtx = _extractStreetContext(apiData, notes);
+    console.log('[SweepNYC] streetCtx:', JSON.stringify(streetCtx));
+
+    // ── Parse signs (try/catch prevents INTERNAL on bad sign shapes) ─────────────
     const parsed = [];
     const failurePromises = [];
-
-    for (const sign of notes.Signs) {
-      const result = _parseSweepNYCSign(sign.SignText);
-      if (result) {
-        parsed.push(result);
-      } else {
-        failurePromises.push(
-          _logParseFailure(apiData.Notes, objectId, sign.SignText, lat, lng, PARSER_VERSION).catch(() => {}),
-        );
+    try {
+      for (const sign of signsRaw) {
+        const signText = sign && typeof sign.SignText === 'string' ? sign.SignText : null;
+        const result = _parseSweepNYCSign(signText, streetCtx);
+        if (result) {
+          parsed.push(result);
+        } else {
+          console.warn('[SweepNYC] sign parse failed:', signText);
+          if (signText) {
+            failurePromises.push(
+              _logParseFailure(String(apiData.Notes ?? ''), objectId, signText, lat, lng, PARSER_VERSION).catch(() => {}),
+            );
+          }
+        }
       }
+    } catch (signErr) {
+      console.error('[SweepNYC] signs loop error:', signErr && signErr.message);
+      return { success: false, reason: 'parse_failed', _diag: { stage: 'signs_loop', error: String(signErr) } };
     }
+    console.log('[SweepNYC] parsed', parsed.length, '/', signsRaw.length, 'signs');
     Promise.all(failurePromises).catch(() => {});
 
-    if (!parsed.length) return { success: false, reason: 'parse_failed' };
+    if (!parsed.length) {
+      return { success: false, reason: 'parse_failed', _diag: { stage: 'parse', signsCount: signsRaw.length, parsedCount: 0, extractedStreetName: streetCtx.street, extractedSide: streetCtx.side } };
+    }
 
     // ── Street geometry ───────────────────────────────────────────────────────────
     const first = parsed[0];
-    const geo = await _fetchStreetGeometry(first.street, lat, lng);
-    if (!geo) return { success: false, reason: 'geometry_failed' };
+    const streetNameForGeo = streetCtx.street || first.street;
+    console.log('[SweepNYC] fetching OSM geometry for street:', streetNameForGeo);
+    let fromLat, fromLng, toLat, toLng, bearing, geometrySource;
+    try {
+      const geo = streetNameForGeo && streetNameForGeo !== 'Unknown Street'
+        ? await _fetchStreetGeometry(streetNameForGeo, lat, lng)
+        : null;
+      if (geo) {
+        ({ fromLat, fromLng, toLat, toLng, bearing } = geo);
+        geometrySource = 'osm';
+        console.log('[SweepNYC] OSM geometry found for:', streetNameForGeo);
+      } else {
+        // Fallback: synthetic segment centered on tested lat/lng.
+        // Stored as needs_review so admins can verify before it's treated as authoritative.
+        const HALF = 0.0005; // ~55 m
+        fromLat = lat - HALF; fromLng = lng;
+        toLat = lat + HALF; toLng = lng;
+        bearing = 0;
+        geometrySource = 'fallback';
+        console.warn('[SweepNYC] OSM geometry not found for "' + streetNameForGeo + '" — using coordinate fallback, status=needs_review');
+      }
+    } catch (geoErr) {
+      console.error('[SweepNYC] geometry error:', geoErr && geoErr.message);
+      return { success: false, reason: 'geometry_failed', _diag: { stage: 'geometry', error: String(geoErr), streetNameForGeo } };
+    }
 
-    const { fromLat, fromLng, toLat, toLng, bearing } = geo;
     const centerLat = (fromLat + toLat) / 2;
     const centerLng = (fromLng + toLng) / 2;
-    const now = Timestamp.now();
-    const geohash = geohashForLocation([centerLat, centerLng], 9);
+    let geohash;
+    try {
+      geohash = geohashForLocation([centerLat, centerLng], 9);
+    } catch (hashErr) {
+      console.error('[SweepNYC] geohash error:', hashErr && hashErr.message);
+      return { success: false, reason: 'geometry_failed', _diag: { stage: 'geohash', centerLat, centerLng } };
+    }
 
+    // Cardinal side: only reliable when OSM geometry is real; fallback uses API-extracted side or null.
+    const parkingSide = geometrySource === 'osm'
+      ? _detectCardinalSide(lat, lng, fromLat, fromLng, toLat, toLng, bearing)
+      : (streetCtx.side || null);
+
+    const now = Timestamp.now();
+    const segmentStatus = geometrySource === 'fallback' ? 'needs_review' : 'active';
     const provenance = {
       provider: 'sweepnyc',
       sweepNYCObjectId: apiData.ObjectId,
       fetchedAt: now,
       parserVersion: PARSER_VERSION,
-      rawSignTexts: notes.Signs.map(s => s.SignText),
+      rawSignTexts: signsRaw.map(s => (s && s.SignText) || ''),
+      geometrySource,
       refreshedAt: null,
       refreshCount: 0,
     };
 
-    // ── Write segment (deterministic ID — idempotent if two requests race) ────────
-    const segRef = db.doc(`streetSegments/${docId}`);
-    await segRef.set({
-      cityId: 'nyc',
-      streetName: first.street,
-      fromCross: first.fromCross,
-      toCross: first.toCross,
-      borough: _detectBorough(lat, lng),
-      fromLat, fromLng, toLat, toLng,
-      centerLat, centerLng, bearing,
-      geohash,
-      evenSideIsPositiveCross: false,
-      cslSegmentId: objectId,
-      externalSegmentId: objectId,
-      source: 'sweepnyc',
-      provenance,
-      status: 'active',
-      confidenceScore: 0.95,
-      confidence: {
-        level: 'community',
-        source: 'nyc_open_data',
-        lastVerifiedAt: now,
-        communityConfirmations: 0,
-      },
-      editedBy: 'system:sweepnyc',
-      createdAt: now,
-      updatedAt: now,
-    });
+    // ── Write segment + rules (try/catch prevents INTERNAL on Firestore errors) ───
+    try {
+      const segRef = db.doc(`streetSegments/${docId}`);
+      await segRef.set({
+        cityId: 'nyc',
+        streetName: streetCtx.street || first.street,
+        fromCross: streetCtx.fromCross || first.fromCross,
+        toCross: streetCtx.toCross || first.toCross,
+        borough: _detectBorough(lat, lng),
+        fromLat, fromLng, toLat, toLng,
+        centerLat, centerLng, bearing,
+        geohash,
+        evenSideIsPositiveCross: false,
+        cslSegmentId: objectId,
+        externalSegmentId: objectId,
+        source: 'sweepnyc',
+        provenance,
+        status: segmentStatus,
+        confidenceScore: geometrySource === 'osm' ? 0.95 : 0.6,
+        confidence: {
+          level: 'community',
+          source: 'nyc_open_data',
+          lastVerifiedAt: now,
+          communityConfirmations: 0,
+        },
+        editedBy: 'system:sweepnyc',
+        createdAt: now,
+        updatedAt: now,
+      });
 
-    // ── Write rules (deterministic ID — idempotent if two requests race) ──────────
-    await segRef.collection('streetRules').doc('sweepnyc_v1').set({
-      type: 'streetCleaning',
-      effectiveDate: now,
-      supersededAt: null,
-      status: 'active',
-      schedules: parsed.map(p => ({ side: p.side, days: p.days, startTime: p.startTime, endTime: p.endTime })),
-      source: 'sweepnyc',
-      provenance,
-      lastSourceSync: new Date().toISOString(),
-      createdAt: now,
-      updatedAt: now,
-    });
+      await segRef.collection('streetRules').doc('sweepnyc_v1').set({
+        type: 'streetCleaning',
+        effectiveDate: now,
+        supersededAt: null,
+        status: 'active',
+        schedules: parsed.map(p => {
+          const s = { side: p.side, days: p.days, startTime: p.startTime, endTime: p.endTime };
+          if (p.ruleType) s.ruleType = p.ruleType;
+          return s;
+        }),
+        source: 'sweepnyc',
+        provenance,
+        lastSourceSync: new Date().toISOString(),
+        createdAt: now,
+        updatedAt: now,
+      });
+    } catch (writeErr) {
+      console.error('[SweepNYC] Firestore write error:', writeErr && writeErr.message);
+      return { success: false, reason: 'firestore_write_failed', _diag: { stage: 'write', error: String(writeErr) } };
+    }
 
+    const finalStreetName = streetCtx.street || first.street;
+    console.log('[SweepNYC] wrote segment', docId, '| status:', segmentStatus, '| parkingSide:', parkingSide, '| geometrySource:', geometrySource);
     return {
       success: true,
       segmentId: docId,
-      parkingSide: _detectCardinalSide(lat, lng, fromLat, fromLng, toLat, toLng, bearing),
-      streetName: first.street,
+      parkingSide,
+      streetName: finalStreetName,
+      _diag: {
+        stage: 'complete',
+        geometrySource,
+        segmentStatus,
+        signsCount: signsRaw.length,
+        parsedCount: parsed.length,
+        parseFailureCount: failurePromises.length,
+        extractedStreetName: streetCtx.street,
+        extractedSide: streetCtx.side,
+      },
     };
+    } catch (topErr) {
+      console.error('[SweepNYC] top-level unhandled error:', (topErr && topErr.stack) || topErr);
+      return {
+        success: false,
+        reason: 'unknown_error',
+        _diag: {
+          stage: 'top_level',
+          errorName: topErr && topErr.name,
+          errorMessage: topErr && topErr.message,
+        },
+      };
+    }
   }
 );
 
@@ -1525,27 +1652,104 @@ exports.createSegmentFromSweepNYC = onCall(
 const _DAY_ABBR = {
   Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu',
   Friday: 'Fri', Saturday: 'Sat', Sunday: 'Sun',
+  // lowercase full names
+  monday: 'Mon', tuesday: 'Tue', wednesday: 'Wed', thursday: 'Thu',
+  friday: 'Fri', saturday: 'Sat', sunday: 'Sun',
+  // uppercase abbreviations already canonical
+  MON: 'Mon', TUE: 'Tue', WED: 'Wed', THU: 'Thu', FRI: 'Fri', SAT: 'Sat', SUN: 'Sun',
 };
 
-function _parseAmPmTime(t) {
-  const m = t.match(/^(\d+)(?::(\d+))?\s*(AM|PM)$/i);
+function _parseFlexibleTime(t) {
+  // Accepts: "8 AM", "8:30AM", "8:30 A.M.", "10 PM", "10:00 PM"
+  const clean = t.replace(/\./g, '').replace(/\s+/g, '').toUpperCase();
+  const m = clean.match(/^(\d+)(?::(\d+))?(AM|PM)$/);
   if (!m) return '00:00';
   let h = parseInt(m[1]);
   const min = m[2] ? parseInt(m[2]) : 0;
-  if (m[3].toUpperCase() === 'PM' && h !== 12) h += 12;
-  if (m[3].toUpperCase() === 'AM' && h === 12) h = 0;
+  if (m[3] === 'PM' && h !== 12) h += 12;
+  if (m[3] === 'AM' && h === 12) h = 0;
   return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
 }
 
-function _parseSweepNYCSign(signText) {
+function _extractStreetContext(apiData, notes) {
+  // Try top-level API fields first (SweepNYC may expose them directly)
+  const street = apiData.StreetName || apiData.OnStreet || apiData.Street ||
+                 (notes && (notes.StreetName || notes.OnStreet)) || null;
+  const fromCross = apiData.FromStreet || (notes && notes.FromStreet) || null;
+  const toCross = apiData.ToStreet || (notes && notes.ToStreet) || null;
+  // Side: SideOfStreet, SideName, Side
+  const sideRaw = apiData.SideOfStreet || apiData.SideName || apiData.Side ||
+                  (notes && (notes.SideOfStreet || notes.SideName || notes.Side)) || null;
+  const SIDE_MAP = { N: 'North', S: 'South', E: 'East', W: 'West', NORTH: 'North', SOUTH: 'South', EAST: 'East', WEST: 'West' };
+  const side = sideRaw ? (SIDE_MAP[String(sideRaw).toUpperCase()] || sideRaw) : null;
+  return { street, fromCross, toCross, side };
+}
+
+// Maps "Except Sunday" / "Except Sunday and Holidays" → the days that DO apply.
+// Unrecognised tokens (Holidays, Public, etc.) are silently ignored.
+function _exceptDaysToDays(exceptStr) {
+  const ALL_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const excluded = new Set();
+  for (const t of exceptStr.split(/\s+and\s+|\s*,\s*|\s+/)) {
+    const abbr = _DAY_ABBR[t] || _DAY_ABBR[t.toLowerCase()];
+    if (abbr) excluded.add(abbr);
+  }
+  return ALL_DAYS.filter(d => !excluded.has(d));
+}
+
+const _SIDE_MAP = { N: 'North', S: 'South', E: 'East', W: 'West', NORTH: 'North', SOUTH: 'South', EAST: 'East', WEST: 'West' };
+
+function _parseSweepNYCSign(signText, streetCtx) {
+  if (!signText) return null;
+  const ctx = streetCtx || {};
+
+  // Branch 1: Classic ASP — "No Parking <days> <time>-<time> [on <street> ...] [(Side: X)]"
   const m = signText.match(
-    /^No Parking (.+?) (\d+(?::\d+)?\s*[AP]M)-(\d+(?::\d+)?\s*[AP]M) on (.+?) from (.+?) to (.+?) \(Side: (\w+)\)$/i,
+    /No Parking\s+(.+?)\s+(\d+(?::\d+)?\s*[AP]\.?M\.?)\s*[-–]\s*(\d+(?::\d+)?\s*[AP]\.?M\.?)(?:\s+on\s+(.+?)(?:\s+from\s+(.+?)\s+to\s+(.+?))?)?(?:\s+\(Side:\s*(\w+)\))?$/i,
   );
-  if (!m) return null;
-  const [, daysRaw, startRaw, endRaw, street, fromCross, toCross, side] = m;
-  const days = daysRaw.split(/,\s*/).map(d => (_DAY_ABBR[d.trim()] || d.trim())).filter(Boolean);
-  if (!days.length) return null;
-  return { street, fromCross, toCross, side, days, startTime: _parseAmPmTime(startRaw), endTime: _parseAmPmTime(endRaw) };
+
+  if (m) {
+    const [, daysRaw, startRaw, endRaw, streetInSign, fromCrossInSign, toCrossInSign, sideInSign] = m;
+    const dayTokens = daysRaw.trim().split(/[\s,]+/).map(d => d.trim()).filter(Boolean);
+    const days = dayTokens
+      .map(d => _DAY_ABBR[d] || _DAY_ABBR[d.toUpperCase()] || (d.length <= 3 ? d.charAt(0).toUpperCase() + d.slice(1).toLowerCase() : null))
+      .filter(Boolean);
+    if (!days.length) return null;
+    const sideRaw = ctx.side || sideInSign || null;
+    return {
+      street: ctx.street || streetInSign || 'Unknown Street',
+      fromCross: ctx.fromCross || fromCrossInSign || null,
+      toCross: ctx.toCross || toCrossInSign || null,
+      side: sideRaw ? (_SIDE_MAP[String(sideRaw).toUpperCase()] || sideRaw) : null,
+      days,
+      startTime: _parseFlexibleTime(startRaw),
+      endTime: _parseFlexibleTime(endRaw),
+    };
+  }
+
+  // Branch 2: Metered short window — "No Parking <time>-<time> Except <days> on <street> [from <cross> to <cross>] [(Side: X)]"
+  // e.g. "No Parking 8:30AM-9AM Except Sunday on Maran Place from White Plains Road to Cruger Avenue (Side: South)"
+  const m2 = signText.match(
+    /No Parking\s+(\d+(?::\d+)?\s*[AP]\.?M\.?)\s*[-–]\s*(\d+(?::\d+)?\s*[AP]\.?M\.?)\s+Except\s+(.+?)\s+on\s+(.+?)(?:\s+from\s+(.+?)\s+to\s+(.+?))?(?:\s+\(Side:\s*(\w+)\))?$/i,
+  );
+
+  if (!m2) return null;
+
+  const [, startRaw2, endRaw2, exceptPart, streetInSign2, fromCrossInSign2, toCrossInSign2, sideInSign2] = m2;
+  const days2 = _exceptDaysToDays(exceptPart);
+  if (!days2.length) return null;
+
+  const sideRaw2 = ctx.side || sideInSign2 || null;
+  return {
+    street: ctx.street || streetInSign2 || 'Unknown Street',
+    fromCross: ctx.fromCross || fromCrossInSign2 || null,
+    toCross: ctx.toCross || toCrossInSign2 || null,
+    side: sideRaw2 ? (_SIDE_MAP[String(sideRaw2).toUpperCase()] || sideRaw2) : null,
+    days: days2,
+    startTime: _parseFlexibleTime(startRaw2),
+    endTime: _parseFlexibleTime(endRaw2),
+    ruleType: 'metered_no_parking_window',
+  };
 }
 
 function _computeBearing(fromLat, fromLng, toLat, toLng) {

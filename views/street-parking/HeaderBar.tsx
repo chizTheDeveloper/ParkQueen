@@ -1,6 +1,7 @@
 import React from 'react';
 import { Search, Camera, MessageSquare, Bell } from 'lucide-react';
 import { AppView } from '../../types';
+import { t, useLang } from '../../i18n';
 
 interface HeaderBarProps {
     user: any;
@@ -63,6 +64,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
     setPendingUpdatesCount,
     onSelectResult,
 }) => {
+    useLang();
     return (
         <header style={{ paddingTop: 'env(safe-area-inset-top)' }} className="w-full flex flex-col gap-1.5 pointer-events-auto">
             <div data-tour="search" className="w-full max-w-[380px] mx-auto bg-[var(--color-card)] backdrop-blur-xl border border-[var(--color-border)] rounded-full h-[50px] px-3.5 flex items-center justify-between shadow-xl transition-all duration-300">
@@ -73,10 +75,10 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                     <input
                         ref={inputRef}
                         type="text"
-                        aria-label="Search a neighborhood"
+                        aria-label={t('common.search_placeholder')}
                         aria-expanded={searchOpen && (loading || results.length > 0)}
                         aria-haspopup="listbox"
-                        placeholder="Search a neighborhood"
+                        placeholder={t('common.search_placeholder')}
                         className="bg-transparent border-none outline-none text-[var(--color-text)] text-[14px] w-full placeholder-[var(--color-text-secondary)] font-medium"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
@@ -116,8 +118,8 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                     <button
                         data-tour="bell"
                         type="button"
-                        aria-label="Notifications"
-                        title="Nearby Activity"
+                        aria-label={t('common.nearby_activity')}
+                        title={t('common.nearby_activity')}
                         onClick={() => {
                             localStorage.setItem('lastViewedNotifications', Date.now().toString());
                             localStorage.setItem('pendingUpdatesCount', '0');
@@ -137,7 +139,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 
                 {searchOpen && (loading || results.length > 0) && (
                     <div aria-live="polite" className="absolute left-0 right-0 mt-2 top-full z-[9999] bg-[var(--color-glass)] backdrop-blur-xl rounded-2xl max-h-60 overflow-y-auto border border-[var(--color-border)] shadow-2xl p-2">
-                        {loading && <div className="px-4 py-3 text-[var(--color-text-secondary)] text-xs">Searching…</div>}
+                        {loading && <div className="px-4 py-3 text-[var(--color-text-secondary)] text-xs">{t('common.searching')}</div>}
 
                         {!loading && results.map((r: any) => (
                             <button
@@ -157,7 +159,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             {searchOpen && (
                 <div className="w-full max-w-[380px] mx-auto flex justify-end">
                     <button onClick={handleCancelSearch} className="text-[#38bdf8] font-bold text-[10px] bg-white/5 border border-[var(--color-border)] rounded-full py-1 px-3 mt-1">
-                        Cancel Search
+                        {t('common.cancel_search')}
                     </button>
                 </div>
             )}
