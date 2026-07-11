@@ -594,6 +594,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
             lastParkedMarkerRef.current.remove();
             lastParkedMarkerRef.current = null;
         }
+        activeRouteDestinationRef.current = null;
+        if (mapRef.current) clearRoute(mapRef.current);
     };
 
     // Proximity check — are we back at the car?
@@ -628,6 +630,14 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
             if (mapRef.current) clearRoute(mapRef.current);
         }
     }, [selectedItem]);
+
+    // Defensive: clear My Car route if saved spot is removed by any path
+    useEffect(() => {
+        if (!savedSpot) {
+            activeRouteDestinationRef.current = null;
+            if (mapRef.current) clearRoute(mapRef.current);
+        }
+    }, [savedSpot]);
 
     // Sync selectedItem from live Firestore updates
     useEffect(() => {
