@@ -195,6 +195,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
     const [showDepartureSheet, setShowDepartureSheet] = useState(false);
     const [parkedDuration, setParkedDuration] = useState('');
     const [showCustomReminder, setShowCustomReminder] = useState(false);
+    const [showRemindPanel, setShowRemindPanel] = useState(false);
     const [reminderAmPm, setReminderAmPm] = useState<'AM' | 'PM'>(new Date().getHours() < 12 ? 'AM' : 'PM');
     const [reminderHour, setReminderHour] = useState('');
     const [reminderMinute, setReminderMinute] = useState('');
@@ -1379,62 +1380,36 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
 
 
             {/* My Car — Parking Session sheet (personal only) */}
-            <BottomSheet isOpen={showSessionSheet} ariaLabel="My Car session" onClose={() => { setShowSessionSheet(false); setShowCustomReminder(false); }}>
+            <BottomSheet isOpen={showSessionSheet} ariaLabel="My Car session" onClose={() => { setShowSessionSheet(false); setShowCustomReminder(false); setShowRemindPanel(false); }}>
                 {savedSpot && (
                     <div>
-                        {/* Header: left = icon + My Car + duration, right = Address label + value */}
-                        <div className="flex items-start gap-4 mb-5">
-                            <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0"
-                                style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}>
-                                <VehicleIcon type={user?.vehicleType} color={user?.vehicleColor} size={26} />
+                        {/* Header */}
+                        <div className="flex items-center gap-3 mb-5 pb-4 border-b border-[var(--color-border)]">
+                            <div className="w-12 h-12 rounded-[14px] flex items-center justify-center shrink-0"
+                                style={{ background: 'linear-gradient(135deg,#1e75ff,#0ea5e9)' }}>
+                                <VehicleIcon type={user?.vehicleType} color={user?.vehicleColor} size={22} />
                             </div>
-                            <div className="flex-1 min-w-0 flex justify-between gap-3">
-                                <div className="min-w-0">
-                                    <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-0.5">{t('common.my_car')}</p>
-                                    <p className="text-xl font-extrabold text-[var(--color-text)] leading-tight">{parkedDuration || t('my_car.just_parked')}</p>
-                                </div>
+                            <div className="flex-1 min-w-0">
+                                <p className="text-[10px] font-bold text-[#38bdf8] uppercase tracking-widest mb-0.5">{t('common.my_car')}</p>
                                 {savedSpot.address && (
-                                    <div className="text-right shrink-0 max-w-[48%]">
-                                        <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-0.5">{t('my_car.address')}</p>
-                                        <p className="text-sm font-bold text-white leading-tight">{savedSpot.address}</p>
-                                    </div>
+                                    <p className="text-[15px] font-bold text-[var(--color-text)] leading-tight truncate">{savedSpot.address}</p>
                                 )}
+                                <p className="text-xs text-[var(--color-text-secondary)]">{parkedDuration || t('my_car.just_parked')}</p>
                             </div>
                         </div>
 
                         {/* Street Intelligence */}
                         {savedSpot.segmentId && savedSpot.segmentStreetName ? (
-                            <>
-                                <StreetIntelligenceCard
-                                    segmentId={savedSpot.segmentId}
-                                    parkingSide={savedSpot.parkingSide}
-                                    streetName={savedSpot.segmentStreetName}
-                                    onResult={r => {
-                                        if (r?.safeUntil) {
-                                            writeCleaningReminder(r.safeUntil, reminderEnabled, savedSpot.segmentStreetName);
-                                        }
-                                    }}
-                                />
-                                <button
-                                    onClick={() => {
-                                        const next = !reminderEnabled;
-                                        setReminderEnabled(next);
-                                        localStorage.setItem('streetCleaningReminder', String(next));
-                                        if (auth.currentUser) {
-                                            setDoc(doc(db, 'parkingSessions', auth.currentUser.uid), { reminderEnabled: next }, { merge: true }).catch(() => {});
-                                        }
-                                    }}
-                                    className="w-full flex items-center justify-between px-4 py-3 rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] mb-4"
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <Bell size={15} className={reminderEnabled ? 'text-blue-400' : 'text-[var(--color-text-secondary)]'} />
-                                        <span className="text-sm text-[var(--color-text)]">{t('my_car.cleaning_reminder')}</span>
-                                    </div>
-                                    <div className={`w-10 h-6 rounded-full transition-colors relative ${reminderEnabled ? 'bg-blue-600' : 'bg-white/20'}`}>
-                                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${reminderEnabled ? 'left-5' : 'left-1'}`} />
-                                    </div>
-                                </button>
-                            </>
+                            <StreetIntelligenceCard
+                                segmentId={savedSpot.segmentId}
+                                parkingSide={savedSpot.parkingSide}
+                                streetName={savedSpot.segmentStreetName}
+                                onResult={r => {
+                                    if (r?.safeUntil) {
+                                        writeCleaningReminder(r.safeUntil, reminderEnabled, savedSpot.segmentStreetName);
+                                    }
+                                }}
+                            />
                         ) : savedSpot.streetIntelStatus === 'unavailable' || savedSpot.streetIntelStatus === 'failed' ? (
                             <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-4 mb-4">
                                 <div className="flex items-center gap-2 mb-2">
@@ -1462,149 +1437,185 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
                             </div>
                         )}
 
-                        {/* Navigate in-app */}
-                        <button
-                            onClick={() => {
-                                if (!mapRef.current || !userLocation) return;
-                                const dest: [number, number] = [savedSpot.lng, savedSpot.lat];
-                                activeRouteDestinationRef.current = dest;
-                                drawRoute(mapRef.current, userLocation, dest);
-                                mapRef.current.flyTo({ center: dest, zoom: 16 });
-                                setShowSessionSheet(false);
-                            }}
-                            className="w-full mb-4 py-3 rounded-2xl text-sm font-bold border border-[#1e75ff]/30 bg-[#1e75ff]/10 hover:bg-[#1e75ff]/15 transition-all active:scale-95 text-[#38bdf8] flex items-center justify-center gap-2">
-                            <Navigation size={15} />
-                            {t('my_car.navigate')}
-                        </button>
-
-                        {/* Private: move reminder */}
-                        <div className="flex items-center gap-2 mb-1.5">
-                            <span className="text-[10px] font-semibold text-[var(--color-text-secondary)]/50 uppercase tracking-widest shrink-0">{t('my_car.section_private')}</span>
-                            <div className="flex-1 h-px bg-[var(--color-border)]/40" />
+                        {/* Compact action row: cleaning alert / navigate / move reminder */}
+                        <div className="grid grid-cols-3 gap-2 mb-3">
+                            <button
+                                onClick={() => {
+                                    const next = !reminderEnabled;
+                                    setReminderEnabled(next);
+                                    localStorage.setItem('streetCleaningReminder', String(next));
+                                    if (auth.currentUser) {
+                                        setDoc(doc(db, 'parkingSessions', auth.currentUser.uid), { reminderEnabled: next }, { merge: true }).catch(() => {});
+                                    }
+                                }}
+                                disabled={!savedSpot.segmentId}
+                                aria-pressed={reminderEnabled}
+                                className={`flex flex-col items-center gap-1.5 py-3 rounded-2xl border transition-all active:scale-95 disabled:opacity-40 disabled:pointer-events-none ${
+                                    reminderEnabled
+                                        ? 'border-[#1e75ff]/40 bg-[#1e75ff]/12 text-[#38bdf8]'
+                                        : 'border-[var(--color-border)] bg-white/5 text-[var(--color-text-secondary)]'
+                                }`}
+                            >
+                                <Bell size={18} />
+                                <span className="text-[10px] font-bold leading-tight text-center">Cleaning<br/>alert</span>
+                            </button>
+                            <button
+                                onClick={() => {
+                                    if (!mapRef.current || !userLocation) return;
+                                    const dest: [number, number] = [savedSpot.lng, savedSpot.lat];
+                                    activeRouteDestinationRef.current = dest;
+                                    drawRoute(mapRef.current, userLocation, dest);
+                                    mapRef.current.flyTo({ center: dest, zoom: 16 });
+                                    setShowSessionSheet(false);
+                                }}
+                                className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-[var(--color-border)] bg-white/5 text-[var(--color-text-secondary)] transition-all active:scale-95"
+                            >
+                                <Navigation size={18} />
+                                <span className="text-[10px] font-bold leading-tight text-center">Navigate</span>
+                            </button>
+                            <button
+                                onClick={() => setShowRemindPanel(v => !v)}
+                                aria-expanded={showRemindPanel || !!parkingTimer.timer}
+                                className={`flex flex-col items-center gap-1.5 py-3 rounded-2xl border transition-all active:scale-95 ${
+                                    parkingTimer.timer || showRemindPanel
+                                        ? 'border-[#1e75ff]/40 bg-[#1e75ff]/12 text-[#38bdf8]'
+                                        : 'border-[var(--color-border)] bg-white/5 text-[var(--color-text-secondary)]'
+                                }`}
+                            >
+                                <Clock size={18} />
+                                <span className="text-[10px] font-bold leading-tight text-center">
+                                    {parkingTimer.timer ? <>{parkingTimer.minutesRemaining}m left</> : <>Move<br/>reminder</>}
+                                </span>
+                            </button>
                         </div>
-                        <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-0.5">{t('my_car.remind_to_move')}</p>
-                        <p className="text-[10px] text-[var(--color-text-secondary)]/60 mb-2">{t('my_car.reminder_private')}</p>
-                        {parkingTimer.timer ? (
-                            <div className="flex items-center gap-2.5 px-3 py-3 rounded-2xl bg-[#1e75ff]/10 border border-[#1e75ff]/20 mb-4">
-                                <Clock size={14} className="text-[#38bdf8] shrink-0" />
-                                <p className="text-xs font-semibold text-[#38bdf8] flex-1">{t('my_car.min_remaining', { min: parkingTimer.minutesRemaining })}</p>
-                                <button onClick={parkingTimer.clearTimer} className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors">
-                                    <X size={13} />
-                                </button>
-                            </div>
-                        ) : showCustomReminder ? (
-                            <div className="mb-4 rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] overflow-hidden">
-                                <div className="grid grid-cols-2 divide-x divide-[var(--color-border)]">
-                                    <div className="px-4 py-3">
-                                        <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-1">{t('ping_modal.date')}</p>
-                                        <input
-                                            type="date"
-                                            id="pq-reminder-date"
-                                            defaultValue={new Date().toISOString().split('T')[0]}
-                                            min={new Date().toISOString().split('T')[0]}
-                                            className="w-full bg-transparent text-sm font-semibold text-white focus:outline-none"
-                                            style={{ colorScheme: 'dark' }}
-                                        />
+
+                        {/* Move reminder expandable panel */}
+                        {(showRemindPanel || !!parkingTimer.timer) && (
+                            <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] overflow-hidden mb-4">
+                                {parkingTimer.timer ? (
+                                    <div className="flex items-center gap-2.5 px-4 py-3">
+                                        <Clock size={14} className="text-[#38bdf8] shrink-0" />
+                                        <p className="text-xs font-semibold text-[#38bdf8] flex-1">{t('my_car.min_remaining', { min: parkingTimer.minutesRemaining })}</p>
+                                        <button onClick={parkingTimer.clearTimer} className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors">
+                                            <X size={13} />
+                                        </button>
                                     </div>
-                                    <div className="px-4 py-3">
-                                        <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-1">{t('ping_modal.time')}</p>
-                                        <div className="flex items-center gap-2">
-                                            <div className="flex items-center gap-0.5 flex-1 min-w-0">
+                                ) : showCustomReminder ? (
+                                    <div>
+                                        <div className="grid grid-cols-2 divide-x divide-[var(--color-border)]">
+                                            <div className="px-4 py-3">
+                                                <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-1">{t('ping_modal.date')}</p>
                                                 <input
-                                                    type="text"
-                                                    inputMode="numeric"
-                                                    placeholder="12"
-                                                    value={reminderHour}
-                                                    maxLength={2}
-                                                    autoFocus
-                                                    className="w-7 bg-transparent text-sm font-semibold text-white text-center focus:outline-none"
-                                                    onFocus={(e) => e.target.select()}
-                                                    onChange={(e) => {
-                                                        const raw = e.target.value.replace(/\D/g, '');
-                                                        if (!raw) { setReminderHour(''); return; }
-                                                        const n = parseInt(raw);
-                                                        if (n > 12) { setReminderHour('12'); reminderMinuteRef.current?.focus(); return; }
-                                                        if (n === 0) { setReminderHour('1'); return; }
-                                                        setReminderHour(raw);
-                                                        // auto-advance: first digit 2-9 can't grow to a valid 2-digit hour
-                                                        if (raw.length === 2 || (raw.length === 1 && n >= 2)) {
-                                                            reminderMinuteRef.current?.focus();
-                                                        }
-                                                    }}
-                                                />
-                                                <span className="text-sm font-bold text-[var(--color-text-secondary)] select-none">:</span>
-                                                <input
-                                                    ref={reminderMinuteRef}
-                                                    type="text"
-                                                    inputMode="numeric"
-                                                    placeholder="00"
-                                                    value={reminderMinute}
-                                                    maxLength={2}
-                                                    className="w-7 bg-transparent text-sm font-semibold text-white text-center focus:outline-none"
-                                                    onFocus={(e) => e.target.select()}
-                                                    onChange={(e) => {
-                                                        const raw = e.target.value.replace(/\D/g, '');
-                                                        if (!raw) { setReminderMinute(''); return; }
-                                                        const n = parseInt(raw);
-                                                        if (n > 59) { setReminderMinute('59'); return; }
-                                                        setReminderMinute(raw);
-                                                    }}
+                                                    type="date"
+                                                    id="pq-reminder-date"
+                                                    defaultValue={new Date().toISOString().split('T')[0]}
+                                                    min={new Date().toISOString().split('T')[0]}
+                                                    className="w-full bg-transparent text-sm font-semibold text-white focus:outline-none"
+                                                    style={{ colorScheme: 'dark' }}
                                                 />
                                             </div>
-                                            <div className="flex rounded-lg overflow-hidden border border-[var(--color-border)] shrink-0">
-                                                {(['AM', 'PM'] as const).map(period => (
-                                                    <button key={period} type="button"
-                                                        onClick={() => setReminderAmPm(period)}
-                                                        className={`px-2.5 py-1 text-xs font-bold transition-colors ${
-                                                            reminderAmPm === period
-                                                                ? 'bg-[#1e75ff] text-white'
-                                                                : 'bg-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text)]'
-                                                        }`}>
-                                                        {period}
-                                                    </button>
-                                                ))}
+                                            <div className="px-4 py-3">
+                                                <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-1">{t('ping_modal.time')}</p>
+                                                <div className="flex items-center gap-2">
+                                                    <div className="flex items-center gap-0.5 flex-1 min-w-0">
+                                                        <input
+                                                            type="text"
+                                                            inputMode="numeric"
+                                                            placeholder="12"
+                                                            value={reminderHour}
+                                                            maxLength={2}
+                                                            autoFocus
+                                                            className="w-7 bg-transparent text-sm font-semibold text-white text-center focus:outline-none"
+                                                            onFocus={(e) => e.target.select()}
+                                                            onChange={(e) => {
+                                                                const raw = e.target.value.replace(/\D/g, '');
+                                                                if (!raw) { setReminderHour(''); return; }
+                                                                const n = parseInt(raw);
+                                                                if (n > 12) { setReminderHour('12'); reminderMinuteRef.current?.focus(); return; }
+                                                                if (n === 0) { setReminderHour('1'); return; }
+                                                                setReminderHour(raw);
+                                                                if (raw.length === 2 || (raw.length === 1 && n >= 2)) {
+                                                                    reminderMinuteRef.current?.focus();
+                                                                }
+                                                            }}
+                                                        />
+                                                        <span className="text-sm font-bold text-[var(--color-text-secondary)] select-none">:</span>
+                                                        <input
+                                                            ref={reminderMinuteRef}
+                                                            type="text"
+                                                            inputMode="numeric"
+                                                            placeholder="00"
+                                                            value={reminderMinute}
+                                                            maxLength={2}
+                                                            className="w-7 bg-transparent text-sm font-semibold text-white text-center focus:outline-none"
+                                                            onFocus={(e) => e.target.select()}
+                                                            onChange={(e) => {
+                                                                const raw = e.target.value.replace(/\D/g, '');
+                                                                if (!raw) { setReminderMinute(''); return; }
+                                                                const n = parseInt(raw);
+                                                                if (n > 59) { setReminderMinute('59'); return; }
+                                                                setReminderMinute(raw);
+                                                            }}
+                                                        />
+                                                    </div>
+                                                    <div className="flex rounded-lg overflow-hidden border border-[var(--color-border)] shrink-0">
+                                                        {(['AM', 'PM'] as const).map(period => (
+                                                            <button key={period} type="button"
+                                                                onClick={() => setReminderAmPm(period)}
+                                                                className={`px-2.5 py-1 text-xs font-bold transition-colors ${
+                                                                    reminderAmPm === period
+                                                                        ? 'bg-[#1e75ff] text-white'
+                                                                        : 'bg-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text)]'
+                                                                }`}>
+                                                                {period}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
+                                        <div className="h-px bg-[var(--color-border)]" />
+                                        <div className="flex divide-x divide-[var(--color-border)]">
+                                            <button onClick={() => setShowCustomReminder(false)}
+                                                className="flex-1 py-3 text-xs font-bold text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors">
+                                                {t('my_car.cancel')}
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    const dateEl = document.getElementById('pq-reminder-date') as HTMLInputElement;
+                                                    const hRaw = parseInt(reminderHour) || 12;
+                                                    const m = parseInt(reminderMinute) || 0;
+                                                    let h = hRaw % 12;
+                                                    if (reminderAmPm === 'PM') h += 12;
+                                                    const dateStr = dateEl.value || new Date().toISOString().split('T')[0];
+                                                    const target = new Date(`${dateStr}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`);
+                                                    const minutes = Math.round((target.getTime() - Date.now()) / 60000);
+                                                    if (minutes > 0) {
+                                                        parkingTimer.startTimer(minutes, savedSpot!.address || '', () => setShowSessionSheet(true));
+                                                        setShowCustomReminder(false);
+                                                        setShowRemindPanel(false);
+                                                    }
+                                                }}
+                                                className="flex-1 py-3 text-xs font-bold text-[#38bdf8] hover:text-[#1e75ff] transition-colors">
+                                                {t('my_car.set_reminder')}
+                                            </button>
+                                        </div>
                                     </div>
-                                </div>
-                                <div className="h-px bg-[var(--color-border)]" />
-                                <div className="flex divide-x divide-[var(--color-border)]">
-                                    <button onClick={() => setShowCustomReminder(false)}
-                                        className="flex-1 py-3 text-xs font-bold text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors">
-                                        {t('my_car.cancel')}
-                                    </button>
-                                    <button
-                                        onClick={() => {
-                                            const dateEl = document.getElementById('pq-reminder-date') as HTMLInputElement;
-                                            const hRaw = parseInt(reminderHour) || 12;
-                                            const m = parseInt(reminderMinute) || 0;
-                                            let h = hRaw % 12;
-                                            if (reminderAmPm === 'PM') h += 12;
-                                            const dateStr = dateEl.value || new Date().toISOString().split('T')[0];
-                                            const target = new Date(`${dateStr}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`);
-                                            const minutes = Math.round((target.getTime() - Date.now()) / 60000);
-                                            if (minutes > 0) {
-                                                parkingTimer.startTimer(minutes, savedSpot!.address || '', () => setShowSessionSheet(true));
-                                                setShowCustomReminder(false);
-                                            }
-                                        }}
-                                        className="flex-1 py-3 text-xs font-bold text-[#38bdf8] hover:text-[#1e75ff] transition-colors">
-                                        {t('my_car.set_reminder')}
-                                    </button>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="grid grid-cols-4 gap-2 mb-4">
-                                {[{ label: '15 min', minutes: 15 }, { label: '30 min', minutes: 30 }, { label: '1 hr', minutes: 60 }, { label: 'Custom…', minutes: -1 }].map(opt => (
-                                    <button key={opt.minutes}
-                                        onClick={() => {
-                                            if (opt.minutes === -1) { setReminderHour(''); setReminderMinute(''); setShowCustomReminder(true); return; }
-                                            parkingTimer.startTimer(opt.minutes, savedSpot.address || '', () => setShowSessionSheet(true));
-                                        }}
-                                        className="py-3 rounded-2xl text-xs font-bold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 text-[var(--color-text)] transition-all active:scale-95">
-                                        {opt.label}
-                                    </button>
-                                ))}
+                                ) : (
+                                    <div className="grid grid-cols-4 divide-x divide-[var(--color-border)]">
+                                        {[{ label: '15m', minutes: 15 }, { label: '30m', minutes: 30 }, { label: '1 hr', minutes: 60 }, { label: 'Custom', minutes: -1 }].map(opt => (
+                                            <button key={opt.minutes}
+                                                onClick={() => {
+                                                    if (opt.minutes === -1) { setReminderHour(''); setReminderMinute(''); setShowCustomReminder(true); return; }
+                                                    parkingTimer.startTimer(opt.minutes, savedSpot.address || '', () => setShowSessionSheet(true));
+                                                    setShowRemindPanel(false);
+                                                }}
+                                                className="py-3 text-xs font-bold text-[var(--color-text)] hover:bg-white/5 transition-colors text-center">
+                                                {opt.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         )}
 
