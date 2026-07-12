@@ -1006,7 +1006,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
         const spotId = `mycar_${user.id}_${savedSpot.sessionId}`;
         const spotRef = doc(db, 'spots', spotId);
 
-        // Rate-limit check — exclude this session's own spot from the count
+        // Rate-limit check + orphan cleanup in one query
         try {
             const oneHourAgo = now - 60 * 60 * 1000;
             const snap = await getDocs(query(collection(db, 'spots'), where('finderId', '==', user.id)));
@@ -1025,6 +1025,12 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
                 setMyCarDepartureLoading(false);
                 return;
             }
+            // Orphan cleanup: previous My Car pings orphaned when a new session overwrites
+            // savedSpot without deleting the old linked ping (e.g. handoff auto-save)
+            const orphans = snap.docs.filter(d => d.id !== spotId && d.data().source === 'my_car');
+            if (orphans.length > 0) {
+                await Promise.all(orphans.map(d => deleteDoc(doc(db, 'spots', d.id))));
+            }
         } catch { /* non-fatal */ }
 
         // Gate 2: pre-flight check — spot may already exist if a previous attempt
@@ -1040,6 +1046,13 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
                 return;
             }
         } catch { /* non-fatal, proceed to create */ }
+
+        // Optimistically lock the session BEFORE the Firestore write so the marker filter
+        // (item.id !== savedSpot.linkedPingId) is in place before the real-time listener fires.
+        // Prevents the owner briefly seeing their own ping marker on the map.
+        const withLinkedId = { ...savedSpot, linkedPingId: spotId };
+        localStorage.setItem(SAVED_SPOT_KEY, JSON.stringify(withLinkedId));
+        setSavedSpot(withLinkedId);
 
         // Create the ping with the deterministic ID
         try {
@@ -1063,11 +1076,6 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
                 address: savedSpot.address,
             });
 
-            // Lock the session: no further pings from this session
-            const updated = { ...savedSpot, linkedPingId: spotId };
-            localStorage.setItem(SAVED_SPOT_KEY, JSON.stringify(updated));
-            setSavedSpot(updated);
-
             const mode = departureTime ? 'leaving_later' : 'leaving_now';
             setMyCarPingSuccess(mode);
             setMyCarDepartureLoading(false);
@@ -1077,6 +1085,9 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
                 if (mode === 'leaving_now') endSession();
             }, 1500);
         } catch (e) {
+            // Revert optimistic update — the ping doc was never created
+            localStorage.setItem(SAVED_SPOT_KEY, JSON.stringify(savedSpot));
+            setSavedSpot(savedSpot);
             console.error('My Car ping failed:', e);
             setMyCarDepartureError(t('my_car.share_error'));
             setMyCarDepartureLoading(false);
