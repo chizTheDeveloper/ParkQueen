@@ -1425,6 +1425,21 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
                                 )}
                                 <p className="text-xs text-[var(--color-text-secondary)]">{parkedDuration || t('my_car.just_parked')}</p>
                             </div>
+                            <button
+                                onClick={() => {
+                                    if (!mapRef.current || !userLocation) return;
+                                    const dest: [number, number] = [savedSpot.lng, savedSpot.lat];
+                                    activeRouteDestinationRef.current = dest;
+                                    drawRoute(mapRef.current, userLocation, dest);
+                                    mapRef.current.flyTo({ center: dest, zoom: 16 });
+                                    setShowSessionSheet(false);
+                                }}
+                                aria-label="Navigate to my car"
+                                className="flex items-center gap-1.5 px-3 py-2 rounded-full shrink-0 border border-[#1e75ff]/40 bg-[#1e75ff]/15 text-[#38bdf8] active:scale-95 transition-all"
+                            >
+                                <Navigation size={14} />
+                                <span className="text-[11px] font-bold">Navigate</span>
+                            </button>
                         </div>
 
                         {/* Street Intelligence */}
@@ -1466,8 +1481,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
                             </div>
                         )}
 
-                        {/* Compact action row: cleaning alert / navigate / move reminder */}
-                        <div className="grid grid-cols-3 gap-2 mb-3">
+                        {/* Compact action row: cleaning alert / move reminder */}
+                        <div className="grid grid-cols-2 gap-2 mb-3">
                             <button
                                 onClick={() => {
                                     const next = !reminderEnabled;
@@ -1481,42 +1496,38 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
                                 aria-pressed={reminderEnabled}
                                 className={`flex flex-col items-center gap-1.5 py-3 rounded-2xl border transition-all active:scale-95 disabled:opacity-40 disabled:pointer-events-none ${
                                     reminderEnabled
-                                        ? 'border-[#1e75ff]/40 bg-[#1e75ff]/12 text-[#38bdf8]'
-                                        : 'border-[var(--color-border)] bg-white/5 text-[var(--color-text-secondary)]'
+                                        ? 'border-[#1e75ff]/60 bg-[#1e75ff]/25'
+                                        : 'border-[var(--color-border)] bg-white/5'
                                 }`}
                             >
-                                <Bell size={18} />
-                                <span className="text-[10px] font-bold leading-tight text-center">Cleaning<br/>alert</span>
-                            </button>
-                            <button
-                                onClick={() => {
-                                    if (!mapRef.current || !userLocation) return;
-                                    const dest: [number, number] = [savedSpot.lng, savedSpot.lat];
-                                    activeRouteDestinationRef.current = dest;
-                                    drawRoute(mapRef.current, userLocation, dest);
-                                    mapRef.current.flyTo({ center: dest, zoom: 16 });
-                                    setShowSessionSheet(false);
-                                }}
-                                className="flex flex-col items-center gap-1.5 py-3 rounded-2xl border border-[var(--color-border)] bg-white/5 text-[var(--color-text-secondary)] transition-all active:scale-95"
-                            >
-                                <Navigation size={18} />
-                                <span className="text-[10px] font-bold leading-tight text-center">Navigate</span>
+                                <Bell size={18} className={reminderEnabled ? 'text-[#38bdf8]' : 'text-[var(--color-text-secondary)]'} />
+                                <span className={`text-[10px] font-bold leading-tight text-center ${reminderEnabled ? 'text-white' : 'text-[var(--color-text-secondary)]'}`}>Cleaning<br/>alert</span>
                             </button>
                             <button
                                 onClick={() => setShowRemindPanel(v => !v)}
                                 aria-expanded={showRemindPanel || !!parkingTimer.timer}
                                 className={`flex flex-col items-center gap-1.5 py-3 rounded-2xl border transition-all active:scale-95 ${
                                     parkingTimer.timer || showRemindPanel
-                                        ? 'border-[#1e75ff]/40 bg-[#1e75ff]/12 text-[#38bdf8]'
-                                        : 'border-[var(--color-border)] bg-white/5 text-[var(--color-text-secondary)]'
+                                        ? 'border-[#1e75ff]/60 bg-[#1e75ff]/25'
+                                        : 'border-[var(--color-border)] bg-white/5'
                                 }`}
                             >
-                                <Clock size={18} />
-                                <span className="text-[10px] font-bold leading-tight text-center">
+                                <Clock size={18} className={parkingTimer.timer || showRemindPanel ? 'text-[#38bdf8]' : 'text-[var(--color-text-secondary)]'} />
+                                <span className={`text-[10px] font-bold leading-tight text-center ${parkingTimer.timer || showRemindPanel ? 'text-white' : 'text-[var(--color-text-secondary)]'}`}>
                                     {parkingTimer.timer ? <>{parkingTimer.minutesRemaining}m left</> : <>Move<br/>reminder</>}
                                 </span>
                             </button>
                         </div>
+
+                        {/* Cleaning alert info strip */}
+                        {reminderEnabled && (
+                            <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-[#1e75ff]/10 border border-[#1e75ff]/25 mb-3">
+                                <Bell size={13} className="text-[#38bdf8] shrink-0" />
+                                <p className="text-[11px] text-[var(--color-text-secondary)] leading-snug">
+                                    We'll remind you <span className="text-white font-semibold">1 hour before</span> cleaning, and again at <span className="text-white font-semibold">30 minutes before</span> street cleaning starts
+                                </p>
+                            </div>
+                        )}
 
                         {/* Move reminder expandable panel */}
                         {(showRemindPanel || !!parkingTimer.timer) && (

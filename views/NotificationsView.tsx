@@ -37,6 +37,13 @@ const relativeTime = (ts: any): string => {
     return `${Math.floor(diff / 86400)}d ago`;
 };
 
+const avatarGradients = [
+    'linear-gradient(135deg,#1e3a5f,#1e40af)',
+    'linear-gradient(135deg,#1a2e1a,#14532d)',
+    'linear-gradient(135deg,#2e1a2e,#581c87)',
+    'linear-gradient(135deg,#3b2a1a,#92400e)',
+];
+
 export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBack, onSelectSpot }) => {
     const [spots, setSpots] = useState<any[]>([]);
     const [spotsLoading, setSpotsLoading] = useState(true);
@@ -44,11 +51,10 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
     const [locationLoading, setLocationLoading] = useState(true);
     const headingRef = useRef<HTMLHeadingElement>(null);
     useFocusOnMount(headingRef);
-    useLang(); // re-render on language change
+    useLang();
 
     const lastViewed = parseInt(localStorage.getItem('lastViewedNotifications') || '0', 10);
 
-    // Geolocation — max 5s wait before showing location-needed state
     useEffect(() => {
         if (!navigator.geolocation) {
             setLocationLoading(false);
@@ -70,14 +76,13 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
         return () => clearTimeout(timer);
     }, []);
 
-    // Active spots listener — own pings excluded
     useEffect(() => {
         if (!db) return;
         const q = query(collection(db, 'spots'), where('expiresAt', '>', Timestamp.now()));
         return onSnapshot(q, snap => {
             const all = snap.docs
                 .map(d => ({ id: d.id, ...d.data() }) as any)
-                .filter(s => s.finderId !== user?.id);
+                .filter(s => s.finderId !== user?.id && s.status !== 'interested');
             all.sort((a, b) => (b.reportedAt?.toMillis() || 0) - (a.reportedAt?.toMillis() || 0));
             setSpots(all);
             setSpotsLoading(false);
@@ -86,7 +91,6 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
 
     const isLoading = spotsLoading || locationLoading;
 
-    // Filter to 2km when location is known; show all when location unavailable
     const filteredSpots = userLocation
         ? spots.filter(s => getDistanceKm(userLocation[0], userLocation[1], s.lat, s.lng) <= 2.0)
         : spots;
@@ -112,7 +116,10 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
                 >
                     <ArrowLeft size={20} />
                 </button>
-                <h1 ref={headingRef} tabIndex={-1} className="text-[18px] font-bold text-[var(--color-text)] focus:outline-none">{t('common.nearby_activity')}</h1>
+                <div>
+                    <h1 ref={headingRef} tabIndex={-1} className="text-[18px] font-bold text-[var(--color-text)] focus:outline-none leading-tight">{t('common.nearby_activity')}</h1>
+                    <p className="text-[11px] text-[#334155] mt-0.5">{t('nearby_activity.subtitle')}</p>
+                </div>
             </div>
 
             {/* Body */}
@@ -165,6 +172,12 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
                                 </div>
                             </div>
                         )}
+
+                        {/* Section label */}
+                        <p className="text-[10px] font-bold text-[#1e75ff] tracking-widest uppercase px-1 pb-1">
+                            {nearbySpots.length} {nearbySpots.length === 1 ? 'ping' : 'pings'}{userLocation ? ' within 2 mi' : ' nearby'}
+                        </p>
+
                         {nearbySpots.map(spot => {
                             const km = userLocation
                                 ? getDistanceKm(userLocation[0], userLocation[1], spot.lat, spot.lng)
@@ -172,23 +185,30 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
                             const distStr = km !== null ? formatDistance(km) : null;
                             const time = relativeTime(spot.reportedAt);
                             const isNew = (spot.reportedAt?.toMillis?.() || 0) > lastViewed;
-                            const isClaimed = spot.status === 'interested';
-                            const expiresMs = spot.expiresAt?.toMillis?.() || 0;
-                            const expiringSoon = expiresMs > 0 && (expiresMs - Date.now()) < 5 * 60 * 1000;
+                            const expiringSoon = (spot.expiresAt?.toMillis?.() || 0) > 0 && (spot.expiresAt.toMillis() - Date.now()) < 5 * 60 * 1000;
                             const address = spot.address || 'Shared spot nearby';
                             const finderName = spot.finderName || spot.username || 'Someone nearby';
+                            const initial = finderName.charAt(0).toUpperCase();
+                            const avatarBg = avatarGradients[initial.charCodeAt(0) % avatarGradients.length];
 
                             return (
                                 <button
                                     key={spot.id}
                                     onClick={() => { onSelectSpot?.(spot.id); onBack(); }}
                                     aria-label={t('nearby_activity.open_ping_aria', { name: finderName })}
-                                    className="w-full text-left bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl px-4 py-3.5 flex items-start gap-3 active:scale-[0.99] transition-transform"
+                                    className={`w-full text-left rounded-2xl px-4 py-3.5 flex items-start gap-3 active:scale-[0.99] transition-transform border ${
+                                        isNew
+                                            ? 'bg-[#0d1f35] border-[#1e75ff]/20'
+                                            : 'bg-[var(--color-card)] border-[var(--color-border)]'
+                                    }`}
                                 >
-                                    {/* Icon with unread dot */}
+                                    {/* Rounded-square avatar */}
                                     <div className="relative shrink-0 mt-0.5">
-                                        <div className="w-9 h-9 rounded-full bg-[#1e75ff]/12 border border-[#1e75ff]/25 flex items-center justify-center">
-                                            <MapPin size={16} className="text-[#38bdf8]" />
+                                        <div
+                                            className="w-9 h-9 rounded-[10px] flex items-center justify-center text-[15px] font-extrabold text-white"
+                                            style={{ background: avatarBg }}
+                                        >
+                                            {initial}
                                         </div>
                                         {isNew && (
                                             <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[#38bdf8] border-2 border-[var(--color-card)]" />
@@ -197,10 +217,9 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
 
                                     {/* Content */}
                                     <div className="flex-1 min-w-0">
-                                        {/* Name + time */}
                                         <div className="flex items-baseline justify-between gap-2 mb-0.5">
                                             <p className="text-[13px] text-[var(--color-text)] leading-snug truncate">
-                                                <span className="font-semibold">{finderName}</span>
+                                                <span className={isNew ? 'font-extrabold' : 'font-semibold'}>{finderName}</span>
                                                 <span className="text-[var(--color-text-secondary)] font-normal"> {t('nearby_activity.pinged_a_spot')}</span>
                                             </p>
                                             {time && (
@@ -208,10 +227,8 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
                                             )}
                                         </div>
 
-                                        {/* Address */}
                                         <p className="text-[12px] text-[var(--color-text-secondary)] truncate mb-2">{address}</p>
 
-                                        {/* Distance + status chip */}
                                         <div className="flex items-center gap-1.5 flex-wrap">
                                             {distStr && (
                                                 <span className="text-[11px] text-[var(--color-text-secondary)]">{t('nearby_activity.distance_away', { dist: distStr })}</span>
@@ -220,11 +237,13 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
                                                 <span className="text-[var(--color-border)] text-[10px] leading-none">·</span>
                                             )}
                                             {expiringSoon ? (
-                                                <span className="text-[11px] font-semibold text-amber-400">{t('nearby_activity.expiring_soon')}</span>
-                                            ) : isClaimed ? (
-                                                <span className="text-[11px] font-semibold text-[#38bdf8]">{t('nearby_activity.someone_on_way')}</span>
+                                                <span className="text-[11px] font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/25 px-2 py-0.5 rounded-full">
+                                                    {t('nearby_activity.expiring_soon')}
+                                                </span>
                                             ) : (
-                                                <span className="text-[11px] font-semibold text-emerald-400">{t('nearby_activity.available_now')}</span>
+                                                <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/25 px-2 py-0.5 rounded-full">
+                                                    {t('nearby_activity.available_now')}
+                                                </span>
                                             )}
                                         </div>
                                     </div>
@@ -232,7 +251,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
                             );
                         })}
                         {hasMore && (
-                            <p className="text-center text-[12px] text-[var(--color-text-secondary)] pt-1 pb-2">
+                            <p className="text-center text-[11px] text-[#334155] pt-1 pb-2">
                                 {userLocation
                                     ? t('nearby_activity.showing_closest', { more: filteredSpots.length - 10 })
                                     : t('nearby_activity.showing_recent', { more: filteredSpots.length - 10 })}
