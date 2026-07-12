@@ -649,7 +649,9 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
         const updatedFree = spotData.freeSpots.find(s => s.id === selectedItem.id);
         if (updatedFree) {
             if (updatedFree.status !== selectedItem.status ||
-                updatedFree.interestedUserId !== selectedItem.interestedUserId) {
+                updatedFree.interestedUserId !== selectedItem.interestedUserId ||
+                updatedFree.claimState !== selectedItem.claimState ||
+                updatedFree.ownerLeavingNow !== selectedItem.ownerLeavingNow) {
                 setSelectedItem(updatedFree);
             }
             return;
@@ -2077,11 +2079,15 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
                                 {initial}
                             </div>
                             <div className="flex-1 min-w-0">
-                                <p className="text-[11px] font-semibold text-[#38bdf8] uppercase tracking-wider mb-0.5">{t('en_route.heading')}</p>
+                                <p className="text-[11px] font-semibold text-[#38bdf8] uppercase tracking-wider mb-0.5">
+                                    {interestedSpot.claimState === 'committed' ? t('scheduled_claim.owner_eyebrow') : t('en_route.heading')}
+                                </p>
                                 <p className="text-sm font-bold text-white truncate">{name}</p>
-                                {interestedSpot.etaMinutes != null
-                                    ? <p className="text-[11px] text-white/55 mt-0.5">{interestedSpot.etaMinutes < 1 ? t('en_route.eta_under_1') : t('en_route.eta', { eta: interestedSpot.etaMinutes })} · {t('en_route.tap_details')}</p>
-                                    : <p className="text-[11px] text-white/55 mt-0.5">{t('en_route.calculating')}</p>
+                                {interestedSpot.claimState === 'committed'
+                                    ? <p className="text-[11px] text-white/55 mt-0.5">{t('en_route.tap_details')}</p>
+                                    : interestedSpot.etaMinutes != null
+                                        ? <p className="text-[11px] text-white/55 mt-0.5">{interestedSpot.etaMinutes < 1 ? t('en_route.eta_under_1') : t('en_route.eta', { eta: interestedSpot.etaMinutes })} · {t('en_route.tap_details')}</p>
+                                        : <p className="text-[11px] text-white/55 mt-0.5">{t('en_route.calculating')}</p>
                                 }
                             </div>
                             <ChevronRight size={16} className="text-white/30 shrink-0" />
@@ -2259,7 +2265,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
                                         setTimeout(() => setShowSessionSheet(true), 600);
                                     } else if (hasActivePing) {
                                         setSelectedItem(myPing);
-                                        setSelectedItemManageMode(true);
+                                        // Show claimer view when claimed — owner cannot edit a claimed spot
+                                        setSelectedItemManageMode(myPing?.status !== 'interested');
                                     } else {
                                         setSelectedItem(null);
                                         setSpotModalOpen(true);
