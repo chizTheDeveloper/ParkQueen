@@ -259,45 +259,54 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
         const claimerInitial = claimerName.charAt(0).toUpperCase();
         const vehicleHexClaimer = getVehicleHex(vc);
         const hasClaimerVehicle = vc || vt || vb;
+        const eta = selectedItem.etaMinutes;
+        const etaDisplay = eta === null || eta === undefined
+            ? t('en_route.waiting_location')
+            : eta === 0
+            ? t('en_route.arriving_now')
+            : `${eta} ${t('claim_flow.min_away')}`;
 
         return (
             <div>
-                {/* Label */}
-                <p className="text-[11px] font-bold text-[#38bdf8] uppercase tracking-widest text-center mb-4">{t('en_route.heading')}</p>
+                {/* Header */}
+                <p className="text-[10px] font-bold tracking-widest uppercase text-[#38bdf8] text-center mb-1">{t('en_route.eyebrow')}</p>
+                <h2 className="text-lg font-bold text-[var(--color-text)] text-center leading-snug">{t('en_route.title')}</h2>
+                <p className="text-[12px] text-[var(--color-text-secondary)] text-center mt-0.5 mb-4">{t('en_route.subtitle')}</p>
 
-                {/* Avatar + name + ETA */}
-                <div className="flex items-center gap-3 mb-4">
-                    <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 text-white font-bold text-xl"
-                        style={{ background: 'linear-gradient(135deg, #1e75ff, #0ea5e9)' }}>
-                        {claimerInitial}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                        <p className="text-lg font-extrabold text-[var(--color-text)] truncate">{claimerName}</p>
-                        {selectedItem.interestedUserTitle && (() => {
-                            const ct = getTierForTitle(selectedItem.interestedUserTitle);
-                            return (
-                                <div className="flex items-center gap-1 mt-0.5">
-                                    <CrownBadge tier={ct} size={11} />
-                                    <span className="text-[11px] font-semibold" style={{ color: TIER_VISUALS[ct].textColor }}>{selectedItem.interestedUserTitle}</span>
-                                </div>
-                            );
-                        })()}
-                    </div>
-                    <div className="text-right shrink-0">
-                        <p className="text-3xl font-extrabold text-[var(--color-text)]">{selectedItem.etaMinutes}</p>
-                        <p className="text-[9px] font-bold text-[#38bdf8] uppercase tracking-wide">{t('claim_flow.min_away')}</p>
-                        <p className="text-[8px] text-[var(--color-text-secondary)] mt-0.5">{t('claim_flow.est_arrival')}</p>
+                {/* Identity + ETA card */}
+                <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl p-4 mb-3">
+                    <div className="flex items-center gap-3">
+                        <div className="rounded-2xl flex items-center justify-center shrink-0 text-white font-bold text-xl"
+                            style={{ background: 'linear-gradient(135deg, #1e75ff, #0ea5e9)', width: 52, height: 52 }}>
+                            {claimerInitial}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-base font-extrabold text-[var(--color-text)] truncate">{claimerName}</p>
+                            {selectedItem.interestedUserTitle && (() => {
+                                const ct = getTierForTitle(selectedItem.interestedUserTitle);
+                                return (
+                                    <div className="flex items-center gap-1 mt-0.5">
+                                        <CrownBadge tier={ct} size={11} />
+                                        <span className="text-[11px] font-semibold" style={{ color: TIER_VISUALS[ct].textColor }}>{selectedItem.interestedUserTitle}</span>
+                                    </div>
+                                );
+                            })()}
+                        </div>
+                        <div className="text-right shrink-0">
+                            <p className="text-[9px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wide mb-0.5">{t('en_route.arrival_label')}</p>
+                            <p className="text-[13px] font-bold text-[#38bdf8] whitespace-nowrap">{etaDisplay}</p>
+                        </div>
                     </div>
                 </div>
 
-                {/* Vehicle hero — what to look out for */}
+                {/* Vehicle card */}
                 {hasClaimerVehicle && (
-                    <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] p-4 mb-4">
+                    <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl p-4 mb-4">
                         <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-3">{t('claim_flow.look_out_for')}</p>
-                        <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 border border-white/10"
+                        <div className="flex items-center gap-3">
+                            <div className="w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 border border-white/10"
                                 style={{ background: vehicleHexClaimer + '33' }}>
-                                <VehicleIcon type={vt} color={vc} size={26} />
+                                <VehicleIcon type={vt} color={vc} size={24} />
                             </div>
                             <div className="flex-1 min-w-0">
                                 <p className="text-base font-extrabold text-[var(--color-text)] truncate">
@@ -311,18 +320,7 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
                     </div>
                 )}
 
-                {messageSent && <p className="text-emerald-400 text-xs mb-2 text-center font-semibold">{t('claim_flow.message_sent')}</p>}
-                {showQuickReplies && (
-                    <div className="mb-3 grid grid-cols-2 gap-1.5">
-                        {quickReplies.map((msg, i) => (
-                            <button key={i} onClick={() => sendQuickReply(msg)}
-                                className="bg-white/5 border border-[var(--color-border)] hover:bg-white/10 text-[var(--color-text)] font-semibold py-2.5 px-2 rounded-2xl text-xs transition-all active:scale-95">
-                                {msg}
-                            </button>
-                        ))}
-                    </div>
-                )}
-
+                {/* Actions */}
                 {showFinderReasons ? (
                     <div>
                         <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest text-center mb-3">{t('claim_flow.whats_happening')}</p>
@@ -344,16 +342,17 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
                         </button>
                     </div>
                 ) : (
-                    <div className="flex gap-2">
-                        <button onClick={() => setShowFinderReasons(true)}
-                            className="px-4 border border-red-500/40 hover:bg-red-500/10 text-red-400 font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95">
-                            {t('claim_flow.cancel')}
-                        </button>
-                        <button onClick={() => setShowQuickReplies(!showQuickReplies)}
-                            className="flex-1 text-white font-bold py-3.5 rounded-2xl flex items-center justify-center gap-1.5 transition-all text-sm active:scale-95"
+                    <div className="flex flex-col gap-2">
+                        <button
+                            onClick={() => onMessageUser(selectedItem.interestedUserId, `Spot claimed by ${claimerName}`, selectedItem.id)}
+                            className="w-full text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 transition-all text-sm active:scale-95"
                             style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}>
-                            <MessageSquare size={14} />
+                            <MessageSquare size={15} />
                             {t('claim_flow.message')}
+                        </button>
+                        <button onClick={() => setShowFinderReasons(true)}
+                            className="w-full font-semibold py-3 rounded-2xl text-sm border border-red-500/40 text-red-400 hover:bg-red-500/10 transition-all active:scale-95">
+                            {t('claim_flow.cancel')}
                         </button>
                     </div>
                 )}

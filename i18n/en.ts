@@ -109,6 +109,12 @@ const en: Record<string, string> = {
     'en_route.eta': 'ETA ~{eta} min',
     'en_route.eta_under_1': 'ETA <1 min',
     'en_route.tap_details': 'Tap to see details',
+    'en_route.eyebrow': 'IN PROGRESS',
+    'en_route.title': "Someone's heading to your spot",
+    'en_route.subtitle': 'Stay nearby until they arrive.',
+    'en_route.arrival_label': 'Arrival',
+    'en_route.arriving_now': 'Arriving now',
+    'en_route.waiting_location': 'Waiting for location update',
 
     // Map / stack sheet
     'map.nearby_shared_spot': 'Nearby shared spot',
