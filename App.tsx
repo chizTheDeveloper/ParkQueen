@@ -237,6 +237,34 @@ export default function App() {
       return <div className="h-full w-full bg-cover bg-center bg-no-repeat" style={{ backgroundImage: `url(${SplashScreen})` }} />;
     }
 
+    // MAP and MESSAGES share the same MapView instance so selectedItem survives the transition
+    if (currentView === AppView.MAP || currentView === AppView.MESSAGES) {
+      return (
+        <>
+          <MapView
+            user={user}
+            onMessageUser={handleMessageUser}
+            setView={setCurrentView}
+            pendingSpotId={pendingSpotId}
+            onPendingSpotConsumed={() => setPendingSpotId(null)}
+          />
+          {currentView === AppView.MESSAGES && (
+            <div className="fixed inset-0 z-50 bg-[var(--color-bg)]">
+              <MessagesView
+                user={user}
+                activeChatContext={activeChatContext}
+                onBack={() => {
+                  setActiveChatContext(null);
+                  setChatReturnSpotId(null);
+                  setCurrentView(AppView.MAP);
+                }}
+              />
+            </div>
+          )}
+        </>
+      );
+    }
+
     switch (currentView) {
       case AppView.ONBOARDING:
         return <OnboardingView onComplete={() => { localStorage.setItem('hasSeenOnboarding', '1'); setCurrentView(AppView.CREATE_ACCOUNT); }} />;
@@ -267,16 +295,6 @@ export default function App() {
         return <SetupProfileView phone={phone} onSave={handleSaveProfile} onSkip={() => setCurrentView(AppView.PROFILE)} />;
       case AppView.EDIT_PROFILE:
         return <EditProfileView onBack={() => setCurrentView(AppView.SETTINGS)} />;
-      case AppView.MAP:
-        return (
-          <MapView
-            user={user}
-            onMessageUser={handleMessageUser}
-            setView={setCurrentView}
-            pendingSpotId={pendingSpotId}
-            onPendingSpotConsumed={() => setPendingSpotId(null)}
-          />
-        );
       case AppView.AI_ASSISTANT:
         return (
           <div className="h-full flex flex-col bg-[var(--color-bg)]">
@@ -292,21 +310,7 @@ export default function App() {
             <AssistantView />
           </div>
         );
-      case AppView.MESSAGES:
-        return (
-          <MessagesView 
-            user={user} 
-            activeChatContext={activeChatContext} 
-            onBack={() => {
-              setActiveChatContext(null);
-              if (chatReturnSpotId) {
-                setPendingSpotId(chatReturnSpotId);
-                setChatReturnSpotId(null);
-              }
-              setCurrentView(AppView.MAP);
-            }}
-          />
-        );
+
       case AppView.PROFILE:
         return <ProfileView user={user} setView={setCurrentView} onBack={() => setCurrentView(AppView.MAP)} />;
       case AppView.SETTINGS:
@@ -332,7 +336,7 @@ export default function App() {
     }
   };
 
-  const isMapView = currentView === AppView.MAP;
+  const isMapView = currentView === AppView.MAP || currentView === AppView.MESSAGES;
 
   return (
     <div className="h-screen w-screen flex flex-col bg-[var(--color-bg)] text-[var(--color-text)] font-sans selection:bg-queen-500 selection:text-white transition-colors duration-300">
