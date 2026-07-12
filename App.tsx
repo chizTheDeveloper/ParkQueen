@@ -51,6 +51,7 @@ export default function App() {
     return localStorage.getItem('theme') || 'dark';
   });
   const [activeChatContext, setActiveChatContext] = useState<{ userId: string; context: string } | null>(null);
+  const [chatReturnSpotId, setChatReturnSpotId] = useState<string | null>(null);
   const [pushToast, setPushToast] = useState<{ title: string; body: string } | null>(null);
   const [titleUnlock, setTitleUnlock] = useState<string | null>(null);
   const prevTitleRef = useRef<string | null>(null);
@@ -166,9 +167,10 @@ export default function App() {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
   };
 
-  const handleMessageUser = (userId, context) => {
+  const handleMessageUser = (userId: string, context: string, returnSpotId?: string) => {
     console.log(`Starting chat with ${userId} about ${context}`);
     setActiveChatContext({ userId, context });
+    setChatReturnSpotId(returnSpotId ?? null);
     setCurrentView(AppView.MESSAGES);
   };
 
@@ -297,8 +299,12 @@ export default function App() {
             activeChatContext={activeChatContext} 
             onBack={() => {
               setActiveChatContext(null);
+              if (chatReturnSpotId) {
+                setPendingSpotId(chatReturnSpotId);
+                setChatReturnSpotId(null);
+              }
               setCurrentView(AppView.MAP);
-            }} 
+            }}
           />
         );
       case AppView.PROFILE:

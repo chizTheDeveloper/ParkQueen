@@ -24,7 +24,7 @@ interface SpotDetailsCardProps {
     onCancelByFinder: (reason: string) => void;
     onCancelByClaimer: (reason: string) => void;
     onDriverArrived: () => void;
-    onMessageUser: (userId: string, context: string) => void;
+    onMessageUser: (userId: string, context: string, returnSpotId?: string) => void;
     interestError: string | null;
     estDriveMinutes: number | null;
     isWithinArrivalRange: boolean;
@@ -157,17 +157,20 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
     if (state === 'my_claim') {
         return (
             <div>
-                <p className="text-[11px] font-bold text-[#38bdf8] uppercase tracking-widest text-center mb-4">{t('spot_details.on_your_way')}</p>
+                {/* Header */}
+                <p className="text-[10px] font-semibold text-[#38bdf8] uppercase tracking-widest text-center mb-1">{t('spot_details.on_your_way')}</p>
+                <p className="text-[18px] font-bold text-[var(--color-text)] text-center mb-1 leading-snug">{t('spot_details.heading_title')}</p>
+                <p className="text-[12px] text-[var(--color-text-secondary)] text-center mb-5 px-2 leading-relaxed">{t('spot_details.heading_subtitle')}</p>
 
-                {/* Finder avatar + name */}
-                <div className="flex items-center gap-3 mb-4">
-                    <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 text-white font-bold text-xl"
+                {/* Finder card */}
+                <div className="flex items-center gap-3 bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl px-4 py-3.5 mb-4">
+                    <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 text-white font-bold text-lg"
                         style={{ background: 'linear-gradient(135deg, #1e75ff, #0ea5e9)' }}>
                         {finderInitial}
                     </div>
                     <div className="flex-1 min-w-0">
-                        <p className="text-lg font-extrabold text-[var(--color-text)] truncate">{finderName}</p>
-                        {selectedItem.finderTitle && (() => {
+                        <p className="text-[15px] font-bold text-[var(--color-text)] truncate">{finderName}</p>
+                        {selectedItem.finderTitle ? (() => {
                             const ft = getTierForTitle(selectedItem.finderTitle);
                             return (
                                 <div className="flex items-center gap-1 mt-0.5">
@@ -175,44 +178,37 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
                                     <span className="text-[11px] font-semibold" style={{ color: TIER_VISUALS[ft].textColor }}>{selectedItem.finderTitle}</span>
                                 </div>
                             );
-                        })()}
+                        })() : (
+                            <span className="inline-flex items-center gap-1 mt-0.5 px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-400/20 text-[10px] font-semibold text-[#38bdf8]">
+                                <span className="w-1.5 h-1.5 rounded-full bg-[#38bdf8] shrink-0" />
+                                Trusted Driver
+                            </span>
+                        )}
                     </div>
                 </div>
 
-                {/* Vehicle hero — what to look out for */}
+                {/* Vehicle — what to look out for */}
                 {hasVehicle && (
-                    <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] p-4 mb-4">
-                        <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest mb-3">{t('claim_flow.look_out_for')}</p>
-                        <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 border border-white/10"
+                    <>
+                        <p className="text-[10px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-widest mb-2">{t('claim_flow.look_out_for')}</p>
+                        <div className="flex items-center gap-4 bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl px-4 py-3.5 mb-5">
+                            <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 border border-white/10"
                                 style={{ background: vehicleHex + '33' }}>
-                                <VehicleIcon type={vehicleType} color={vehicleColor} size={26} />
+                                <VehicleIcon type={vehicleType} color={vehicleColor} size={24} />
                             </div>
                             <div className="flex-1 min-w-0">
-                                <p className="text-base font-extrabold text-[var(--color-text)] truncate">
-                                    {[vehicleColor, vehicleBrand].filter(Boolean).join(' ') || vehicleType}
+                                <p className="text-[15px] font-bold text-[var(--color-text)] truncate">
+                                    {[vehicleColor, vehicleBrand].filter(Boolean).join(' · ') || vehicleType}
                                 </p>
                                 {vehicleType && (vehicleColor || vehicleBrand) && (
-                                    <p className="text-sm text-[var(--color-text-secondary)]">{vehicleType}</p>
+                                    <p className="text-[12px] text-[var(--color-text-secondary)]">{vehicleType}</p>
                                 )}
                             </div>
                         </div>
-                    </div>
+                    </>
                 )}
 
                 {interestError && <p className="text-red-400 text-xs mb-2 text-center">{interestError}</p>}
-                {messageSent && <p className="text-emerald-400 text-xs mb-2 text-center font-semibold">{t('claim_flow.message_sent')}</p>}
-
-                {showQuickReplies && (
-                    <div className="mb-3 grid grid-cols-2 gap-1.5">
-                        {quickReplies.map((msg, i) => (
-                            <button key={i} onClick={() => sendQuickReply(msg)}
-                                className="bg-white/5 border border-[var(--color-border)] hover:bg-white/10 text-[var(--color-text)] font-semibold py-2.5 px-2 rounded-2xl text-xs transition-all active:scale-95">
-                                {msg}
-                            </button>
-                        ))}
-                    </div>
-                )}
 
                 {showClaimerReasons ? (
                     <div>
@@ -231,21 +227,24 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
                         </button>
                     </div>
                 ) : (
-                    <div className="flex gap-2">
-                        <button onClick={() => setShowClaimerReasons(true)}
-                            className="px-4 border border-red-500/40 hover:bg-red-500/10 text-red-400 font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95">
-                            {t('claim_flow.cancel')}
-                        </button>
-                        <button onClick={() => setShowQuickReplies(!showQuickReplies)}
-                            className="p-3.5 rounded-2xl bg-white/10 hover:bg-white/20 text-[var(--color-text)] flex items-center justify-center transition-all shrink-0 active:scale-95">
-                            <MessageSquare size={16} />
-                        </button>
+                    <>
+                        <div className="grid grid-cols-2 gap-2 mb-2">
+                            <button onClick={() => setShowClaimerReasons(true)}
+                                className="flex items-center justify-center gap-2 py-3.5 rounded-2xl border border-red-500/30 hover:bg-red-500/10 text-red-400 font-semibold text-sm transition-all active:scale-95">
+                                {t('claim_flow.cancel')}
+                            </button>
+                            <button onClick={() => onMessageUser(selectedItem.finderId, `Spot pinged by ${finderName}`, selectedItem.id)}
+                                className="flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-[var(--color-card)] border border-[var(--color-border)] hover:bg-white/10 text-[var(--color-text)] font-semibold text-sm transition-all active:scale-95">
+                                <MessageSquare size={15} />
+                                {t('claim_flow.message')}
+                            </button>
+                        </div>
                         <button onClick={onArrival} disabled={!isWithinArrivalRange}
-                            className="flex-1 font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95 text-white disabled:opacity-40"
+                            className="w-full font-bold py-4 rounded-2xl transition-all text-sm active:scale-95 text-white disabled:opacity-40 flex items-center justify-center gap-2"
                             style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}>
                             {isWithinArrivalRange ? t('claim_flow.ive_arrived') : (distanceText ? t('claim_flow.dist_away', { dist: distanceText }) : t('claim_flow.get_closer'))}
                         </button>
-                    </div>
+                    </>
                 )}
             </div>
         );

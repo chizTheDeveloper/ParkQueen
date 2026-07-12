@@ -87,6 +87,8 @@ const en: Record<string, string> = {
     'spot_details.badge_reserved': 'Reserved',
     'spot_details.your_ping': 'Your Ping',
     'spot_details.on_your_way': "You're on your way",
+    'spot_details.heading_title': 'Heading to this spot',
+    'spot_details.heading_subtitle': "You're connected — follow the details below to complete the handoff.",
     'spot_details.leaving_now': 'Leaving now',
     'spot_details.leaving_at': 'Leaving at {time}',
     'spot_details.expires_in': 'Expires in {time}',

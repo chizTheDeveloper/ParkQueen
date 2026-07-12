@@ -38,7 +38,7 @@ export interface MapItem {
 export interface MapViewProps {
     user: any;
     setView: (view: AppView) => void;
-    onMessageUser: (userId: string, context: string) => void;
+    onMessageUser: (userId: string, context: string, returnSpotId?: string) => void;
     pendingSpotId?: string | null;
     onPendingSpotConsumed?: () => void;
 }

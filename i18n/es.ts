@@ -87,6 +87,8 @@ const es: Record<string, string> = {
     'spot_details.badge_reserved': 'Reservado',
     'spot_details.your_ping': 'Tu ping',
     'spot_details.on_your_way': 'Vas en camino',
+    'spot_details.heading_title': 'Vas hacia este lugar',
+    'spot_details.heading_subtitle': 'Ya estás conectado. Usa los detalles abajo para completar la entrega.',
     'spot_details.leaving_now': 'Me voy ahora',
     'spot_details.leaving_at': 'Me voy a las {time}',
     'spot_details.expires_in': 'Vence en {time}',
