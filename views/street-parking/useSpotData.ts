@@ -75,6 +75,8 @@ export function useSpotData({ userId, blockedUsers, searchCenter, searchRadius, 
                 geohash: s.geohash || '',
                 originSpotId: s.originSpotId || null,
                 pingMode: s.pingMode || null,
+                claimState: s.claimState || null,
+                ownerLeavingNow: s.ownerLeavingNow || null,
                 rawSpot: s
             }));
             setFreeSpots(mappedFree);

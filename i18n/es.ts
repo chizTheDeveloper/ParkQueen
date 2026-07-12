@@ -86,6 +86,14 @@ const es: Record<string, string> = {
     'spot_details.badge_free': 'Libre',
     'spot_details.badge_reserved': 'Reservado',
     'spot_details.your_ping': 'Tu ping',
+    'spot_details.ping_active': 'Ping Activo',
+    'spot_details.spot_live': 'Tu lugar está activo',
+    'spot_details.spot_live_subtitle': 'Los conductores cercanos pueden ver este Ping.',
+    'spot_details.spot_live_hint': 'Los conductores cercanos lo verán mientras esté activo.',
+    'spot_details.badge_available_now': 'Disponible ahora',
+    'spot_details.badge_scheduled': 'Programado',
+    'spot_details.edit_ping': 'Editar Ping',
+    'spot_details.delete_ping': 'Eliminar Ping',
     'spot_details.on_your_way': 'Vas en camino',
     'spot_details.heading_title': 'Vas hacia este lugar',
     'spot_details.heading_subtitle': 'Ya estás conectado. Usa los detalles abajo para completar la entrega.',
@@ -115,6 +123,25 @@ const es: Record<string, string> = {
     'en_route.arrival_label': 'Llegada',
     'en_route.arriving_now': 'Llegando ahora',
     'en_route.waiting_location': 'Esperando ubicación',
+    'en_route.owner_leaving_now': '{name} se va ahora — es hora de ir para allá',
+
+    // Scheduled Ping claim flow
+    'claim_flow.claim_this_spot': 'Reclamar este lugar',
+    'claim_flow.claim_for_time': 'Reclamar para las {time}',
+    'claim_flow.already_claimed': 'Ya tienes un lugar reclamado',
+    'scheduled_claim.eyebrow': 'LUGAR RECLAMADO',
+    'scheduled_claim.title': 'Reclamaste este lugar',
+    'scheduled_claim.opens_at': 'Se libera a las {time}',
+    'scheduled_claim.when_ready': 'Cuando estés listo, toca "Voy para allá."',
+    'scheduled_claim.owner_leaving_now': '{name} se va ahora — ¿vas para allá?',
+    'scheduled_claim.cancel': 'Cancelar reclamo',
+    'scheduled_claim.im_heading_there': 'Voy para allá',
+    'scheduled_claim.owner_eyebrow': 'ENTREGA PROGRAMADA',
+    'scheduled_claim.owner_title': '{name} va a tomar tu lugar',
+    'scheduled_claim.owner_subtitle': 'Planea tomarlo cuando te vayas a las {time}.',
+    'scheduled_claim.owner_cancel': 'Cancelar entrega',
+    'scheduled_claim.owner_leave_now': 'Salir ahora',
+    'scheduled_claim.owner_waiting': 'Esperando a que {name} confirme que va para allá.',
 
     // Map / stack sheet
     'map.nearby_shared_spot': 'Lugar cercano compartido',
@@ -241,6 +268,7 @@ const es: Record<string, string> = {
     'handoff.pay_it_forward_body': 'Cuando te vayas, te ayudaremos a hacer ping de este lugar para el próximo conductor.',
 
     // Nearby Activity — remaining strings
+    'nearby_activity.subtitle': 'Pings cerca de ti, en tiempo real.',
     'nearby_activity.location_needed': 'Necesitas activar tu ubicación',
     'nearby_activity.location_needed_body': 'Activa tu ubicación para ver pings cerca.',
     'nearby_activity.all_clear': 'Nada cerca ahora',

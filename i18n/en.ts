@@ -86,6 +86,14 @@ const en: Record<string, string> = {
     'spot_details.badge_free': 'Free',
     'spot_details.badge_reserved': 'Reserved',
     'spot_details.your_ping': 'Your Ping',
+    'spot_details.ping_active': 'Ping Active',
+    'spot_details.spot_live': 'Your spot is live',
+    'spot_details.spot_live_subtitle': 'Nearby drivers can see this Ping.',
+    'spot_details.spot_live_hint': 'Nearby drivers will see this while it\'s active.',
+    'spot_details.badge_available_now': 'Available now',
+    'spot_details.badge_scheduled': 'Scheduled',
+    'spot_details.edit_ping': 'Edit Ping',
+    'spot_details.delete_ping': 'Delete Ping',
     'spot_details.on_your_way': "You're on your way",
     'spot_details.heading_title': 'Heading to this spot',
     'spot_details.heading_subtitle': "You're connected — follow the details below to complete the handoff.",
@@ -115,6 +123,25 @@ const en: Record<string, string> = {
     'en_route.arrival_label': 'Arrival',
     'en_route.arriving_now': 'Arriving now',
     'en_route.waiting_location': 'Waiting for location update',
+    'en_route.owner_leaving_now': '{name} is leaving now — time to head over',
+
+    // Scheduled Ping claim flow
+    'claim_flow.claim_this_spot': 'Claim this spot',
+    'claim_flow.claim_for_time': 'Claim for {time}',
+    'claim_flow.already_claimed': 'You already have a claimed spot',
+    'scheduled_claim.eyebrow': 'SPOT CLAIMED',
+    'scheduled_claim.title': 'You claimed this spot',
+    'scheduled_claim.opens_at': 'Opens at {time}',
+    'scheduled_claim.when_ready': "When you're ready, tap \"I'm heading there.\"",
+    'scheduled_claim.owner_leaving_now': '{name} is leaving now — are you heading over?',
+    'scheduled_claim.cancel': 'Cancel claim',
+    'scheduled_claim.im_heading_there': "I'm heading there",
+    'scheduled_claim.owner_eyebrow': 'HANDOFF SCHEDULED',
+    'scheduled_claim.owner_title': '{name} is taking your spot',
+    'scheduled_claim.owner_subtitle': 'They plan to take it when you leave at {time}.',
+    'scheduled_claim.owner_cancel': 'Cancel handoff',
+    'scheduled_claim.owner_leave_now': 'Leave now',
+    'scheduled_claim.owner_waiting': 'Waiting for {name} to confirm they\'re heading over.',
 
     // Map / stack sheet
     'map.nearby_shared_spot': 'Nearby shared spot',
@@ -241,6 +268,7 @@ const en: Record<string, string> = {
     'handoff.pay_it_forward_body': "When you leave, we'll help you ping this spot for the next driver.",
 
     // Nearby Activity — remaining strings
+    'nearby_activity.subtitle': 'Pings near you, in real time.',
     'nearby_activity.location_needed': 'Location needed',
     'nearby_activity.location_needed_body': 'Turn on location to see pings near you.',
     'nearby_activity.all_clear': 'All clear nearby',

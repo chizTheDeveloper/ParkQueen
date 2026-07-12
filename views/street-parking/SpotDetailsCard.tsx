@@ -18,6 +18,9 @@ interface SpotDetailsCardProps {
     userLocation: [number, number] | null;
     spotAddress: string;
     onHeadingThere: () => void;
+    onScheduledClaim?: () => void;
+    onCommitToHeading?: () => void;
+    onOwnerLeaveNow?: () => void;
     onEditSpot: (spot: any) => void;
     onDeletePing: () => void;
     onArrival: () => void;
@@ -37,7 +40,8 @@ interface SpotDetailsCardProps {
 
 export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
     selectedItem, freeSpots, user, userLocation, spotAddress,
-    onHeadingThere, onEditSpot, onDeletePing, onArrival,
+    onHeadingThere, onScheduledClaim, onCommitToHeading, onOwnerLeaveNow,
+    onEditSpot, onDeletePing, onArrival,
     onCancelByFinder, onCancelByClaimer, onDriverArrived, onMessageUser,
     interestError, estDriveMinutes, isWithinArrivalRange, maxEtaMinutes, manageMode = false, nowMs = Date.now(),
     backLabel, onBack,
@@ -55,14 +59,15 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                     <span>{backLabel ?? 'Back'}</span>
                 </button>
             )}
-            <SpotDetailsCardInner {...{ selectedItem, freeSpots, user, userLocation, spotAddress, onHeadingThere, onEditSpot, onDeletePing, onArrival, onCancelByFinder, onCancelByClaimer, onDriverArrived, onMessageUser, interestError, estDriveMinutes, isWithinArrivalRange, maxEtaMinutes, manageMode, nowMs }} />
+            <SpotDetailsCardInner {...{ selectedItem, freeSpots, user, userLocation, spotAddress, onHeadingThere, onScheduledClaim, onCommitToHeading, onOwnerLeaveNow, onEditSpot, onDeletePing, onArrival, onCancelByFinder, onCancelByClaimer, onDriverArrived, onMessageUser, interestError, estDriveMinutes, isWithinArrivalRange, maxEtaMinutes, manageMode, nowMs }} />
         </>
     );
 };
 
 const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'onBack'>> = ({
     selectedItem, freeSpots, user, userLocation, spotAddress,
-    onHeadingThere, onEditSpot, onDeletePing, onArrival,
+    onHeadingThere, onScheduledClaim, onCommitToHeading, onOwnerLeaveNow,
+    onEditSpot, onDeletePing, onArrival,
     onCancelByFinder, onCancelByClaimer, onDriverArrived, onMessageUser,
     interestError, estDriveMinutes, isWithinArrivalRange, maxEtaMinutes, manageMode = false, nowMs = Date.now(),
 }) => {
@@ -100,10 +105,13 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
     const isInterestedUser = user?.id === selectedItem.interestedUserId;
     const spotStatus = selectedItem.status;
 
-    type CardState = 'available' | 'my_claim' | 'my_ping_available' | 'my_ping_claimed' | 'third_party';
+    type CardState = 'available' | 'my_claim' | 'my_scheduled_claim' | 'my_ping_available' | 'my_ping_claimed' | 'my_ping_scheduled_claimed' | 'third_party';
+    const isCommitted = spotStatus === 'interested' && selectedItem.claimState === 'committed';
     let state: CardState;
-    if (isFinder && spotStatus === 'interested' && !manageMode) state = 'my_ping_claimed';
+    if (isFinder && isCommitted && !manageMode) state = 'my_ping_scheduled_claimed';
+    else if (isFinder && spotStatus === 'interested' && !manageMode) state = 'my_ping_claimed';
     else if (isFinder) state = 'my_ping_available';
+    else if (isInterestedUser && isCommitted) state = 'my_scheduled_claim';
     else if (isInterestedUser && spotStatus === 'interested') state = 'my_claim';
     else if (spotStatus === 'available') state = 'available';
     else state = 'third_party';
@@ -246,6 +254,156 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
                         </button>
                     </>
                 )}
+            </div>
+        );
+    }
+
+    // Claimer committed to a scheduled Ping — not heading there yet
+    if (state === 'my_scheduled_claim') {
+        const ownerLeaving = !!selectedItem.ownerLeavingNow;
+        return (
+            <div>
+                <p className="text-[10px] font-semibold text-[#38bdf8] uppercase tracking-widest text-center mb-1">
+                    {t('scheduled_claim.eyebrow')}
+                </p>
+                <p className="text-[18px] font-bold text-[var(--color-text)] text-center mb-1 leading-snug">
+                    {t('scheduled_claim.title')}
+                </p>
+
+                {ownerLeaving ? (
+                    <p className="text-[13px] font-semibold text-amber-400 text-center mb-4 px-2 leading-snug">
+                        {t('scheduled_claim.owner_leaving_now', { name: finderName })}
+                    </p>
+                ) : (
+                    <p className="text-[12px] text-[var(--color-text-secondary)] text-center mb-4 px-2 leading-relaxed">
+                        {departureText ? t('scheduled_claim.opens_at', { time: departureText }) : ''}
+                    </p>
+                )}
+
+                {/* Finder card */}
+                <div className="flex items-center gap-3 bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl px-4 py-3.5 mb-4">
+                    <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 text-white font-bold text-lg"
+                        style={{ background: 'linear-gradient(135deg, #1e75ff, #0ea5e9)' }}>
+                        {finderInitial}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <p className="text-[15px] font-bold text-[var(--color-text)] truncate">{finderName}</p>
+                        {selectedItem.finderTitle ? (() => {
+                            const ft = getTierForTitle(selectedItem.finderTitle);
+                            return (
+                                <div className="flex items-center gap-1 mt-0.5">
+                                    <CrownBadge tier={ft} size={11} />
+                                    <span className="text-[11px] font-semibold" style={{ color: TIER_VISUALS[ft].textColor }}>{selectedItem.finderTitle}</span>
+                                </div>
+                            );
+                        })() : (
+                            <span className="inline-flex items-center gap-1 mt-0.5 px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-400/20 text-[10px] font-semibold text-[#38bdf8]">
+                                <span className="w-1.5 h-1.5 rounded-full bg-[#38bdf8] shrink-0" />
+                                Trusted Driver
+                            </span>
+                        )}
+                    </div>
+                    {!ownerLeaving && departureText && (
+                        <div className="text-right shrink-0">
+                            <p className="text-[9px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wide mb-0.5">{t('spot_details.leaving_at', { time: '' }).trim()}</p>
+                            <p className="text-[13px] font-bold text-amber-400">{departureText}</p>
+                        </div>
+                    )}
+                </div>
+
+                {!ownerLeaving && (
+                    <p className="text-[11px] text-[var(--color-text-secondary)] text-center mb-4 px-2">
+                        {t('scheduled_claim.when_ready')}
+                    </p>
+                )}
+
+                {interestError && <p className="text-red-400 text-xs mb-2 text-center">{interestError}</p>}
+
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                    <button onClick={() => onCancelByClaimer('Changed my mind')}
+                        className="flex items-center justify-center gap-2 py-3.5 rounded-2xl border border-red-500/30 hover:bg-red-500/10 text-red-400 font-semibold text-sm transition-all active:scale-95">
+                        {t('scheduled_claim.cancel')}
+                    </button>
+                    <button onClick={() => onMessageUser(selectedItem.finderId, `Spot pinged by ${finderName}`, selectedItem.id)}
+                        className="flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-[var(--color-card)] border border-[var(--color-border)] hover:bg-white/10 text-[var(--color-text)] font-semibold text-sm transition-all active:scale-95">
+                        <MessageSquare size={15} />
+                        {t('claim_flow.message')}
+                    </button>
+                </div>
+                <button onClick={onCommitToHeading}
+                    className="w-full font-bold py-4 rounded-2xl transition-all text-sm active:scale-95 text-white flex items-center justify-center gap-2"
+                    style={{ background: ownerLeaving ? 'linear-gradient(90deg, #f59e0b, #d97706)' : 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}>
+                    <Navigation size={14} />
+                    {t('scheduled_claim.im_heading_there')}
+                </button>
+            </div>
+        );
+    }
+
+    // Owner view — someone committed to a scheduled Ping
+    if (state === 'my_ping_scheduled_claimed') {
+        const claimerName = selectedItem.interestedUserName || 'Someone';
+        const claimerInitial = claimerName.charAt(0).toUpperCase();
+        const ownerLeaving = !!selectedItem.ownerLeavingNow;
+
+        return (
+            <div>
+                <p className="text-[10px] font-bold tracking-widest uppercase text-[#38bdf8] text-center mb-1">
+                    {t('scheduled_claim.owner_eyebrow')}
+                </p>
+                <h2 className="text-lg font-bold text-[var(--color-text)] text-center leading-snug">
+                    {t('scheduled_claim.owner_title', { name: claimerName })}
+                </h2>
+                {ownerLeaving ? (
+                    <p className="text-[12px] text-amber-400 text-center mt-0.5 mb-4">
+                        {t('scheduled_claim.owner_waiting', { name: claimerName })}
+                    </p>
+                ) : (
+                    <p className="text-[12px] text-[var(--color-text-secondary)] text-center mt-0.5 mb-4">
+                        {departureText ? t('scheduled_claim.owner_subtitle', { time: departureText }) : ''}
+                    </p>
+                )}
+
+                {/* Claimer identity card */}
+                <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl p-4 mb-3">
+                    <div className="flex items-center gap-3">
+                        <div className="rounded-2xl flex items-center justify-center shrink-0 text-white font-bold text-xl"
+                            style={{ background: 'linear-gradient(135deg, #1e75ff, #0ea5e9)', width: 52, height: 52 }}>
+                            {claimerInitial}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-base font-extrabold text-[var(--color-text)] truncate">{claimerName}</p>
+                            {selectedItem.interestedUserTitle && (() => {
+                                const ct = getTierForTitle(selectedItem.interestedUserTitle);
+                                return (
+                                    <div className="flex items-center gap-1 mt-0.5">
+                                        <CrownBadge tier={ct} size={11} />
+                                        <span className="text-[11px] font-semibold" style={{ color: TIER_VISUALS[ct].textColor }}>{selectedItem.interestedUserTitle}</span>
+                                    </div>
+                                );
+                            })()}
+                        </div>
+                    </div>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                    <button onClick={() => onMessageUser(selectedItem.interestedUserId, `Scheduled claim by ${claimerName}`, selectedItem.id)}
+                        className="w-full text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 transition-all text-sm active:scale-95"
+                        style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}>
+                        <MessageSquare size={15} />
+                        {t('claim_flow.message')}
+                    </button>
+                    {!ownerLeaving && (
+                        <button onClick={onOwnerLeaveNow}
+                            className="w-full font-semibold py-3 rounded-2xl text-sm border border-amber-500/40 text-amber-400 hover:bg-amber-500/10 transition-all active:scale-95">
+                            {t('scheduled_claim.owner_leave_now')}
+                        </button>
+                    )}
+                    <button onClick={() => onCancelByFinder("Can't wait anymore")}
+                        className="w-full font-semibold py-3 rounded-2xl text-sm border border-red-500/40 text-red-400 hover:bg-red-500/10 transition-all active:scale-95">
+                        {t('scheduled_claim.owner_cancel')}
+                    </button>
+                </div>
             </div>
         );
     }
@@ -414,7 +572,13 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
                         className="bg-white/10 hover:bg-white/20 text-[var(--color-text)] p-3.5 rounded-2xl flex items-center justify-center transition-all shrink-0 active:scale-95">
                         <MessageSquare size={16} />
                     </button>
-                    {estDriveMinutes !== null && estDriveMinutes > maxEtaMinutes ? (
+                    {isScheduled ? (
+                        <button onClick={onScheduledClaim}
+                            className="flex-1 font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95 text-white flex items-center justify-center gap-1.5"
+                            style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}>
+                            {departureText ? t('claim_flow.claim_for_time', { time: departureText }) : t('claim_flow.claim_this_spot')}
+                        </button>
+                    ) : estDriveMinutes !== null && estDriveMinutes > maxEtaMinutes ? (
                         <span className="flex-1 text-xs text-[var(--color-text-secondary)] self-center text-center">
                             {t('claim_flow.too_far_drive', { min: estDriveMinutes })}
                         </span>
@@ -433,33 +597,43 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
 
     // Finder's own ping management view — address visible, edit/delete actions
     if (state === 'my_ping_available') {
+        const pingBadge = isScheduled
+            ? { label: t('spot_details.badge_scheduled'), color: 'text-amber-400 bg-amber-500/10 border-amber-500/20' }
+            : { label: t('spot_details.badge_available_now'), color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' };
+
         return (
             <div>
-                <p className="text-[11px] font-bold text-[#38bdf8] uppercase tracking-widest text-center mb-4">{t('spot_details.your_ping')}</p>
+                {/* Status header */}
+                <p className="text-[10px] font-bold text-[#1e75ff] uppercase tracking-widest text-center mb-1">{t('spot_details.ping_active')}</p>
+                <p className="text-[20px] font-extrabold text-[var(--color-text)] text-center leading-snug mb-1">{t('spot_details.spot_live')}</p>
+                <p className="text-[12px] text-[var(--color-text-secondary)] text-center mb-5">{t('spot_details.spot_live_subtitle')}</p>
 
+                {/* Identity row */}
                 <div className="flex items-center gap-3 mb-4">
-                    <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 text-white font-bold text-xl"
-                        style={{ background: 'linear-gradient(135deg, #1e75ff, #0ea5e9)' }}>
+                    <div className="w-12 h-12 rounded-[12px] flex items-center justify-center shrink-0 text-white font-extrabold text-xl"
+                        style={{ background: 'linear-gradient(135deg, #1e3a5f, #1e40af)' }}>
                         {finderInitial}
                     </div>
                     <div className="flex-1 min-w-0">
-                        <p className="text-lg font-extrabold text-[var(--color-text)] truncate">{finderName}</p>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border inline-block mt-0.5 ${badgeConfig.color}`}>
-                            {badgeConfig.label}
+                        <p className="text-[16px] font-extrabold text-[var(--color-text)] truncate">{finderName}</p>
+                        <span className={`inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-0.5 rounded-full border mt-1 ${pingBadge.color}`}>
+                            <span className="w-1.5 h-1.5 rounded-full bg-current shrink-0" />
+                            {pingBadge.label}
                         </span>
                     </div>
                 </div>
 
-                <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] p-4 mb-4 space-y-3">
+                {/* Details card */}
+                <div className="rounded-2xl border border-[#1e3a5f] bg-[#0d1f35] p-4 mb-4 space-y-3">
                     <div className="flex items-center gap-2">
                         <MapPin size={14} className="text-[#38bdf8] shrink-0" />
                         <span className="text-sm font-semibold text-[var(--color-text)] truncate">
                             {selectedItem.title || spotAddress || 'Street Parking Spot'}
                         </span>
                     </div>
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between border-t border-[#1e3a5f] pt-3">
                         <div className="flex items-center gap-2">
-                            <Clock size={14} className={isScheduled ? 'text-yellow-400 shrink-0' : 'text-green-400 shrink-0'} />
+                            <Clock size={14} className={isScheduled ? 'text-amber-400 shrink-0' : 'text-emerald-400 shrink-0'} />
                             <span className="text-sm font-bold text-[var(--color-text)]">
                                 {isScheduled ? t('spot_details.leaving_at', { time: departureText }) : t('spot_details.leaving_now')}
                             </span>
@@ -470,16 +644,16 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
                     </div>
                 </div>
 
-                <div className="flex gap-2">
-                    <button onClick={() => onEditSpot(selectedItem)}
-                        className="flex-1 bg-white/10 hover:bg-white/20 text-[var(--color-text)] font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95">
-                        {t('spot_details.edit')}
-                    </button>
-                    <button onClick={onDeletePing}
-                        className="flex-1 border border-red-500/50 hover:bg-red-500/10 text-red-400 font-bold py-3.5 rounded-2xl transition-all text-sm active:scale-95">
-                        {t('spot_details.delete')}
-                    </button>
-                </div>
+                <p className="text-[11px] text-[#334155] text-center mb-5">{t('spot_details.spot_live_hint')}</p>
+
+                <button onClick={() => onEditSpot(selectedItem)}
+                    className="w-full bg-[#1a2d4a] hover:bg-[#1e3a5f] border border-[#2a4a72] text-[var(--color-text)] font-bold py-3.5 rounded-2xl transition-all text-[15px] active:scale-95 mb-2.5">
+                    {t('spot_details.edit_ping')}
+                </button>
+                <button onClick={onDeletePing}
+                    className="w-full border border-red-500/30 hover:bg-red-500/10 text-red-400 font-semibold py-3 rounded-2xl transition-all text-sm active:scale-95">
+                    {t('spot_details.delete_ping')}
+                </button>
             </div>
         );
     }

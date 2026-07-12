@@ -33,6 +33,8 @@ export interface MapItem {
     holdRequestedBy?: string | null;
     holdTimerExpiresAt?: any;
     pingMode?: 'now' | 'later' | null;
+    claimState?: 'committed' | 'heading' | null;
+    ownerLeavingNow?: boolean | null;
 }
 
 export interface MapViewProps {

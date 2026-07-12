@@ -1384,6 +1384,9 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
                         const eta = selectedItem ? interestFlow.getEstDriveMinutes(selectedItem) : null;
                         interestFlow.handleExpressInterest(eta ?? 5);
                     }}
+                    onScheduledClaim={() => interestFlow.handleScheduledClaim()}
+                    onCommitToHeading={() => interestFlow.handleCommitToHeading()}
+                    onOwnerLeaveNow={() => interestFlow.handleOwnerLeaveNow()}
                     onEditSpot={(spot) => { setSelectedItem(spot); setSpotModalOpen(true); }}
                     onDeletePing={handleDeletePing}
                     onArrival={interestFlow.handleArrival}

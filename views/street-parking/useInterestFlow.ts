@@ -61,6 +61,9 @@ export function useInterestFlow({
                         if (mapRef.current) clearRoute(mapRef.current);
                         setSelectedItem(null);
                     }
+                    if (data.type === 'owner_leaving_now') {
+                        // UI updates via live snapshot; toast is the only action here
+                    }
                     if (data.type === 'handoff_success') {
                         setFinderToast(data.message);
                         setTimeout(() => setFinderToast(null), 6000);
@@ -77,6 +80,8 @@ export function useInterestFlow({
         if (!trackedItemId || !userLocation || !db) return;
         const spot = freeSpots.find(s => s.id === trackedItemId);
         if (!spot) return;
+        // Don't write ETA for committed claims — claimer isn't heading there yet
+        if (spot.claimState === 'committed') return;
 
         const km = getDistance(userLocation[1], userLocation[0], spot.lat, spot.lng);
         const estMinutes = Math.max(1, Math.ceil((km / 25) * 60));
@@ -147,7 +152,7 @@ export function useInterestFlow({
 
         const alreadyActive = await checkAlreadyInterested();
         if (alreadyActive) {
-            setInterestError("You're already heading to another spot");
+            setInterestError("You already have a claimed spot");
             return;
         }
 
@@ -163,6 +168,8 @@ export function useInterestFlow({
 
                 tx.update(spotRef, {
                     status: 'interested',
+                    claimState: 'heading',
+                    ownerLeavingNow: null,
                     interestedUserId: user.id,
                     interestedUserName: user.username || user.fullName || 'Someone',
                     interestedUserVehicleColor: user.vehicleColor || null,
@@ -253,6 +260,8 @@ export function useInterestFlow({
         }
         await updateDoc(doc(db, 'spots', selectedItem.id), {
             status: 'available',
+            claimState: null,
+            ownerLeavingNow: null,
             interestedUserId: null,
             interestedUserName: null,
             interestedUserVehicleColor: null,
@@ -398,6 +407,83 @@ export function useInterestFlow({
         setSelectedItem(null);
     };
 
+    const handleScheduledClaim = async () => {
+        const spot = selectedItem;
+        if (!spot || !user || !db) return;
+        setInterestError(null);
+
+        const alreadyActive = await checkAlreadyInterested();
+        if (alreadyActive) {
+            setInterestError("You already have a claimed spot");
+            return;
+        }
+
+        try {
+            const spotRef = doc(db, 'spots', spot.id);
+            await runTransaction(db, async (tx) => {
+                const fresh = await tx.get(spotRef);
+                if (!fresh.exists()) throw new Error("Spot no longer exists");
+                const data = fresh.data();
+                if (data.status !== 'available') throw new Error("Someone already claimed this spot");
+
+                tx.update(spotRef, {
+                    status: 'interested',
+                    claimState: 'committed',
+                    ownerLeavingNow: null,
+                    interestedUserId: user.id,
+                    interestedUserName: user.username || user.fullName || 'Someone',
+                    interestedUserVehicleColor: user.vehicleColor || null,
+                    interestedUserVehicleType: user.vehicleType || null,
+                    interestedUserVehicleBrand: user.vehicleBrand || null,
+                    interestedUserTitle: getTitleForCrowns(user.crowns || 0),
+                    etaMinutes: null,
+                    // Claim lives as long as the spot itself — inherit spot's own expiry
+                    interestExpiresAt: data.expiresAt,
+                });
+            });
+
+            // Track for snapshot disappearance detection — no route drawn yet
+            setTrackedItemId(spot.id);
+        } catch (e: any) {
+            setInterestError(e.message || "Failed to claim spot");
+        }
+    };
+
+    const handleCommitToHeading = async () => {
+        const spot = selectedItem;
+        if (!spot || !user || !db) return;
+
+        const etaMinutes = getEstDriveMinutes(spot) ?? 5;
+        const claimMinutes = Math.min(etaMinutes + 5, MAX_CLAIM_MINUTES);
+
+        await updateDoc(doc(db, 'spots', spot.id), {
+            claimState: 'heading',
+            ownerLeavingNow: null,
+            etaMinutes,
+            interestExpiresAt: Timestamp.fromMillis(Date.now() + claimMinutes * 60000),
+        });
+
+        const dest: [number, number] = [spot.lng, spot.lat];
+        activeRouteDestinationRef.current = dest;
+        if (mapRef.current) drawRoute(mapRef.current, userLocation || NYC_CENTER, dest);
+    };
+
+    const handleOwnerLeaveNow = async () => {
+        const spot = selectedItem;
+        if (!spot || !user || !db) return;
+
+        await updateDoc(doc(db, 'spots', spot.id), { ownerLeavingNow: true });
+
+        if (spot.interestedUserId) {
+            await addDoc(collection(db, 'spotNotifications'), {
+                targetUserId: spot.interestedUserId,
+                type: 'owner_leaving_now',
+                message: `${user.username || user.fullName || 'The driver'} is leaving now — time to head over`,
+                createdAt: Timestamp.now(),
+            });
+        }
+    };
+
     const handleSkipDeparture = () => {
         setHandoffStep(null);
         setHandoffFinderName(null);
@@ -418,6 +504,9 @@ export function useInterestFlow({
         finderToast,
         driverNotification,
         handleExpressInterest,
+        handleScheduledClaim,
+        handleCommitToHeading,
+        handleOwnerLeaveNow,
         handleCancelByFinder,
         handleCancelByClaimer,
         handleFinderConfirmsArrival,
