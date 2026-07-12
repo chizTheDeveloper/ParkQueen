@@ -516,10 +516,11 @@ const en: Record<string, string> = {
 
     // Messages / Inbox
     'messages.title': 'Inbox',
-    'messages.subtitle': 'Stay updated with your parking community',
+    'messages.subtitle': 'Messages from your parking handoffs.',
     'messages.back_aria': 'Back',
-    'messages.empty': 'Claim a spot or offer yours to start a conversation.',
-    'messages.all_caught_up': 'All caught up!',
+    'messages.empty': 'No messages yet',
+    'messages.empty_hint': 'Conversations with other users will appear here.',
+    'messages.all_caught_up': "You're all caught up.",
     'messages.all_caught_up_hint': "You'll see new messages here.",
     'messages.just_now': 'Just now',
     'messages.anonymous': 'Anonymous',

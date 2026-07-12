@@ -479,107 +479,111 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
     );
   }
 
+  const avatarGradients = [
+    'linear-gradient(135deg,#1e3a5f,#1e40af)',
+    'linear-gradient(135deg,#1a2e1a,#14532d)',
+    'linear-gradient(135deg,#2e1a2e,#581c87)',
+    'linear-gradient(135deg,#3b2a1a,#92400e)',
+  ];
+
   return (
     <div className="h-full flex flex-col bg-[var(--color-bg)] pt-4 pb-20 max-w-md mx-auto">
-       {/* Header */}
-       <div className="flex items-center justify-between px-4 mb-6">
-         <div className="flex items-center gap-3">
-           {onBack && (
-             <button onClick={onBack} aria-label={t('messages.back_aria')} className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] text-[var(--color-text)] hover:bg-white/10 transition-all shrink-0">
-               <ArrowLeft size={20} />
-             </button>
-           )}
-           <div>
-             <h2 className="text-2xl font-bold text-[var(--color-text)] tracking-wide">{t('messages.title')}</h2>
-             <p className="text-xs text-[var(--color-text-secondary)]">{t('messages.subtitle')}</p>
-           </div>
-         </div>
-       </div>
+      {/* Header */}
+      <div className="flex items-center gap-3 px-4 mb-6">
+        {onBack && (
+          <button onClick={onBack} aria-label={t('messages.back_aria')} className="w-9 h-9 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] text-[var(--color-text)] hover:bg-white/10 transition-all shrink-0">
+            <ArrowLeft size={18} />
+          </button>
+        )}
+        <div>
+          <h2 className="text-xl font-bold text-[var(--color-text)]">{t('messages.title')}</h2>
+          <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('messages.subtitle')}</p>
+        </div>
+      </div>
 
-       {/* Conversation List */}
-       <div className="flex-1 overflow-y-auto px-4 space-y-4 no-scrollbar">
-          {conversations.length === 0 ? (
-            <div className="text-center p-10 text-gray-500">
-              <p>{t('messages.empty')}</p>
+      {/* Conversation List */}
+      <div className="flex-1 overflow-y-auto px-3 no-scrollbar">
+        {conversations.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
+            <div className="w-14 h-14 rounded-full bg-[#1e75ff]/10 border border-[#1e75ff]/15 flex items-center justify-center text-[#1e75ff] mb-4">
+              <MessageSquare size={24} />
             </div>
-          ) : (
-            conversations.map(conv => {
+            <h3 className="text-[var(--color-text-secondary)] font-bold text-sm mb-1.5">{t('messages.empty')}</h3>
+            <p className="text-[11px] text-[var(--color-text-secondary)] leading-relaxed opacity-60">{t('messages.empty_hint')}</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {conversations.map(conv => {
               const lastReadStr = localStorage.getItem(`lastReadChat_${conv.id}`);
               const lastReadTime = lastReadStr ? parseInt(lastReadStr, 10) : 0;
               const hasUnread = conv.lastMessageTimestamp.getTime() > lastReadTime && conv.lastSenderId !== user.id;
               const convDisplayName = userProfilesCache[conv.otherUser.id]?.name
                 || conv.otherUser.name
                 || t('messages.anonymous');
+              const initial = convDisplayName.charAt(0).toUpperCase();
+              const avatarBg = avatarGradients[initial.charCodeAt(0) % avatarGradients.length];
 
               return (
                 <button
                   key={conv.id}
                   onClick={() => setActiveConversationId(conv.id)}
-                  className="w-full bg-[var(--color-card)] border border-[var(--color-border)] backdrop-blur-md rounded-2xl p-4 flex items-start gap-4 text-left transition-all hover:bg-[#0b2240]/60 relative"
+                  className={`w-full border rounded-2xl p-3.5 flex items-center gap-3 text-left transition-all active:scale-[0.99] ${hasUnread ? 'bg-[#0d1f35] border-[#1e75ff]/20' : 'bg-[var(--color-card)] border-[var(--color-border)] hover:bg-white/[0.03]'}`}
                 >
-                  {/* Avatar with blue unread dot */}
+                  {/* Avatar */}
                   <div className="relative shrink-0">
-                    <div className="w-14 h-14 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-center text-gray-500 overflow-hidden">
-                       {userProfilesCache[conv.otherUser.id]?.avatarUrl ? (
-                         <img src={userProfilesCache[conv.otherUser.id].avatarUrl!} alt="Avatar" className="w-full h-full object-cover" />
-                       ) : (
-                         <i className="fa-solid fa-user text-2xl"></i>
-                       )}
-                    </div>
+                    {userProfilesCache[conv.otherUser.id]?.avatarUrl ? (
+                      <img src={userProfilesCache[conv.otherUser.id].avatarUrl!} alt={convDisplayName} className="w-11 h-11 rounded-2xl object-cover" />
+                    ) : (
+                      <div className="w-11 h-11 rounded-2xl flex items-center justify-center text-[#93c5fd] font-bold text-base" style={{ background: avatarBg }}>
+                        {initial}
+                      </div>
+                    )}
                     {hasUnread && (
-                      <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-[#1e75ff] border-2 border-dark-900 rounded-full animate-pulse motion-reduce:animate-none" />
+                      <span className="absolute -top-1 -right-1 w-3 h-3 bg-[#1e75ff] border-2 border-[var(--color-bg)] rounded-full" />
                     )}
                   </div>
 
-                  {/* Body Content */}
-                  <div className="flex-1 min-w-0 text-left">
-                    <div className="flex justify-between items-start mb-0.5">
-                      <h3 className="font-bold text-[var(--color-text)] text-base truncate pr-2">
+                  {/* Body */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex justify-between items-baseline mb-0.5">
+                      <span className={`text-sm truncate pr-2 ${hasUnread ? 'font-extrabold text-[var(--color-text)]' : 'font-semibold text-[var(--color-text-secondary)]'}`}>
                         {convDisplayName}
-                      </h3>
-                      <span className="text-xs text-gray-500 shrink-0 mt-0.5">
+                      </span>
+                      <span className="text-[11px] text-gray-500 shrink-0">
                         {conv.lastMessageTimestamp instanceof Date
                           ? conv.lastMessageTimestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                           : t('messages.just_now')}
                       </span>
                     </div>
 
-                    <div className="flex justify-between items-center mt-0.5">
-                      <p className={`text-sm truncate pr-4 ${hasUnread ? 'text-[var(--color-text)] font-medium' : 'text-[var(--color-text-secondary)]'}`}>
+                    <div className="flex justify-between items-center mb-2">
+                      <p className={`text-xs truncate pr-2 ${hasUnread ? 'text-[var(--color-text)] font-medium' : 'text-[var(--color-text-secondary)] opacity-60'}`}>
                         {conv.lastMessage}
                       </p>
                       {hasUnread && (
-                        <span className="flex items-center justify-center w-5 h-5 bg-[#1e75ff] text-white text-[10px] font-bold rounded-full shrink-0">
+                        <span className="flex items-center justify-center bg-[#1e75ff] text-white text-[9px] font-bold rounded-full shrink-0" style={{ width: 18, height: 18 }}>
                           1
                         </span>
                       )}
                     </div>
 
                     {conv.relatedSpotTitle && (
-                      <div className="mt-2.5 inline-flex items-center gap-1.5 text-[10px] text-[#38bdf8] bg-[#1e75ff]/10 border border-[#1e75ff]/20 px-2.5 py-0.5 rounded-full">
-                         <MapPin size={10} className="text-[#38bdf8]" />
-                         <span>{conv.relatedSpotTitle}</span>
+                      <div className="inline-flex items-center gap-1 text-[10px] text-[#38bdf8] bg-[#1e75ff]/10 border border-[#38bdf8]/15 px-2 py-0.5 rounded-full">
+                        <MapPin size={9} className="text-[#38bdf8] shrink-0" />
+                        <span className="truncate max-w-[160px]">{conv.relatedSpotTitle}</span>
                       </div>
                     )}
                   </div>
                 </button>
               );
-            })
-          )}
+            })}
 
-          {/* All caught up footer */}
-          <div className="flex flex-col items-center justify-center py-8 text-center">
-            <div className="relative mb-3 flex items-center justify-center">
-              <div className="w-14 h-14 rounded-full bg-[var(--color-glass)] border border-[var(--color-border)] flex items-center justify-center text-[#1e75ff] shadow-lg relative">
-                <MessageSquare size={22} fill="#1e75ff" className="text-[#1e75ff]" />
-                <Sparkles size={14} className="absolute -top-1 -right-1 text-blue-400 animate-pulse motion-reduce:animate-none" />
-                <Sparkles size={10} className="absolute -bottom-1 -left-1 text-blue-300 animate-pulse motion-reduce:animate-none" />
-              </div>
+            <div className="py-4 text-center">
+              <p className="text-[11px] text-[#334155]">{t('messages.all_caught_up')}</p>
             </div>
-            <h3 className="text-[var(--color-text)] font-bold text-sm">{t('messages.all_caught_up')}</h3>
-            <p className="text-[11px] text-gray-500 mt-0.5">{t('messages.all_caught_up_hint')}</p>
           </div>
-       </div>
+        )}
+      </div>
     </div>
   );
 };
