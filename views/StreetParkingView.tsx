@@ -188,6 +188,9 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
             return s;
         } catch { return null; }
     });
+    // Always-current mirror of savedSpot.linkedPingId — set synchronously before any
+    // Firestore write so the marker filter is correct even before React re-renders.
+    const linkedPingIdRef = useRef<string | null>(savedSpot?.linkedPingId ?? null);
     const [reminderEnabled, setReminderEnabled] = useState<boolean>(
         () => localStorage.getItem('streetCleaningReminder') !== 'false'
     );
@@ -759,6 +762,12 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
     }, []);
 
     // Marker rendering — community spots get premium stack grouping; paid/public render individually
+    // Keep the ref in sync for all cases OTHER than handleMyCarPing (which sets it
+    // synchronously). Runs before the marker effect because it appears first in source order.
+    useEffect(() => {
+        linkedPingIdRef.current = savedSpot?.linkedPingId ?? null;
+    }, [savedSpot?.linkedPingId]);
+
     useEffect(() => {
         if (!mapRef.current) return;
         const map = mapRef.current;
@@ -769,7 +778,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
         // Exclude only the My Car session's linked ping (shown separately in the session sheet).
         // Own manual pings remain visible so the creator sees their own marker on the map.
         const allItems = spotData.radiusFilteredItems.filter(
-            item => item.id !== (savedSpot?.linkedPingId ?? '')
+            item => item.id !== (linkedPingIdRef.current ?? '')
         );
 
         // Split: community shared spots vs. paid/public (rendered individually, no stacking)
@@ -1038,6 +1047,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
         try {
             const existing = await getDoc(spotRef);
             if (existing.exists()) {
+                linkedPingIdRef.current = spotId;
                 const updated = { ...savedSpot, linkedPingId: spotId };
                 localStorage.setItem(SAVED_SPOT_KEY, JSON.stringify(updated));
                 setSavedSpot(updated);
@@ -1047,9 +1057,10 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
             }
         } catch { /* non-fatal, proceed to create */ }
 
-        // Optimistically lock the session BEFORE the Firestore write so the marker filter
-        // (item.id !== savedSpot.linkedPingId) is in place before the real-time listener fires.
-        // Prevents the owner briefly seeing their own ping marker on the map.
+        // Set the ref SYNCHRONOUSLY before setDoc — the Firestore onSnapshot listener
+        // fires during setDoc (before the Promise resolves), so the ref must be set
+        // before that moment. setSavedSpot is async (enqueues a render); the ref is not.
+        linkedPingIdRef.current = spotId;
         const withLinkedId = { ...savedSpot, linkedPingId: spotId };
         localStorage.setItem(SAVED_SPOT_KEY, JSON.stringify(withLinkedId));
         setSavedSpot(withLinkedId);
