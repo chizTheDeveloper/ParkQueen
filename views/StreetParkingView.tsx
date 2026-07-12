@@ -116,15 +116,17 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
     const itemsRef = useRef<MapItem[]>([]);
     itemsRef.current = spotData.radiusFilteredItems;
 
-    // Consume pendingSpotId from Nearby Activity tap — fly to spot and open SpotDetailsCard
+    // Consume pendingSpotId — fly to spot and open SpotDetailsCard (searches both arrays so
+    // owner spots in activeSpots and claimer spots in freeSpots both resolve correctly)
     useEffect(() => {
         if (!pendingSpotId || !mapReady) return;
-        const item = spotData.freeSpots.find(s => s.id === pendingSpotId);
+        const item = spotData.freeSpots.find(s => s.id === pendingSpotId)
+                  ?? spotData.activeSpots.find(s => s.id === pendingSpotId);
         if (!item) return;
         onPendingSpotConsumed?.();
         mapRef.current?.flyTo({ center: [item.lng, item.lat], zoom: 17, duration: 800 });
         setSelectedItem(item);
-    }, [pendingSpotId, mapReady, spotData.freeSpots]);
+    }, [pendingSpotId, mapReady, spotData.freeSpots, spotData.activeSpots]);
 
     const interestFlow = useInterestFlow({
         selectedItem,
