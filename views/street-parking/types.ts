@@ -35,6 +35,11 @@ export interface MapItem {
     pingMode?: 'now' | 'later' | null;
     claimState?: 'committed' | 'heading' | null;
     ownerLeavingNow?: boolean | null;
+    ownerLeavingNowAt?: any;
+    claimReminderAt?: any;
+    claimReminderSentAt?: any;
+    claimAutoReleaseAt?: any;
+    claimAutoReleasedAt?: any;
 }
 
 export interface MapViewProps {

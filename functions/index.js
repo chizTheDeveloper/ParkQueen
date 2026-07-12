@@ -147,8 +147,19 @@ exports.cleanupExpiredInterests = onSchedule(
         status: "available",
         interestedUserId: null,
         interestedUserName: null,
+        interestedUserVehicleColor: null,
+        interestedUserVehicleType: null,
+        interestedUserVehicleBrand: null,
+        interestedUserTitle: null,
         etaMinutes: null,
         interestExpiresAt: null,
+        claimState: null,
+        ownerLeavingNow: null,
+        ownerLeavingNowAt: null,
+        claimReminderAt: null,
+        claimReminderSentAt: null,
+        claimAutoReleaseAt: null,
+        claimAutoReleasedAt: null,
       });
     });
     await batch.commit();
@@ -191,6 +202,152 @@ exports.cleanupExpiredHolds = onSchedule(
     });
     await batch.commit();
     console.log(`✅ cleanupExpiredHolds: reverted ${snap.size} held spots`);
+  }
+);
+
+// 1d) Scheduled claim reminders + auto-release every 5 minutes
+exports.processScheduledClaims = onSchedule(
+  {
+    schedule: "every 5 minutes",
+    timeZone: "America/Toronto",
+    region: "us-central1",
+    memory: "256MiB",
+  },
+  async () => {
+    const now = Timestamp.now();
+
+    // ── Pass 1: Send reminders ────────────────────────────────────────────────
+    // claimReminderAt is nulled after send, so already-reminded docs won't reappear
+    const reminderSnap = await db.collection("spots")
+      .where("status", "==", "interested")
+      .where("claimState", "==", "committed")
+      .where("claimReminderAt", "<=", now)
+      .limit(100)
+      .get();
+
+    for (const d of reminderSnap.docs) {
+      const spot = d.data();
+      if (!spot.interestedUserId) continue;
+
+      const finderName = spot.finderName || "Someone";
+      const message = `${finderName}'s spot opens soon — time to head over?`;
+
+      // FCM push if token available
+      const userSnap = await db.doc(`users/${spot.interestedUserId}`).get();
+      const fcmToken = userSnap.exists ? userSnap.data().fcmToken : null;
+      if (fcmToken) {
+        try {
+          await getMessaging().send({
+            token: fcmToken,
+            notification: { title: "🅿️ Spot opening soon", body: message },
+            android: { priority: "high" },
+            apns: { payload: { aps: { sound: "default", badge: 1 } } },
+          });
+        } catch (e) {
+          console.error("FCM reminder failed for", spot.interestedUserId, e.message);
+        }
+      }
+
+      // In-app notification (client listener shows it as a toast)
+      await db.collection("spotNotifications").add({
+        targetUserId: spot.interestedUserId,
+        type: "scheduled_claim_reminder",
+        message,
+        createdAt: now,
+      });
+
+      // Null out claimReminderAt so this doc never re-appears in the reminder query
+      await d.ref.update({ claimReminderAt: null, claimReminderSentAt: now });
+    }
+
+    // ── Pass 2: Auto-release stale committed claims ───────────────────────────
+    const releaseSnap = await db.collection("spots")
+      .where("status", "==", "interested")
+      .where("claimState", "==", "committed")
+      .where("claimAutoReleaseAt", "<=", now)
+      .limit(100)
+      .get();
+
+    for (const d of releaseSnap.docs) {
+      let releasedInfo = null;
+
+      try {
+        await db.runTransaction(async (tx) => {
+          releasedInfo = null; // reset on each retry
+          const fresh = await tx.get(d.ref);
+          if (!fresh.exists) return;
+          const spot = fresh.data();
+
+          // Re-verify all conditions — claimer may have tapped "I'm heading there"
+          if (
+            spot.status !== "interested" ||
+            spot.claimState !== "committed" ||
+            !spot.interestedUserId ||
+            !spot.claimAutoReleaseAt ||
+            spot.claimAutoReleaseAt.toMillis() > now.toMillis()
+          ) return;
+
+          const spotExpired = spot.expiresAt && spot.expiresAt.toMillis() <= now.toMillis();
+
+          const clearFields = {
+            interestedUserId: null,
+            interestedUserName: null,
+            interestedUserVehicleColor: null,
+            interestedUserVehicleType: null,
+            interestedUserVehicleBrand: null,
+            interestedUserTitle: null,
+            etaMinutes: null,
+            interestExpiresAt: null,
+            claimState: null,
+            ownerLeavingNow: null,
+            ownerLeavingNowAt: null,
+            claimReminderAt: null,
+            claimReminderSentAt: null,
+            claimAutoReleaseAt: null,
+            claimAutoReleasedAt: now,
+          };
+
+          if (spotExpired) {
+            // Ping already expired — clear stale claim fields, don't revive to available
+            tx.update(d.ref, clearFields);
+          } else {
+            tx.update(d.ref, { ...clearFields, status: "available" });
+          }
+
+          releasedInfo = {
+            claimerId: spot.interestedUserId,
+            finderId: spot.finderId || null,
+            spotExpired,
+          };
+        });
+      } catch (e) {
+        console.error("Auto-release transaction failed for spot", d.id, e.message);
+      }
+
+      if (!releasedInfo) continue;
+
+      // Notify claimer
+      await db.collection("spotNotifications").add({
+        targetUserId: releasedInfo.claimerId,
+        type: "scheduled_claim_auto_released",
+        message: "Your claim was released because you didn't confirm you were heading over.",
+        createdAt: now,
+      });
+
+      // Notify owner only if spot is still live (not expired)
+      if (releasedInfo.finderId && !releasedInfo.spotExpired) {
+        await db.collection("spotNotifications").add({
+          targetUserId: releasedInfo.finderId,
+          type: "scheduled_claim_released_owner",
+          message: "Your spot is available again because the claim expired.",
+          createdAt: now,
+        });
+      }
+    }
+
+    console.log(
+      `✅ processScheduledClaims: ${reminderSnap.size} reminders, ${releaseSnap.size} releases`
+    );
   }
 );
 

@@ -64,6 +64,10 @@ export function useInterestFlow({
                     if (data.type === 'owner_leaving_now') {
                         // UI updates via live snapshot; toast is the only action here
                     }
+                    if (data.type === 'scheduled_claim_auto_released') {
+                        setTrackedItemId(null);
+                        setSelectedItem(null);
+                    }
                     if (data.type === 'handoff_success') {
                         setFinderToast(data.message);
                         setTimeout(() => setFinderToast(null), 6000);
@@ -262,6 +266,7 @@ export function useInterestFlow({
             status: 'available',
             claimState: null,
             ownerLeavingNow: null,
+            ownerLeavingNowAt: null,
             interestedUserId: null,
             interestedUserName: null,
             interestedUserVehicleColor: null,
@@ -270,6 +275,10 @@ export function useInterestFlow({
             interestedUserTitle: null,
             etaMinutes: null,
             interestExpiresAt: null,
+            claimReminderAt: null,
+            claimReminderSentAt: null,
+            claimAutoReleaseAt: null,
+            claimAutoReleasedAt: null,
         });
         setTrackedItemId(null);
         activeRouteDestinationRef.current = null;
@@ -426,10 +435,18 @@ export function useInterestFlow({
                 const data = fresh.data();
                 if (data.status !== 'available') throw new Error("Someone already claimed this spot");
 
+                // Remind 20 min before departure; skip if already past
+                const departureMs = data.reportedAt?.toMillis?.() ?? 0;
+                const reminderMs = departureMs - 20 * 60 * 1000;
+                const claimReminderAt = reminderMs > Date.now()
+                    ? Timestamp.fromMillis(reminderMs)
+                    : null;
+
                 tx.update(spotRef, {
                     status: 'interested',
                     claimState: 'committed',
                     ownerLeavingNow: null,
+                    ownerLeavingNowAt: null,
                     interestedUserId: user.id,
                     interestedUserName: user.username || user.fullName || 'Someone',
                     interestedUserVehicleColor: user.vehicleColor || null,
@@ -439,6 +456,12 @@ export function useInterestFlow({
                     etaMinutes: null,
                     // Claim lives as long as the spot itself — inherit spot's own expiry
                     interestExpiresAt: data.expiresAt,
+                    claimReminderAt,
+                    claimReminderSentAt: null,
+                    claimAutoReleaseAt: departureMs
+                        ? Timestamp.fromMillis(departureMs + 10 * 60 * 1000)
+                        : null,
+                    claimAutoReleasedAt: null,
                 });
             });
 
@@ -459,8 +482,12 @@ export function useInterestFlow({
         await updateDoc(doc(db, 'spots', spot.id), {
             claimState: 'heading',
             ownerLeavingNow: null,
+            ownerLeavingNowAt: null,
             etaMinutes,
             interestExpiresAt: Timestamp.fromMillis(Date.now() + claimMinutes * 60000),
+            claimReminderAt: null,
+            claimReminderSentAt: null,
+            claimAutoReleaseAt: null,
         });
 
         const dest: [number, number] = [spot.lng, spot.lat];
@@ -472,7 +499,11 @@ export function useInterestFlow({
         const spot = selectedItem;
         if (!spot || !user || !db) return;
 
-        await updateDoc(doc(db, 'spots', spot.id), { ownerLeavingNow: true });
+        await updateDoc(doc(db, 'spots', spot.id), {
+            ownerLeavingNow: true,
+            ownerLeavingNowAt: Timestamp.now(),
+            claimAutoReleaseAt: Timestamp.fromMillis(Date.now() + 10 * 60 * 1000),
+        });
 
         if (spot.interestedUserId) {
             await addDoc(collection(db, 'spotNotifications'), {

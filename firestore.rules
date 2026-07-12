@@ -65,11 +65,13 @@ service cloud.firestore {
         (isAvailableForClaim()
           && request.resource.data.interestedUserId == request.auth.uid
           && request.resource.data.status == 'interested'
-          && onlyChanges(['status', 'claimState', 'ownerLeavingNow',
+          && onlyChanges(['status', 'claimState', 'ownerLeavingNow', 'ownerLeavingNowAt',
                           'interestedUserId', 'interestedUserName',
                           'interestedUserVehicleColor', 'interestedUserVehicleType',
                           'interestedUserVehicleBrand', 'interestedUserTitle',
-                          'etaMinutes', 'interestExpiresAt']))
+                          'etaMinutes', 'interestExpiresAt',
+                          'claimReminderAt', 'claimReminderSentAt',
+                          'claimAutoReleaseAt', 'claimAutoReleasedAt']))
 
         // Arm 2: Claimer updates ETA
         || (isClaimer() && onlyChanges(['etaMinutes']))
@@ -77,16 +79,20 @@ service cloud.firestore {
         // Arm 2b: Claimer commits to heading (scheduled → active)
         || (isClaimer()
           && request.resource.data.status == 'interested'
-          && onlyChanges(['claimState', 'ownerLeavingNow', 'etaMinutes', 'interestExpiresAt']))
+          && onlyChanges(['claimState', 'ownerLeavingNow', 'ownerLeavingNowAt',
+                          'etaMinutes', 'interestExpiresAt',
+                          'claimReminderAt', 'claimReminderSentAt', 'claimAutoReleaseAt']))
 
         // Arm 3: Claimer cancels — clears all claimer metadata
         || (isClaimer()
           && request.resource.data.status == 'available'
-          && onlyChanges(['status', 'claimState', 'ownerLeavingNow',
+          && onlyChanges(['status', 'claimState', 'ownerLeavingNow', 'ownerLeavingNowAt',
                           'interestedUserId', 'interestedUserName',
                           'interestedUserVehicleColor', 'interestedUserVehicleType',
                           'interestedUserVehicleBrand', 'interestedUserTitle',
-                          'etaMinutes', 'interestExpiresAt']))
+                          'etaMinutes', 'interestExpiresAt',
+                          'claimReminderAt', 'claimReminderSentAt',
+                          'claimAutoReleaseAt', 'claimAutoReleasedAt']))
 
         // Arm 4: Claimer marks arrived
         || (isClaimer()
@@ -102,7 +108,7 @@ service cloud.firestore {
         || (isFinder() && onlyChanges(['interestExpiresAt']))
 
         // Arm 6b: Finder signals they are leaving now (scheduled handoff)
-        || (isFinder() && onlyChanges(['ownerLeavingNow']))
+        || (isFinder() && onlyChanges(['ownerLeavingNow', 'ownerLeavingNowAt', 'claimAutoReleaseAt']))
 
         // Arm 7: Finder accepts hold — old state must be pending, claimedBy must match requester
         || (isFinder()

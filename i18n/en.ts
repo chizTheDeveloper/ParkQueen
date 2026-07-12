@@ -132,7 +132,7 @@ const en: Record<string, string> = {
     'scheduled_claim.eyebrow': 'SPOT CLAIMED',
     'scheduled_claim.title': 'You claimed this spot',
     'scheduled_claim.opens_at': 'Opens at {time}',
-    'scheduled_claim.when_ready': "When you're ready, tap \"I'm heading there.\"",
+    'scheduled_claim.when_ready': "We'll remind you before it's time to head over.",
     'scheduled_claim.owner_leaving_now': '{name} is leaving now — are you heading over?',
     'scheduled_claim.cancel': 'Cancel claim',
     'scheduled_claim.im_heading_there': "I'm heading there",

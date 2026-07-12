@@ -77,6 +77,11 @@ export function useSpotData({ userId, blockedUsers, searchCenter, searchRadius, 
                 pingMode: s.pingMode || null,
                 claimState: s.claimState || null,
                 ownerLeavingNow: s.ownerLeavingNow || null,
+                ownerLeavingNowAt: s.ownerLeavingNowAt || null,
+                claimReminderAt: s.claimReminderAt || null,
+                claimReminderSentAt: s.claimReminderSentAt || null,
+                claimAutoReleaseAt: s.claimAutoReleaseAt || null,
+                claimAutoReleasedAt: s.claimAutoReleasedAt || null,
                 rawSpot: s
             }));
             setFreeSpots(mappedFree);

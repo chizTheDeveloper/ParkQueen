@@ -132,7 +132,7 @@ const es: Record<string, string> = {
     'scheduled_claim.eyebrow': 'LUGAR RECLAMADO',
     'scheduled_claim.title': 'Reclamaste este lugar',
     'scheduled_claim.opens_at': 'Se libera a las {time}',
-    'scheduled_claim.when_ready': 'Cuando estés listo, toca "Voy para allá."',
+    'scheduled_claim.when_ready': 'Te recordaremos antes de que sea hora de ir para allá.',
     'scheduled_claim.owner_leaving_now': '{name} se va ahora — ¿vas para allá?',
     'scheduled_claim.cancel': 'Cancelar reclamo',
     'scheduled_claim.im_heading_there': 'Voy para allá',
