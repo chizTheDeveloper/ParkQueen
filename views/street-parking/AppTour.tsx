@@ -15,6 +15,8 @@ const STEP_TARGETS = [
     { target: 'share-spot', key: 'ping_your_spot' },
     { target: 'my-car',     key: 'my_car' },
     { target: 'search',     key: 'search' },
+    { target: 'profile',    key: 'profile' },
+    { target: 'messages',   key: 'messages' },
     { target: 'bell',       key: 'bell' },
     { target: 'ai',         key: 'ai' },
 ] as const;
