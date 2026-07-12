@@ -61,11 +61,12 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.finderId == request.auth.uid;
       allow update: if signedIn() && (
 
-        // Arm 1: Claim an available spot
+        // Arm 1: Claim an available spot (immediate or scheduled)
         (isAvailableForClaim()
           && request.resource.data.interestedUserId == request.auth.uid
           && request.resource.data.status == 'interested'
-          && onlyChanges(['status', 'interestedUserId', 'interestedUserName',
+          && onlyChanges(['status', 'claimState', 'ownerLeavingNow',
+                          'interestedUserId', 'interestedUserName',
                           'interestedUserVehicleColor', 'interestedUserVehicleType',
                           'interestedUserVehicleBrand', 'interestedUserTitle',
                           'etaMinutes', 'interestExpiresAt']))
@@ -73,10 +74,16 @@ service cloud.firestore {
         // Arm 2: Claimer updates ETA
         || (isClaimer() && onlyChanges(['etaMinutes']))
 
+        // Arm 2b: Claimer commits to heading (scheduled → active)
+        || (isClaimer()
+          && request.resource.data.status == 'interested'
+          && onlyChanges(['claimState', 'ownerLeavingNow', 'etaMinutes', 'interestExpiresAt']))
+
         // Arm 3: Claimer cancels — clears all claimer metadata
         || (isClaimer()
           && request.resource.data.status == 'available'
-          && onlyChanges(['status', 'interestedUserId', 'interestedUserName',
+          && onlyChanges(['status', 'claimState', 'ownerLeavingNow',
+                          'interestedUserId', 'interestedUserName',
                           'interestedUserVehicleColor', 'interestedUserVehicleType',
                           'interestedUserVehicleBrand', 'interestedUserTitle',
                           'etaMinutes', 'interestExpiresAt']))
@@ -93,6 +100,9 @@ service cloud.firestore {
 
         // Arm 6: Finder extends claim expiry
         || (isFinder() && onlyChanges(['interestExpiresAt']))
+
+        // Arm 6b: Finder signals they are leaving now (scheduled handoff)
+        || (isFinder() && onlyChanges(['ownerLeavingNow']))
 
         // Arm 7: Finder accepts hold — old state must be pending, claimedBy must match requester
         || (isFinder()
