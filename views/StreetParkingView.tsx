@@ -120,8 +120,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
     useEffect(() => {
         if (!pendingSpotId || !mapReady) return;
         const item = spotData.freeSpots.find(s => s.id === pendingSpotId);
-        onPendingSpotConsumed?.();
         if (!item) return;
+        onPendingSpotConsumed?.();
         mapRef.current?.flyTo({ center: [item.lng, item.lat], zoom: 17, duration: 800 });
         setSelectedItem(item);
     }, [pendingSpotId, mapReady, spotData.freeSpots]);

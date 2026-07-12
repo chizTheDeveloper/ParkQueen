@@ -15,7 +15,9 @@ interface MessagesViewProps {
 export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatContext, onBack }) => {
   useLang();
   const [conversations, setConversations] = useState<any[]>([]);
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(
+    activeChatContext && user ? [user.id, activeChatContext.userId].sort().join('_') : null
+  );
   const [messages, setMessages] = useState<any[]>([]);
   const [inputText, setInputText] = useState('');
   const [moderationError, setModerationError] = useState('');
@@ -317,7 +319,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
         {/* Chat Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
           <div className="flex items-center gap-3">
-            <button onClick={() => setActiveConversationId(null)} aria-label={t('messages.back_chat_aria')} className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)]">
+            <button onClick={() => activeChatContext ? onBack() : setActiveConversationId(null)} aria-label={t('messages.back_chat_aria')} className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)]">
               <ChevronLeft size={24} />
             </button>
             <div className="w-10 h-10 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-center text-gray-500 overflow-hidden shrink-0">
