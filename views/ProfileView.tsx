@@ -326,6 +326,18 @@ export const ProfileView = ({ user, onBack, setView }) => {
               </button>
             </div>
 
+            {/* Incomplete vehicle banner */}
+            {(user.vehicleType || user.vehicleBrand) && !user.vehicleColor && (
+              <button
+                onClick={() => setView(AppView.EDIT_VEHICLE)}
+                className="w-full flex items-center gap-2.5 px-4 py-3 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-amber-400 active:scale-[0.99] transition-all"
+              >
+                <span className="text-base leading-none">⚠️</span>
+                <span className="flex-1 text-left text-xs font-semibold">{t('vehicle.incomplete_banner')}</span>
+                <ChevronRight size={13} className="shrink-0 opacity-70" />
+              </button>
+            )}
+
             {/* Recent Activity Card */}
             <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl overflow-hidden">
               <div className="px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]">
