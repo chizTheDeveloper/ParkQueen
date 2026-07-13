@@ -289,7 +289,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
                       : 'bg-[var(--color-card)] border-[var(--color-border)] hover:border-[#1e75ff]/30'
                   }`}
                 >
-                  <VehicleIcon type={typeName} color={active ? 'Blue' : undefined} size={20} />
+                  <VehicleIcon type={typeName} color={active ? 'Blue' : undefined} size={32} />
                   <span className={`text-[11px] font-semibold text-center leading-tight ${
                     active ? 'text-[#38bdf8]' : 'text-[var(--color-text-secondary)]'
                   }`}>
