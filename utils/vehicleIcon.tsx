@@ -81,14 +81,18 @@ const SILHOUETTES: Record<string, Renderer> = {
   ),
 
   // ── PICKUP TRUCK ──────────────────────────────────────────────────────────
-  // Lower cab (roof y=4 vs van y=2), two glass panes, dramatic step to open bed
+  // Cab (x=5–54) with vertical rear wall, then long flat bed (x=54–96, 86% of cab length)
+  // Q-curve subtle cab roof, 6-unit B-pillar, rear wheel positioned in bed area
   'Pickup Truck': (fill) => (
     <>
-      <path d="M4,44 L4,34 L8,26 L14,6 L20,4 L58,4 L66,10 L70,20 L70,34 L96,34 L96,44 L88,44 A9,9 0 0,1 70,44 L34,44 A9,9 0 0,1 16,44 Z" fill={fill} />
-      <path d="M14,6 L20,4 L36,4 L36,28 L14,28 Z" fill={W} />
-      <path d="M38,4 L58,4 L66,10 L66,28 L38,28 Z" fill={W} />
-      <rect x="70" y="34" width="26" height="10" fill="rgba(0,0,0,0.38)" />
-      <Wheel cx={25} r={9} /><Wheel cx={79} r={9} />
+      <path d="M5,44 L5,34 L10,26 L22,24 L28,4 Q41,2 54,4 L54,34 L96,34 L96,44 L85,44 A9,9 0 0,1 67,44 L31,44 A9,9 0 0,1 13,44 Z" fill={fill} />
+      {/* Windshield pane */}
+      <path d="M22,24 L28,4 L37,4 L37,26 L22,26 Z" fill={W} />
+      {/* Rear cab window (6-unit B-pillar gap at x=37–43) */}
+      <path d="M43,4 L54,4 L54,26 L44,26 Z" fill={W} />
+      {/* Open truck bed */}
+      <rect x="54" y="34" width="42" height="10" fill="rgba(0,0,0,0.38)" />
+      <Wheel cx={22} r={9} /><Wheel cx={76} r={9} />
     </>
   ),
 
