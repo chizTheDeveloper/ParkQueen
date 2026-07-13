@@ -36,65 +36,73 @@ function Wheel({ cx, r = 7 }: { cx: number; r?: number }) {
 
 type Renderer = (fill: string) => React.ReactElement;
 
-// viewBox "0 0 100 52". Body floors: sedans/wagons y=44, coupes y=46.
-// Wheel circles at cy=48. Height from roof to floor drives visual distinction:
-//   Van y=2 (42u), SUV y=4 (40u), Minivan y=8 (36u), Sedan/Wagon/Hatch y=14 (30u),
-//   Coupe y=20 (26u — lowest), Pickup cab y=2 with bed step-down.
 const SILHOUETTES: Record<string, Renderer> = {
 
   // ── SEDAN ─────────────────────────────────────────────────────────────────
-  // 3-box: medium hood, arched roof peak, distinct short trunk lid
+  // Classic 3-box: arched roof, distinct trunk lid, medium hood
   Sedan: (fill) => (
     <>
       <path d="M5,44 L5,36 L10,28 L28,24 L38,14 L68,14 L76,22 L80,26 L93,26 L95,38 L95,44 L86,44 A8,8 0 0,1 70,44 L30,44 A8,8 0 0,1 14,44 Z" fill={fill} />
-      <path d="M28,24 L38,14 L68,14 L76,22 Z" fill={W} />
+      {/* windshield + roof + rear window as enclosed glass zone */}
+      <path d="M28,24 L38,14 L68,14 L76,22 L76,26 L28,26 Z" fill={W} />
       <Wheel cx={22} r={8} /><Wheel cx={78} r={8} />
     </>
   ),
 
   // ── SUV ───────────────────────────────────────────────────────────────────
-  // Tall boxy — roof at y=2 vs sedan y=14, short nose, one large glass area
+  // Tall boxy — roof y=2, split glass with B-pillar so it reads as car not bus
   SUV: (fill) => (
     <>
       <path d="M4,44 L4,32 L8,24 L12,4 L18,2 L82,2 L90,8 L95,20 L96,38 L96,44 L89,44 A9,9 0 0,1 71,44 L31,44 A9,9 0 0,1 13,44 Z" fill={fill} />
-      <path d="M12,4 L18,2 L82,2 L90,8 L90,30 L12,30 Z" fill={W} />
+      {/* Front glass (windshield + front side) */}
+      <path d="M12,4 L18,2 L50,2 L50,26 L12,26 Z" fill={W} />
+      {/* Rear glass */}
+      <path d="M52,2 L82,2 L90,8 L90,26 L52,26 Z" fill={W} />
       <Wheel cx={22} r={9} /><Wheel cx={80} r={9} />
     </>
   ),
 
   // ── HATCHBACK ─────────────────────────────────────────────────────────────
-  // Sedan-style front, then C-pillar drops steeply ~65° straight to bumper (no trunk)
+  // Sedan front, steep C-pillar hatch drop — two separate glass areas
   Hatchback: (fill) => (
     <>
       <path d="M5,44 L5,36 L10,28 L28,24 L38,14 L62,14 L80,38 L84,44 L75,44 A7,7 0 0,1 61,44 L28,44 A7,7 0 0,1 14,44 Z" fill={fill} />
-      <path d="M28,24 L38,14 L62,14 L78,36 L26,26 Z" fill={W} />
+      {/* Side windows (front + rear, above belt line) */}
+      <path d="M28,25 L38,14 L62,14 L62,26 L28,26 Z" fill={W} />
+      {/* Hatch glass: steep triangle from C-pillar top to hatch bottom */}
+      <path d="M62,14 L78,36 L62,36 Z" fill={W} />
       <Wheel cx={21} /><Wheel cx={68} />
     </>
   ),
 
   // ── COUPE ─────────────────────────────────────────────────────────────────
-  // Low and long — roof y=20 (lowest), huge hood, small rearward-biased cabin
+  // Very long hood, low roof (y=18), glass spans from mid-car rearward
   Coupe: (fill) => (
     <>
-      <path d="M5,46 L5,40 L14,34 L44,30 L52,20 L74,20 L80,26 L86,30 L94,34 L95,42 L95,46 L87,46 A7,7 0 0,1 73,46 L29,46 A7,7 0 0,1 15,46 Z" fill={fill} />
-      <path d="M44,30 L52,20 L74,20 L80,26 L80,30 Z" fill={W} />
+      <path d="M5,46 L5,40 L14,34 L46,30 L54,18 L78,18 L86,24 L90,30 L94,34 L95,42 L95,46 L87,46 A7,7 0 0,1 73,46 L29,46 A7,7 0 0,1 15,46 Z" fill={fill} />
+      {/* Longer greenhouse: windshield rises from long hood, glass extends to C-pillar */}
+      <path d="M46,30 L54,18 L78,18 L86,24 L86,30 L46,30 Z" fill={W} />
       <Wheel cx={22} /><Wheel cx={80} />
     </>
   ),
 
   // ── PICKUP TRUCK ──────────────────────────────────────────────────────────
-  // Tall cab (roof y=2) then dramatic 30-unit step DOWN to flat open bed at y=34
+  // Tall cab (roof y=2) with windshield + rear-cab panes, dramatic step to open bed
   'Pickup Truck': (fill) => (
     <>
       <path d="M4,44 L4,34 L8,26 L14,4 L20,2 L58,2 L66,8 L70,18 L70,34 L96,34 L96,44 L88,44 A9,9 0 0,1 70,44 L34,44 A9,9 0 0,1 16,44 Z" fill={fill} />
-      <path d="M14,4 L20,2 L58,2 L66,8 L66,30 L14,30 Z" fill={W} />
-      <rect x="70" y="34" width="26" height="10" fill="rgba(0,0,0,0.35)" />
+      {/* Windshield pane */}
+      <path d="M14,4 L20,2 L36,2 L36,26 L14,26 Z" fill={W} />
+      {/* Rear cab window */}
+      <path d="M38,2 L58,2 L66,8 L66,26 L38,26 Z" fill={W} />
+      {/* Open bed (darker to show it's empty/open) */}
+      <rect x="70" y="34" width="26" height="10" fill="rgba(0,0,0,0.38)" />
       <Wheel cx={25} r={9} /><Wheel cx={79} r={9} />
     </>
   ),
 
   // ── VAN ───────────────────────────────────────────────────────────────────
-  // Nearly vertical front face, tallest (roof y=2), 4 window panes across length
+  // Near-vertical front face, tallest, 4 full-height window panes
   Van: (fill) => (
     <>
       <path d="M4,44 L4,30 L6,4 L10,2 L88,2 L94,8 L97,16 L97,38 L97,44 L89,44 A8,8 0 0,1 73,44 L29,44 A8,8 0 0,1 13,44 Z" fill={fill} />
@@ -107,34 +115,41 @@ const SILHOUETTES: Record<string, Renderer> = {
   ),
 
   // ── MINIVAN ───────────────────────────────────────────────────────────────
-  // Family van — taller than sedan (roof y=4), curved nose, 3 window sections
+  // Family height (roof y=4), sloped nose, 3 panes with clear body panel below belt
   Minivan: (fill) => (
     <>
       <path d="M4,44 L4,36 L8,28 L14,16 L20,8 L28,4 L84,4 L92,10 L96,22 L96,38 L96,44 L88,44 A8,8 0 0,1 72,44 L28,44 A8,8 0 0,1 12,44 Z" fill={fill} />
-      <path d="M20,8 L28,4 L44,4 L44,28 L18,28 Z" fill={W} />
-      <path d="M46,4 L66,4 L66,28 L46,28 Z" fill={W} />
-      <path d="M68,4 L84,4 L92,10 L96,22 L82,28 L68,28 Z" fill={W} />
+      {/* Belt line at y=26; three windows above it */}
+      <path d="M20,8 L28,4 L44,4 L44,26 L18,26 Z" fill={W} />
+      <path d="M46,4 L66,4 L66,26 L46,26 Z" fill={W} />
+      <path d="M68,4 L84,4 L92,10 L96,22 L82,26 L68,26 Z" fill={W} />
       <Wheel cx={20} r={8} /><Wheel cx={80} r={8} />
     </>
   ),
 
   // ── WAGON ─────────────────────────────────────────────────────────────────
-  // Station wagon — sedan front, then roof extends flat 52 units to rear, drops vertically
+  // Sedan front, flat roof all the way to rear, vertical rear drop — 2 glass panes
   Wagon: (fill) => (
     <>
       <path d="M5,44 L5,36 L10,28 L28,24 L38,14 L90,14 L92,18 L92,38 L92,44 L84,44 A7,7 0 0,1 70,44 L28,44 A7,7 0 0,1 14,44 Z" fill={fill} />
-      <path d="M28,24 L38,14 L90,14 L92,18 L92,24 L28,24 Z" fill={W} />
+      {/* Front windshield */}
+      <path d="M28,24 L38,14 L56,14 L56,26 L28,26 Z" fill={W} />
+      {/* Large rear glass spanning the extended roof */}
+      <path d="M58,14 L90,14 L92,18 L92,26 L58,26 Z" fill={W} />
       <Wheel cx={21} /><Wheel cx={77} />
     </>
   ),
 
   // ── CONVERTIBLE ───────────────────────────────────────────────────────────
-  // No roof — only windshield A-pillars visible; dark open cockpit shows top-down
+  // No roof — small windshield frame, fully open cockpit (dark interior shows through)
   Convertible: (fill) => (
     <>
-      <path d="M5,46 L5,38 L14,32 L38,28 L48,22 L70,22 L74,26 L80,30 L90,34 L94,42 L95,46 L87,46 A7,7 0 0,1 73,46 L28,46 A7,7 0 0,1 14,46 Z" fill={fill} />
-      <path d="M38,28 L48,22 L70,22 L70,28 Z" fill={W} />
-      <path d="M38,28 L70,28 L80,30 L80,42 L38,42 Z" fill="rgba(0,0,0,0.5)" />
+      {/* Low body panels — no roof structure */}
+      <path d="M5,46 L5,38 L14,32 L36,28 L46,22 L70,22 L74,26 L80,30 L90,34 L94,42 L95,46 L87,46 A7,7 0 0,1 73,46 L27,46 A7,7 0 0,1 13,46 Z" fill={fill} />
+      {/* Windshield A-pillars only (car-width glass triangle, no roof) */}
+      <path d="M36,28 L46,22 L70,22 L70,28 Z" fill={W} />
+      {/* Open cockpit interior visible from the side */}
+      <path d="M36,28 L70,28 L80,30 L80,42 L36,42 Z" fill="rgba(0,0,0,0.48)" />
       <Wheel cx={21} /><Wheel cx={80} />
     </>
   ),
