@@ -2227,16 +2227,64 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
             )}
 
             {interestFlow.finderToast && (
-                <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 bg-[var(--color-glass)] backdrop-blur-xl border border-blue-500/30 text-[var(--color-text)] font-semibold py-3 px-5 rounded-2xl flex items-center gap-2.5 shadow-2xl">
-                    <div className="w-7 h-7 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0"><Check size={14} className="text-blue-400" /></div>
-                    <span className="text-sm">{interestFlow.finderToast}</span>
+                <div className="absolute top-20 left-0 right-0 flex justify-center z-20 px-4 pointer-events-none">
+                    <button
+                        onClick={interestFlow.clearFinderToast}
+                        className={`notif-slide-down pointer-events-auto flex items-start gap-3 px-4 py-3.5 rounded-2xl backdrop-blur-xl shadow-2xl border max-w-sm w-full text-left active:scale-[0.98] transition-transform ${
+                            interestFlow.finderToastVariant === 'success'
+                                ? 'bg-emerald-950/85 border-emerald-500/25'
+                                : 'bg-slate-900/90 border-blue-500/20'
+                        }`}
+                    >
+                        <div className={`mt-0.5 shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${interestFlow.finderToastVariant === 'success' ? 'bg-emerald-500/20' : 'bg-blue-500/20'}`}>
+                            {interestFlow.finderToastVariant === 'success'
+                                ? <CheckCircle2 size={16} className="text-emerald-400" />
+                                : <Bell size={16} className="text-blue-400" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <p className={`text-sm font-semibold leading-snug ${interestFlow.finderToastVariant === 'success' ? 'text-emerald-300' : 'text-blue-300'}`}>
+                                {interestFlow.finderToastTitle}
+                            </p>
+                            <p className="text-xs text-white/55 mt-0.5 leading-snug">{interestFlow.finderToast}</p>
+                        </div>
+                        <X size={13} className="text-white/25 shrink-0 mt-1" />
+                    </button>
                 </div>
             )}
 
             {interestFlow.driverNotification && (
-                <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 bg-[var(--color-glass)] backdrop-blur-xl border border-amber-500/30 text-[var(--color-text)] font-semibold py-3 px-5 rounded-2xl flex items-center gap-2.5 shadow-2xl">
-                    <div className="w-7 h-7 rounded-full bg-amber-500/20 flex items-center justify-center shrink-0"><Bell size={14} className="text-amber-400" /></div>
-                    <span className="text-sm">{interestFlow.driverNotification}</span>
+                <div className="absolute top-20 left-0 right-0 flex justify-center z-20 px-4 pointer-events-none">
+                    <button
+                        onClick={interestFlow.clearDriverNotification}
+                        className={`notif-slide-down pointer-events-auto flex items-start gap-3 px-4 py-3.5 rounded-2xl backdrop-blur-xl shadow-2xl border max-w-sm w-full text-left active:scale-[0.98] transition-transform ${
+                            interestFlow.driverNotifVariant === 'success'
+                                ? 'bg-emerald-950/85 border-emerald-500/25'
+                                : interestFlow.driverNotifVariant === 'warning'
+                                ? 'bg-amber-950/85 border-amber-500/25'
+                                : 'bg-slate-900/90 border-blue-500/20'
+                        }`}
+                    >
+                        <div className={`mt-0.5 shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
+                            interestFlow.driverNotifVariant === 'success' ? 'bg-emerald-500/20'
+                            : interestFlow.driverNotifVariant === 'warning' ? 'bg-amber-500/20'
+                            : 'bg-blue-500/20'
+                        }`}>
+                            {interestFlow.driverNotifVariant === 'success'
+                                ? <CheckCircle2 size={16} className="text-emerald-400" />
+                                : interestFlow.driverNotifVariant === 'warning'
+                                ? <Clock size={16} className="text-amber-400" />
+                                : <Bell size={16} className="text-blue-400" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <p className={`text-sm font-semibold leading-snug ${
+                                interestFlow.driverNotifVariant === 'success' ? 'text-emerald-300'
+                                : interestFlow.driverNotifVariant === 'warning' ? 'text-amber-300'
+                                : 'text-blue-300'
+                            }`}>{interestFlow.driverNotifTitle}</p>
+                            <p className="text-xs text-white/55 mt-0.5 leading-snug">{interestFlow.driverNotification}</p>
+                        </div>
+                        <X size={13} className="text-white/25 shrink-0 mt-1" />
+                    </button>
                 </div>
             )}
 

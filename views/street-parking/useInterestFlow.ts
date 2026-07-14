@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { db } from '../../firebase';
 import { doc, updateDoc, deleteDoc, runTransaction, Timestamp, collection, query, where, getDocs, addDoc, onSnapshot, orderBy, limit, increment } from 'firebase/firestore';
 import { MapItem } from './types';
@@ -38,7 +38,11 @@ export function useInterestFlow({
     } | null>(null);
     const [handoffSpotCoords, setHandoffSpotCoords] = useState<{ lat: number; lng: number; address: string } | null>(null);
     const [finderToast, setFinderToast] = useState<string | null>(null);
+    const [finderToastTitle, setFinderToastTitle] = useState<string | null>(null);
+    const [finderToastVariant, setFinderToastVariant] = useState<'success' | 'info'>('success');
     const [driverNotification, setDriverNotification] = useState<string | null>(null);
+    const [driverNotifTitle, setDriverNotifTitle] = useState<string | null>(null);
+    const [driverNotifVariant, setDriverNotifVariant] = useState<'success' | 'warning' | 'info'>('info');
 
     // Listen for notifications targeted at this user (as the interested driver)
     useEffect(() => {
@@ -53,8 +57,19 @@ export function useInterestFlow({
             snap.docChanges().forEach(change => {
                 if (change.type === 'added') {
                     const data = change.doc.data();
+                    const notifMeta: Record<string, { title: string; variant: 'success' | 'warning' | 'info' }> = {
+                        cancelled: { title: 'Spot cancelled', variant: 'warning' },
+                        claimer_cancelled: { title: 'Spot available again', variant: 'success' },
+                        owner_leaving_now: { title: 'Owner leaving now', variant: 'info' },
+                        scheduled_claim_auto_released: { title: 'Claim released', variant: 'warning' },
+                        handoff_success: { title: "You're parked!", variant: 'success' },
+                        delayed: { title: 'Small delay', variant: 'info' },
+                    };
+                    const meta = notifMeta[data.type] ?? { title: 'Update', variant: 'info' as const };
                     setDriverNotification(data.message);
-                    setTimeout(() => setDriverNotification(null), 5000);
+                    setDriverNotifTitle(meta.title);
+                    setDriverNotifVariant(meta.variant);
+                    setTimeout(() => { setDriverNotification(null); setDriverNotifTitle(null); }, 5000);
                     if (data.type === 'cancelled') {
                         setTrackedItemId(null);
                         activeRouteDestinationRef.current = null;
@@ -70,6 +85,8 @@ export function useInterestFlow({
                     }
                     if (data.type === 'handoff_success') {
                         setFinderToast(data.message);
+                        setFinderToastTitle('Confirmed!');
+                        setFinderToastVariant('success');
                         setTimeout(() => setFinderToast(null), 6000);
                     }
                     deleteDoc(change.doc.ref).catch(() => {});
@@ -119,7 +136,9 @@ export function useInterestFlow({
 
         expiryWarnTimerRef.current = setTimeout(() => {
             setDriverNotification("Your claim expires in 2 minutes — still heading there?");
-            setTimeout(() => setDriverNotification(null), 8000);
+            setDriverNotifTitle('Heads up');
+            setDriverNotifVariant('warning');
+            setTimeout(() => { setDriverNotification(null); setDriverNotifTitle(null); }, 8000);
         }, delay);
 
         return () => { if (expiryWarnTimerRef.current) clearTimeout(expiryWarnTimerRef.current); };
@@ -242,6 +261,8 @@ export function useInterestFlow({
         }
 
         setFinderToast(`Nice one! ${claimerName} is parked. +2 Crowns earned.`);
+        setFinderToastTitle('Crown earned!');
+        setFinderToastVariant('success');
         setTimeout(() => setFinderToast(null), 6000);
         setSelectedItem(null);
     };
@@ -302,6 +323,8 @@ export function useInterestFlow({
             });
         }
         setFinderToast('The other driver has been notified');
+        setFinderToastTitle('All set');
+        setFinderToastVariant('info');
         setTimeout(() => setFinderToast(null), 3000);
     };
 
@@ -524,6 +547,12 @@ export function useInterestFlow({
         setSelectedItem(null);
     };
 
+    const clearDriverNotification = useCallback(() => {
+        setDriverNotification(null);
+        setDriverNotifTitle(null);
+    }, []);
+    const clearFinderToast = useCallback(() => setFinderToast(null), []);
+
     return {
         trackedItemId,
         interestError,
@@ -533,7 +562,13 @@ export function useInterestFlow({
         handoffAddress,
         handoffSpotCoords,
         finderToast,
+        finderToastTitle,
+        finderToastVariant,
+        clearFinderToast,
         driverNotification,
+        driverNotifTitle,
+        driverNotifVariant,
+        clearDriverNotification,
         handleExpressInterest,
         handleScheduledClaim,
         handleCommitToHeading,
