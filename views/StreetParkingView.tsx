@@ -620,6 +620,31 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
     const otherSpots = spotData.radiusFilteredItems.filter(s => s.finderId !== user?.id);
     const spotCount = otherSpots.length;
 
+    const [pillToast, setPillToast] = useState<string | null>(null);
+    useEffect(() => {
+        if (!pillToast) return;
+        const id = setTimeout(() => setPillToast(null), 3000);
+        return () => clearTimeout(id);
+    }, [pillToast]);
+
+    const handleNearbyPillClick = useCallback(() => {
+        const spots = spotData.radiusFilteredItems.filter(s => s.finderId !== user?.id);
+        if (spots.length === 0) {
+            setPillToast(t('map.no_spots_available_now'));
+            return;
+        }
+        const origin: [number, number] = userLocation ?? (() => {
+            const c = mapRef.current?.getCenter();
+            return c ? [c.lng, c.lat] : null;
+        })() ?? [spots[0].lng, spots[0].lat];
+        const nearest = spots.reduce((best, s) => {
+            const d = getDistance(origin[1], origin[0], s.lat, s.lng);
+            return d < getDistance(origin[1], origin[0], best.lat, best.lng) ? s : best;
+        }, spots[0]);
+        mapRef.current?.flyTo({ center: [nearest.lng, nearest.lat], zoom: 17, duration: 800 });
+        setSelectedItem(nearest);
+    }, [spotData.radiusFilteredItems, user?.id, userLocation]);
+
 
 
     // Reset remove-car confirmation state whenever the session sheet closes
@@ -2202,15 +2227,25 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
                     <div className="w-full max-w-[380px] mx-auto mt-1 pointer-events-auto">
                         {spotCount > 0 ? (
                             <div className="flex items-center gap-1.5 flex-wrap">
-                                <div className="inline-flex items-center gap-1.5 bg-[var(--color-card)] backdrop-blur-xl border border-emerald-500/20 rounded-full px-2.5 py-1 text-[10px] font-semibold text-emerald-400 shadow-md">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse motion-reduce:animate-none" />
+                                <button
+                                    onClick={handleNearbyPillClick}
+                                    aria-label={spotCount === 1 ? t('map.view_nearby_spot') : t('map.view_nearby_spots')}
+                                    className="inline-flex items-center gap-1.5 bg-[var(--color-card)] backdrop-blur-xl border border-emerald-500/20 rounded-full px-2.5 py-1 text-[10px] font-semibold text-emerald-400 shadow-md cursor-pointer active:scale-95 active:opacity-80 transition-transform"
+                                >
+                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse motion-reduce:animate-none shrink-0" />
                                     {spotCount === 1 ? t('map.free_spot_singular') : t('map.free_spots_plural', { count: spotCount })}
-                                </div>
+                                    <ChevronRight size={10} className="opacity-60 shrink-0" />
+                                </button>
                             </div>
                         ) : mapReady && !spotData.activeSpots.find(s => s.finderId === user?.id) && (
                             <div className="inline-flex items-center gap-1.5 bg-[var(--color-card)] backdrop-blur-xl border border-rose-500/15 rounded-full px-2.5 py-1 text-[10px] font-semibold text-[var(--color-text-secondary)] shadow-md">
                                 <div className="w-1.5 h-1.5 rounded-full bg-rose-700/60 shrink-0" />
                                 {t('map.no_spots_nearby')}
+                            </div>
+                        )}
+                        {pillToast && (
+                            <div className="mt-1.5 inline-flex items-center gap-1.5 bg-[var(--color-card)] backdrop-blur-xl border border-white/10 rounded-full px-2.5 py-1 text-[10px] font-semibold text-[var(--color-text-secondary)] shadow-md">
+                                {pillToast}
                             </div>
                         )}
                     </div>
