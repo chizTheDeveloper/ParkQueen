@@ -627,6 +627,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
         return () => clearTimeout(id);
     }, [pillToast]);
 
+    const [nearbyPillSheet, setNearbyPillSheet] = useState(false);
+
     const handleNearbyPillClick = useCallback(() => {
         const spots = spotData.radiusFilteredItems.filter(s => s.finderId !== user?.id);
         if (spots.length === 0) {
@@ -637,12 +639,29 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
             const c = mapRef.current?.getCenter();
             return c ? [c.lng, c.lat] : null;
         })() ?? [spots[0].lng, spots[0].lat];
-        const nearest = spots.reduce((best, s) => {
-            const d = getDistance(origin[1], origin[0], s.lat, s.lng);
-            return d < getDistance(origin[1], origin[0], best.lat, best.lng) ? s : best;
-        }, spots[0]);
-        mapRef.current?.flyTo({ center: [nearest.lng, nearest.lat], zoom: 17, duration: 800 });
-        setSelectedItem(nearest);
+        const dist = (s: typeof spots[0]) => getDistance(origin[1], origin[0], s.lat, s.lng);
+        const nowMs3 = Date.now();
+        const isScheduled = (s: typeof spots[0]) => {
+            const ms = s.reportedAt
+                ? (typeof (s.reportedAt as any).toMillis === 'function' ? (s.reportedAt as any).toMillis()
+                    : typeof (s.reportedAt as any).seconds === 'number' ? (s.reportedAt as any).seconds * 1000 : 0)
+                : 0;
+            return s.pingMode === 'later' || (!s.pingMode && ms > nowMs3 + 5 * 60_000);
+        };
+        const sorted = [...spots].sort((a, b) => {
+            const sa = isScheduled(a) ? 1 : 0;
+            const sb = isScheduled(b) ? 1 : 0;
+            if (sa !== sb) return sa - sb;
+            return dist(a) - dist(b);
+        });
+        if (sorted.length === 1) {
+            mapRef.current?.flyTo({ center: [sorted[0].lng, sorted[0].lat], zoom: 17, duration: 800 });
+            setSelectedItem(sorted[0]);
+        } else {
+            setSelectedItem(null);
+            setNearbyPillSheet(true);
+            setStackGroup(sorted);
+        }
     }, [spotData.radiusFilteredItems, user?.id, userLocation]);
 
 
@@ -2004,13 +2023,22 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
             </BottomSheet>
 
             {/* Spot stack sheet — multiple community shared spots nearby */}
-            <BottomSheet isOpen={!!stackGroup} ariaLabel="Nearby pings" onClose={() => setStackGroup(null)}>
+            <BottomSheet isOpen={!!stackGroup} ariaLabel="Nearby pings" onClose={() => { setStackGroup(null); setNearbyPillSheet(false); }}>
                 {stackGroup && (() => {
                     const nowMs2 = Date.now();
+                    const origin2: [number, number] = userLocation ?? (() => {
+                        const c = mapRef.current?.getCenter();
+                        return c ? [c.lng, c.lat] : null;
+                    })() ?? [stackGroup[0].lng, stackGroup[0].lat];
+                    const distLabel = (item: MapItem) => {
+                        const km = getDistance(origin2[1], origin2[0], item.lat, item.lng);
+                        if (km < 0.5) return `${Math.round(km * 3280.84)} ft away`;
+                        return `${(km * 0.621371).toFixed(1)} mi away`;
+                    };
                     const getSpotMeta = (item: MapItem) => {
                         const ms = item.reportedAt
-                            ? (typeof item.reportedAt.toMillis === 'function' ? item.reportedAt.toMillis()
-                                : typeof item.reportedAt.seconds === 'number' ? item.reportedAt.seconds * 1000 : 0)
+                            ? (typeof (item.reportedAt as any).toMillis === 'function' ? (item.reportedAt as any).toMillis()
+                                : typeof (item.reportedAt as any).seconds === 'number' ? (item.reportedAt as any).seconds * 1000 : 0)
                             : 0;
                         const isScheduled = item.pingMode === 'later' || (!item.pingMode && ms > nowMs2 + 5 * 60_000);
                         let statusLabel: string;
@@ -2024,16 +2052,18 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
                             statusLabel = t('spot_details.leaving_now');
                         }
                         const expiresMs = item.expiresAt
-                            ? (typeof item.expiresAt.toMillis === 'function' ? item.expiresAt.toMillis() : 0)
+                            ? (typeof (item.expiresAt as any).toMillis === 'function' ? (item.expiresAt as any).toMillis() : 0)
                             : 0;
                         const expiryMin = !isScheduled && expiresMs > nowMs2 ? Math.round((expiresMs - nowMs2) / 60000) : 0;
                         const address = item.address || item.title || t('map.nearby_shared_spot');
                         return { statusLabel, isScheduled, address, expiryMin };
                     };
+                    const title = nearbyPillSheet ? t('map.nearby_spots_title') : t('map.pings_nearby', { count: stackGroup.length });
+                    const subtitle = nearbyPillSheet ? t('map.nearby_spots_subtitle') : t('map.choose_spot');
                     return (
                         <div>
-                            <p className="text-base font-bold text-[var(--color-text)] mb-0.5">{t('map.pings_nearby', { count: stackGroup.length })}</p>
-                            <p className="text-xs text-[var(--color-text-secondary)] mb-4">{t('map.choose_spot')}</p>
+                            <p className="text-base font-bold text-[var(--color-text)] mb-0.5">{title}</p>
+                            <p className="text-xs text-[var(--color-text-secondary)] mb-4">{subtitle}</p>
                             <div className="flex flex-col gap-2">
                                 {stackGroup.map(item => {
                                     const { statusLabel, isScheduled, address, expiryMin } = getSpotMeta(item);
@@ -2057,20 +2087,26 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
                                         <button
                                             key={item.id}
                                             onClick={() => {
-                                                const fresh = itemsRef.current.find(i => i.id === item.id) || item;
+                                                const fresh = itemsRef.current.find(i => i.id === item.id);
+                                                if (!fresh) {
+                                                    setPillToast(t('map.spot_no_longer_available'));
+                                                    setStackGroup(null);
+                                                    setNearbyPillSheet(false);
+                                                    return;
+                                                }
+                                                setStackGroup(null);
+                                                setNearbyPillSheet(false);
+                                                mapRef.current?.flyTo({ center: [fresh.lng, fresh.lat], zoom: 17, duration: 800 });
                                                 setSpotDetailsBackStack(stackGroup);
                                                 setSelectedItem(fresh);
-                                                setStackGroup(null);
                                             }}
                                             className="flex items-start gap-3 w-full px-4 py-3.5 rounded-2xl bg-[var(--color-card)] border border-[var(--color-border)] text-left hover:border-[#1e75ff]/40 transition-all active:scale-[0.98]"
                                         >
-                                            <div className={`w-2 h-2 rounded-full shrink-0 mt-1 ${isScheduled ? 'bg-yellow-400' : 'bg-[#1e75ff]'}`} />
+                                            <div className={`w-2 h-2 rounded-full shrink-0 mt-1 ${isScheduled ? 'bg-yellow-400' : 'bg-emerald-400'}`} />
                                             <div className="flex-1 min-w-0">
                                                 <p className="text-sm font-semibold text-[var(--color-text)]">{statusLabel}</p>
                                                 <p className="text-xs text-[var(--color-text-secondary)] truncate">{address}</p>
-                                                {expiryMin > 0 && (
-                                                    <p className="text-xs text-[var(--color-text-secondary)]">{t('map.expires_in_min', { min: expiryMin })}</p>
-                                                )}
+                                                <p className="text-xs text-[var(--color-text-secondary)]">{distLabel(item)}{expiryMin > 0 ? ` · ${t('map.expires_in_min', { min: expiryMin })}` : ''}</p>
                                             </div>
                                             <span className="text-[var(--color-text-secondary)] text-xs mt-0.5">›</span>
                                         </button>
