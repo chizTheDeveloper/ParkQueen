@@ -11,6 +11,9 @@ interface Props {
   segmentId: string;
   parkingSide: string | null;
   streetName: string;
+  sideConfidence: 'high' | 'low' | 'unknown';
+  confirmedParkingSide: string | null;
+  onConfirmSide: (side: string) => void;
   onResult?: (result: SafeUntilResult | null) => void;
 }
 
@@ -27,11 +30,17 @@ const SIDE_LABELS: Record<string, string> = {
   East: 'East side', West: 'West side',
 };
 
-export const StreetIntelligenceCard = ({ segmentId, parkingSide, streetName, onResult }: Props) => {
+export const StreetIntelligenceCard = ({
+  segmentId, parkingSide, streetName,
+  sideConfidence, confirmedParkingSide, onConfirmSide,
+  onResult,
+}: Props) => {
+  // Effective side: user-confirmed takes priority, then GPS only if confidence is high
+  const effectiveSide = confirmedParkingSide || (sideConfidence === 'high' ? parkingSide : null);
+
   const [result, setResult] = useState<SafeUntilResult | null>(null);
   const [scheduleCount, setScheduleCount] = useState(0);
-  const [sideUnknown, setSideUnknown] = useState(false);
-  const [displaySchedules, setDisplaySchedules] = useState<CleaningSchedule[]>([]);
+  const [availableSides, setAvailableSides] = useState<string[]>([]);
   const [needsReview, setNeedsReview] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -46,9 +55,13 @@ export const StreetIntelligenceCard = ({ segmentId, parkingSide, streetName, onR
 
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
+    setLoadError(false);
+    setResult(null);
+    setAvailableSides([]);
 
     const load = async () => {
-      cdbg(`load — segmentId:${segmentId} parkingSide:${parkingSide} streetName:${streetName}`);
+      cdbg(`load — segmentId:${segmentId} parkingSide:${parkingSide} sideConfidence:${sideConfidence} confirmedParkingSide:${confirmedParkingSide ?? 'null'} effectiveSide:${effectiveSide ?? 'null'} streetName:${streetName}`);
       try {
         const [segSnap, rulesSnap, suspSnap] = await Promise.all([
           getDoc(doc(db, 'streetSegments', segmentId)),
@@ -78,21 +91,22 @@ export const StreetIntelligenceCard = ({ segmentId, parkingSide, streetName, onR
         );
 
         setScheduleCount(allSchedules.length);
-        setDisplaySchedules(allSchedules);
 
-        if (!parkingSide) {
-          // Side not known — show "rules found, side unconfirmed" if any rules exist
-          cdbg(`UI branch: side-unknown (schedules=${allSchedules.length})`);
-          setSideUnknown(allSchedules.length > 0);
+        if (!effectiveSide) {
+          // No confirmed side and GPS confidence is low/unknown — show side picker if data exists
+          const sides = [...new Set(allSchedules.map(s => s.side))].filter(Boolean);
+          cdbg(`UI branch: side-picker (availableSides=${JSON.stringify(sides)} schedules=${allSchedules.length})`);
+          setAvailableSides(sides);
           onResult?.(null);
           return;
         }
 
-        cdbg(`computeSafeUntil input: parkingSide="${parkingSide}" scheduleCount=${allSchedules.length} suspensionCount=${suspensions.length}`);
-        const r = computeSafeUntil(allSchedules, parkingSide, suspensions);
+        cdbg(`computeSafeUntil input: effectiveSide="${effectiveSide}" scheduleCount=${allSchedules.length} suspensionCount=${suspensions.length}`);
+        const r = computeSafeUntil(allSchedules, effectiveSide, suspensions);
         cdbg(`computeSafeUntil result: activeNow=${r.activeNow} safeUntil=${r.safeUntil?.toISOString() ?? 'null'} nextDay=${r.nextDay ?? 'null'} nextTime=${r.nextTime ?? 'null'} scheduleDescription=${r.scheduleDescription ?? 'null'}`);
 
-        const branch = r.scheduleDescription === null ? 'no-schedule'
+        const branch = r.scheduleDescription === null
+          ? (allSchedules.length > 0 ? 'side-mismatch' : 'no-schedule')
           : r.activeNow ? 'active-now'
           : r.nextDay ? 'safe-until'
           : 'no-upcoming';
@@ -112,7 +126,17 @@ export const StreetIntelligenceCard = ({ segmentId, parkingSide, streetName, onR
     load();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [segmentId, parkingSide]);
+  }, [segmentId, effectiveSide]);
+
+  const debugBlock = isDebugMode && debugLines.length > 0 ? (
+    <div style={{ marginTop: 8, padding: '6px 8px', background: 'rgba(0,0,0,0.85)', borderRadius: 8, border: '1px solid #1e75ff55' }}>
+      <p style={{ color: '#1e75ff', fontWeight: 700, fontSize: 10, margin: '0 0 4px', fontFamily: 'monospace' }}>StreetIntelCardDebug</p>
+      {debugLines.map((l, i) => {
+        const isWarn = l.includes('null') || l.includes('no-schedule') || l.includes('side-mismatch') || l.includes('error');
+        return <p key={i} style={{ margin: '1px 0', fontSize: 10, color: isWarn ? '#f87171' : '#a3e635', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{l}</p>;
+      })}
+    </div>
+  ) : null;
 
   if (loading) {
     return (
@@ -131,46 +155,49 @@ export const StreetIntelligenceCard = ({ segmentId, parkingSide, streetName, onR
     );
   }
 
-  if (sideUnknown) {
-    const sideUnknownDebugBlock = isDebugMode && debugLines.length > 0 ? (
-      <div style={{ marginTop: 8, padding: '6px 8px', background: 'rgba(0,0,0,0.85)', borderRadius: 8, border: '1px solid #1e75ff55' }}>
-        <p style={{ color: '#1e75ff', fontWeight: 700, fontSize: 10, margin: '0 0 4px', fontFamily: 'monospace' }}>StreetIntelCardDebug</p>
-        {debugLines.map((l, i) => {
-          const isWarn = l.includes('null') || l.includes('no-schedule') || l.includes('error');
-          return <p key={i} style={{ margin: '1px 0', fontSize: 10, color: isWarn ? '#f87171' : '#a3e635', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{l}</p>;
-        })}
-      </div>
-    ) : null;
+  // No effective side yet — show side picker if schedules exist
+  if (!effectiveSide) {
+    if (availableSides.length === 0) {
+      // No schedules at all — nothing to show
+      return null;
+    }
     return (
-      <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-4 mb-4">
+      <div className="rounded-2xl border border-amber-500/25 bg-amber-950/20 px-4 py-4 mb-4">
         <div className="flex items-center gap-2 mb-2">
-          <AlertTriangle size={14} className="text-yellow-400 shrink-0" />
-          <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest">
+          <AlertTriangle size={14} className="text-amber-400 shrink-0" />
+          <p className="text-[11px] font-bold text-amber-300/70 uppercase tracking-widest">
             Street cleaning found
           </p>
         </div>
         <p className="text-sm text-white font-semibold mb-1">
-          We found cleaning rules for this street, but couldn't confirm which side you parked on.
+          Which side are you parked on?
         </p>
-        <p className="text-xs text-[var(--color-text-secondary)]">
-          Check the street signs before leaving your car.
+        <p className="text-xs text-[var(--color-text-secondary)] mb-3">
+          We found schedules for {streetName}. Confirm your side for your Safe Until time.
         </p>
-        {sideUnknownDebugBlock}
+        <div className="flex gap-2 flex-wrap">
+          {availableSides.map(side => (
+            <button
+              key={side}
+              onClick={() => onConfirmSide(side)}
+              className="px-3 py-1.5 text-xs font-semibold rounded-xl border border-white/20 bg-white/5 text-white active:scale-95 transition-transform"
+            >
+              {SIDE_LABELS[side] ?? side}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-[var(--color-text-secondary)] mt-3">
+          Check posted signs before leaving your car.
+        </p>
+        {debugBlock}
       </div>
     );
   }
 
   if (!result) return null;
 
-  const debugBlock = isDebugMode && debugLines.length > 0 ? (
-    <div style={{ marginTop: 8, padding: '6px 8px', background: 'rgba(0,0,0,0.85)', borderRadius: 8, border: '1px solid #1e75ff55' }}>
-      <p style={{ color: '#1e75ff', fontWeight: 700, fontSize: 10, margin: '0 0 4px', fontFamily: 'monospace' }}>StreetIntelCardDebug</p>
-      {debugLines.map((l, i) => {
-        const isWarn = l.includes('null') || l.includes('no-schedule') || l.includes('error');
-        return <p key={i} style={{ margin: '1px 0', fontSize: 10, color: isWarn ? '#f87171' : '#a3e635', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{l}</p>;
-      })}
-    </div>
-  ) : null;
+  const sideLabel = SIDE_LABELS[effectiveSide] ?? effectiveSide;
+  const sideHeader = `${streetName} · ${sideLabel}${confirmedParkingSide ? ' ✓' : ''}`;
 
   if (!result.scheduleDescription) {
     return (
@@ -178,10 +205,14 @@ export const StreetIntelligenceCard = ({ segmentId, parkingSide, streetName, onR
         <div className="flex items-center gap-2 mb-1">
           <Leaf size={14} className="text-[var(--color-text-secondary)]" />
           <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest">
-            {streetName}{parkingSide ? ` · ${SIDE_LABELS[parkingSide] ?? parkingSide}` : ''}
+            {sideHeader}
           </p>
         </div>
-        <p className="text-sm text-[var(--color-text-secondary)]">No cleaning schedule on file for this side yet.</p>
+        <p className="text-sm text-[var(--color-text-secondary)]">
+          {confirmedParkingSide
+            ? `No cleaning schedule on file for the ${sideLabel.toLowerCase()}.`
+            : 'No cleaning schedule on file for this side yet.'}
+        </p>
         {debugBlock}
       </div>
     );
@@ -193,7 +224,7 @@ export const StreetIntelligenceCard = ({ segmentId, parkingSide, streetName, onR
       <div className="flex items-center gap-2 mb-3">
         <Leaf size={14} className="text-[var(--color-text-secondary)]" />
         <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest">
-          {streetName}{parkingSide ? ` · ${SIDE_LABELS[parkingSide] ?? parkingSide}` : ''}
+          {sideHeader}
         </p>
       </div>
 
@@ -242,6 +273,11 @@ export const StreetIntelligenceCard = ({ segmentId, parkingSide, streetName, onR
         ) : (
           <span className="text-[10px] font-semibold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full border border-blue-500/20">
             ParQueen Verified
+          </span>
+        )}
+        {confirmedParkingSide && (
+          <span className="text-[10px] font-semibold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+            You confirmed
           </span>
         )}
       </div>

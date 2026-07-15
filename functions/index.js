@@ -1539,7 +1539,7 @@ exports.createSegmentFromSweepNYC = onCall(
     const PARSER_VERSION = '1.1';
 
     // ── SweepNYC API ─────────────────────────────────────────────────────────────
-    const sweepUrl = `${SWEEPNYC_BASE}/highlight/sweepinfo?lat=${lat}&lon=${lng}&t=${Date.now()}&radius=0.5`;
+    const sweepUrl = `${SWEEPNYC_BASE}/highlight/sweepinfo?lat=${lat}&lon=${lng}&t=${Date.now()}&radius=0.1`;
     console.log('[SweepNYC] requesting lat=' + lat + ' lng=' + lng);
     let apiData;
     try {
@@ -1634,6 +1634,7 @@ exports.createSegmentFromSweepNYC = onCall(
 
     const streetCtx = _extractStreetContext(apiData, notes);
     console.log('[SweepNYC] streetCtx:', JSON.stringify(streetCtx));
+    console.log('[SweepNYC] SideOfStreet fields — apiData.SideOfStreet:', apiData.SideOfStreet ?? null, '| apiData.SideName:', apiData.SideName ?? null, '| apiData.Side:', apiData.Side ?? null, '| notes.SideOfStreet:', notes.SideOfStreet ?? null, '| streetCtx.side:', streetCtx.side ?? null);
 
     // ── Parse signs (try/catch prevents INTERNAL on bad sign shapes) ─────────────
     const parsed = [];
@@ -1926,10 +1927,18 @@ async function _fetchStreetGeometry(streetName, lat, lng) {
     const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`);
     const data = await res.json();
     if (!data.elements?.length) return null;
-    const allNodes = data.elements.flatMap(el => el.geometry || []);
-    if (allNodes.length < 2) return null;
-    let fromLat = allNodes[0].lat, fromLng = allNodes[0].lon;
-    let toLat = allNodes[allNodes.length - 1].lat, toLng = allNodes[allNodes.length - 1].lon;
+    // Use the single way closest to (lat, lng) — prevents multi-block bearing errors from aggregating all ways
+    const validWays = data.elements.filter(el => el.geometry && el.geometry.length >= 2);
+    if (!validWays.length) return null;
+    const closestWay = validWays.reduce((best, el) => {
+      const mid = el.geometry[Math.floor(el.geometry.length / 2)];
+      const d = (mid.lat - lat) ** 2 + (mid.lon - lng) ** 2;
+      return (!best || d < best.d) ? { el, d } : best;
+    }, null);
+    const wayNodes = closestWay.el.geometry;
+    if (wayNodes.length < 2) return null;
+    let fromLat = wayNodes[0].lat, fromLng = wayNodes[0].lon;
+    let toLat = wayNodes[wayNodes.length - 1].lat, toLng = wayNodes[wayNodes.length - 1].lon;
     let bearing = _computeBearing(fromLat, fromLng, toLat, toLng);
     if (bearing > 180) {
       [fromLat, toLat] = [toLat, fromLat];

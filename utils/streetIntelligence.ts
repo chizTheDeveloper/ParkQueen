@@ -130,13 +130,18 @@ export async function fetchStreetGeometry(
     const res = await fetch(url);
     const data = await res.json();
     if (!data.elements?.length) return null;
-    // Collect all nodes across all matched ways
-    const allNodes: { lat: number; lon: number }[] = data.elements.flatMap(
-      (el: any) => el.geometry || [],
-    );
-    if (allNodes.length < 2) return null;
-    let fromLat = allNodes[0].lat, fromLng = allNodes[0].lon;
-    let toLat = allNodes[allNodes.length - 1].lat, toLng = allNodes[allNodes.length - 1].lon;
+    // Use the single way closest to (lat, lng) — prevents multi-block bearing errors from aggregating all ways
+    const validWays = data.elements.filter((el: any) => el.geometry && el.geometry.length >= 2);
+    if (!validWays.length) return null;
+    const closestWay = validWays.reduce((best: any, el: any) => {
+      const mid = el.geometry[Math.floor(el.geometry.length / 2)];
+      const d = (mid.lat - lat) ** 2 + (mid.lon - lng) ** 2;
+      return (!best || d < best.d) ? { el, d } : best;
+    }, null as any);
+    const wayNodes: { lat: number; lon: number }[] = closestWay.el.geometry;
+    if (wayNodes.length < 2) return null;
+    let fromLat = wayNodes[0].lat, fromLng = wayNodes[0].lon;
+    let toLat = wayNodes[wayNodes.length - 1].lat, toLng = wayNodes[wayNodes.length - 1].lon;
     // Normalize: always point with bearing 0–180° for consistent cross-product sign
     let bearing = computeBearing({ lat: fromLat, lng: fromLng }, { lat: toLat, lng: toLng });
     if (bearing > 180) {

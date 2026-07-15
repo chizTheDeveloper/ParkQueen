@@ -80,6 +80,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
 
     const userRef = useRef(user);
     useEffect(() => { userRef.current = user; }, [user]);
+    // Tracks last GPS accuracy reading from watchPosition — used at saveMySpot time
+    const lastGpsAccuracyRef = useRef<number | null>(null);
 
     // Tick every 30s so scheduled Ping markers flip yellow→blue at departure time
     // without waiting for a Firestore event.
@@ -157,6 +159,10 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
         streetIntelStatus: 'found' | 'unavailable' | 'failed' | null;
         streetIntelReason: string | null;
         streetIntelCheckedAt: string | null;
+        // Side confidence — drives whether to show Safe Until or ask user to confirm
+        gpsAccuracyMeters: number | null;
+        sideConfidence: 'high' | 'low' | 'unknown';
+        confirmedParkingSide: string | null;
     };
 
     type SegmentMatch = {
@@ -186,6 +192,10 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
             let changed = false;
             if (!s.sessionId) { s.sessionId = Date.now().toString(36); changed = true; }
             if (s.linkedPingId === undefined) { (s as any).linkedPingId = null; changed = true; }
+            // Migrate sessions that predate sideConfidence fields — treat as low/unknown so card asks user
+            if ((s as any).gpsAccuracyMeters === undefined) { (s as any).gpsAccuracyMeters = null; changed = true; }
+            if (!(s as any).sideConfidence) { (s as any).sideConfidence = s.parkingSide ? 'low' : 'unknown'; changed = true; }
+            if ((s as any).confirmedParkingSide === undefined) { (s as any).confirmedParkingSide = null; changed = true; }
             if (changed) localStorage.setItem(SAVED_SPOT_KEY, JSON.stringify(s));
             return s;
         } catch { return null; }
@@ -318,9 +328,10 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
         if (!showSessionSheet || !savedSpot) return;
         if (savedSpot.segmentId !== null) return;                // already have segment
         if (segmentRetrySessionRef.current === savedSpot.sessionId) return; // already retried this session
-        // Skip if the lookup already ran and produced a valid outcome — don't clobber it
-        if (savedSpot.streetIntelStatus === 'unavailable' || savedSpot.streetIntelStatus === 'failed') {
-            console.log('[segmentRetry] skipped — existing streetIntelStatus=' + savedSpot.streetIntelStatus + ' reason=' + (savedSpot.streetIntelReason ?? 'none'));
+        // Skip for unavailable (SweepNYC returned real no-data) — retrying won't help.
+        // Allow retry for failed (technical error) — one automatic retry per session.
+        if (savedSpot.streetIntelStatus === 'unavailable') {
+            console.log('[segmentRetry] skipped — streetIntelStatus=unavailable reason=' + (savedSpot.streetIntelReason ?? 'none'));
             return;
         }
         segmentRetrySessionRef.current = savedSpot.sessionId;
@@ -488,6 +499,9 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
                 streetIntelStatus: match.streetIntelStatus,
                 streetIntelReason: match.streetIntelReason,
                 streetIntelCheckedAt: new Date().toISOString(),
+                gpsAccuracyMeters: null,
+                sideConfidence: 'unknown',
+                confirmedParkingSide: null,
             };
             localStorage.setItem(SAVED_SPOT_KEY, JSON.stringify(spot));
             setSavedSpot(spot);
@@ -513,7 +527,11 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
             reverseGeocode(lng, lat),
             matchNearestSegment(lat, lng),
         ]);
-        dbg(`segmentMatch: segmentId=${segmentMatch.segmentId ?? 'null'} parkingSide=${segmentMatch.parkingSide ?? 'null'} street=${segmentMatch.segmentStreetName ?? 'null'} status=${segmentMatch.streetIntelStatus}`);
+        const gpsAccuracyMeters = lastGpsAccuracyRef.current ?? null;
+        const sideConfidence: SavedSpot['sideConfidence'] = !segmentMatch.parkingSide ? 'unknown'
+            : (gpsAccuracyMeters === null || gpsAccuracyMeters > 30) ? 'low'
+            : 'high';
+        dbg(`segmentMatch: segmentId=${segmentMatch.segmentId ?? 'null'} parkingSide=${segmentMatch.parkingSide ?? 'null'} street=${segmentMatch.segmentStreetName ?? 'null'} status=${segmentMatch.streetIntelStatus} gpsAccuracy=${gpsAccuracyMeters ?? 'null'}m sideConfidence=${sideConfidence}`);
         const spot: SavedSpot = {
             lat,
             lng,
@@ -528,6 +546,9 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
             streetIntelStatus: segmentMatch.streetIntelStatus,
             streetIntelReason: segmentMatch.streetIntelReason,
             streetIntelCheckedAt: new Date().toISOString(),
+            gpsAccuracyMeters,
+            sideConfidence,
+            confirmedParkingSide: null,
         };
         const cardCondition = !!(spot.segmentId && spot.segmentStreetName);
         dbg(`StreetIntelligenceCard will render: ${cardCondition} (segmentId=${spot.segmentId ?? 'null'} status=${spot.streetIntelStatus} reason=${spot.streetIntelReason ?? 'none'})`);
@@ -551,11 +572,46 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
             streetIntelStatus: segmentMatch.streetIntelStatus,
             streetIntelReason: segmentMatch.streetIntelReason,
             streetIntelCheckedAt: new Date().toISOString(),
+            gpsAccuracyMeters: null,
+            sideConfidence: 'low',
+            confirmedParkingSide: null,
         };
         localStorage.setItem(SAVED_SPOT_KEY, JSON.stringify(spot));
         setSavedSpot(spot);
         setShowSessionSheet(true);
     };
+
+    const handleConfirmSide = useCallback((side: string) => {
+        if (!savedSpot) return;
+        const updated = { ...savedSpot, confirmedParkingSide: side };
+        setSavedSpot(updated);
+        localStorage.setItem(SAVED_SPOT_KEY, JSON.stringify(updated));
+    }, [savedSpot]);
+
+    const [retryingStreetIntel, setRetryingStreetIntel] = useState(false);
+    const handleRetryStreetIntel = useCallback(async () => {
+        if (!savedSpot || retryingStreetIntel) return;
+        setRetryingStreetIntel(true);
+        try {
+            const match = await matchNearestSegment(savedSpot.lat, savedSpot.lng);
+            const gpsAccuracyMeters = lastGpsAccuracyRef.current ?? null;
+            const sideConfidence: SavedSpot['sideConfidence'] = !match.parkingSide ? 'unknown'
+                : (gpsAccuracyMeters === null || gpsAccuracyMeters > 30) ? 'low'
+                : 'high';
+            const updated: SavedSpot = {
+                ...savedSpot, ...match,
+                streetIntelCheckedAt: new Date().toISOString(),
+                gpsAccuracyMeters,
+                sideConfidence,
+                confirmedParkingSide: null,
+            };
+            setSavedSpot(updated);
+            localStorage.setItem(SAVED_SPOT_KEY, JSON.stringify(updated));
+        } finally {
+            setRetryingStreetIntel(false);
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [savedSpot, retryingStreetIntel]);
 
     const writeCleaningReminder = async (safeUntil: Date | null, enabled: boolean, streetName: string | null) => {
         if (!safeUntil || !enabled || !auth.currentUser || !streetName) return;
@@ -766,7 +822,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
         if (navigator.geolocation) {
             watchId = navigator.geolocation.watchPosition(
                 (position) => {
-                    const { longitude, latitude } = position.coords;
+                    const { longitude, latitude, accuracy } = position.coords;
+                    lastGpsAccuracyRef.current = accuracy ?? null;
                     const newLocation: [number, number] = [longitude, latitude];
                     setUserLocation(newLocation);
 
@@ -1492,6 +1549,9 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
                                 segmentId={savedSpot.segmentId}
                                 parkingSide={savedSpot.parkingSide}
                                 streetName={savedSpot.segmentStreetName}
+                                sideConfidence={savedSpot.sideConfidence ?? 'unknown'}
+                                confirmedParkingSide={savedSpot.confirmedParkingSide ?? null}
+                                onConfirmSide={handleConfirmSide}
                                 onResult={r => {
                                     if (r?.safeUntil) {
                                         writeCleaningReminder(r.safeUntil, reminderEnabled, savedSpot.segmentStreetName);
@@ -1503,21 +1563,30 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
                                 <div className="flex items-center gap-2 mb-2">
                                     <MapPin size={14} className="text-[var(--color-text-secondary)]" />
                                     <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest">
-                                        {savedSpot.streetIntelStatus === 'failed' ? 'Street cleaning lookup failed' :
-                                         savedSpot.streetIntelReason === 'no_sweepnyc_notes' || savedSpot.streetIntelReason === 'no_signs' ? 'No street cleaning data found' :
-                                         'Street cleaning unavailable'}
+                                        {savedSpot.streetIntelStatus === 'failed' ? 'Street Intelligence lookup failed' :
+                                         savedSpot.streetIntelReason === 'no_sweepnyc_notes' || savedSpot.streetIntelReason === 'no_signs' ? 'No street cleaning data here' :
+                                         'Street rules unavailable here'}
                                     </p>
                                 </div>
                                 <p className="text-sm text-[var(--color-text-secondary)] mb-1">
                                     {savedSpot.streetIntelStatus === 'failed'
-                                        ? "We could not verify cleaning rules for this spot."
+                                        ? "Street Intelligence couldn't complete — this may be a temporary issue."
                                         : savedSpot.streetIntelReason === 'no_sweepnyc_notes' || savedSpot.streetIntelReason === 'no_signs'
-                                        ? "SweepNYC did not return cleaning rules for this location."
-                                        : "We could not find street cleaning data for this spot yet."}
+                                        ? "SweepNYC has no cleaning rules on file for this location."
+                                        : "We could not find street cleaning data for this spot."}
                                 </p>
                                 <p className="text-xs text-[var(--color-text-secondary)]">
-                                    {savedSpot.streetIntelStatus === 'failed' ? 'Try again later and check posted signs.' : 'Check the posted signs before leaving your car.'}
+                                    Check posted signs before leaving your car.
                                 </p>
+                                {savedSpot.streetIntelStatus === 'failed' && (
+                                    <button
+                                        onClick={handleRetryStreetIntel}
+                                        disabled={retryingStreetIntel}
+                                        className="mt-2 text-xs font-semibold text-blue-400 disabled:opacity-50"
+                                    >
+                                        {retryingStreetIntel ? 'Trying…' : 'Try again'}
+                                    </button>
+                                )}
                             </div>
                         ) : (
                             <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-4 mb-4">
