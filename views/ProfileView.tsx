@@ -41,11 +41,11 @@ export const ProfileView = ({ user, onBack, setView }) => {
     'Purple': t('vehicle.color_purple'),
   };
   const typeLabels: Record<string, string> = {
-    'Sedan': t('vehicle.type_sedan'), 'SUV': t('vehicle.type_suv'),
-    'Hatchback': t('vehicle.type_hatchback'), 'Coupe': t('vehicle.type_coupe'),
-    'Pickup Truck': t('vehicle.type_pickup_truck'), 'Van': t('vehicle.type_van'),
-    'Minivan': t('vehicle.type_minivan'), 'Wagon': t('vehicle.type_wagon'),
-    'Convertible': t('vehicle.type_convertible'),
+    'Sedan': t('vehicle.type_sedan'), 'Compact': t('vehicle.type_compact'),
+    'SUV': t('vehicle.type_suv'), 'Hatchback': t('vehicle.type_hatchback'),
+    'Coupe': t('vehicle.type_coupe'), 'Pickup Truck': t('vehicle.type_pickup_truck'),
+    'Van': t('vehicle.type_van'), 'Minivan': t('vehicle.type_minivan'),
+    'Wagon': t('vehicle.type_wagon'), 'Convertible': t('vehicle.type_convertible'),
   };
 
   useEffect(() => {

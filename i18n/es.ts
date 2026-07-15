@@ -376,6 +376,7 @@ const es: Record<string, string> = {
     'vehicle.color_yellow_cab': 'Taxi Amarillo',
     'vehicle.color_uber_black': 'Uber Negro',
     'vehicle.type_sedan': 'Sedán',
+    'vehicle.type_compact': 'Compacto',
     'vehicle.type_suv': 'SUV',
     'vehicle.type_hatchback': 'Hatchback',
     'vehicle.type_coupe': 'Cupé',

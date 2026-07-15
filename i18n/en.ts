@@ -376,6 +376,7 @@ const en: Record<string, string> = {
     'vehicle.color_yellow_cab': 'Yellow Cab',
     'vehicle.color_uber_black': 'Uber Black',
     'vehicle.type_sedan': 'Sedan',
+    'vehicle.type_compact': 'Compact',
     'vehicle.type_suv': 'SUV',
     'vehicle.type_hatchback': 'Hatchback',
     'vehicle.type_coupe': 'Coupe',

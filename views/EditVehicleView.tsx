@@ -41,7 +41,7 @@ const COLORS: { name: string; hex: string }[] = [
 // ─── Type Data ────────────────────────────────────────────────────────────────
 
 const TYPES = [
-  'Sedan','SUV','Hatchback','Coupe','Pickup Truck','Van','Minivan','Wagon','Convertible',
+  'Sedan','Compact','SUV','Hatchback','Coupe','Pickup Truck','Van','Minivan','Wagon','Convertible',
 ] as const;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -60,6 +60,7 @@ const colorLabels = () => ({
 
 const typeLabels = () => ({
   Sedan:        t('vehicle.type_sedan'),
+  Compact:      t('vehicle.type_compact'),
   SUV:          t('vehicle.type_suv'),
   Hatchback:    t('vehicle.type_hatchback'),
   Coupe:        t('vehicle.type_coupe'),
@@ -275,7 +276,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
             {t('vehicle.onboarding_hint')}
           </p>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-3 gap-3 [&>*:last-child]:col-start-2">
             {TYPES.map(typeName => {
               const active = vehicleType === typeName;
               return (
