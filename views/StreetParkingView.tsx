@@ -1563,30 +1563,32 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
                                 <div className="flex items-center gap-2 mb-2">
                                     <MapPin size={14} className="text-[var(--color-text-secondary)]" />
                                     <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest">
-                                        {savedSpot.streetIntelStatus === 'failed' ? 'Street Intelligence lookup failed' :
-                                         savedSpot.streetIntelReason === 'no_sweepnyc_notes' || savedSpot.streetIntelReason === 'no_signs' ? 'No street cleaning data here' :
-                                         'Street rules unavailable here'}
+                                        {savedSpot.streetIntelStatus === 'failed' ? t('street_intel.failed_title') :
+                                         savedSpot.streetIntelReason === 'no_sweepnyc_notes' || savedSpot.streetIntelReason === 'no_signs' ? t('street_intel.unavailable_title_no_data') :
+                                         t('street_intel.unavailable_title_general')}
                                     </p>
                                 </div>
                                 <p className="text-sm text-[var(--color-text-secondary)] mb-1">
                                     {savedSpot.streetIntelStatus === 'failed'
-                                        ? "Street Intelligence couldn't complete — this may be a temporary issue."
+                                        ? t('street_intel.failed_body')
                                         : savedSpot.streetIntelReason === 'no_sweepnyc_notes' || savedSpot.streetIntelReason === 'no_signs'
-                                        ? "SweepNYC has no cleaning rules on file for this location."
-                                        : "We could not find street cleaning data for this spot."}
+                                        ? t('street_intel.unavailable_body_no_data')
+                                        : t('street_intel.unavailable_body_general')}
                                 </p>
                                 <p className="text-xs text-[var(--color-text-secondary)]">
-                                    Check posted signs before leaving your car.
+                                    {t('street_intel.check_signs')}
                                 </p>
-                                {savedSpot.streetIntelStatus === 'failed' && (
-                                    <button
-                                        onClick={handleRetryStreetIntel}
-                                        disabled={retryingStreetIntel}
-                                        className="mt-2 text-xs font-semibold text-blue-400 disabled:opacity-50"
-                                    >
-                                        {retryingStreetIntel ? 'Trying…' : 'Try again'}
-                                    </button>
-                                )}
+                                <button
+                                    onClick={handleRetryStreetIntel}
+                                    disabled={retryingStreetIntel}
+                                    className="mt-2 text-xs font-semibold text-blue-400 disabled:opacity-50"
+                                >
+                                    {retryingStreetIntel
+                                        ? t('street_intel.trying')
+                                        : savedSpot.streetIntelStatus === 'failed'
+                                        ? t('street_intel.try_again')
+                                        : t('street_intel.check_again')}
+                                </button>
                             </div>
                         ) : (
                             <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-4 mb-4">

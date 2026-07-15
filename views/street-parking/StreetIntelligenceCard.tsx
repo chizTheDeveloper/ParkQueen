@@ -6,6 +6,7 @@ import {
   computeSafeUntil,
   StreetRuleDoc, SuspensionDoc, SafeUntilResult, CleaningSchedule,
 } from '../../utils/streetIntelligence';
+import { t, useLang } from '../../i18n';
 
 interface Props {
   segmentId: string;
@@ -23,11 +24,13 @@ const fmtSafeUntil = (d: Date) => {
   return `${day} at ${time}`;
 };
 
-const SIDE_LABELS: Record<string, string> = {
-  even: 'Even-address side',
-  odd: 'Odd-address side',
-  North: 'North side', South: 'South side',
-  East: 'East side', West: 'West side',
+const SIDE_KEY_MAP: Record<string, string> = {
+  North: 'street_intel.side_north',
+  South: 'street_intel.side_south',
+  East: 'street_intel.side_east',
+  West: 'street_intel.side_west',
+  even: 'street_intel.side_even',
+  odd: 'street_intel.side_odd',
 };
 
 export const StreetIntelligenceCard = ({
@@ -35,6 +38,9 @@ export const StreetIntelligenceCard = ({
   sideConfidence, confirmedParkingSide, onConfirmSide,
   onResult,
 }: Props) => {
+  useLang();
+  const sideLabel = (side: string) => SIDE_KEY_MAP[side] ? t(SIDE_KEY_MAP[side]) : side;
+
   // Effective side: user-confirmed takes priority, then GPS only if confidence is high
   const effectiveSide = confirmedParkingSide || (sideConfidence === 'high' ? parkingSide : null);
 
@@ -93,7 +99,6 @@ export const StreetIntelligenceCard = ({
         setScheduleCount(allSchedules.length);
 
         if (!effectiveSide) {
-          // No confirmed side and GPS confidence is low/unknown — show side picker if data exists
           const sides = [...new Set(allSchedules.map(s => s.side))].filter(Boolean);
           cdbg(`UI branch: side-picker (availableSides=${JSON.stringify(sides)} schedules=${allSchedules.length})`);
           setAvailableSides(sides);
@@ -150,30 +155,26 @@ export const StreetIntelligenceCard = ({
   if (loadError) {
     return (
       <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-4 mb-4">
-        <p className="text-sm text-[var(--color-text-secondary)]">Couldn't load street cleaning info — check back shortly.</p>
+        <p className="text-sm text-[var(--color-text-secondary)]">{t('street_intel.load_error')}</p>
       </div>
     );
   }
 
-  // No effective side yet — show side picker if schedules exist
   if (!effectiveSide) {
-    if (availableSides.length === 0) {
-      // No schedules at all — nothing to show
-      return null;
-    }
+    if (availableSides.length === 0) return null;
     return (
       <div className="rounded-2xl border border-amber-500/25 bg-amber-950/20 px-4 py-4 mb-4">
         <div className="flex items-center gap-2 mb-2">
           <AlertTriangle size={14} className="text-amber-400 shrink-0" />
           <p className="text-[11px] font-bold text-amber-300/70 uppercase tracking-widest">
-            Street cleaning found
+            {t('street_intel.found')}
           </p>
         </div>
         <p className="text-sm text-white font-semibold mb-1">
-          Which side are you parked on?
+          {t('street_intel.which_side')}
         </p>
         <p className="text-xs text-[var(--color-text-secondary)] mb-3">
-          We found schedules for {streetName}. Confirm your side for your Safe Until time.
+          {t('street_intel.schedules_found_street', { street: streetName })}
         </p>
         <div className="flex gap-2 flex-wrap">
           {availableSides.map(side => (
@@ -182,12 +183,12 @@ export const StreetIntelligenceCard = ({
               onClick={() => onConfirmSide(side)}
               className="px-3 py-1.5 text-xs font-semibold rounded-xl border border-white/20 bg-white/5 text-white active:scale-95 transition-transform"
             >
-              {SIDE_LABELS[side] ?? side}
+              {sideLabel(side)}
             </button>
           ))}
         </div>
         <p className="text-xs text-[var(--color-text-secondary)] mt-3">
-          Check posted signs before leaving your car.
+          {t('street_intel.check_signs')}
         </p>
         {debugBlock}
       </div>
@@ -196,8 +197,8 @@ export const StreetIntelligenceCard = ({
 
   if (!result) return null;
 
-  const sideLabel = SIDE_LABELS[effectiveSide] ?? effectiveSide;
-  const sideHeader = `${streetName} · ${sideLabel}${confirmedParkingSide ? ' ✓' : ''}`;
+  const effectiveSideLabel = sideLabel(effectiveSide);
+  const sideHeader = `${streetName} · ${effectiveSideLabel}${confirmedParkingSide ? ' ✓' : ''}`;
 
   if (!result.scheduleDescription) {
     return (
@@ -210,8 +211,8 @@ export const StreetIntelligenceCard = ({
         </div>
         <p className="text-sm text-[var(--color-text-secondary)]">
           {confirmedParkingSide
-            ? `No cleaning schedule on file for the ${sideLabel.toLowerCase()}.`
-            : 'No cleaning schedule on file for this side yet.'}
+            ? t('street_intel.no_schedule_for_side', { side: effectiveSideLabel.toLowerCase() })
+            : t('street_intel.no_schedule_unknown')}
         </p>
         {debugBlock}
       </div>
@@ -220,7 +221,6 @@ export const StreetIntelligenceCard = ({
 
   return (
     <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-4 mb-4">
-      {/* Street + side header */}
       <div className="flex items-center gap-2 mb-3">
         <Leaf size={14} className="text-[var(--color-text-secondary)]" />
         <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest">
@@ -228,22 +228,19 @@ export const StreetIntelligenceCard = ({
         </p>
       </div>
 
-      {/* Safe Until / Active Now */}
       {result.activeNow ? (
         <div className="flex items-center gap-2 mb-2">
           <AlertTriangle size={18} className="text-red-400 shrink-0" />
           <div>
-            <p className="text-base font-extrabold text-red-400 leading-tight">Active Now</p>
-            <p className="text-xs text-[var(--color-text-secondary)]">
-              Cleaning in progress — move your car immediately
-            </p>
+            <p className="text-base font-extrabold text-red-400 leading-tight">{t('street_intel.active_now')}</p>
+            <p className="text-xs text-[var(--color-text-secondary)]">{t('street_intel.active_now_body')}</p>
           </div>
         </div>
       ) : result.nextDay ? (
         <div className="flex items-center gap-2 mb-2">
           <CheckCircle size={18} className="text-green-400 shrink-0" />
           <div>
-            <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest leading-none mb-0.5">Safe Until</p>
+            <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest leading-none mb-0.5">{t('street_intel.safe_until_label')}</p>
             <p className="text-base font-extrabold text-white leading-tight">
               {result.safeUntil ? fmtSafeUntil(result.safeUntil) : `${result.nextDay} ${result.nextTime}`}
             </p>
@@ -252,38 +249,38 @@ export const StreetIntelligenceCard = ({
       ) : (
         <div className="flex items-center gap-2 mb-2">
           <CheckCircle size={18} className="text-green-400 shrink-0" />
-          <p className="text-sm text-[var(--color-text-secondary)]">No upcoming cleaning found (14 days).</p>
+          <p className="text-sm text-[var(--color-text-secondary)]">{t('street_intel.no_upcoming')}</p>
         </div>
       )}
 
-      {/* Schedule description */}
       <p className="text-xs text-[var(--color-text-secondary)] mb-3">
-        Because: street cleaning {result.scheduleDescription}
+        {t('street_intel.because', { schedule: result.scheduleDescription })}
       </p>
 
-      {/* Schedule count + verified badge */}
       <div className="flex items-center gap-2">
         <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-white/5 border-white/10 text-[var(--color-text-secondary)]">
-          {scheduleCount} cleaning schedule{scheduleCount !== 1 ? 's' : ''}
+          {scheduleCount === 1
+            ? t('street_intel.schedules_count_one')
+            : t('street_intel.schedules_count', { count: String(scheduleCount) })}
         </span>
         {needsReview ? (
           <span className="text-[10px] font-semibold text-yellow-400 bg-yellow-500/10 px-2 py-0.5 rounded-full border border-yellow-500/20">
-            Needs review
+            {t('street_intel.needs_review')}
           </span>
         ) : (
           <span className="text-[10px] font-semibold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full border border-blue-500/20">
-            ParQueen Verified
+            {t('street_intel.verified')}
           </span>
         )}
         {confirmedParkingSide && (
           <span className="text-[10px] font-semibold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
-            You confirmed
+            {t('street_intel.you_confirmed')}
           </span>
         )}
       </div>
       {needsReview && (
         <p className="text-xs text-yellow-400/80 mt-2">
-          We found a schedule, but this street still needs verification. Check posted signs.
+          {t('street_intel.needs_review_body')}
         </p>
       )}
       {debugBlock}
