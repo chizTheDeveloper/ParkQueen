@@ -264,7 +264,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
 
                             {/* Language */}
                             <button
-                                onClick={() => setLang(getLang() === 'en' ? 'es' : 'en')}
+                                onClick={() => {
+                                    const next = getLang() === 'en' ? 'es' : 'en';
+                                    setLang(next);
+                                    if (user?.id) {
+                                        updateDoc(doc(db, 'users', user.id), { lang: next }).catch(() => {});
+                                    }
+                                }}
                                 className="w-full p-4 flex items-center justify-between text-left hover:bg-white/5 active:bg-white/10 transition-colors"
                                 aria-label={t('settings.language_toggle_aria')}
                             >

@@ -205,6 +205,28 @@ exports.cleanupExpiredHolds = onSchedule(
   }
 );
 
+// Bilingual copy for scheduled claim notifications.
+// lang defaults to 'en' for any missing/unrecognised value.
+function localizeNotification(type, lang, params) {
+  const es = lang === 'es';
+  if (type === 'reminder') {
+    return es
+      ? `El lugar de ${params.name} se libera pronto — ¿vas para allá?`
+      : `${params.name}'s spot opens soon — time to head over?`;
+  }
+  if (type === 'auto_released_claimer') {
+    return es
+      ? 'Tu reclamo fue liberado porque no confirmaste que ibas para allá.'
+      : "Your claim was released because you didn't confirm you were heading over.";
+  }
+  if (type === 'auto_released_owner') {
+    return es
+      ? 'Tu lugar está disponible de nuevo porque el reclamo venció.'
+      : 'Your spot is available again because the claim expired.';
+  }
+  return '';
+}
+
 // 1d) Scheduled claim reminders + auto-release every 5 minutes
 exports.processScheduledClaims = onSchedule(
   {
@@ -230,16 +252,17 @@ exports.processScheduledClaims = onSchedule(
       if (!spot.interestedUserId) continue;
 
       const finderName = spot.finderName || "Someone";
-      const message = `${finderName}'s spot opens soon — time to head over?`;
 
       // FCM push if token available
       const userSnap = await db.doc(`users/${spot.interestedUserId}`).get();
-      const fcmToken = userSnap.exists ? userSnap.data().fcmToken : null;
+      const userData = userSnap.exists ? userSnap.data() : {};
+      const fcmToken = userData.fcmToken || null;
+      const message = localizeNotification('reminder', userData.lang, { name: finderName });
       if (fcmToken) {
         try {
           await getMessaging().send({
             token: fcmToken,
-            notification: { title: "🅿️ Spot opening soon", body: message },
+            notification: { title: userData.lang === 'es' ? "🅿️ Lugar abriéndose pronto" : "🅿️ Spot opening soon", body: message },
             android: { priority: "high" },
             apns: { payload: { aps: { sound: "default", badge: 1 } } },
           });
@@ -326,20 +349,26 @@ exports.processScheduledClaims = onSchedule(
 
       if (!releasedInfo) continue;
 
+      // Fetch claimer and owner language preferences
+      const claimerSnap = await db.doc(`users/${releasedInfo.claimerId}`).get();
+      const claimerLang = claimerSnap.exists ? claimerSnap.data().lang : null;
+
       // Notify claimer
       await db.collection("spotNotifications").add({
         targetUserId: releasedInfo.claimerId,
         type: "scheduled_claim_auto_released",
-        message: "Your claim was released because you didn't confirm you were heading over.",
+        message: localizeNotification('auto_released_claimer', claimerLang, {}),
         createdAt: now,
       });
 
       // Notify owner only if spot is still live (not expired)
       if (releasedInfo.finderId && !releasedInfo.spotExpired) {
+        const ownerSnap = await db.doc(`users/${releasedInfo.finderId}`).get();
+        const ownerLang = ownerSnap.exists ? ownerSnap.data().lang : null;
         await db.collection("spotNotifications").add({
           targetUserId: releasedInfo.finderId,
           type: "scheduled_claim_released_owner",
-          message: "Your spot is available again because the claim expired.",
+          message: localizeNotification('auto_released_owner', ownerLang, {}),
           createdAt: now,
         });
       }
