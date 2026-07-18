@@ -1,6 +1,6 @@
 # ParQueen Engineering Handoff
 
-Generated: 2026-06-28
+Generated: 2026-07-15
 
 ---
 
@@ -49,6 +49,10 @@ Generated: 2026-06-28
 - `reports/{reportId}` — user reports (harassment, spam, etc.)
 - `moderationLog/{logId}` — server-side moderation audit trail
 - `stats/global` — aggregate statistics (totalSpotsPinged)
+- `streetSegments/{segId}` — cached street cleaning segments (provider, status, geometry, needsReview)
+- `streetSegments/{segId}/streetRules/{ruleId}` — parsed cleaning schedules per segment
+- `parseFailures/{docId}` — unrecognized sign texts from Street Intelligence parsing (admin review queue)
+- `suspensions/{suspId}` — user suspension records (admin-managed)
 
 ### Cloud Functions (functions/index.js)
 All deployed to `us-central1`, Node.js 20, Firebase Functions v5 (v2 API):
@@ -213,6 +217,50 @@ All deployed to `us-central1`, Node.js 20, Firebase Functions v5 (v2 API):
 - **3-screen value proposition** slides with full-bleed images, gradient overlay, swipe/tap to advance
 - **First-launch only** (localStorage flag `hasSeenOnboarding`)
 - **"Get Started"** button on final screen
+
+### Street Intelligence
+
+- **Street cleaning schedule lookup** from the "My Car" bottom sheet — user taps "Check street rules" to trigger the pipeline
+- **SweepNYC API** queried first for the user's lat/lng (radius 0.1 mi); returns sign texts, ObjectId, side-of-street
+- **NYC Open Data fallback** (`nfid-uabd` dataset) if SweepNYC returns no usable data — queries Socrata for ASP signs by street name + borough, with pagination up to 3000 rows
+- **Block-face-aware selection** — cross-street context fetched via Overpass; scoring: +3 per matched cross street; requires score ≥ 3, strictly best candidate; ties → `nyc_open_data_ambiguous_block`; never first-group-wins
+- **Street name normalization** (`functions/nycOpenDataNormalizer.js`) — `osmNameToDOT()` converts OSM mixed-case names to NYC DOT all-caps format ("East 85th Street" → "EAST 85 STREET"); handles ordinals, abbreviations, directional words
+- **Sign parser** (`_parseSweepNYCSign` in CF) — case-insensitive, handles "(SANITATION BROOM SYMBOL)" token, structured day/time extraction, side-of-street context
+- **Parking side detection** — `_detectCardinalSide()` uses cross-product of street bearing vs user position; low-confidence prompts side confirmation UX ("Which side of the street is your car on?")
+- **GPS accuracy model** — `SavedSpot` records `gpsAccuracy` and `parkingSideConfidence`; high accuracy + strong geometry → auto-confirm side; low accuracy → ask user
+- **Segment caching** — writes to `streetSegments/{id}` + `streetRules` subcollection; SweepNYC segments use deterministic `nyc_{objectId}` ID; NYC Open Data segments use block-face keyed ID (`nyc_od_{borough}_{street}_{from}_{to}_{side}`); dedup prevents re-querying
+- **Provider trust levels** — `provider: 'sweepnyc'` (confidence 0.95 with OSM geometry), `provider: 'nyc_open_data'` (`needsReview: true`, confidence 0.5), `provider: 'manual_admin'` (admin-seeded, `needsReview: false` only if physically verified)
+- **StreetIntelligenceCard** — displays safe-until time, side indicator, needs-review badge, side confirmation prompt; integrated into My Car session sheet
+- **Retry/Check Again** — `unavailable` state shows a "Try Again" button; `needs_review` shows "Check Again"; retry triggers a fresh SweepNYC + fallback cycle
+- **Try Again for unavailable** — CF returns `success: false, reason: 'no_sweepnyc_data'` and client surfaces the button; `nyc_open_data_ambiguous_block` also shows Check Again
+- **Parse failure logging** — unrecognized sign texts logged to `parseFailures` collection for admin review; non-ASP signs pre-filtered by `_isASPSign()` and silently skipped
+
+### Internationalization (i18n)
+
+- **English/Spanish bilingual support** throughout Street Intelligence, notification banners, and settings
+- **Language preference** — stored in user Firestore doc (`language: 'en' | 'es'`), persisted across sessions
+- **All Street Intelligence copy** i18n-covered: schedule display, side confirmation, unavailable, needs-review, retry CTAs
+- **Bilingual push notifications** — claim reminders and nearby-spot alerts sent in user's preferred language
+- **`_localizedStrings(lang)`** helper in CF produces bilingual notification bodies for `scheduleCleaningReminders`
+
+### Vehicle Icon Redesign
+
+- **Premium flat 2D style** — all 9 vehicle types redrawn with consistent stroke weight, clean silhouettes, wheel clipping bug fixed
+- **Compact type added** — new vehicle type between Sedan and Hatchback; includes i18n labels in English and Spanish
+- **`EditVehicleView.tsx`** TYPES array updated with 'compact'; `typeLabels` in all languages updated
+
+### Notification Banners
+
+- **Premium contextual banners** — spot notifications (cancel, delay, claimer messages) now render with variant-specific titles ("Your driver is on the way", "Spot update", etc.)
+- **Glass-panel style** with icon variants by notification type
+- **Nearby pill** — map pill showing nearby ping count; tapping when count ≥ 2 opens a Nearby Spots bottom sheet listing active pings with distance
+
+### Trust System
+
+- **Server-side trust helpers** — `_incrementTrust`, `_decrementTrust` Cloud Functions update `users/{uid}.trustScore`
+- **`updateTrustOnFeedback`** — triggered on `spotFeedback` creation; awards trust to finder on success outcome
+- **`updateTrustOnSpotDelete`** — decrements trust when a spot is deleted prematurely (potential no-show signal)
+- **Locked fields** — Firestore rules prevent clients from writing `trustScore`, `moderationStatus`, `crowns`, `title` directly
 
 ### Light Theme
 - **CSS custom properties** for all colors (--color-bg, --color-surface, --color-text, etc.)
@@ -457,6 +505,62 @@ Prefer:
 - **Trigger:** Callable (onCall)
 - **Logic:** Normalize text, check against banned word list, check contact info patterns (messages only), check reserved words (usernames only), log to `moderationLog`
 
+### awardCrowns
+- **Purpose:** Award crowns to finder and driver on successful parking handoff
+- **Trigger:** `onDocumentCreated` on `spotFeedback/{feedbackId}`
+- **Logic:** If `outcome == 'success'`, driver +1 crown, finder +2 crowns. Checks title thresholds, writes `titleUnlockedAt` if new title earned. Uses same thresholds as `utils/crowns.ts` (must stay in sync).
+
+### updateTrustOnFeedback
+- **Purpose:** Increment finder trust score on successful handoff
+- **Trigger:** `onDocumentCreated` on `spotFeedback/{feedbackId}`
+- **Logic:** `outcome == 'success'` → increment `trustScore` for finder by 1 via `_incrementTrust` helper
+
+### updateTrustOnSpotDelete
+- **Purpose:** Decrement finder trust when spot deleted prematurely (possible no-show)
+- **Trigger:** `onDocumentDeleted` on `spots/{spotId}`
+- **Logic:** If spot was in `'interested'` status at deletion → decrement finder's `trustScore` via `_decrementTrust`
+
+### createSegmentFromSweepNYC
+- **Purpose:** Server-controlled lazy cache population for Street Intelligence. Owns full pipeline: SweepNYC → parse → optional NYC Open Data fallback → geometry → write segment + rules.
+- **Trigger:** Callable (onCall), authenticated users only
+- **Logic:**
+  1. Validate lat/lng in NYC bounds
+  2. Call `_tryCreateFromSweepNYC(lat, lng)` — queries SweepNYC API, deduplicates by `cslSegmentId`/doc ID, parses sign texts, fetches OSM geometry, writes `streetSegments/{nyc_{objectId}}` + `streetRules/sweepnyc_v1`
+  3. If SweepNYC reason is in `_SWEEPNYC_FALLBACK_REASONS` (`no_sweepnyc_data`, `no_sweepnyc_notes`, `no_signs`, `parse_failed`), call `_fallbackToNYCOpenData(lat, lng)`
+  4. Fallback: Nominatim reverse geocode → DOT name normalization → Socrata query (paginated 3×1000) → cross-street detection (Overpass) → `selectBlockFace` scoring → deterministic doc ID → write with `needsReview: true`
+- **Returns:** `{ success, segmentId, parkingSide, streetName, _diag }`
+- **Dependencies:** `nycOpenDataNormalizer.js`, optional `SOCRATA_APP_TOKEN` env var
+
+### processScheduledClaims / scheduleCleaningReminders
+- **Purpose:** Scheduled reminder pipeline for claim deadlines and street cleaning windows
+- **Trigger:** Scheduled (cron)
+- **Logic:** Queries active claims nearing expiry or cleaning windows; sends bilingual FCM push notifications via `_localizedStrings(lang)` helper
+
+### adminAddSegment / adminUpdateSegmentStatus / adminAddCleaningRule / adminSupersedeRule
+- **Purpose:** Admin-only segment and rule management for Street Intelligence
+- **Trigger:** Callable (onCall), admin custom claim required
+- **Logic:** Write/update `streetSegments` and `streetRules` documents with `provider: 'manual_admin'`; `needsReview: false` only for physically verified records
+
+### adminSuspendUser / adminUnsuspendUser / adminAddSuspension / adminArchiveSuspension
+- **Purpose:** User suspension management
+- **Trigger:** Callable (onCall), admin custom claim required
+
+### adminResolveParseFailure / adminReopenParseFailure
+- **Purpose:** Manage `parseFailures` collection — unrecognized sign texts logged during Street Intelligence parsing
+- **Trigger:** Callable (onCall), admin/staff role required
+
+### setStaffRole
+- **Purpose:** Grant or revoke staff custom claim on a user
+- **Trigger:** Callable (onCall), admin custom claim required
+
+### deleteAccount
+- **Purpose:** Full account deletion — removes user doc, username reservation, FCM token, and queues Storage cleanup
+- **Trigger:** Callable (onCall), owner only
+
+### cleanupExpiredHolds
+- **Purpose:** Release any expired claim holds not caught by `cleanupExpiredInterests`
+- **Trigger:** Scheduled
+
 ---
 
 ## 7. Firestore Security Rules
@@ -531,6 +635,7 @@ firebase use parkqueen-46475363-ccf36
 | Variable | Location | Purpose |
 |---|---|---|
 | `SENDGRID_API_KEY` | `functions/.env` | Email OTP delivery via SendGrid REST API |
+| `SOCRATA_APP_TOKEN` | `functions/.env` | NYC Open Data app token — optional but strongly recommended; without it, fallback is rate-limited to 1000 req/day unauthenticated |
 | `API_KEY` | Vite env (`.env` or `process.env`) | Gemini AI for smart replies and sign analysis (optional — app works without it) |
 | Mapbox token | Hardcoded in `StreetParkingView.tsx` | Map rendering |
 
@@ -582,6 +687,13 @@ The deployed app is at: https://parkqueen-46475363-ccf36.web.app
 - **GarageRentalView has un-converted dark-mode classes** — this view is disabled/hidden but still has `bg-dark-900` etc. classes that aren't theme-aware. Not visible to users.
 - **`chats` security rules too permissive** — any authenticated user can read/write any chat. Should add participant-level checks (see Section 7).
 
+### Street Intelligence Known Gaps
+- **NYC Open Data ambiguous block** — on long avenues (Broadway, Grand Concourse) where multiple block faces are returned and cross-street scoring doesn't resolve a winner, the fallback returns `nyc_open_data_ambiguous_block`. UI shows unavailable/Check Again. Cross-street context from Overpass helps but doesn't guarantee resolution.
+- **`segmentId` retry** — when My Car sheet opens before the `createSegmentFromSweepNYC` call completes, `segmentId` can be null. No retry is implemented yet.
+- **Client archived segment filtering** — `matchNearestSegment` does not yet filter out archived candidates before calling the CF.
+- **SOCRATA_APP_TOKEN not set in production** — fallback works unauthenticated but is rate-limited to 1000 req/day. Add token to `functions/.env` before scaling.
+- **Block-face selection Phase 1.2 ceiling** — partial cross-street match (score 3–5) selected only when that candidate is uniquely best. Cross-street data comes from Overpass within 130m; this may miss cross streets at wide intersections.
+
 ### Low Priority
 - **`package-lock.json` has been modified but never committed** — shows up in every `git status`. Harmless but noisy.
 - **Vite CJS deprecation warning** on every build — cosmetic, doesn't affect functionality.
@@ -590,25 +702,26 @@ The deployed app is at: https://parkqueen-46475363-ccf36.web.app
 
 ## 11. Future Roadmap
 
+### Street Intelligence — Next Phases
+- **Phase 1.3 (cross-street scoring improvement)** — use Nominatim's `/search` endpoint or street intersection queries for more reliable cross-street names on wide avenues
+- **Phase 2 (admin review UI)** — admin dashboard view for `parseFailures` and `needsReview` segments; one-click promote/archive/correct
+- **Phase 3 (community verification)** — let users confirm/deny a cached schedule; increment `communityConfirmations`; graduate to `needsReview: false` after threshold
+
 ### Discussed and Designed (specs exist)
 - **Notification debouncing** — skip if user was notified within last 60 seconds (prevents spam from rapid nearby pings)
 - **Search Phase 2** — add parking success rate (from handoff outcome data) and activity level label to destination preview
 - **Search Phase 3** — "Notify me when someone pings near [destination]" (location subscriptions), historical trends, busy times, frequently searched locations
 
 ### Discussed but Not Designed
-- **Reputation system** — track successful parking handoffs, display reputation score
 - **User profiles** — public profile pages viewable by other users
 - **Premium features** — potential monetization (priority notifications, extended radius, etc.)
-- **Admin moderation dashboard** — review reports, warn/suspend/ban users
 - **Username change UI in Settings** — currently only available via Edit Profile
 - **Non-English profanity expansion** — current filter covers English + Spanish, needs broader coverage for NYC's multilingual population
 - **AI-based content moderation** — Google Perspective API or similar for context-aware harassment detection beyond keyword matching
 
 ### Not Yet Discussed
-- **Parking history** — log of past spots pinged/claimed
 - **Favorites/saved locations** — save frequently parked areas
 - **Scheduled notifications** — "notify me when a spot opens near home after 6 PM"
-- **Street cleaning schedule integration**
 - **Paid parking/meter integration**
 
 ---
@@ -647,10 +760,15 @@ The deployed app is at: https://parkqueen-46475363-ccf36.web.app
 | `firebaseConfig.ts` | Firebase app init, auth, db, FCM exports |
 | `index.html` | Tailwind config, importmap (Firebase SDK versions), inline styles |
 | `index.css` | CSS custom properties (light/dark theme), glass effects, ping-glow animation |
-| `utils/crowns.ts` | Title thresholds and lookup functions (getTitleForCrowns, getNextTitle) |
+| `utils/crowns.ts` | Title thresholds and lookup functions (getTitleForCrowns, getNextTitle) — must stay in sync with CF |
+| `utils/sweepnyc.ts` | Client-side SweepNYC sign parser (simpler than CF version; no streetCtx, strict regex) |
+| `utils/streetIntelligence.ts` | `parseSweepNYCSign`, `computeSafeUntil`, `detectParkingSide`, `detectCardinalSide`, backfill utilities |
+| `utils/streetIntelligence.test.ts` | Vitest tests for street intelligence client utilities |
 | `utils/moderation.ts` | Shared banned word list, normalization, contact info patterns, `moderateUsername()`, `moderateMessage()` |
-| `functions/index.js` | All 9 Cloud Functions |
-| `functions/.env` | SENDGRID_API_KEY (not in git, see Section 9) |
+| `functions/index.js` | All Cloud Functions (~2500 lines; SweepNYC pipeline, NYC Open Data fallback, trust, admin, crowns, notifications) |
+| `functions/nycOpenDataNormalizer.js` | Street name normalization (`osmNameToDOT`, `streetNameToLikePattern`, `selectBlockFace`, `nycOdSegmentDocId`) |
+| `functions/nycOpenDataNormalizer.test.js` | 103 unit tests for normalizer + block-face selection |
+| `functions/.env` | SENDGRID_API_KEY, optionally SOCRATA_APP_TOKEN (not in git, see Section 9) |
 | `firestore.rules` | Security rules for all collections (see Section 7) |
 | `services/geminiService.ts` | Client-side Gemini AI for smart replies + sign analysis |
 | `.firebaserc` | Firebase project alias mapping |
@@ -677,14 +795,18 @@ The deployed app is at: https://parkqueen-46475363-ccf36.web.app
 
 ## 15. Next Recommended Tasks
 
-1. **Delete dead files** — `useHoldFlow.ts`, `LoginView.tsx`, `SplashView.tsx` are unused. Clean them up.
-2. **Commit `package-lock.json`** — it's been modified for the entire session and shows in every `git status`.
-3. **Test two-user flow end-to-end** — use the deployed app with two browser sessions (one incognito) to test the full claim/cancel/arrive cycle with real push notifications.
-4. **Notification debouncing** — implement the 60-second skip to prevent rapid notification spam.
-5. **Dynamic map theme switching** — call `map.setStyle()` when theme changes so the map matches without requiring a full reload.
-6. **Profanity filter allowlist** — add an explicit allowlist for false positives (legitimate names/words containing profanity substrings).
-7. **Extract map initialization** into a custom hook to reduce StreetParkingView's size.
-8. **Parking history view** — log completed handoffs and show them in a history/activity screen.
+### Street Intelligence (immediate)
+1. **`segmentId` retry** — when My Car sheet opens before `createSegmentFromSweepNYC` completes, `segmentId` is null. Add a retry/poll after 1–2 seconds.
+2. **Client archived segment filtering** — `matchNearestSegment` should filter out `status: 'archived'` candidates before calling the CF.
+3. **Add `SOCRATA_APP_TOKEN`** to `functions/.env` to raise the NYC Open Data rate limit above 1000 req/day before field testing at scale.
+4. **Admin parse failure review** — build a simple admin UI card for the `parseFailures` collection so unrecognized signs can be triaged.
+
+### General
+5. **Delete dead files** — `useHoldFlow.ts`, `LoginView.tsx`, `SplashView.tsx` are unused. Clean them up.
+6. **Test two-user flow end-to-end** — deployed app with two browser sessions (one incognito) to test the full claim/cancel/arrive cycle.
+7. **Notification debouncing** — implement the 60-second skip to prevent rapid notification spam.
+8. **Dynamic map theme switching** — call `map.setStyle()` when theme changes so the map matches without requiring a full reload.
+9. **Profanity filter allowlist** — explicit allowlist for false positives (legitimate names containing profanity substrings).
 
 ---
 

@@ -13,6 +13,7 @@ initializeApp();
 const db = getFirestore();
 const { geohashForLocation } = require('geofire-common');
 const sendgridApiKey = defineString("SENDGRID_API_KEY");
+const { osmNameToDOT, streetNameToLikePattern, dotSideToCardinal, BOROUGH_CODE_TO_NAME, nycOdSegmentDocId, selectBlockFace } = require('./nycOpenDataNormalizer');
 
 // Crown title thresholds (must match client-side utils/crowns.ts)
 const TITLE_THRESHOLDS = [
@@ -1545,24 +1546,11 @@ exports.adminAddSuspension = onCall(
   }
 );
 
-// 27) Create segment from SweepNYC — server-controlled lazy cache population.
-// Called when the client finds no Firestore segment within 80m. Owns the full
-// pipeline: SweepNYC API → parse → geometry → write segment + rules via Admin SDK.
-// Normal signed-in users may call this; writes happen server-side so rules cannot
-// be spoofed by a client-controlled `source` field.
-exports.createSegmentFromSweepNYC = onCall(
-  { region: 'us-central1' },
-  async (request) => {
-    if (!request.auth) throw new HttpsError('unauthenticated', 'Must be signed in.');
+// 27) Create segment from SweepNYC with NYC Open Data fallback.
+// Called when the client finds no Firestore segment within 80m.
+// Tries SweepNYC first; falls back to NYC Open Data when SweepNYC has no usable data.
 
-    const { lat, lng } = request.data || {};
-    if (typeof lat !== 'number' || typeof lng !== 'number')
-      throw new HttpsError('invalid-argument', 'lat and lng must be numbers.');
-    if (lat < 40.4 || lat > 40.95 || lng < -74.3 || lng > -73.65)
-      throw new HttpsError('invalid-argument', 'Coordinates outside NYC bounds.');
-
-    // Top-level catch prevents any data-shape/runtime error from becoming functions/internal.
-    // Auth/argument HttpsErrors are thrown before this try, so they pass through normally.
+async function _tryCreateFromSweepNYC(lat, lng) {
     try {
     const SWEEPNYC_BASE = 'https://sweepnyc.nyc.gov/mappingapi/api';
     const PARSER_VERSION = '1.1';
@@ -1831,8 +1819,348 @@ exports.createSegmentFromSweepNYC = onCall(
         },
       };
     }
+}
+
+// SweepNYC failure reasons that should trigger the NYC Open Data fallback.
+// archived_segment and geometry_failed are NOT included — those are definitive or unrelated.
+const _SWEEPNYC_FALLBACK_REASONS = new Set([
+  'no_sweepnyc_data', 'no_sweepnyc_notes', 'no_signs', 'parse_failed',
+]);
+
+exports.createSegmentFromSweepNYC = onCall(
+  { region: 'us-central1' },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Must be signed in.');
+
+    const { lat, lng } = request.data || {};
+    if (typeof lat !== 'number' || typeof lng !== 'number')
+      throw new HttpsError('invalid-argument', 'lat and lng must be numbers.');
+    if (lat < 40.4 || lat > 40.95 || lng < -74.3 || lng > -73.65)
+      throw new HttpsError('invalid-argument', 'Coordinates outside NYC bounds.');
+
+    try {
+      const sweepResult = await _tryCreateFromSweepNYC(lat, lng);
+      if (sweepResult.success) return sweepResult;
+      if (!_SWEEPNYC_FALLBACK_REASONS.has(sweepResult.reason)) return sweepResult;
+      console.log('[SweepNYC→NYCOpenData] falling back, sweepReason:', sweepResult.reason);
+      return await _fallbackToNYCOpenData(lat, lng);
+    } catch (err) {
+      console.error('[createSegmentFromSweepNYC] top-level error:', err && err.message);
+      return { success: false, reason: 'unknown_error', _diag: { errorMessage: err && err.message } };
+    }
   }
 );
+
+// ── NYC Open Data fallback helpers ───────────────────────────────────────────
+
+/** Returns true only for active ASP (Alternate Side Parking) sign descriptions. */
+function _isASPSign(signDesc) {
+  if (!signDesc) return false;
+  const upper = signDesc.toUpperCase();
+  return upper.startsWith('NO PARKING') && /\d+(?::\d+)?\s*[AP]M/i.test(signDesc);
+}
+
+/**
+ * Queries OSM via Overpass for named highway ways near lat/lng and returns
+ * up to 2 DOT-normalized cross-street names (excluding the main street itself).
+ * Used to score NYC Open Data block-face candidates.
+ */
+async function _fetchCrossStreets(lat, lng, mainStreetOsmName) {
+  const delta = 0.0012; // ~130 m — tight enough to stay within one block
+  const bbox = `${lat - delta},${lng - delta},${lat + delta},${lng + delta}`;
+  const q = `[out:json][timeout:8];way[highway][name](${bbox});out geom;`;
+  try {
+    const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    if (!data.elements?.length) return [];
+    const mainDot = osmNameToDOT(mainStreetOsmName);
+    // Filter out the main street; keep crossing named ways
+    const others = data.elements.filter(el =>
+      el.tags?.name && el.geometry?.length >= 2 && osmNameToDOT(el.tags.name) !== mainDot
+    );
+    // Sort by midpoint proximity to user
+    others.sort((a, b) => {
+      const mA = a.geometry[Math.floor(a.geometry.length / 2)];
+      const mB = b.geometry[Math.floor(b.geometry.length / 2)];
+      return ((mA.lat - lat) ** 2 + (mA.lon - lng) ** 2) - ((mB.lat - lat) ** 2 + (mB.lon - lng) ** 2);
+    });
+    // Collect up to 2 unique DOT names
+    const seen = new Set();
+    const result = [];
+    for (const el of others) {
+      const d = osmNameToDOT(el.tags.name);
+      if (!seen.has(d)) { seen.add(d); result.push(d); if (result.length === 2) break; }
+    }
+    console.log('[NYCOpenData] cross streets detected:', result);
+    return result;
+  } catch (err) {
+    console.warn('[NYCOpenData] cross-street fetch error:', err && err.message);
+    return [];
+  }
+}
+
+/** Reverse geocodes lat/lng via Nominatim → OSM road name. */
+async function _reverseGeocodeStreet(lat, lng) {
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=17`;
+    const res = await fetch(url, { headers: { 'User-Agent': 'ParkQueenApp/1.0' } });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return (data && data.address && data.address.road) || null;
+  } catch (err) {
+    console.warn('[NYCOpenData] reverse geocode error:', err && err.message);
+    return null;
+  }
+}
+
+/**
+ * Queries NYC Open Data nfid-uabd for sign records matching a LIKE street pattern in a borough.
+ * Paginates up to 3000 rows to handle long avenues (Broadway, 3rd Ave, Grand Concourse).
+ */
+async function _queryNYCOpenData(likePattern, borough) {
+  const BASE = 'https://data.cityofnewyork.us/resource/nfid-uabd.json';
+  const token = process.env.SOCRATA_APP_TOKEN || '';
+  if (!token) console.warn('[NYCOpenData] SOCRATA_APP_TOKEN not set — using unauthenticated rate limit');
+
+  const PAGE = 1000;
+  const MAX_PAGES = 3;
+  const rows = [];
+
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const params = new URLSearchParams({
+      $where: `record_type='Current' AND borough='${borough}' AND street LIKE '${likePattern}'`,
+      $limit: String(PAGE),
+      $offset: String(page * PAGE),
+      $order: 'objectid ASC',
+    });
+    if (token) params.set('$$app_token', token);
+
+    try {
+      const res = await fetch(`${BASE}?${params}`, { headers: { 'Accept': 'application/json' } });
+      if (!res.ok) {
+        console.warn('[NYCOpenData] API error:', res.status);
+        break;
+      }
+      const batch = await res.json();
+      if (!Array.isArray(batch) || !batch.length) break;
+      rows.push(...batch);
+      if (batch.length < PAGE) break;
+    } catch (err) {
+      console.warn('[NYCOpenData] fetch error page', page, ':', err && err.message);
+      break;
+    }
+  }
+
+  console.log('[NYCOpenData] fetched', rows.length, 'rows for pattern:', likePattern, 'borough:', borough);
+  return rows;
+}
+
+/**
+ * Main NYC Open Data fallback orchestrator.
+ * Called when SweepNYC has no usable data for lat/lng.
+ */
+async function _fallbackToNYCOpenData(lat, lng) {
+  try {
+    const osmStreet = await _reverseGeocodeStreet(lat, lng);
+    if (!osmStreet) {
+      console.warn('[NYCOpenData] reverse geocode returned null — giving up');
+      return { success: false, reason: 'no_sweepnyc_data' };
+    }
+    console.log('[NYCOpenData] OSM street:', osmStreet);
+
+    const dotName = osmNameToDOT(osmStreet);
+    const likePattern = streetNameToLikePattern(dotName);
+    const boroughCode = _detectBorough(lat, lng);
+    const borough = BOROUGH_CODE_TO_NAME[boroughCode] || null;
+    if (!borough) {
+      console.warn('[NYCOpenData] could not detect borough');
+      return { success: false, reason: 'no_sweepnyc_data' };
+    }
+    console.log('[NYCOpenData] DOT name:', dotName, '| borough:', borough, '| pattern:', likePattern);
+
+    const rows = await _queryNYCOpenData(likePattern, borough);
+    const aspRows = rows.filter(r => _isASPSign(r.sign_description));
+    console.log('[NYCOpenData] ASP rows:', aspRows.length, '/ total:', rows.length);
+    if (!aspRows.length) {
+      console.warn('[NYCOpenData] no ASP signs found');
+      return { success: false, reason: 'no_sweepnyc_data' };
+    }
+
+    // Group by block face (from_street, to_street, side_of_street)
+    const groups = {};
+    for (const r of aspRows) {
+      const key = `${r.from_street || ''}|${r.to_street || ''}|${r.side_of_street || ''}`;
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(r);
+    }
+    const groupKeys = Object.keys(groups);
+    console.log('[NYCOpenData] block face candidates:', groupKeys.length, '| keys:', groupKeys.join(' / '));
+
+    // Fetch cross streets for scoring (V1.2); falls back to [] if Overpass fails
+    const crossStreets = await _fetchCrossStreets(lat, lng, osmStreet);
+    console.log('[NYCOpenData] cross streets for scoring:', crossStreets);
+
+    const selection = selectBlockFace(groups, crossStreets);
+    if (!selection) {
+      console.warn('[NYCOpenData] ambiguous block face — ' + groupKeys.length + ' candidates, crossStreets:', crossStreets, '— returning ambiguous.');
+      return {
+        success: false,
+        reason: 'nyc_open_data_ambiguous_block',
+        _diag: { stage: 'nyc_od_ambiguous', onStreet: dotName, borough, candidateCount: groupKeys.length, candidates: groupKeys, crossStreets },
+      };
+    }
+    const { group: bestGroup, selectionReason, score: selectionScore } = selection;
+    const fromStreet = bestGroup[0].from_street || null;
+    const toStreet = bestGroup[0].to_street || null;
+    const sideOfStreet = bestGroup[0].side_of_street || null;
+    console.log('[NYCOpenData] block face selected:', selectionReason, '| from:', fromStreet, '| to:', toStreet, '| side:', sideOfStreet);
+
+    // Dedup: deterministic doc ID keyed on block face — prevents broad street-level cache
+    const docId = nycOdSegmentDocId(boroughCode, dotName, fromStreet, toStreet, sideOfStreet);
+    const existingSnap = await db.doc(`streetSegments/${docId}`).get();
+    if (existingSnap.exists) {
+      const d = existingSnap.data();
+      const ps = d.fromLat != null
+        ? _detectCardinalSide(lat, lng, d.fromLat, d.fromLng, d.toLat, d.toLng, d.bearing ?? 90)
+        : dotSideToCardinal(sideOfStreet);
+      console.log('[NYCOpenData] dedup hit block-face segment:', docId);
+      return { success: true, segmentId: docId, parkingSide: ps, streetName: d.streetName,
+        _diag: { stage: 'dedup_nyc_od', provider: 'nyc_open_data', selectionReason } };
+    }
+
+    const PARSER_VERSION = '1.1';
+    const streetCtx = {
+      street: dotName,
+      side: dotSideToCardinal(sideOfStreet) || null,
+      fromCross: fromStreet,
+      toCross: toStreet,
+    };
+    const parsed = [];
+    for (const r of bestGroup) {
+      const result = _parseSweepNYCSign(r.sign_description, streetCtx);
+      if (result) parsed.push(result);
+    }
+    console.log('[NYCOpenData] parsed', parsed.length, '/', bestGroup.length, 'signs');
+    if (!parsed.length) {
+      return { success: false, reason: 'no_sweepnyc_data',
+        _diag: { stage: 'nyc_od_parse', aspCount: aspRows.length, groupCount: groupKeys.length, selectionReason } };
+    }
+
+    let fromLat, fromLng, toLat, toLng, bearing, geometrySource;
+    try {
+      const geo = await _fetchStreetGeometry(osmStreet, lat, lng);
+      if (geo) {
+        ({ fromLat, fromLng, toLat, toLng, bearing } = geo);
+        geometrySource = 'osm';
+      } else {
+        const HALF = 0.0005;
+        fromLat = lat - HALF; fromLng = lng; toLat = lat + HALF; toLng = lng; bearing = 0;
+        geometrySource = 'fallback';
+      }
+    } catch (geoErr) {
+      console.error('[NYCOpenData] geometry error:', geoErr && geoErr.message);
+      const HALF = 0.0005;
+      fromLat = lat - HALF; fromLng = lng; toLat = lat + HALF; toLng = lng; bearing = 0;
+      geometrySource = 'fallback';
+    }
+
+    const centerLat = (fromLat + toLat) / 2;
+    const centerLng = (fromLng + toLng) / 2;
+    const geohash = geohashForLocation([centerLat, centerLng], 9);
+    const parkingSide = geometrySource === 'osm'
+      ? _detectCardinalSide(lat, lng, fromLat, fromLng, toLat, toLng, bearing)
+      : streetCtx.side;
+
+    const now = Timestamp.now();
+    const sourceOrderNumbers = bestGroup.map(r => r.order_no || r.objectid).filter(Boolean);
+    const provenance = {
+      provider: 'nyc_open_data',
+      fetchedAt: now,
+      parserVersion: PARSER_VERSION,
+      rawSignTexts: bestGroup.map(r => r.sign_description || ''),
+      geometrySource,
+      sourceOrderNumbers,
+      refreshedAt: null,
+      refreshCount: 0,
+    };
+
+    const segRef = db.doc(`streetSegments/${docId}`);
+    await segRef.set({
+      cityId: 'nyc',
+      streetName: dotName,
+      onStreet: dotName,
+      fromStreet,
+      toStreet,
+      sideOfStreet,
+      fromCross: fromStreet,
+      toCross: toStreet,
+      borough: boroughCode,
+      fromLat, fromLng, toLat, toLng,
+      centerLat, centerLng, bearing,
+      geohash,
+      evenSideIsPositiveCross: false,
+      source: 'nyc_open_data',
+      provenance,
+      needsReview: true,
+      status: 'needs_review',
+      confidenceScore: 0.5,
+      confidence: {
+        level: 'unverified',
+        source: 'nyc_open_data',
+        lastVerifiedAt: now,
+        communityConfirmations: 0,
+      },
+      editedBy: 'system:nyc_open_data',
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await segRef.collection('streetRules').doc('nyc_open_data_v1').set({
+      type: 'streetCleaning',
+      effectiveDate: now,
+      supersededAt: null,
+      status: 'active',
+      schedules: parsed.map(p => {
+        const s = { side: p.side, days: p.days, startTime: p.startTime, endTime: p.endTime };
+        if (p.ruleType) s.ruleType = p.ruleType;
+        return s;
+      }),
+      source: 'nyc_open_data',
+      provenance,
+      needsReview: true,
+      lastSourceSync: new Date().toISOString(),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    console.log('[NYCOpenData] wrote segment', docId, '| parkingSide:', parkingSide, '| geometrySource:', geometrySource, '| selectionReason:', selectionReason);
+    return {
+      success: true,
+      segmentId: docId,
+      parkingSide,
+      streetName: dotName,
+      _diag: {
+        stage: 'nyc_od_complete',
+        provider: 'nyc_open_data',
+        geometrySource,
+        selectionReason,
+        selectionScore,
+        crossStreets,
+        onStreet: dotName,
+        fromStreet,
+        toStreet,
+        sideOfStreet,
+        aspCount: aspRows.length,
+        parsedCount: parsed.length,
+        needsReview: true,
+      },
+    };
+  } catch (err) {
+    console.error('[NYCOpenData] fallback error:', err && err.message);
+    return { success: false, reason: 'unknown_error',
+      _diag: { stage: 'nyc_od_top', errorMessage: err && err.message } };
+  }
+}
 
 // ── Private helpers used by createSegmentFromSweepNYC ────────────────────────
 

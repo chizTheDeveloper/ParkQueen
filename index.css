@@ -147,6 +147,201 @@ html, body, #root {
 }
 
 
+/* Crown entrance animation — Screen 1 of onboarding */
+@keyframes crown-drop {
+  0%   { transform: translateY(-28px) scale(0.75); opacity: 0; }
+  60%  { transform: translateY(5px) scale(1.05); opacity: 1; }
+  80%  { transform: translateY(-2px) scale(0.98); }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+.crown-drop {
+  animation: crown-drop 700ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .crown-drop { animation: none; }
+}
+
+/* ── THE ROYAL BEACON — Screen 1 onboarding animations ── */
+
+/* Text — 4px max rise for all staggered copy */
+@keyframes hero-fade-up {
+  0%   { transform: translateY(4px); opacity: 0; }
+  100% { transform: translateY(0);   opacity: 1; }
+}
+/* Supporting copy + CTA — fade only, no movement */
+@keyframes hero-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+/* Logo: rise 10px, scale 0.96→1.01 settle→1 */
+@keyframes logo-rise {
+  0%   { transform: translateY(10px) scale(0.96); opacity: 0; }
+  78%  { transform: translateY(-1px) scale(1.01); opacity: 1; }
+  100% { transform: translateY(0)    scale(1);    opacity: 1; }
+}
+/* One beacon broadcast ring — expands once, fades completely */
+@keyframes beacon-ring {
+  0%   { transform: scale(0.35); opacity: 0; }
+  8%   { opacity: 0.48; }
+  100% { transform: scale(2.80); opacity: 0; }
+}
+/* Beacon dot: brightens once during broadcast, settles dim */
+@keyframes beacon-dot-pulse {
+  0%   { opacity: 0;    box-shadow: 0 0 6px 2px rgba(96,165,250,0.20); }
+  35%  { opacity: 1;    box-shadow: 0 0 14px 5px rgba(96,165,250,0.70); }
+  100% { opacity: 0.60; box-shadow: 0 0 8px 2px rgba(96,165,250,0.28); }
+}
+/* Crown shimmer — animates background-position so the div stays fixed */
+@keyframes crown-shimmer {
+  0%   { background-position: -100% center; }
+  100% { background-position: 200% center; }
+}
+@keyframes wordmark-glimmer {
+  from { background-position: 200% center; }
+  to   { background-position: 0% center; }
+}
+.wordmark-glimmer {
+  background-size: 200% auto;
+  background-repeat: repeat;
+  animation: wordmark-glimmer 2.8s linear infinite;
+}
+
+.logo-rise {
+  animation: logo-rise 650ms cubic-bezier(0.22, 1, 0.36, 1) 100ms both;
+}
+/* One ring only — broadcast at 320ms, done by ~720ms */
+.beacon-ring-1 {
+  animation: beacon-ring 960ms cubic-bezier(0.16, 0.84, 0.44, 1) 320ms both;
+}
+.beacon-dot-anim {
+  animation: beacon-dot-pulse 680ms ease-out 320ms both;
+}
+/* Shimmer overlay on logo wrapper — single pass, not looped */
+.logo-shimmer-once {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 25%, rgba(255,255,255,0.55) 50%, transparent 75%);
+  background-size: 200% 100%;
+  mix-blend-mode: overlay;
+  animation: crown-shimmer 520ms ease-in-out 620ms both;
+  pointer-events: none;
+  z-index: 11;
+}
+.hero-welcome {
+  animation: hero-fade-up 300ms cubic-bezier(0.22, 1, 0.36, 1) 420ms both;
+}
+.hero-brand-anim {
+  animation: hero-fade-up 320ms cubic-bezier(0.22, 1, 0.36, 1) 500ms both;
+}
+.hero-tagline {
+  animation: hero-fade-up 280ms cubic-bezier(0.22, 1, 0.36, 1) 650ms both;
+}
+.hero-supporting {
+  animation: hero-fade 280ms ease-out 760ms both;
+}
+.hero-bottom-fade {
+  animation: hero-fade 260ms ease-out 800ms both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .logo-rise,
+  .beacon-ring-1,
+  .beacon-dot-anim,
+  .logo-shimmer-once,
+  .hero-welcome,
+  .hero-brand-anim,
+  .hero-tagline,
+  .hero-supporting,
+  .hero-bottom-fade { animation: none; opacity: 1; }
+  .beacon-ring-1    { opacity: 0; }
+  .logo-shimmer-once { opacity: 0; }
+}
+
+/* ── LIVE MAP REVEAL — Screen 2 entrance sequence ── */
+@keyframes onb2-map-in {
+  from { opacity: 0; transform: scale(1.016); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes onb2-pin-drop {
+  from { opacity: 0; transform: translate(-50%, -110%) scale(0.55); }
+  to   { opacity: 1; transform: translate(-50%, -100%) scale(1); }
+}
+@keyframes onb2-loc-in {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.4); }
+  to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+@keyframes onb2-loc-ring {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.5); }
+  15%  { opacity: 0.48; }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(2.6); }
+}
+@keyframes onb2-select-ring {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.6); }
+  14%  { opacity: 0.42; }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(2.1); }
+}
+@keyframes onb2-pill-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.onb2-map-in   { animation: onb2-map-in 300ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.onb2-pin-drop { animation: onb2-pin-drop 260ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.onb2-loc-in   { animation: onb2-loc-in 280ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.onb2-loc-ring {
+  position: absolute;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(59, 130, 246, 0.52);
+  pointer-events: none;
+  animation: onb2-loc-ring 700ms ease-out 160ms both;
+}
+.onb2-select-ring {
+  position: absolute;
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(30, 117, 255, 0.46);
+  pointer-events: none;
+  animation: onb2-select-ring 820ms ease-out 480ms both;
+}
+.onb2-pill { animation: onb2-pill-in 240ms ease-out both; }
+@keyframes onb2-sheet-in {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.onb2-sheet-in { animation: onb2-sheet-in 380ms cubic-bezier(0.22, 1, 0.36, 1) 80ms both; }
+@keyframes onb2-preview-in {
+  from { opacity: 0; transform: scale(0.88); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.onb2-preview-in { animation: onb2-preview-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+@media (prefers-reduced-motion: reduce) {
+  .onb2-map-in      { animation: none; opacity: 1; transform: none; }
+  .onb2-pin-drop    { animation: none; opacity: 1; transform: translate(-50%, -100%); }
+  .onb2-loc-in      { animation: none; opacity: 1; transform: translate(-50%, -50%); }
+  .onb2-loc-ring,
+  .onb2-select-ring { animation: none; opacity: 0; }
+  .onb2-pill        { animation: none; opacity: 1; transform: none; }
+  .onb2-sheet-in    { animation: none; opacity: 1; transform: none; }
+  .onb2-preview-in  { animation: none; opacity: 1; transform: none; }
+}
+
+/* ── MY CAR, REMEMBERED — Screen 3 entrance sequence ── */
+@keyframes onb3-marker-drop {
+  /* Circle marker: centered via translate(-50%,-50%) */
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.62); }
+  to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+@keyframes onb3-route-draw {
+  /* L-shaped street route, dasharray 240 */
+  from { stroke-dashoffset: 240; opacity: 0; }
+  to   { stroke-dashoffset: 0; opacity: 0.80; }
+}
+.onb3-marker-drop { animation: onb3-marker-drop 300ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.onb3-route-draw  { animation: onb3-route-draw 440ms ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .onb3-marker-drop { animation: none; opacity: 1; transform: translate(-50%, -50%); }
+  .onb3-route-draw  { animation: none; opacity: 0.80; }
+}
+
 /* Ping Celebration Animation */
 @keyframes ping-drop {
   0%   { transform: translateY(-24px) scale(0.6); opacity: 0; }

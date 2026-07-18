@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import SplashScreen from './assets/splash_screen.svg';
 import { LoadingScreen } from './components/LoadingScreen';
 import { OnboardingView } from './views/OnboardingView';
+import { LocationPromptView } from './views/LocationPromptView';
 
 // All other views are lazy-loaded so the initial bundle only contains what's
 // needed for the login screen. Each view is brought in on demand the first
@@ -53,6 +54,7 @@ export default function App() {
   const [activeChatContext, setActiveChatContext] = useState<{ userId: string; context: string } | null>(null);
   const [chatReturnSpotId, setChatReturnSpotId] = useState<string | null>(null);
   const [pushToast, setPushToast] = useState<{ title: string; body: string } | null>(null);
+  const [locationPromptDone, setLocationPromptDone] = useState(() => !!localStorage.getItem('hasSeenLocationPrompt'));
   const [titleUnlock, setTitleUnlock] = useState<string | null>(null);
   const prevTitleRef = useRef<string | null>(null);
   const [phone, setPhone] = useState('');
@@ -260,6 +262,14 @@ export default function App() {
                 }}
               />
             </div>
+          )}
+          {!locationPromptDone && (
+            <LocationPromptView
+              onDone={() => {
+                localStorage.setItem('hasSeenLocationPrompt', '1');
+                setLocationPromptDone(true);
+              }}
+            />
           )}
         </>
       );
