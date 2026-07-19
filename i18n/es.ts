@@ -323,6 +323,20 @@ const es: Record<string, string> = {
     'auth.error_network': 'Error de red. Revisa tu conexión e intenta de nuevo.',
     'auth.error_unknown': 'Algo salió mal. Intenta de nuevo.',
 
+    // Create Account (Step 1 of 4)
+    'create_account.eyebrow': 'CREA TU CUENTA',
+    'create_account.headline': '¿Cuál es tu número?',
+    'create_account.supporting': 'Te enviaremos un código de un solo uso para verificar tu cuenta.',
+    'create_account.label': 'Número de teléfono',
+    'create_account.trust': 'Usamos tu número para verificar y proteger tu cuenta.',
+    'create_account.send': 'Enviar código',
+    'create_account.sending': 'Enviando código…',
+    'create_account.back_aria': 'Atrás',
+    'create_account.step': 'Paso 1 de 4',
+    'create_account.error_invalid': 'Número inválido. Verifica e intenta de nuevo.',
+    'create_account.error_too_many': 'Demasiados intentos. Intenta más tarde.',
+    'create_account.error_generic': 'No se pudo enviar el código. Intenta de nuevo.',
+
     // Phone Verification
     'verify_phone.heading': 'Ingresa tu código',
     'verify_phone.sent_to': 'Enviado a {phone}',

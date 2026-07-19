@@ -4,18 +4,21 @@ import { t, useLang } from '../i18n';
 
 const SLIDE_COUNT = 3;
 
-export const OnboardingView = ({ onComplete }: { onComplete: () => void }) => {
+export const OnboardingView = ({ onComplete, initialSlide = 0 }: { onComplete: () => void; initialSlide?: number }) => {
     useLang();
-    const [current, setCurrent] = useState(0);
+    const [current, setCurrent] = useState(initialSlide);
     const [animating, setAnimating] = useState(false);
     const touchStartX = useRef<number | null>(null);
     const prefersReduced =
         typeof window !== 'undefined' &&
         window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+    // Skip animations when jumping directly to a later slide (e.g. Back from signup)
+    const skipAnims = prefersReduced || initialSlide > 0;
+
     // My Car sequence: fires once when slide 3 becomes active
-    const [s3Phase, setS3Phase] = useState(prefersReduced ? 5 : 0);
-    const s3Started = useRef(false);
+    const [s3Phase, setS3Phase] = useState(skipAnims ? 5 : 0);
+    const s3Started = useRef(skipAnims);
     useEffect(() => {
         if (current !== 2 || s3Started.current || prefersReduced) return;
         s3Started.current = true;
@@ -30,17 +33,17 @@ export const OnboardingView = ({ onComplete }: { onComplete: () => void }) => {
     }, [current, prefersReduced]);
 
     // Demo sequence: fires once when slide 2 becomes active
-    const [demoPhase, setDemoPhase] = useState(prefersReduced ? 5 : 0);
-    const demoStarted = useRef(false);
+    const [demoPhase, setDemoPhase] = useState(skipAnims ? 5 : 0);
+    const demoStarted = useRef(skipAnims);
     useEffect(() => {
         if (current !== 1 || demoStarted.current || prefersReduced) return;
         demoStarted.current = true;
         const timers = [
             setTimeout(() => setDemoPhase(1), 0),     // location dot (immediate)
             setTimeout(() => setDemoPhase(2), 2000),  // primary blue ping
-            setTimeout(() => setDemoPhase(3), 3000),  // secondary blue ping
-            setTimeout(() => setDemoPhase(4), 4000),  // yellow leaving-later ping
-            setTimeout(() => setDemoPhase(5), 4500),  // pill + tooltips
+            setTimeout(() => setDemoPhase(3), 2500),  // secondary blue ping
+            setTimeout(() => setDemoPhase(4), 3000),  // yellow leaving-later ping
+            setTimeout(() => setDemoPhase(5), 3500),  // pill + tooltips
         ];
         return () => timers.forEach(clearTimeout);
     }, [current, prefersReduced]);
@@ -509,27 +512,28 @@ export const OnboardingView = ({ onComplete }: { onComplete: () => void }) => {
                                 <svg
                                     aria-hidden="true"
                                     className="absolute inset-0 w-full h-full"
-                                    viewBox="0 0 375 812"
-                                    preserveAspectRatio="xMidYMid slice"
+                                    viewBox="0 0 100 100"
+                                    preserveAspectRatio="none"
                                     style={{ zIndex: 4 }}
                                 >
                                     <defs>
                                         <filter id="routeGlow3" x="-50%" y="-50%" width="200%" height="200%">
-                                            <feGaussianBlur stdDeviation="1.8" result="blur"/>
+                                            <feGaussianBlur stdDeviation="0.5" result="blur"/>
                                             <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
                                         </filter>
                                     </defs>
-                                    {/* Path: up from user dot → right along cross street → up to My Car bottom edge */}
+                                    {/* Path in % coords — aligns with %-positioned user dot (27,37) and crown (56,20) */}
                                     <path
                                         className={prefersReduced ? '' : 'onb3-route-draw'}
                                         style={prefersReduced ? { opacity: 0.80 } : undefined}
-                                        d="M 101 305 L 101 212 L 210 212 L 210 183"
+                                        d="M 27 37 L 27 28 L 56 28 L 56 23"
                                         fill="none"
                                         stroke="#38bdf8"
                                         strokeWidth="2.5"
                                         strokeLinecap="round"
                                         strokeLinejoin="round"
-                                        strokeDasharray="235"
+                                        strokeDasharray="400"
+                                        vectorEffect="non-scaling-stroke"
                                         filter="url(#routeGlow3)"
                                     />
                                 </svg>

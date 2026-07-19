@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import SplashScreen from './assets/splash_screen.svg';
 import { LoadingScreen } from './components/LoadingScreen';
 import { OnboardingView } from './views/OnboardingView';
 import { LocationPromptView } from './views/LocationPromptView';
@@ -59,6 +58,7 @@ export default function App() {
   const prevTitleRef = useRef<string | null>(null);
   const [phone, setPhone] = useState('');
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
+  const [onboardingSlide, setOnboardingSlide] = useState(0);
 
   useEffect(() => {
     let userProfileUnsubscribe = () => {};
@@ -236,7 +236,7 @@ export default function App() {
 
   const renderView = () => {
     if (loading) {
-      return <div className="h-full w-full bg-cover bg-center bg-no-repeat" style={{ backgroundImage: `url(${SplashScreen})` }} />;
+      return <LoadingScreen />;
     }
 
     // MAP and MESSAGES share the same MapView instance so selectedItem survives the transition
@@ -277,9 +277,15 @@ export default function App() {
 
     switch (currentView) {
       case AppView.ONBOARDING:
-        return <OnboardingView onComplete={() => { localStorage.setItem('hasSeenOnboarding', '1'); setCurrentView(AppView.CREATE_ACCOUNT); }} />;
+        return <OnboardingView
+          initialSlide={onboardingSlide}
+          onComplete={() => { setOnboardingSlide(0); localStorage.setItem('hasSeenOnboarding', '1'); setCurrentView(AppView.CREATE_ACCOUNT); }}
+        />;
       case AppView.CREATE_ACCOUNT:
-        return <CreateAccountView onContinue={handleCreateAccount} />;
+        return <CreateAccountView
+          onContinue={handleCreateAccount}
+          onBack={() => { setOnboardingSlide(2); setCurrentView(AppView.ONBOARDING); }}
+        />;
       case AppView.VERIFY_PHONE:
         return <VerifyPhoneView
           phone={phone}
@@ -342,7 +348,10 @@ export default function App() {
       case AppView.EDIT_VEHICLE:
         return <EditVehicleView user={user} onBack={() => { setVehicleOnboarding(false); setCurrentView(vehicleOnboarding ? AppView.MAP : AppView.PROFILE); }} isOnboarding={vehicleOnboarding} onSkip={() => { setVehicleOnboarding(false); setCurrentView(AppView.MAP); }} />;
       default:
-        return <CreateAccountView onContinue={handleCreateAccount} />;
+        return <CreateAccountView
+          onContinue={handleCreateAccount}
+          onBack={() => { setOnboardingSlide(2); setCurrentView(AppView.ONBOARDING); }}
+        />;
     }
   };
 

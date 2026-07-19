@@ -5,7 +5,7 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { db } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
 
-const ProgressBar = ({ step, total = 3 }: { step: number; total?: number }) => (
+const ProgressBar = ({ step, total = 4 }: { step: number; total?: number }) => (
     <div className="flex gap-1.5 w-full max-w-xs mx-auto mb-10">
         {Array.from({ length: total }, (_, i) => i + 1).map(i => (
             <div key={i} className={`h-1 rounded-full flex-1 transition-all duration-300 ${i <= step ? 'bg-blue-500' : 'bg-[var(--color-border)]'}`} />

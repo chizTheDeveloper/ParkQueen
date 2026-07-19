@@ -1,24 +1,31 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { RecaptchaVerifier, signInWithPhoneNumber, ConfirmationResult } from 'firebase/auth';
 import { auth } from '../firebaseConfig';
-
-const ProgressBar = ({ step, total = 2 }: { step: number; total?: number }) => (
-    <div className="flex gap-1.5 w-full max-w-xs mx-auto mb-10">
-        {Array.from({ length: total }, (_, i) => i + 1).map(i => (
-            <div key={i} className={`h-1 rounded-full flex-1 transition-all duration-300 ${i <= step ? 'bg-blue-500' : 'bg-[var(--color-border)]'}`} />
-        ))}
-    </div>
-);
+import { t, useLang } from '../i18n';
+import { ChevronLeft, Shield, Loader2 } from 'lucide-react';
+import { SignupProgress } from '../components/SignupProgress';
 
 interface CreateAccountViewProps {
     onContinue: (phone: string, confirmationResult: ConfirmationResult) => void;
+    onBack: () => void;
 }
 
-export const CreateAccountView: React.FC<CreateAccountViewProps> = ({ onContinue }) => {
-    const [phone, setPhone] = useState('');
+const formatPhone = (digits: string): string => {
+    if (digits.length <= 3) return digits;
+    if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+};
+
+export const CreateAccountView: React.FC<CreateAccountViewProps> = ({ onContinue, onBack }) => {
+    useLang();
+    const [digits, setDigits] = useState('');
     const [sending, setSending] = useState(false);
     const [error, setError] = useState('');
     const recaptchaRef = useRef<RecaptchaVerifier | null>(null);
+
+    const prefersReduced =
+        typeof window !== 'undefined' &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     useEffect(() => {
         if (!recaptchaRef.current) {
@@ -27,62 +34,152 @@ export const CreateAccountView: React.FC<CreateAccountViewProps> = ({ onContinue
         return () => { recaptchaRef.current = null; };
     }, []);
 
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        let raw = e.target.value.replace(/\D/g, '');
+        // Normalize pasted +1XXXXXXXXXX (11 digits starting with 1)
+        if (raw.length === 11 && raw.startsWith('1')) raw = raw.slice(1);
+        setDigits(raw.slice(0, 10));
+    };
+
     const handleSend = async () => {
+        if (digits.length < 10 || sending) return;
         setError('');
         setSending(true);
         try {
-            const digits = phone.replace(/\D/g, '');
-            const fullNumber = `+1${digits}`;
-            const result = await signInWithPhoneNumber(auth, fullNumber, recaptchaRef.current!);
-            onContinue(phone, result);
+            const result = await signInWithPhoneNumber(auth, `+1${digits}`, recaptchaRef.current!);
+            onContinue(formatPhone(digits), result);
         } catch (e: any) {
             console.error('Send OTP failed:', e);
-            if (e.code === 'auth/too-many-requests') {
-                setError('Too many attempts. Please try again later.');
-            } else if (e.code === 'auth/invalid-phone-number') {
-                setError('Invalid phone number. Please check and try again.');
-            } else {
-                setError(e.message || 'Failed to send code. Please try again.');
-            }
+            if (e.code === 'auth/too-many-requests') setError(t('create_account.error_too_many'));
+            else if (e.code === 'auth/invalid-phone-number') setError(t('create_account.error_invalid'));
+            else setError(e.message || t('create_account.error_generic'));
         } finally {
             setSending(false);
         }
     };
 
+    const isValid = digits.length === 10;
+
     return (
-        <div className="h-full w-full bg-[var(--color-bg)] flex flex-col px-7 pt-14">
-            <div>
-                <ProgressBar step={1} />
-                <h1 className="text-[24px] font-bold text-[var(--color-text)] leading-tight">What's your number?</h1>
-                <p className="text-[15px] text-[var(--color-text-secondary)] mt-2 mb-8">We'll text you a code to verify it's you</p>
-                <div className="relative bg-white/5 rounded-full border border-[var(--color-border)] focus-within:border-blue-500 transition-all">
-                    <div className="absolute inset-y-0 left-0 flex items-center pl-5 pointer-events-none">
-                        <span className="text-[var(--color-text-secondary)] font-semibold text-[15px]">+1</span>
-                    </div>
-                    <input
-                        type="tel"
-                        aria-label="Phone number"
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        placeholder="(555) 555-1234"
-                        className="w-full bg-transparent py-4 pl-14 pr-5 text-[var(--color-text)] font-semibold outline-none placeholder-[var(--color-text-secondary)] text-[16px] rounded-full"
-                        autoFocus
-                    />
-                </div>
-                {error && <p className="text-red-400 text-sm mt-3 text-center">{error}</p>}
+        <div className="h-full w-full bg-[var(--color-bg)] flex flex-col px-6 pt-10">
+
+            {/* Top nav row */}
+            <div className="flex items-center justify-between mb-3">
+                <button
+                    onClick={onBack}
+                    aria-label={t('create_account.back_aria')}
+                    className="w-11 h-11 -ml-1 flex items-center justify-center rounded-full text-[var(--color-text-secondary)] hover:text-[var(--color-text)] active:opacity-70 transition-all"
+                >
+                    <ChevronLeft size={22} />
+                </button>
+                <span className="text-[12px] font-semibold text-[var(--color-text-secondary)] tracking-wide">
+                    {t('create_account.step')}
+                </span>
             </div>
 
-            <div className="flex-1" />
+            {/* 4-segment progress */}
+            <SignupProgress step={1} />
 
+            {/* Content block — entrance animation */}
+            <div className={prefersReduced ? '' : 'auth-fade-in'}>
+
+                {/* Eyebrow */}
+                <p className="text-[11px] font-bold tracking-[0.13em] text-blue-400 uppercase mb-3 mt-2">
+                    {t('create_account.eyebrow')}
+                </p>
+
+                {/* Headline */}
+                <h1 className="text-[26px] font-bold text-[var(--color-text)] leading-tight mb-2">
+                    {t('create_account.headline')}
+                </h1>
+
+                {/* Supporting */}
+                <p className="text-[15px] text-[var(--color-text-secondary)] leading-relaxed mb-8">
+                    {t('create_account.supporting')}
+                </p>
+
+                {/* Phone input */}
+                <label
+                    className="block text-[10px] font-bold uppercase tracking-[0.1em] text-[var(--color-text-secondary)] mb-2"
+                    htmlFor="phone-input"
+                >
+                    {t('create_account.label')}
+                </label>
+                <div
+                    className={`flex items-center bg-[var(--color-card)] border rounded-[18px] transition-all duration-[180ms] ${
+                        error
+                            ? 'border-red-500/70 shadow-[0_0_0_3px_rgba(239,68,68,0.15)]'
+                            : 'border-[var(--color-border)] focus-within:border-blue-500 focus-within:shadow-[0_0_0_3px_rgba(30,117,255,0.18)]'
+                    }`}
+                    style={{ height: 58 }}
+                >
+                    {/* Country code — static display, no interaction affordance */}
+                    <div
+                        className="flex items-center gap-2 pl-4 pr-3 border-r border-[var(--color-border)] shrink-0 h-full select-none"
+                        aria-hidden="true"
+                    >
+                        <span className="text-[18px] leading-none">🇺🇸</span>
+                        <span className="text-[15px] font-semibold text-[var(--color-text-secondary)]">+1</span>
+                    </div>
+
+                    <input
+                        id="phone-input"
+                        type="tel"
+                        inputMode="tel"
+                        autoComplete="tel"
+                        aria-label={t('create_account.label')}
+                        aria-describedby={error ? 'phone-error' : 'phone-trust'}
+                        aria-invalid={!!error}
+                        value={formatPhone(digits)}
+                        onChange={handleChange}
+                        placeholder="(555) 555-1234"
+                        className="flex-1 bg-transparent px-4 h-full text-[var(--color-text)] font-semibold outline-none placeholder-[var(--color-text-secondary)]/50 text-[16px]"
+                    />
+                </div>
+
+                {/* Error or trust note */}
+                {error ? (
+                    <p id="phone-error" role="alert" className="text-red-400 text-[13px] mt-2 font-medium">
+                        {error}
+                    </p>
+                ) : (
+                    <p id="phone-trust" className="flex items-center gap-1.5 text-[12px] text-[var(--color-text-secondary)] mt-2.5">
+                        <Shield size={12} className="shrink-0 opacity-60" />
+                        {t('create_account.trust')}
+                    </p>
+                )}
+            </div>
+
+            {/* Spacer — capped so CTA stays reachable when keyboard is open */}
+            <div className="flex-1" style={{ maxHeight: 56 }} />
+
+            {/* CTA */}
             <div className="pb-8">
                 <button
                     onClick={handleSend}
-                    disabled={phone.replace(/\D/g, '').length < 10 || sending}
-                    className="w-full bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 active:scale-[0.98] text-white font-semibold text-[16px] py-4 rounded-full shadow-lg shadow-blue-500/30 transition-all disabled:opacity-40 disabled:active:scale-100"
+                    disabled={!isValid || sending}
+                    aria-busy={sending}
+                    className={`w-full font-bold text-[16px] rounded-full flex items-center justify-center gap-2 transition-all duration-[160ms] ${
+                        isValid && !sending
+                            ? 'bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 active:scale-[0.985] text-white shadow-lg shadow-blue-500/25'
+                            : 'text-white/45 cursor-not-allowed'
+                    }`}
+                    style={{
+                        height: 58,
+                        ...((!isValid || sending) && { background: 'rgba(20, 40, 80, 0.55)' }),
+                    }}
                 >
-                    {sending ? 'Sending...' : 'Send code'}
+                    {sending ? (
+                        <>
+                            <Loader2 size={18} className="animate-spin" />
+                            {t('create_account.sending')}
+                        </>
+                    ) : (
+                        t('create_account.send')
+                    )}
                 </button>
             </div>
+
             <div id="recaptcha-container" />
         </div>
     );

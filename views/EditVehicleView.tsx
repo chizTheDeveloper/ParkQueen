@@ -1,5 +1,6 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { useFocusOnMount } from '../hooks/useFocusOnMount';
+import { SignupProgress } from '../components/SignupProgress';
 import { ChevronLeft, ChevronRight, Search, Trash2, Check } from 'lucide-react';
 import { VehicleIcon } from '../utils/vehicleIcon';
 import { doc, updateDoc } from 'firebase/firestore';
@@ -241,6 +242,8 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
   };
 
   const Header = () => (
+    <div>
+    {isOnboarding && <SignupProgress step={4} />}
     <div className="flex items-center justify-between mb-5">
       <button
         onClick={step === 0 ? onBack : () => setStep(s => s - 1)}
@@ -256,6 +259,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
       >
         {t('vehicle.skip')}
       </button>
+    </div>
     </div>
   );
 
