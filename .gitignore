@@ -22,4 +22,11 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+.env
 functions/.env
+
+# Generated caches
+.firebase/
+firebase-debug.log
+**/__pycache__/
+**/*.pyc
