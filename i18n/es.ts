@@ -423,7 +423,7 @@ const es: Record<string, string> = {
     'vehicle.preview_label': 'Vista previa — cómo aparece en tu perfil',
     'vehicle.saving': 'Guardando...',
     'vehicle.save': 'Guardar vehículo',
-    'vehicle.skip_for_now': 'Saltar por ahora',
+    'vehicle.skip_for_now': 'Omitir por ahora',
     'vehicle.remove': 'Quitar vehículo',
     'vehicle.remove_subtitle': 'Borrar toda la información del vehículo',
     'vehicle.color_black': 'Negro',
@@ -474,6 +474,16 @@ const es: Record<string, string> = {
     'vehicle.done_partial_body': 'Color faltante — completa la configuración desde Perfil → Detalles del vehículo.',
     'vehicle.continue': 'Continuar a la app',
     'vehicle.incomplete_banner': 'Completa la configuración de tu vehículo →',
+
+    // Vehicle type screen (Step 4 de 4 — onboarding)
+    'vehicle.step': 'Paso 4 de 4',
+    'vehicle.eyebrow': 'DATOS DEL VEHÍCULO',
+    'vehicle.substep_count_type': '1 DE 3',
+    'vehicle.substep_count_brand': '2 DE 3',
+    'vehicle.substep_count_color': '3 DE 3',
+    'vehicle.stage_type': 'Tipo',
+    'vehicle.headline_type': 'Elige el tipo de vehículo',
+    'vehicle.supporting_type': 'Esto ayuda a otros conductores a reconocer tu vehículo durante los intercambios de estacionamiento.',
 
     // Edit Profile
     'edit_profile.title': 'Editar perfil',

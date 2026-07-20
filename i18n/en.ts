@@ -475,6 +475,16 @@ const en: Record<string, string> = {
     'vehicle.continue': 'Continue to the app',
     'vehicle.incomplete_banner': 'Complete your vehicle setup →',
 
+    // Vehicle type screen (Step 4 of 4 — onboarding)
+    'vehicle.step': 'Step 4 of 4',
+    'vehicle.eyebrow': 'VEHICLE DETAILS',
+    'vehicle.substep_count_type': '1 OF 3',
+    'vehicle.substep_count_brand': '2 OF 3',
+    'vehicle.substep_count_color': '3 OF 3',
+    'vehicle.stage_type': 'Type',
+    'vehicle.headline_type': 'Choose your vehicle type',
+    'vehicle.supporting_type': 'This helps other drivers recognize your car during parking handoffs.',
+
     // Edit Profile
     'edit_profile.title': 'Edit Profile',
     'edit_profile.back_aria': 'Back',
