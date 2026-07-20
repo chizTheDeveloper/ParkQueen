@@ -6,7 +6,7 @@ import { db } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { t, useLang } from '../i18n';
 import { SignupProgress } from '../components/SignupProgress';
-import { validateUsername } from '../utils/username';
+import { validateUsername, parseCooldownDays } from '../utils/username';
 import { moderateUsername } from '../utils/moderation';
 
 // Evaluated once at module load — same pattern as CreateAccountView / LocationPromptView
@@ -133,8 +133,11 @@ export const NameEntryView: React.FC<NameEntryViewProps> = ({ onComplete }) => {
                 setStatusMsg(t('edit_profile.username_taken'));
                 lastConfirmedRef.current = null; // force fresh check on next attempt
             } else if (code === 'functions/failed-precondition') {
-                // 30-day cooldown — show CF message verbatim (includes days remaining)
-                setClaimError(msg);
+                // 30-day cooldown — parse days from CF message and show localized copy
+                const days = parseCooldownDays(msg);
+                setClaimError(days !== null
+                    ? t('name_entry.error_cooldown', { days })
+                    : t('name_entry.error_network'));
             } else if (
                 code === 'functions/invalid-argument' &&
                 (msg.includes('choose') || msg.includes('available') || msg.includes('not available'))

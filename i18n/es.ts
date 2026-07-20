@@ -394,6 +394,7 @@ const es: Record<string, string> = {
     'name_entry.cta': 'Continuar',
     'name_entry.cta_loading': 'Guardando…',
     'name_entry.error_network': 'No pudimos comprobar ese nombre. Inténtalo de nuevo.',
+    'name_entry.error_cooldown': 'Podrás cambiar tu nombre de usuario en {days} días.',
 
     // Setup Profile
     'setup_profile.title': 'Crear perfil',

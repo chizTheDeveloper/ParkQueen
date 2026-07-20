@@ -729,7 +729,17 @@ exports.claimUsername = onCall(
     try {
       await db.runTransaction(async (tx) => {
         const existing = await tx.get(usernameRef);
-        if (existing.exists) throw new HttpsError("already-exists", "Username is already taken.");
+        if (existing.exists) {
+          if (existing.data().uid !== uid) {
+            // Belongs to a different user — reject normally
+            throw new HttpsError("already-exists", "Username is already taken.");
+          }
+          // Same UID: reservation already belongs to this user (orphaned from a failed
+          // saveUserProfile). Treat as idempotent — the user doc will be created or
+          // updated by the client's saveUserProfile call. No cooldown applies here
+          // because this isn't a username change, just completing an interrupted claim.
+          return;
+        }
 
         const userDoc = await tx.get(userRef);
         const userData = userDoc.exists ? userDoc.data() : {};

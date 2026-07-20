@@ -25,3 +25,15 @@ export function validateUsername(val: string): string | null {
 export function isStaleResponse(currentGen: number, responseGen: number): boolean {
     return responseGen !== currentGen;
 }
+
+/**
+ * Extracts the days-remaining integer from the claimUsername CF failed-precondition message.
+ * Returns null if the message does not contain a recognizable day count.
+ * Used to map the raw English CF message to a localized i18n string.
+ *
+ * Example input: "You can change your username again in 27 days."
+ */
+export function parseCooldownDays(cfMessage: string): number | null {
+    const match = cfMessage.match(/\b(\d+)\s+day/i);
+    return match ? parseInt(match[1], 10) : null;
+}
