@@ -37,6 +37,16 @@ const en: Record<string, string> = {
     'onboarding.location.enable': 'Enable location',
     'onboarding.location.skip': 'Maybe later',
 
+    // Location permission primer (standalone screen, Step 5 of new-user flow)
+    'location_prompt.eyebrow': 'LOCATION ACCESS',
+    'location_prompt.headline': 'See parking near you',
+    'location_prompt.body': 'Allow location to see nearby Pings, save where you parked, and get directions back to your car.',
+    'location_prompt.enable': 'Enable location',
+    'location_prompt.requesting': 'Requesting access…',
+    'location_prompt.skip': 'Not now',
+    'location_prompt.reassurance': 'You can enable location anytime in your device settings.',
+    'location_prompt.map_desc': 'Map preview showing nearby parking spots',
+
     // App Tour — welcome
     'tour.welcome.title': 'Welcome to ParQueen',
     'tour.welcome.body': 'Save your car, find pings, and help nearby drivers.',

@@ -44,7 +44,7 @@ import { useParkingTimer } from './street-parking/useParkingTimer';
 import { AppTour, TOUR_KEY } from './street-parking/AppTour';
 
 
-export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, pendingSpotId, onPendingSpotConsumed }) => {
+export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, pendingSpotId, onPendingSpotConsumed, allowLocationTracking }) => {
     useLang(); // re-render on language change
     const mapContainerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -52,6 +52,9 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
     const userMarkerRef = useRef<mapboxgl.Marker | null>(null);
     const lastParkedMarkerRef = useRef<mapboxgl.Marker | null>(null);
     const activeRouteDestinationRef = useRef<[number, number] | null>(null);
+
+    // Capture the initial tracking permission so the map-init effect doesn't need it as a dep
+    const allowLocationTrackingRef = useRef(allowLocationTracking);
 
     const [selectedItem, setSelectedItem] = useState<any | null>(null);
     const [selectedItemManageMode, setSelectedItemManageMode] = useState(false);
@@ -819,7 +822,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
             if (!mapRef.current) initMap(NYC_CENTER);
         }, 5000);
 
-        if (navigator.geolocation) {
+        if (allowLocationTrackingRef.current && navigator.geolocation) {
             watchId = navigator.geolocation.watchPosition(
                 (position) => {
                     const { longitude, latitude, accuracy } = position.coords;

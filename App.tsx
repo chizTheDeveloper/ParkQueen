@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { LoadingScreen } from './components/LoadingScreen';
 import { OnboardingView } from './views/OnboardingView';
-import { LocationPromptView } from './views/LocationPromptView';
+const LocationPromptView = lazy(() => import('./views/LocationPromptView').then(m => ({ default: m.LocationPromptView })));
 
 // All other views are lazy-loaded so the initial bundle only contains what's
 // needed for the login screen. Each view is brought in on demand the first
@@ -31,6 +31,7 @@ const PrivacyPolicyView = lazy(() => import('./views/PrivacyPolicyView').then(m 
 const TermsOfUseView = lazy(() => import('./views/TermsOfUseView').then(m => ({ default: m.TermsOfUseView })));
 const ContactUsView = lazy(() => import('./views/ContactUsView').then(m => ({ default: m.ContactUsView })));
 import { AppView } from './types';
+import { readPersistedAccess, persistAccessChoice, shouldShowPrimer, type LocationAccess } from './utils/locationAccess';
 import { ChevronLeft } from 'lucide-react';
 import ErrorBoundary from './ErrorBoundary';
 import { saveUserProfile, logoutUser, deleteUser } from './database';
@@ -44,6 +45,7 @@ import { getFCM } from './firebaseConfig';
 export default function App() {
   const [currentView, setCurrentView] = useState(AppView.CREATE_ACCOUNT);
   const [vehicleOnboarding, setVehicleOnboarding] = useState(false);
+  const [locationAccess, setLocationAccess] = useState<LocationAccess>(() => readPersistedAccess());
   const [pendingSpotId, setPendingSpotId] = useState<string | null>(null);
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -53,7 +55,6 @@ export default function App() {
   const [activeChatContext, setActiveChatContext] = useState<{ userId: string; context: string } | null>(null);
   const [chatReturnSpotId, setChatReturnSpotId] = useState<string | null>(null);
   const [pushToast, setPushToast] = useState<{ title: string; body: string } | null>(null);
-  const [locationPromptDone, setLocationPromptDone] = useState(() => !!localStorage.getItem('hasSeenLocationPrompt'));
   const [titleUnlock, setTitleUnlock] = useState<string | null>(null);
   const prevTitleRef = useRef<string | null>(null);
   // phone stores canonical E.164 (e.g. "+15555551234", "+51987654321")
@@ -104,7 +105,7 @@ export default function App() {
                 });
             }
         });
-
+        
         // Listen for profile data changes
         userProfileUnsubscribe = onSnapshot(userDocRef, (userDoc) => {
           if (userDoc.exists()) {
@@ -131,7 +132,9 @@ export default function App() {
           // For non-admins, check if their profile is set up
           const userDoc = await getDoc(userDocRef);
           if (userDoc.exists()) {
-            setCurrentView(AppView.MAP);
+            // Read fresh from storage — avoids stale closure on locationAccess state
+            const primerNeeded = shouldShowPrimer(readPersistedAccess());
+            setCurrentView(primerNeeded ? AppView.LOCATION_PROMPT : AppView.MAP);
           } else {
             setCurrentView(AppView.SETUP_PROFILE);
           }
@@ -250,6 +253,7 @@ export default function App() {
             setView={setCurrentView}
             pendingSpotId={pendingSpotId}
             onPendingSpotConsumed={() => setPendingSpotId(null)}
+            allowLocationTracking={locationAccess === 'granted'}
           />
           {currentView === AppView.MESSAGES && (
             <div className="fixed inset-0 z-50 bg-[var(--color-bg)]">
@@ -263,14 +267,6 @@ export default function App() {
                 }}
               />
             </div>
-          )}
-          {!locationPromptDone && (
-            <LocationPromptView
-              onDone={() => {
-                localStorage.setItem('hasSeenLocationPrompt', '1');
-                setLocationPromptDone(true);
-              }}
-            />
           )}
         </>
       );
@@ -296,7 +292,7 @@ export default function App() {
             const userDoc = await getDoc(doc(db, 'users', uid));
             if (userDoc.exists()) {
               setUser({ id: uid, ...userDoc.data() });
-              setCurrentView(AppView.MAP);
+              setCurrentView(locationAccess === 'unknown' ? AppView.LOCATION_PROMPT : AppView.MAP);
             } else {
               setCurrentView(AppView.SETUP_PROFILE);
             }
@@ -343,8 +339,23 @@ export default function App() {
         return <TermsOfUseView onBack={() => setCurrentView(AppView.PROFILE)} />;
       case AppView.CONTACT_US:
         return <ContactUsView onBack={() => setCurrentView(AppView.PROFILE)} />;
-      case AppView.EDIT_VEHICLE:
-        return <EditVehicleView user={user} onBack={() => { setVehicleOnboarding(false); setCurrentView(vehicleOnboarding ? AppView.MAP : AppView.PROFILE); }} isOnboarding={vehicleOnboarding} onSkip={() => { setVehicleOnboarding(false); setCurrentView(AppView.MAP); }} />;
+      case AppView.EDIT_VEHICLE: {
+        const afterVehicle = locationAccess === 'unknown' ? AppView.LOCATION_PROMPT : AppView.MAP;
+        return <EditVehicleView
+          user={user}
+          onBack={() => { setVehicleOnboarding(false); setCurrentView(vehicleOnboarding ? afterVehicle : AppView.PROFILE); }}
+          isOnboarding={vehicleOnboarding}
+          onSkip={() => { setVehicleOnboarding(false); setCurrentView(afterVehicle); }}
+        />;
+      }
+      case AppView.LOCATION_PROMPT:
+        return <LocationPromptView
+          onComplete={(access) => {
+            persistAccessChoice(access);
+            setLocationAccess(access);
+            setCurrentView(AppView.MAP);
+          }}
+        />;
       default:
         return <CreateAccountView
           onContinue={handleCreateAccount}

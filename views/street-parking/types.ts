@@ -48,4 +48,5 @@ export interface MapViewProps {
     onMessageUser: (userId: string, context: string, returnSpotId?: string) => void;
     pendingSpotId?: string | null;
     onPendingSpotConsumed?: () => void;
+    allowLocationTracking: boolean;
 }
