@@ -2,23 +2,43 @@ import React, { useState, useEffect, useRef } from 'react';
 import { RecaptchaVerifier, signInWithPhoneNumber, ConfirmationResult } from 'firebase/auth';
 import { auth } from '../firebaseConfig';
 import { t, useLang } from '../i18n';
-import { ChevronLeft, Shield, Loader2 } from 'lucide-react';
+import { Shield, Loader2 } from 'lucide-react';
 import { SignupProgress } from '../components/SignupProgress';
+import { CountrySelector } from '../components/CountrySelector';
+import {
+    parseNationalToE164,
+    parseInternationalPaste,
+    isNANPCountry,
+    maskPhone,
+} from '../utils/phone';
+import type { CountryCode } from '../utils/phone';
 
 interface CreateAccountViewProps {
-    onContinue: (phone: string, confirmationResult: ConfirmationResult) => void;
-    onBack: () => void;
+    onContinue: (phoneE164: string, confirmationResult: ConfirmationResult) => void;
 }
 
-const formatPhone = (digits: string): string => {
+const NANP_PLACEHOLDERS: Partial<Record<string, string>> = {
+    US: '(555) 555-1234',
+    CA: '(555) 555-1234',
+    PR: '(787) 555-1234',
+    DO: '(809) 555-1234',
+};
+const NON_NANP_PLACEHOLDERS: Partial<Record<string, string>> = {
+    MX: '55 1234 5678',
+    PE: '987 654 321',
+    GB: '07911 123456',
+};
+
+function formatNANP(digits: string): string {
     if (digits.length <= 3) return digits;
     if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
     return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
-};
+}
 
-export const CreateAccountView: React.FC<CreateAccountViewProps> = ({ onContinue, onBack }) => {
+export const CreateAccountView: React.FC<CreateAccountViewProps> = ({ onContinue }) => {
     useLang();
-    const [digits, setDigits] = useState('');
+    const [selectedCountry, setSelectedCountry] = useState<CountryCode>('US');
+    const [nationalInput, setNationalInput] = useState('');
     const [sending, setSending] = useState(false);
     const [error, setError] = useState('');
     const recaptchaRef = useRef<RecaptchaVerifier | null>(null);
@@ -27,6 +47,18 @@ export const CreateAccountView: React.FC<CreateAccountViewProps> = ({ onContinue
         typeof window !== 'undefined' &&
         window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+    const phoneE164 = parseNationalToE164(nationalInput, selectedCountry);
+    const isValid = phoneE164 !== null;
+
+    const displayValue = isNANPCountry(selectedCountry)
+        ? formatNANP(nationalInput)
+        : nationalInput;
+
+    const placeholder =
+        NANP_PLACEHOLDERS[selectedCountry] ??
+        NON_NANP_PLACEHOLDERS[selectedCountry] ??
+        '';
+
     useEffect(() => {
         if (!recaptchaRef.current) {
             recaptchaRef.current = new RecaptchaVerifier(auth, 'recaptcha-container', { size: 'invisible' });
@@ -34,22 +66,42 @@ export const CreateAccountView: React.FC<CreateAccountViewProps> = ({ onContinue
         return () => { recaptchaRef.current = null; };
     }, []);
 
+    const handleCountryChange = (country: CountryCode) => {
+        setSelectedCountry(country);
+        // Preserve digits; validity recomputes automatically for the new country
+        setError('');
+    };
+
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        let raw = e.target.value.replace(/\D/g, '');
-        // Normalize pasted +1XXXXXXXXXX (11 digits starting with 1)
-        if (raw.length === 11 && raw.startsWith('1')) raw = raw.slice(1);
-        setDigits(raw.slice(0, 10));
+        const raw = e.target.value.replace(/\D/g, '');
+        setNationalInput(raw.slice(0, 15));
+        if (error) setError('');
+    };
+
+    const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+        const pasted = e.clipboardData.getData('text').trim();
+        if (!pasted.startsWith('+')) return; // let normal change handler run
+        e.preventDefault();
+        const result = parseInternationalPaste(pasted, selectedCountry);
+        if (result.unsupported) {
+            setError(t('create_account.error_unsupported'));
+            return;
+        }
+        setSelectedCountry(result.country);
+        setNationalInput(result.nationalNumber.replace(/\D/g, '').slice(0, 15));
+        setError('');
     };
 
     const handleSend = async () => {
-        if (digits.length < 10 || sending) return;
+        if (!phoneE164 || sending) return;
         setError('');
         setSending(true);
         try {
-            const result = await signInWithPhoneNumber(auth, `+1${digits}`, recaptchaRef.current!);
-            onContinue(formatPhone(digits), result);
+            const result = await signInWithPhoneNumber(auth, phoneE164, recaptchaRef.current!);
+            onContinue(phoneE164, result);
         } catch (e: any) {
-            console.error('Send OTP failed:', e);
+            // Log masked — never log full phone
+            console.error('Send OTP failed:', maskPhone(phoneE164), e?.code);
             if (e.code === 'auth/too-many-requests') setError(t('create_account.error_too_many'));
             else if (e.code === 'auth/invalid-phone-number') setError(t('create_account.error_invalid'));
             else setError(e.message || t('create_account.error_generic'));
@@ -58,20 +110,13 @@ export const CreateAccountView: React.FC<CreateAccountViewProps> = ({ onContinue
         }
     };
 
-    const isValid = digits.length === 10;
-
     return (
         <div className="h-full w-full bg-[var(--color-bg)] flex flex-col px-6 pt-10">
 
-            {/* Top nav row */}
+            {/* Top nav row — no visible Back on Step 1 */}
             <div className="flex items-center justify-between mb-3">
-                <button
-                    onClick={onBack}
-                    aria-label={t('create_account.back_aria')}
-                    className="w-11 h-11 -ml-1 flex items-center justify-center rounded-full text-[var(--color-text-secondary)] hover:text-[var(--color-text)] active:opacity-70 transition-all"
-                >
-                    <ChevronLeft size={22} />
-                </button>
+                {/* Left spacer keeps "Step 1 of 4" right-aligned without visual shift */}
+                <div className="w-11 h-11" aria-hidden="true" />
                 <span className="text-[12px] font-semibold text-[var(--color-text-secondary)] tracking-wide">
                     {t('create_account.step')}
                 </span>
@@ -113,14 +158,11 @@ export const CreateAccountView: React.FC<CreateAccountViewProps> = ({ onContinue
                     }`}
                     style={{ height: 58 }}
                 >
-                    {/* Country code — static display, no interaction affordance */}
-                    <div
-                        className="flex items-center gap-2 pl-4 pr-3 border-r border-[var(--color-border)] shrink-0 h-full select-none"
-                        aria-hidden="true"
-                    >
-                        <span className="text-[18px] leading-none">🇺🇸</span>
-                        <span className="text-[15px] font-semibold text-[var(--color-text-secondary)]">+1</span>
-                    </div>
+                    {/* Country selector — opens searchable bottom sheet */}
+                    <CountrySelector
+                        selected={selectedCountry}
+                        onChange={handleCountryChange}
+                    />
 
                     <input
                         id="phone-input"
@@ -130,9 +172,10 @@ export const CreateAccountView: React.FC<CreateAccountViewProps> = ({ onContinue
                         aria-label={t('create_account.label')}
                         aria-describedby={error ? 'phone-error' : 'phone-trust'}
                         aria-invalid={!!error}
-                        value={formatPhone(digits)}
+                        value={displayValue}
                         onChange={handleChange}
-                        placeholder="(555) 555-1234"
+                        onPaste={handlePaste}
+                        placeholder={placeholder}
                         className="flex-1 bg-transparent px-4 h-full text-[var(--color-text)] font-semibold outline-none placeholder-[var(--color-text-secondary)]/50 text-[16px]"
                     />
                 </div>
@@ -150,8 +193,8 @@ export const CreateAccountView: React.FC<CreateAccountViewProps> = ({ onContinue
                 )}
             </div>
 
-            {/* Spacer — capped so CTA stays reachable when keyboard is open */}
-            <div className="flex-1" style={{ maxHeight: 56 }} />
+            {/* Spacer — keeps CTA near the form group, caps so keyboard doesn't push it off screen */}
+            <div className="flex-1" style={{ maxHeight: 36 }} />
 
             {/* CTA */}
             <div className="pb-8">

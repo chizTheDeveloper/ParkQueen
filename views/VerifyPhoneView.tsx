@@ -2,159 +2,226 @@ import React, { useState, useRef, useEffect } from 'react';
 import { ConfirmationResult, RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth';
 import { auth } from '../firebaseConfig';
 import { t, useLang } from '../i18n';
-
-const ProgressBar = ({ step, total = 4 }: { step: number; total?: number }) => (
-    <div className="flex gap-1.5 w-full max-w-xs mx-auto mb-10">
-        {Array.from({ length: total }, (_, i) => i + 1).map(i => (
-            <div key={i} className={`h-1 rounded-full flex-1 transition-all duration-300 ${i <= step ? 'bg-blue-500' : 'bg-[var(--color-border)]'}`} />
-        ))}
-    </div>
-);
+import { maskPhone, maskPhoneForDisplay } from '../utils/phone';
+import { filterOtpInput, otpErrorKey, isOtpComplete } from '../utils/otp';
+import { SignupProgress } from '../components/SignupProgress';
 
 interface VerifyPhoneViewProps {
+    // phone is canonical E.164, e.g. "+15555551234" or "+51987654321"
     phone: string;
     confirmationResult: ConfirmationResult;
     onVerify: (confirmationResult: ConfirmationResult) => void;
     onEditNumber: () => void;
 }
 
-export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({ phone, confirmationResult: initialConfirmation, onVerify, onEditNumber }) => {
+/** Format seconds as m:ss for the resend countdown */
+const formatCountdown = (s: number) => `0:${String(s).padStart(2, '0')}`;
+
+export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({
+    phone,
+    confirmationResult: initialConfirmation,
+    onVerify,
+    onEditNumber,
+}) => {
     useLang();
-    const [digits, setDigits] = useState<string[]>(Array(6).fill(''));
-    const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+    const [code, setCode] = useState('');
     const [cooldown, setCooldown] = useState(30);
     const [verifying, setVerifying] = useState(false);
     const [error, setError] = useState('');
     const [confirmation, setConfirmation] = useState<ConfirmationResult>(initialConfirmation);
+    const inputRef = useRef<HTMLInputElement>(null);
     const recaptchaRef = useRef<RecaptchaVerifier | null>(null);
 
+    const prefersReduced =
+        typeof window !== 'undefined' &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    const masked = maskPhoneForDisplay(phone);
+
+    // Resend countdown — single timer, cleans up on unmount
     useEffect(() => {
         if (cooldown <= 0) return;
         const timer = setTimeout(() => setCooldown(c => c - 1), 1000);
         return () => clearTimeout(timer);
     }, [cooldown]);
 
-    const handleChange = (index: number, value: string) => {
-        if (!/^\d*$/.test(value)) return;
-        const next = [...digits];
-        next[index] = value.slice(-1);
-        setDigits(next);
-        if (value && index < 5) {
-            inputRefs.current[index + 1]?.focus();
-        }
-        if (value && next.every(d => d !== '') && !verifying) {
-            setTimeout(() => autoVerify(next.join('')), 100);
-        }
-    };
-
-    const autoVerify = async (code: string) => {
+    const doVerify = async (codeToVerify: string) => {
         setError('');
         setVerifying(true);
         try {
-            await confirmation.confirm(code);
+            await confirmation.confirm(codeToVerify);
             onVerify(confirmation);
         } catch (e: any) {
-            console.error('OTP verification failed:', e);
-            setError(e.code === 'auth/invalid-verification-code' ? t('verify_phone.invalid_code') : (e.message || t('verify_phone.failed')));
-        } finally {
+            console.error('OTP verification failed:', e?.code);
+            setError(t(otpErrorKey(e?.code ?? '')));
             setVerifying(false);
         }
     };
 
-    const handleKeyDown = (index: number, e: React.KeyboardEvent) => {
-        if (e.key === 'Backspace' && !digits[index] && index > 0) {
-            inputRefs.current[index - 1]?.focus();
+    const handleInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const val = filterOtpInput(e.target.value);
+        setCode(val);
+        if (error) setError('');
+        if (isOtpComplete(val) && !verifying) {
+            setTimeout(() => doVerify(val), 80);
         }
     };
 
-    const handleVerify = async () => {
-        setError('');
-        setVerifying(true);
-        try {
-            const code = digits.join('');
-            await confirmation.confirm(code);
-            onVerify(confirmation);
-        } catch (e: any) {
-            console.error('OTP verification failed:', e);
-            if (e.code === 'auth/invalid-verification-code') {
-                setError(t('verify_phone.invalid_code'));
-            } else {
-                setError(e.message || t('verify_phone.failed_retry'));
-            }
-        } finally {
-            setVerifying(false);
-        }
+    const handleVerify = () => {
+        if (isOtpComplete(code) && !verifying) doVerify(code);
     };
 
     const handleResend = async () => {
         setError('');
         try {
             if (!recaptchaRef.current) {
-                recaptchaRef.current = new RecaptchaVerifier(auth, 'recaptcha-container-verify', { size: 'invisible' });
+                recaptchaRef.current = new RecaptchaVerifier(auth, 'recaptcha-resend', { size: 'invisible' });
             }
-            const fullDigits = phone.replace(/\D/g, '');
-            const result = await signInWithPhoneNumber(auth, `+1${fullDigits}`, recaptchaRef.current);
+            // phone is canonical E.164 — use directly, no stripping or prefix
+            const result = await signInWithPhoneNumber(auth, phone, recaptchaRef.current);
             setConfirmation(result);
+            setCode('');
             setCooldown(30);
         } catch (e: any) {
-            console.error('Resend failed:', e);
+            console.error('Resend failed:', maskPhone(phone), e?.code);
             setError(t('verify_phone.resend_failed'));
         }
     };
 
-    const allFilled = digits.every(d => d !== '');
+    // Visual cell states derived from the code string
+    const cells = Array.from({ length: 6 }, (_, i) => ({
+        char: code[i] ?? '',
+        focused: !verifying && !error && i === (code.length < 6 ? code.length : 5),
+        filled: i < code.length,
+    }));
 
     return (
-        <div className="h-full w-full bg-[var(--color-bg)] flex flex-col px-7 pt-14">
-            <div>
-                <ProgressBar step={2} />
-                <h1 id="otp-heading" className="text-[24px] font-bold text-[var(--color-text)] leading-tight">{t('verify_phone.heading')}</h1>
-                <p className="text-[15px] text-[var(--color-text-secondary)] mt-2">
-                    {t('verify_phone.sent_to', { phone })}{' '}
-                    <button onClick={onEditNumber} className="text-blue-400 font-semibold">{t('verify_phone.edit')}</button>
+        <div className="h-full w-full bg-[var(--color-bg)] flex flex-col px-6 pt-10">
+
+            {/* Top nav row — matches Step 1 layout */}
+            <div className="flex items-center justify-between mb-3">
+                <div className="w-11 h-11" aria-hidden="true" />
+                <span className="text-[12px] font-semibold text-[var(--color-text-secondary)] tracking-wide">
+                    {t('verify_phone.step')}
+                </span>
+            </div>
+
+            {/* 4-segment progress */}
+            <SignupProgress step={2} />
+
+            {/* Content — entrance animation */}
+            <div className={prefersReduced ? '' : 'auth-fade-in'}>
+
+                {/* Eyebrow */}
+                <p className="text-[11px] font-bold tracking-[0.13em] text-blue-400 uppercase mb-3 mt-2">
+                    {t('verify_phone.eyebrow')}
                 </p>
 
-                <div role="group" aria-labelledby="otp-heading" className="flex gap-2.5 justify-center mt-10">
-                    {digits.map((d, i) => (
-                        <input
+                {/* Heading */}
+                <h1 id="otp-heading" className="text-[26px] font-bold text-[var(--color-text)] leading-tight mb-2">
+                    {t('verify_phone.heading')}
+                </h1>
+
+                {/* Masked phone — two-line layout keeps Edit on its own 44px row */}
+                <p className="text-[15px] text-[var(--color-text-secondary)]">
+                    {t('verify_phone.sent_to', { phone: masked })}
+                </p>
+                <button
+                    type="button"
+                    onClick={onEditNumber}
+                    className="text-blue-400 font-semibold text-[15px] min-h-[44px] flex items-center mb-6"
+                >
+                    {t('verify_phone.edit')}
+                </button>
+
+                {/* OTP group — single hidden input + 6 visual cells */}
+                <div
+                    role="group"
+                    aria-labelledby="otp-heading"
+                    className="relative flex gap-2.5 justify-center cursor-text"
+                    onClick={() => inputRef.current?.focus()}
+                >
+                    {/* Hidden native input — drives keyboard and system OTP autocomplete */}
+                    <input
+                        ref={inputRef}
+                        type="text"
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        value={code}
+                        onChange={handleInput}
+                        maxLength={6}
+                        disabled={verifying}
+                        aria-label={t('verify_phone.otp_label')}
+                        className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-text"
+                    />
+
+                    {/* Visual cells — presentational only */}
+                    {cells.map((cell, i) => (
+                        <div
                             key={i}
-                            ref={el => { inputRefs.current[i] = el; }}
-                            type="text"
-                            inputMode="numeric"
-                            maxLength={1}
-                            aria-label={t('verify_phone.digit_aria', { n: i + 1 })}
-                            value={d}
-                            onChange={e => handleChange(i, e.target.value)}
-                            onKeyDown={e => handleKeyDown(i, e)}
-                            className="w-12 h-14 bg-white/5 border border-[var(--color-border)] rounded-2xl text-center text-[var(--color-text)] text-xl font-bold outline-none focus:border-blue-500 transition-all"
-                            autoFocus={i === 0}
-                        />
+                            aria-hidden="true"
+                            className="w-[52px] h-[56px] rounded-2xl flex items-center justify-center text-[22px] font-bold transition-colors duration-150 select-none"
+                            style={{
+                                background: '#0d1929',
+                                border: `2px solid ${
+                                    error
+                                        ? 'rgba(248,113,113,0.65)'
+                                        : cell.focused
+                                        ? '#3b82f6'
+                                        : cell.filled
+                                        ? 'rgba(59,130,246,0.35)'
+                                        : 'rgba(255,255,255,0.1)'
+                                }`,
+                                color: error ? '#f87171' : 'rgba(255,255,255,0.95)',
+                                // restrained glow on focused cell — no outer halo
+                                boxShadow:
+                                    cell.focused && !error
+                                        ? 'inset 0 0 0 1px rgba(59,130,246,0.25)'
+                                        : 'none',
+                            }}
+                        >
+                            {cell.char}
+                        </div>
                     ))}
                 </div>
 
-                {error && <p role="alert" className="text-red-400 text-sm mt-4 text-center">{error}</p>}
+                {/* Stable error area — reserved height prevents layout shift */}
+                <div className="mt-3 min-h-[20px] flex items-center justify-center">
+                    {error && (
+                        <p role="alert" aria-live="assertive" className="text-red-400 text-[13px] text-center">
+                            {error}
+                        </p>
+                    )}
+                </div>
 
-                <p className="text-center text-[14px] text-[var(--color-text-secondary)] mt-6">
+                {/* Resend — "Didn't get it? Resend in 0:30" → "Didn't get it? Resend code" */}
+                <p className="text-center text-[14px] text-[var(--color-text-secondary)] mt-4">
+                    {t('verify_phone.resend_prefix')}{' '}
                     {cooldown > 0 ? (
-                        <>{t('verify_phone.resend_cooldown', { seconds: cooldown })}</>
+                        t('verify_phone.resend_cooldown', { time: formatCountdown(cooldown) })
                     ) : (
-                        <button onClick={handleResend} className="text-blue-400 font-semibold">{t('verify_phone.resend')}</button>
+                        <button
+                            type="button"
+                            onClick={handleResend}
+                            className="text-blue-400 font-semibold"
+                        >
+                            {t('verify_phone.resend')}
+                        </button>
                     )}
                 </p>
-            </div>
 
-            <div className="flex-1" />
-
-            <div className="pb-8">
+                {/* Verify CTA — directly below OTP group */}
                 <button
+                    type="button"
                     onClick={handleVerify}
-                    disabled={!allFilled || verifying}
-                    className="w-full bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 active:scale-[0.98] text-white font-semibold text-[16px] py-4 rounded-full shadow-lg shadow-blue-500/30 transition-all disabled:opacity-40 disabled:active:scale-100"
+                    disabled={!isOtpComplete(code) || verifying}
+                    className="w-full mt-6 mb-8 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 active:scale-[0.98] text-white font-semibold text-[16px] py-4 rounded-full shadow-lg shadow-blue-500/30 transition-all disabled:opacity-40 disabled:active:scale-100"
                 >
                     {verifying ? t('verify_phone.verifying') : t('verify_phone.verify')}
                 </button>
             </div>
-            <div id="recaptcha-container-verify" />
+
+            <div id="recaptcha-resend" />
         </div>
     );
 };

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 27 18">
+  <!-- Blue upper-left and lower-right quadrants -->
+  <rect width="12.6" height="8.1" fill="#002D62"/>
+  <rect x="14.4" y="9.9" width="12.6" height="8.1" fill="#002D62"/>
+  <!-- Red upper-right and lower-left quadrants -->
+  <rect x="14.4" width="12.6" height="8.1" fill="#CF142B"/>
+  <rect y="9.9" width="12.6" height="8.1" fill="#CF142B"/>
+  <!-- White cross -->
+  <rect y="8.1" width="27" height="1.8" fill="#fff"/>
+  <rect x="12.6" width="1.8" height="18" fill="#fff"/>
+</svg>

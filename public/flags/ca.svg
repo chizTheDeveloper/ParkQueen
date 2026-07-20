@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100">
+  <!-- Red-White-Red vertical bands -->
+  <rect width="50" height="100" fill="#FF0000"/>
+  <rect x="150" width="50" height="100" fill="#FF0000"/>
+  <rect x="50" width="100" height="100" fill="#fff"/>
+  <!-- Simplified maple leaf + stem -->
+  <path d="M100,18 L107,38 L128,31 L116,50 L133,57 L114,63 L120,82 L100,74 L80,82 L86,63 L67,57 L84,50 L72,31 L93,38 Z" fill="#FF0000"/>
+  <rect x="96" y="74" width="8" height="16" fill="#FF0000"/>
+</svg>

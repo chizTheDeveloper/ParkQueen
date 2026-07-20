@@ -56,9 +56,9 @@ export default function App() {
   const [locationPromptDone, setLocationPromptDone] = useState(() => !!localStorage.getItem('hasSeenLocationPrompt'));
   const [titleUnlock, setTitleUnlock] = useState<string | null>(null);
   const prevTitleRef = useRef<string | null>(null);
+  // phone stores canonical E.164 (e.g. "+15555551234", "+51987654321")
   const [phone, setPhone] = useState('');
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
-  const [onboardingSlide, setOnboardingSlide] = useState(0);
 
   useEffect(() => {
     let userProfileUnsubscribe = () => {};
@@ -104,7 +104,7 @@ export default function App() {
                 });
             }
         });
-        
+
         // Listen for profile data changes
         userProfileUnsubscribe = onSnapshot(userDocRef, (userDoc) => {
           if (userDoc.exists()) {
@@ -142,7 +142,8 @@ export default function App() {
         if (isAdminDomain) {
           setCurrentView(AppView.ADMIN_LOGIN);
         } else {
-          setCurrentView(localStorage.getItem('hasSeenOnboarding') ? AppView.CREATE_ACCOUNT : AppView.ONBOARDING);
+          const hasSeen = !!localStorage.getItem('hasSeenOnboarding');
+          setCurrentView(hasSeen ? AppView.CREATE_ACCOUNT : AppView.ONBOARDING);
         }
       }
       setLoading(false);
@@ -183,9 +184,9 @@ export default function App() {
   };
 
   const handleNameComplete = async (username: string) => {
-    const digits = phone.replace(/\D/g, '');
+    // phone is canonical E.164 — store directly
     try {
-      await saveUserProfile({ fullName: '', phone: digits, username });
+      await saveUserProfile({ fullName: '', phone, username });
       setVehicleOnboarding(true);
       setCurrentView(AppView.EDIT_VEHICLE);
     } catch (error: any) {
@@ -278,26 +279,23 @@ export default function App() {
     switch (currentView) {
       case AppView.ONBOARDING:
         return <OnboardingView
-          initialSlide={onboardingSlide}
-          onComplete={() => { setOnboardingSlide(0); localStorage.setItem('hasSeenOnboarding', '1'); setCurrentView(AppView.CREATE_ACCOUNT); }}
+          onComplete={() => { localStorage.setItem('hasSeenOnboarding', '1'); setCurrentView(AppView.CREATE_ACCOUNT); }}
         />;
       case AppView.CREATE_ACCOUNT:
         return <CreateAccountView
           onContinue={handleCreateAccount}
-          onBack={() => { setOnboardingSlide(2); setCurrentView(AppView.ONBOARDING); }}
         />;
       case AppView.VERIFY_PHONE:
         return <VerifyPhoneView
           phone={phone}
           confirmationResult={confirmationResult!}
           onVerify={async () => {
-            const digits = phone.replace(/\D/g, '');
-            const usersRef = collection(db, 'users');
-            const q = query(usersRef, where('phone', '==', digits));
-            const snap = await getDocs(q);
-            if (!snap.empty) {
-              const existingDoc = snap.docs[0];
-              setUser({ id: existingDoc.id, ...existingDoc.data() });
+            // Primary: look up by UID — all user docs use firebaseUser.uid as doc ID.
+            const uid = auth.currentUser?.uid;
+            if (!uid) { setCurrentView(AppView.SETUP_PROFILE); return; }
+            const userDoc = await getDoc(doc(db, 'users', uid));
+            if (userDoc.exists()) {
+              setUser({ id: uid, ...userDoc.data() });
               setCurrentView(AppView.MAP);
             } else {
               setCurrentView(AppView.SETUP_PROFILE);
@@ -350,7 +348,6 @@ export default function App() {
       default:
         return <CreateAccountView
           onContinue={handleCreateAccount}
-          onBack={() => { setOnboardingSlide(2); setCurrentView(AppView.ONBOARDING); }}
         />;
     }
   };

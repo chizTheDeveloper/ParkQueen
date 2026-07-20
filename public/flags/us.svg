@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 19 10">
+  <!-- 13 stripes: red base + 6 white stripes -->
+  <rect width="19" height="10" fill="#B22234"/>
+  <rect y=".77" width="19" height=".77" fill="#fff"/>
+  <rect y="2.31" width="19" height=".77" fill="#fff"/>
+  <rect y="3.85" width="19" height=".77" fill="#fff"/>
+  <rect y="5.38" width="19" height=".77" fill="#fff"/>
+  <rect y="6.92" width="19" height=".77" fill="#fff"/>
+  <rect y="8.46" width="19" height=".77" fill="#fff"/>
+  <!-- Blue canton (stars omitted — not legible at display size) -->
+  <rect width="7.6" height="5.38" fill="#3C3B6E"/>
+</svg>

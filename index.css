@@ -351,6 +351,28 @@ html, body, #root {
   .auth-fade-in { animation: none; }
 }
 
+/* Country selector bottom sheet — transition-based enter/exit */
+.cs-overlay {
+  background: rgba(2, 8, 20, 0);
+  transition: background-color 220ms ease-out;
+}
+.cs-overlay.cs-showing {
+  background: rgba(2, 8, 20, 0.72);
+}
+.cs-sheet {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: transform 260ms cubic-bezier(0.16, 1, 0.3, 1), opacity 220ms ease-out;
+}
+.cs-showing .cs-sheet {
+  opacity: 1;
+  transform: translateY(0);
+}
+@media (prefers-reduced-motion: reduce) {
+  .cs-overlay { transition: none; }
+  .cs-sheet { transition: none; transform: none; opacity: 1; }
+}
+
 /* Ping Celebration Animation */
 @keyframes ping-drop {
   0%   { transform: translateY(-24px) scale(0.6); opacity: 0; }

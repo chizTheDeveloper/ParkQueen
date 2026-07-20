@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 30">
+  <!-- Blue background -->
+  <rect width="60" height="30" fill="#012169"/>
+  <!-- White St Andrew's cross (Scotland diagonal bands) -->
+  <polygon points="0,0 6,0 60,27 60,30 54,30 0,3" fill="#fff"/>
+  <polygon points="0,30 6,30 60,3 60,0 54,0 0,27" fill="#fff"/>
+  <!-- Red St Patrick's cross (Ireland, offset toward fly side) -->
+  <polygon points="0,0 2,0 32,15 30,15" fill="#C8102E"/>
+  <polygon points="60,0 58,0 28,15 30,15" fill="#C8102E"/>
+  <polygon points="0,30 2,30 32,15 30,15" fill="#C8102E"/>
+  <polygon points="60,30 58,30 28,15 30,15" fill="#C8102E"/>
+  <!-- White St George's cross (England, horizontal + vertical) -->
+  <rect x="0" y="12" width="60" height="6" fill="#fff"/>
+  <rect x="27" y="0" width="6" height="30" fill="#fff"/>
+  <!-- Red St George's cross (thinner, centered in white) -->
+  <rect x="0" y="13" width="60" height="4" fill="#C8102E"/>
+  <rect x="28" y="0" width="4" height="30" fill="#C8102E"/>
+</svg>
