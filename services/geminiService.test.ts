@@ -9,7 +9,7 @@ vi.mock('firebase/functions', () => ({
 }));
 vi.mock('firebase/app', () => ({ getApp: vi.fn(() => ({})) }));
 
-import { analyzeParkingSign, generateSmartReplies, generateListingDescription } from './geminiService';
+import { analyzeParkingSign, generateSmartReplies, generateListingDescription, createSmartReplyRequestKey } from './geminiService';
 import { httpsCallable } from 'firebase/functions';
 
 beforeEach(() => {
@@ -158,5 +158,32 @@ describe('generateListingDescription error fallback', () => {
     const result = await generateListingDescription(['garage']);
     expect(typeof result).toBe('string');
     expect(result.length).toBeGreaterThan(0);
+  });
+});
+
+// ─── Smart reply guard key contract ──────────────────────────────────────────
+// The guard in MessagesView uses `${conversationId}:${messageId}` as the
+// deduplication key. These tests verify the key construction contract without
+// requiring a DOM renderer.
+
+describe('smart reply guard key contract', () => {
+  it('same conversation + same message → same key (suppresses duplicate call)', () => {
+    expect(createSmartReplyRequestKey('conv-A', 'msg-1')).toBe(createSmartReplyRequestKey('conv-A', 'msg-1'));
+  });
+
+  it('same conversation + different message → different key (allows call)', () => {
+    expect(createSmartReplyRequestKey('conv-A', 'msg-1')).not.toBe(createSmartReplyRequestKey('conv-A', 'msg-2'));
+  });
+
+  it('different conversation + same message ID → different key (prevents cross-conversation collision)', () => {
+    expect(createSmartReplyRequestKey('conv-A', 'msg-1')).not.toBe(createSmartReplyRequestKey('conv-B', 'msg-1'));
+  });
+
+  it('switching conversations resets deduplication', () => {
+    expect(createSmartReplyRequestKey('conv-A', 'msg-99')).not.toBe(createSmartReplyRequestKey('conv-B', 'msg-1'));
+  });
+
+  it('shared message doc ID across conversations still produces different keys', () => {
+    expect(createSmartReplyRequestKey('conv-A', 'shared-id')).not.toBe(createSmartReplyRequestKey('conv-B', 'shared-id'));
   });
 });

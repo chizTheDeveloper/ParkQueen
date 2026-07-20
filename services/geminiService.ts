@@ -6,6 +6,10 @@ import { getApp } from "firebase/app";
 
 const getFns = () => getFunctions(getApp());
 
+export function createSmartReplyRequestKey(conversationId: string, messageId: string): string {
+  return `${conversationId}:${messageId}`;
+}
+
 export interface SignAnalysisResult {
   status: "YES" | "NO" | "CONDITIONAL" | "ERROR";
   explanation: string;

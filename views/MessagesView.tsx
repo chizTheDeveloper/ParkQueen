@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, ChevronLeft, MoreVertical, Sparkles, ArrowLeft, MapPin, MessageSquare } from 'lucide-react';
-import { generateSmartReplies } from '../services/geminiService';
+import { generateSmartReplies, createSmartReplyRequestKey } from '../services/geminiService';
 import { collection, query, where, onSnapshot, addDoc, doc, setDoc, orderBy, serverTimestamp, getDocs, getDoc, writeBatch, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { moderateMessage } from '../utils/moderation';
@@ -23,6 +23,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
   const [moderationError, setModerationError] = useState('');
   const [smartReplies, setSmartReplies] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const lastSmartReplyKey = useRef<string | null>(null);
   const [userProfilesCache, setUserProfilesCache] = useState<Record<string, { name: string; avatarUrl: string | null }>>({});
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -260,12 +261,20 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
 
       const lastMsg = messages[messages.length - 1];
       if (lastMsg && !lastMsg.isMe) {
-        generateSmartReplies(lastMsg.text, activeConversation?.relatedSpotTitle || "Parking Spot").then(replies => {
-          setSmartReplies(replies);
-        }).catch(err => {
-          console.warn("Gemini smart replies failed", err);
-          setSmartReplies([]);
-        });
+        const key = createSmartReplyRequestKey(activeConversationId, lastMsg.id);
+        if (key !== lastSmartReplyKey.current) {
+          lastSmartReplyKey.current = key;
+          let active = true;
+          generateSmartReplies(lastMsg.text, activeConversation?.relatedSpotTitle || "Parking Spot")
+            .then(replies => { if (active) setSmartReplies(replies); })
+            .catch(err => {
+              console.warn("Gemini smart replies failed", err);
+              if (active) setSmartReplies([]);
+              // Clear key on failure so the next render can retry
+              if (lastSmartReplyKey.current === key) lastSmartReplyKey.current = null;
+            });
+          return () => { active = false; };
+        }
       } else {
         setSmartReplies([]);
       }
