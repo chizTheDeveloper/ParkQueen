@@ -25,6 +25,7 @@ const AdminLoginView = lazy(() => import('./views/AdminLoginView').then(m => ({ 
 // Admin portal lives at admin.parqueen.app. On localhost, add ?admin to test it.
 const isAdminDomain = window.location.hostname === 'admin.parqueen.app'
   || (window.location.hostname === 'localhost' && new URLSearchParams(window.location.search).has('admin'));
+
 const ActivitiesView = lazy(() => import('./views/ActivitiesView').then(m => ({ default: m.ActivitiesView })));
 const EditVehicleView = lazy(() => import('./views/EditVehicleView').then(m => ({ default: m.EditVehicleView })));
 const PrivacyPolicyView = lazy(() => import('./views/PrivacyPolicyView').then(m => ({ default: m.PrivacyPolicyView })));
@@ -189,7 +190,8 @@ export default function App() {
   const handleNameComplete = async (username: string) => {
     // phone is canonical E.164 — store directly
     try {
-      await saveUserProfile({ fullName: '', phone, username });
+      // Only write the fields this step owns — fullName is collected later
+      await saveUserProfile({ phone, username });
       setVehicleOnboarding(true);
       setCurrentView(AppView.EDIT_VEHICLE);
     } catch (error: any) {
@@ -242,6 +244,7 @@ export default function App() {
     if (loading) {
       return <LoadingScreen />;
     }
+
 
     // MAP and MESSAGES share the same MapView instance so selectedItem survives the transition
     if (currentView === AppView.MAP || currentView === AppView.MESSAGES) {

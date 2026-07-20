@@ -382,6 +382,19 @@ const en: Record<string, string> = {
     'verify_phone.verifying': 'Verifying...',
     'verify_phone.verify': 'Verify',
 
+    // Name Entry — Step 3 of 4
+    'name_entry.step': 'Step 3 of 4',
+    'name_entry.eyebrow': 'YOUR PROFILE',
+    'name_entry.headline': 'Choose your username',
+    'name_entry.supporting': 'This is how other drivers will see you.',
+    'name_entry.label': 'USERNAME',
+    'name_entry.placeholder': 'enter_username',
+    'name_entry.helper': '3–20 characters · Letters, numbers, and underscores',
+    'name_entry.checking': 'Checking availability…',
+    'name_entry.cta': 'Continue',
+    'name_entry.cta_loading': 'Saving…',
+    'name_entry.error_network': 'We couldn\'t check that username. Try again.',
+
     // Setup Profile
     'setup_profile.title': 'Setup Profile',
     'setup_profile.full_name': 'Full Name',

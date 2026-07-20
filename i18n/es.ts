@@ -382,6 +382,19 @@ const es: Record<string, string> = {
     'verify_phone.verifying': 'Verificando...',
     'verify_phone.verify': 'Verificar',
 
+    // Name Entry — Step 3 of 4
+    'name_entry.step': 'Paso 3 de 4',
+    'name_entry.eyebrow': 'TU PERFIL',
+    'name_entry.headline': 'Elige tu nombre de usuario',
+    'name_entry.supporting': 'Así te verán los demás conductores.',
+    'name_entry.label': 'NOMBRE DE USUARIO',
+    'name_entry.placeholder': 'nombre_usuario',
+    'name_entry.helper': 'De 3 a 20 caracteres · Letras, números y guiones bajos',
+    'name_entry.checking': 'Comprobando disponibilidad…',
+    'name_entry.cta': 'Continuar',
+    'name_entry.cta_loading': 'Guardando…',
+    'name_entry.error_network': 'No pudimos comprobar ese nombre. Inténtalo de nuevo.',
+
     // Setup Profile
     'setup_profile.title': 'Crear perfil',
     'setup_profile.full_name': 'Nombre completo',
