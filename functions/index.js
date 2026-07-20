@@ -2,7 +2,9 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { onDocumentCreated, onDocumentDeleted } = require("firebase-functions/v2/firestore");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onObjectFinalized } = require("firebase-functions/v2/storage");
-const { defineString } = require("firebase-functions/params");
+const { defineString, defineSecret } = require("firebase-functions/params");
+const { GoogleGenAI } = require("@google/genai");
+const geminiApiKey = defineSecret("GEMINI_API_KEY");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, Timestamp, FieldValue } = require("firebase-admin/firestore");
 const { getMessaging } = require("firebase-admin/messaging");
@@ -12,7 +14,7 @@ const { getStorage } = require("firebase-admin/storage");
 initializeApp();
 const db = getFirestore();
 const { geohashForLocation } = require('geofire-common');
-const sendgridApiKey = defineString("SENDGRID_API_KEY");
+const sendgridApiKey = defineSecret("SENDGRID_API_KEY");
 const { osmNameToDOT, streetNameToLikePattern, dotSideToCardinal, BOROUGH_CODE_TO_NAME, nycOdSegmentDocId, selectBlockFace } = require('./nycOpenDataNormalizer');
 
 // Crown title thresholds (must match client-side utils/crowns.ts)
@@ -466,7 +468,7 @@ exports.notifyNearbyUsers = onDocumentCreated(
 
 // 4) Generate and send email OTP
 exports.generateEmailOTP = onCall(
-  { region: "us-central1" },
+  { region: "us-central1", secrets: [sendgridApiKey] },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Sign in first.");
     const email = request.data?.email;
@@ -2348,3 +2350,128 @@ async function _logParseFailure(rawNotes, sweepNYCObjectId, rawSignText, lat, ln
     });
   }
 }
+
+// ─── Gemini AI — server-side proxy ───────────────────────────────────────────
+// Key stored in Secret Manager; never exposed to the browser bundle.
+
+const GEMINI_MODEL = "gemini-3.5-flash";
+
+function classifyGeminiError(fn, err) {
+  const status = err?.status ?? err?.error?.code;
+  const grpcStatus = err?.error?.status ?? "";
+  let code, clientMessage;
+  if (status === 429 || grpcStatus === "RESOURCE_EXHAUSTED") {
+    code = "resource-exhausted";
+    clientMessage = "The AI service is temporarily unavailable. Please try again shortly.";
+  } else if (status === 400 || grpcStatus === "INVALID_ARGUMENT") {
+    code = "invalid-argument";
+    clientMessage = "The request could not be processed. Check the image or input.";
+  } else if (status === 401 || status === 403 || grpcStatus === "PERMISSION_DENIED" || grpcStatus === "UNAUTHENTICATED") {
+    code = "failed-precondition";
+    clientMessage = "The AI service is temporarily unavailable. Please try again shortly.";
+  } else if (status === 404 || grpcStatus === "NOT_FOUND") {
+    code = "failed-precondition";
+    clientMessage = "The AI service is temporarily unavailable. Please try again shortly.";
+  } else if (status === 503 || grpcStatus === "UNAVAILABLE") {
+    code = "unavailable";
+    clientMessage = "The AI service is temporarily unavailable. Please try again shortly.";
+  } else {
+    code = "internal";
+    clientMessage = "The AI service is temporarily unavailable. Please try again shortly.";
+  }
+  console.error(`[${fn}] Gemini error — model:${GEMINI_MODEL} http:${status} grpc:${grpcStatus}`);
+  throw new HttpsError(code, clientMessage);
+}
+
+exports.analyzeSign = onCall(
+  { secrets: [geminiApiKey], enforceAppCheck: false },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Must be signed in.");
+    const { imageBase64 } = request.data;
+    if (typeof imageBase64 !== "string" || imageBase64.length === 0) {
+      throw new HttpsError("invalid-argument", "imageBase64 is required.");
+    }
+    let response;
+    try {
+      const ai = new GoogleGenAI({ apiKey: geminiApiKey.value() });
+      response = await ai.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: {
+          parts: [
+            { inlineData: { mimeType: "image/jpeg", data: imageBase64 } },
+            {
+              text: `You are a NYC parking expert. Analyze this parking sign image.
+Crucially, there may be MULTIPLE stacked signs on this pole. Read all of them carefully. Resolve any conflicting rules (e.g. temporary construction signs override permanent signs).
+Respond strictly in JSON format with the following structure:
+{
+  "status": "YES", "NO", or "CONDITIONAL",
+  "explanation": "A one sentence explanation of the rules.",
+  "restrictionStartsAt": "ISO timestamp or null if unknown/not applicable",
+  "restrictionEndsAt": "ISO timestamp or null if unknown/not applicable",
+  "actionableAdvice": "Short advice, e.g., 'Move car by 4 PM'"
+}
+Do not include Markdown formatting. Just output the raw JSON object.`,
+            },
+          ],
+        },
+      });
+    } catch (err) {
+      classifyGeminiError("analyzeSign", err);
+    }
+    const text = (response.text || "{}").replace(/```json/g, "").replace(/```/g, "").trim();
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { status: "ERROR", explanation: "Could not parse sign analysis response." };
+    }
+  }
+);
+
+exports.generateSmartReplies = onCall(
+  { secrets: [geminiApiKey], enforceAppCheck: false },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Must be signed in.");
+    const { lastMessage, context } = request.data;
+    if (typeof lastMessage !== "string") {
+      throw new HttpsError("invalid-argument", "lastMessage is required.");
+    }
+    let response;
+    try {
+      const ai = new GoogleGenAI({ apiKey: geminiApiKey.value() });
+      response = await ai.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: `You are an AI assistant in a parking app called ParQueen.
+The user just received this message: "${lastMessage}".
+Context: ${context || ""}.
+Generate 3 short, natural, polite responses (max 5 words each) that the user might want to send back.
+Return them as a comma-separated list.`,
+      });
+    } catch (err) {
+      classifyGeminiError("generateSmartReplies", err);
+    }
+    const text = response.text || "";
+    return { replies: text.split(",").map((s) => s.trim()).slice(0, 3) };
+  }
+);
+
+exports.generateListingDescription = onCall(
+  { secrets: [geminiApiKey], enforceAppCheck: false },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Must be signed in.");
+    const { features } = request.data;
+    if (!Array.isArray(features)) {
+      throw new HttpsError("invalid-argument", "features array is required.");
+    }
+    let response;
+    try {
+      const ai = new GoogleGenAI({ apiKey: geminiApiKey.value() });
+      response = await ai.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: `Write a catchy, short marketing description (max 2 sentences) for a parking spot in NYC with these features: ${features.join(", ")}. Use a premium, trustworthy tone.`,
+      });
+    } catch (err) {
+      classifyGeminiError("generateListingDescription", err);
+    }
+    return { description: response.text || "A great parking spot in the heart of the city." };
+  }
+);

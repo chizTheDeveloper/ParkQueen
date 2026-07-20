@@ -1,14 +1,10 @@
-import { GoogleGenAI } from "@google/genai";
+import { getFunctions, httpsCallable } from "firebase/functions";
+import { getApp } from "firebase/app";
 
-// Helper to get the AI instance lazily.
-// This prevents the app from crashing on startup if the API key is missing.
-const getAiClient = () => {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
-  if (!apiKey) {
-    console.warn("VITE_GEMINI_API_KEY is missing. AI features will not work.");
-  }
-  return new GoogleGenAI({ apiKey: apiKey ?? "" });
-};
+// All Gemini calls are proxied through Cloud Functions.
+// The API key lives in Secret Manager and never reaches the browser bundle.
+
+const getFns = () => getFunctions(getApp());
 
 export interface SignAnalysisResult {
   status: "YES" | "NO" | "CONDITIONAL" | "ERROR";
@@ -20,80 +16,50 @@ export interface SignAnalysisResult {
 
 export const analyzeParkingSign = async (imageBase64: string): Promise<SignAnalysisResult> => {
   try {
-    const ai = getAiClient();
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
-      contents: {
-        parts: [
-          {
-            inlineData: {
-              mimeType: 'image/jpeg',
-              data: imageBase64,
-            },
-          },
-          {
-            text: `You are a NYC parking expert. Analyze this parking sign image. 
-            Crucially, there may be MULTIPLE stacked signs on this pole. Read all of them carefully. Resolve any conflicting rules (e.g. temporary construction signs override permanent signs).
-            Respond strictly in JSON format with the following structure:
-            {
-              "status": "YES", "NO", or "CONDITIONAL",
-              "explanation": "A one sentence explanation of the rules.",
-              "restrictionStartsAt": "ISO timestamp or null if unknown/not applicable",
-              "restrictionEndsAt": "ISO timestamp or null if unknown/not applicable",
-              "actionableAdvice": "Short advice, e.g., 'Move car by 4 PM'"
-            }
-            Do not include Markdown formatting like \`\`\`json. Just output the raw JSON object.`,
-          },
-        ],
-      },
-    });
-    
-    const text = response.text || "{}";
-    try {
-      const parsed = JSON.parse(text.replace(/```json/g, '').replace(/```/g, '').trim());
-      return parsed as SignAnalysisResult;
-    } catch (e) {
+    const fn = httpsCallable<{ imageBase64: string }, SignAnalysisResult>(getFns(), "analyzeSign");
+    const result = await fn({ imageBase64 });
+    return result.data;
+  } catch (error: any) {
+    console.error("Gemini Vision Error:", error);
+    const code = error?.code ?? error?.details?.code ?? "";
+    if (code === "resource-exhausted" || code === "failed-precondition" || code === "unavailable" || code === "internal") {
       return {
         status: "ERROR",
-        explanation: "I couldn't read this sign clearly. Try a sharper photo with the full sign visible.",
+        explanation: "Assistant temporarily unavailable\nThe AI service is temporarily unavailable. Please try again shortly.",
       };
     }
-  } catch (error) {
-    console.error("Gemini Vision Error:", error);
     return {
       status: "ERROR",
-      explanation: "ParQueen Assistant is having trouble right now. Please try again."
+      explanation: "Couldn't read this sign\nTry taking another photo with the full sign visible and in focus.",
     };
   }
 };
 
 export const generateListingDescription = async (features: string[]): Promise<string> => {
   try {
-    const ai = getAiClient();
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `Write a catchy, short marketing description (max 2 sentences) for a parking spot in NYC with these features: ${features.join(', ')}. Use a premium, trustworthy tone.`,
-    });
-    return response.text || "A great parking spot in the heart of the city.";
+    const fn = httpsCallable<{ features: string[] }, { description: string }>(
+      getFns(),
+      "generateListingDescription"
+    );
+    const result = await fn({ features });
+    return result.data.description;
   } catch (error) {
     console.error("Gemini Text Error:", error);
     return "Secure parking spot available for rent.";
   }
 };
 
-export const generateSmartReplies = async (lastMessage: string, context: string): Promise<string[]> => {
+export const generateSmartReplies = async (
+  lastMessage: string,
+  context: string
+): Promise<string[]> => {
   try {
-    const ai = getAiClient();
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `You are an AI assistant in a parking app called ParQueen. 
-      The user just received this message: "${lastMessage}". 
-      Context: ${context}.
-      Generate 3 short, natural, polite responses (max 5 words each) that the user might want to send back. 
-      Return them as a comma-separated list.`,
-    });
-    const text = response.text || "";
-    return text.split(',').map(s => s.trim()).slice(0, 3);
+    const fn = httpsCallable<
+      { lastMessage: string; context: string },
+      { replies: string[] }
+    >(getFns(), "generateSmartReplies");
+    const result = await fn({ lastMessage, context });
+    return result.data.replies;
   } catch (error) {
     console.error("Gemini Chat Error:", error);
     return ["I'm interested!", "Is it available?", "Thanks!"];

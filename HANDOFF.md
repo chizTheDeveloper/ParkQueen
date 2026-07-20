@@ -595,7 +595,7 @@ Several `AppView` enum values and their views exist in the codebase but are **no
 
 | View | File | Status |
 |---|---|---|
-| `AI_ASSISTANT` | `views/AssistantView.tsx` | Routed in App.tsx, accessible via nav. Uses `@google/genai` (Gemini) client-side for parking sign analysis. Requires `API_KEY` env var (not currently set in production). |
+| `AI_ASSISTANT` | `views/AssistantView.tsx` | Routed in App.tsx, accessible via nav. Calls `analyzeSign` Firebase Cloud Function for parking sign analysis. No client-side API key required. |
 | `GARAGE_LIST` | `views/GarageRentalView.tsx` | Routed. Legacy garage rental feature with un-converted dark-mode classes. Hidden from main nav. |
 | `HOST_DASHBOARD` | `views/HostDashboardView.tsx` | Routed. Companion to garage rentals. Not actively used. |
 | `ADMIN_DASHBOARD` | `views/AdminDashboardView.tsx` | Routed. Only shown when `isAdmin` custom claim is true. No admin users currently exist. |
@@ -604,9 +604,11 @@ Several `AppView` enum values and their views exist in the codebase but are **no
 | N/A | `views/LoginView.tsx` | **Dead code** — not imported or referenced. Should be deleted. |
 
 ### Gemini AI Usage
-- **Smart replies in chat** (`services/geminiService.ts`) — client-side `@google/genai` SDK generates suggested replies when the last message in a conversation is from the other user. Used in `MessagesView.tsx`. Requires `API_KEY` env var.
-- **Parking sign analysis** (`AssistantView.tsx`) — uses same Gemini service. Not prominently featured.
-- Gemini is **not** used in any Cloud Function — it's entirely client-side.
+- **Smart replies in chat** (`services/geminiService.ts`) — calls `generateSmartReplies` Firebase Cloud Function when the last message in a conversation is from the other user. Used in `MessagesView.tsx`. No client-side API key.
+- **Parking sign analysis** (`AssistantView.tsx`) — calls `analyzeSign` Firebase Cloud Function. Supports image + text input via `gemini-3.5-flash`.
+- **Listing description** (`views/HostDashboardView.tsx`) — calls `generateListingDescription` Cloud Function. Backend-deployed, UI surface is the host dashboard.
+- Gemini API key is stored in Firebase Secret Manager (version 3). The frontend uses `httpsCallable` only — no SDK, no key in the browser bundle.
+- Model: `gemini-3.5-flash` (centralized in `functions/index.js` as `GEMINI_MODEL`).
 
 ---
 
@@ -636,7 +638,7 @@ firebase use parkqueen-46475363-ccf36
 |---|---|---|
 | `SENDGRID_API_KEY` | `functions/.env` | Email OTP delivery via SendGrid REST API |
 | `SOCRATA_APP_TOKEN` | `functions/.env` | NYC Open Data app token — optional but strongly recommended; without it, fallback is rate-limited to 1000 req/day unauthenticated |
-| `API_KEY` | Vite env (`.env` or `process.env`) | Gemini AI for smart replies and sign analysis (optional — app works without it) |
+| `GEMINI_API_KEY` | Firebase Secret Manager v3 | Gemini AI — accessed server-side only via Cloud Functions; not present in frontend |
 | Mapbox token | Hardcoded in `StreetParkingView.tsx` | Map rendering |
 
 `functions/.env` is in `.gitignore`. Create it manually:
