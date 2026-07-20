@@ -492,8 +492,8 @@ exports.generateEmailOTP = onCall(
       headers: { Authorization: `Bearer ${sendgridApiKey.value()}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         personalizations: [{ to: [{ email }] }],
-        from: { email: "hello@parqueen.app", name: "ParkQueen" },
-        subject: "Your ParkQueen verification code",
+        from: { email: "hello@parqueen.app", name: "ParQueen" },
+        subject: "Your ParQueen verification code",
         content: [{ type: "text/plain", value: `Your verification code is: ${code}\n\nThis code expires in 10 minutes.` }],
       }),
     });
