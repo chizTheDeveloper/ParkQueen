@@ -39,12 +39,12 @@ const es: Record<string, string> = {
 
     // Location permission primer (standalone screen, Step 5 of new-user flow)
     'location_prompt.eyebrow': 'ACCESO A TU UBICACIÓN',
-    'location_prompt.headline': 'Ve estacionamiento cerca de ti',
-    'location_prompt.body': 'Permite el acceso a tu ubicación para ver Pings cercanos, guardar dónde estacionaste y obtener direcciones de regreso a tu carro.',
+    'location_prompt.headline': 'Encuentra dónde estacionar cerca de ti',
+    'location_prompt.body': 'Permite el acceso a tu ubicación para ver Pings cercanos, guardar dónde estacionaste y obtener indicaciones para volver a tu carro.',
     'location_prompt.enable': 'Activar ubicación',
     'location_prompt.requesting': 'Solicitando acceso…',
     'location_prompt.skip': 'Ahora no',
-    'location_prompt.reassurance': 'Puedes activar tu ubicación en cualquier momento en la configuración de tu dispositivo.',
+    'location_prompt.reassurance': 'Puedes activar tu ubicación más tarde desde la configuración de tu dispositivo.',
     'location_prompt.map_desc': 'Vista previa del mapa con estacionamientos cercanos',
 
     // App Tour — welcome

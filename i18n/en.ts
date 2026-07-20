@@ -44,7 +44,7 @@ const en: Record<string, string> = {
     'location_prompt.enable': 'Enable location',
     'location_prompt.requesting': 'Requesting access…',
     'location_prompt.skip': 'Not now',
-    'location_prompt.reassurance': 'You can enable location anytime in your device settings.',
+    'location_prompt.reassurance': 'You can enable location later in your device settings.',
     'location_prompt.map_desc': 'Map preview showing nearby parking spots',
 
     // App Tour — welcome

@@ -89,46 +89,46 @@ export const LocationPromptView: React.FC<LocationPromptViewProps> = ({ onComple
                     {/* Base */}
                     <rect width="375" height="330" fill="#060a14" />
 
-                    {/* City blocks */}
-                    <rect x="0"   y="0"   width="90"  height="82"  fill="#090d1c" />
-                    <rect x="97"  y="0"   width="88"  height="82"  fill="#0a0f1e" />
-                    <rect x="193" y="0"   width="89"  height="82"  fill="#090d1c" />
-                    <rect x="290" y="0"   width="85"  height="82"  fill="#0a0f1e" />
-                    <rect x="0"   y="89"  width="90"  height="73"  fill="#0a0f1e" />
-                    <rect x="97"  y="89"  width="88"  height="73"  fill="#090d1c" />
-                    <rect x="193" y="89"  width="89"  height="73"  fill="#0a0f1e" />
-                    <rect x="290" y="89"  width="85"  height="73"  fill="#090d1c" />
-                    <rect x="0"   y="170" width="90"  height="82"  fill="#090d1c" />
-                    <rect x="97"  y="170" width="88"  height="82"  fill="#0a0f1e" />
-                    <rect x="193" y="170" width="89"  height="82"  fill="#090d1c" />
-                    <rect x="290" y="170" width="85"  height="82"  fill="#0a0f1e" />
-                    <rect x="0"   y="260" width="90"  height="70"  fill="#0a0f1e" />
-                    <rect x="97"  y="260" width="88"  height="70"  fill="#090d1c" />
-                    <rect x="193" y="260" width="89"  height="70"  fill="#0a0f1e" />
-                    <rect x="290" y="260" width="85"  height="70"  fill="#090d1c" />
+                    {/* City blocks — slightly irregular sizing for organic feel */}
+                    <rect x="0"   y="0"   width="88"  height="79"  fill="#090d1c" />
+                    <rect x="95"  y="0"   width="91"  height="79"  fill="#0a0f1e" />
+                    <rect x="194" y="0"   width="87"  height="84"  fill="#090d1c" />
+                    <rect x="289" y="0"   width="86"  height="79"  fill="#0a0f1e" />
+                    <rect x="0"   y="86"  width="88"  height="76"  fill="#0a0f1e" />
+                    <rect x="95"  y="86"  width="91"  height="71"  fill="#090d1c" />
+                    <rect x="194" y="91"  width="87"  height="66"  fill="#0a0f1e" />
+                    <rect x="289" y="86"  width="86"  height="71"  fill="#090d1c" />
+                    <rect x="0"   y="169" width="88"  height="84"  fill="#090d1c" />
+                    <rect x="95"  y="164" width="91"  height="84"  fill="#0a0f1e" />
+                    <rect x="194" y="164" width="87"  height="84"  fill="#090d1c" />
+                    <rect x="289" y="164" width="86"  height="84"  fill="#0a0f1e" />
+                    <rect x="0"   y="260" width="88"  height="70"  fill="#0a0f1e" />
+                    <rect x="95"  y="255" width="91"  height="75"  fill="#090d1c" />
+                    <rect x="194" y="255" width="87"  height="75"  fill="#0a0f1e" />
+                    <rect x="289" y="260" width="86"  height="70"  fill="#090d1c" />
 
-                    {/* Minor cross-streets */}
-                    <line x1="0" y1="41"  x2="375" y2="41"  stroke="#0d1525" strokeWidth="1.5" />
-                    <line x1="0" y1="130" x2="375" y2="130" stroke="#0d1525" strokeWidth="1.5" />
-                    <line x1="0" y1="214" x2="375" y2="214" stroke="#0d1525" strokeWidth="1.5" />
-                    <line x1="0" y1="295" x2="375" y2="295" stroke="#0d1525" strokeWidth="1.5" />
-                    <line x1="44"  y1="0" x2="44"  y2="330" stroke="#0d1525" strokeWidth="1.5" />
-                    <line x1="143" y1="0" x2="143" y2="330" stroke="#0d1525" strokeWidth="1.5" />
-                    <line x1="242" y1="0" x2="242" y2="330" stroke="#0d1525" strokeWidth="1.5" />
-                    <line x1="338" y1="0" x2="338" y2="330" stroke="#0d1525" strokeWidth="1.5" />
+                    {/* Minor cross-streets — slightly offset to break rigid grid */}
+                    <line x1="0" y1="40"  x2="375" y2="42"  stroke="#0d1525" strokeWidth="1.5" />
+                    <line x1="0" y1="128" x2="375" y2="131" stroke="#0d1525" strokeWidth="1.5" />
+                    <line x1="0" y1="213" x2="375" y2="210" stroke="#0d1525" strokeWidth="1.5" />
+                    <line x1="0" y1="294" x2="375" y2="297" stroke="#0d1525" strokeWidth="1.5" />
+                    <line x1="44"  y1="0" x2="46"  y2="330" stroke="#0d1525" strokeWidth="1.5" />
+                    <line x1="142" y1="0" x2="144" y2="330" stroke="#0d1525" strokeWidth="1.5" />
+                    <line x1="241" y1="0" x2="243" y2="330" stroke="#0d1525" strokeWidth="1.5" />
+                    <line x1="337" y1="0" x2="335" y2="330" stroke="#0d1525" strokeWidth="1.5" />
 
-                    {/* Major avenues (vertical) */}
-                    <rect x="90"  y="0" width="7" height="330" fill="#18223c" />
-                    <rect x="185" y="0" width="8" height="330" fill="#192440" />
-                    <rect x="283" y="0" width="7" height="330" fill="#18223c" />
+                    {/* Major avenues (vertical) — varied widths */}
+                    <rect x="88"  y="0" width="7"  height="330" fill="#18223c" />
+                    <rect x="183" y="0" width="11" height="330" fill="#192440" />
+                    <rect x="281" y="0" width="8"  height="330" fill="#18223c" />
 
-                    {/* Major streets (horizontal) */}
-                    <rect x="0" y="82"  width="375" height="7" fill="#18223c" />
-                    <rect x="0" y="162" width="375" height="8" fill="#192440" />
-                    <rect x="0" y="252" width="375" height="7" fill="#18223c" />
+                    {/* Major streets (horizontal) — varied widths */}
+                    <rect x="0" y="79"  width="375" height="7"  fill="#18223c" />
+                    <rect x="0" y="157" width="375" height="11" fill="#192440" />
+                    <rect x="0" y="248" width="375" height="7"  fill="#18223c" />
 
-                    {/* Diagonal — Broadway-like */}
-                    <line x1="18" y1="0" x2="357" y2="330" stroke="#131c32" strokeWidth="5" strokeLinecap="round" />
+                    {/* Diagonal — softer Broadway-like, slightly curved via two segments */}
+                    <polyline points="22,0 188,165 352,330" stroke="#131c32" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" fill="none" />
 
                     {/* Overlay fades */}
                     <rect width="375" height="330" fill="url(#loc-fade-btm)" />
@@ -198,24 +198,21 @@ export const LocationPromptView: React.FC<LocationPromptViewProps> = ({ onComple
 
             {/* ── Permission sheet ───────────────────────────────────────────── */}
             <div
-                className={`relative bg-[#080c18] rounded-t-[28px] px-6 pt-5${prefersReduced ? '' : ' loc-sheet-in'}`}
+                className={`relative bg-[#080c18] rounded-t-[28px] px-6 pt-7${prefersReduced ? '' : ' loc-sheet-in'}`}
                 style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 20px)' }}
             >
-                {/* Pull handle */}
-                <div className="w-9 h-1 rounded-full mx-auto mb-5" style={{ background: 'rgba(255,255,255,0.12)' }} />
-
                 {/* Eyebrow */}
                 <p className="text-[11px] font-bold tracking-[0.14em] text-blue-400 uppercase mb-2">
                     {t('location_prompt.eyebrow')}
                 </p>
 
                 {/* Headline */}
-                <h1 className="text-[24px] font-bold text-white leading-tight mb-2">
+                <h1 className="text-[24px] font-bold text-white leading-tight mb-2" style={{ textWrap: 'balance' } as React.CSSProperties}>
                     {t('location_prompt.headline')}
                 </h1>
 
                 {/* Body */}
-                <p className="text-[14px] leading-snug mb-6" style={{ color: 'rgba(255,255,255,0.58)' }}>
+                <p className="text-[14px] leading-relaxed mb-5" style={{ color: 'rgba(255,255,255,0.72)' }}>
                     {t('location_prompt.body')}
                 </p>
 
@@ -224,7 +221,7 @@ export const LocationPromptView: React.FC<LocationPromptViewProps> = ({ onComple
                     type="button"
                     onClick={handleEnable}
                     disabled={requesting}
-                    className="w-full h-[58px] rounded-full font-semibold text-[16px] text-white active:scale-[0.985] transition-transform disabled:opacity-70 mb-3"
+                    className="w-full h-[58px] rounded-full font-semibold text-[16px] text-white active:scale-[0.985] transition-transform disabled:opacity-70 mb-2"
                     style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}
                 >
                     {requesting ? t('location_prompt.requesting') : t('location_prompt.enable')}
@@ -235,14 +232,14 @@ export const LocationPromptView: React.FC<LocationPromptViewProps> = ({ onComple
                     type="button"
                     onClick={handleSkip}
                     disabled={requesting}
-                    className="w-full min-h-[44px] flex items-center justify-center text-[15px] font-medium mb-4"
-                    style={{ color: 'rgba(255,255,255,0.42)' }}
+                    className="w-full min-h-[44px] flex items-center justify-center text-[15px] font-medium mb-2"
+                    style={{ color: 'rgba(255,255,255,0.62)' }}
                 >
                     {t('location_prompt.skip')}
                 </button>
 
                 {/* Reassurance */}
-                <p className="text-[12px] text-center leading-snug" style={{ color: 'rgba(255,255,255,0.28)' }}>
+                <p className="text-[13px] text-center leading-snug" style={{ color: 'rgba(255,255,255,0.40)' }}>
                     {t('location_prompt.reassurance')}
                 </p>
             </div>
