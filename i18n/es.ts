@@ -313,11 +313,8 @@ const es: Record<string, string> = {
     'nearby_activity.enable_cta': 'Activar ubicación',
     'nearby_activity.enable_requesting': 'Activando…',
     'nearby_activity.enable_reassurance': 'Tu ubicación solo se usa para mostrar actividad de estacionamiento cercana.',
-    'nearby_activity.denied_headline': 'Acceso a ubicación bloqueado',
-    'nearby_activity.denied_body': 'Permite el acceso a la ubicación de ParQueen en la configuración de tu navegador o dispositivo para ver Pings cercanos.',
-    'nearby_activity.denied_how': 'Cómo activar la ubicación',
-    'nearby_activity.denied_check': 'Verificar de nuevo',
-    'nearby_activity.denied_instructions': '1. Abre la barra de direcciones del navegador\n2. Toca el ícono de candado o configuración\n3. Busca "Ubicación" y cámbialo a Permitir\n4. Recarga la página',
+    'nearby_activity.open_settings': 'Abrir Configuración',
+    'nearby_activity.turn_on_services': 'Activar Servicios de Ubicación',
     'nearby_activity.locating_headline': 'Buscando tu ubicación…',
     'nearby_activity.locating_body': 'Esto debería tardar solo un momento.',
     'nearby_activity.error_headline': 'No pudimos encontrar tu ubicación',
@@ -329,7 +326,6 @@ const es: Record<string, string> = {
     'nearby_activity.query_error_headline': 'No se pudo cargar la actividad cercana',
     'nearby_activity.query_error_body': 'Verifica tu conexión e intenta de nuevo.',
     'nearby_activity.query_error_retry': 'Intentar de nuevo',
-    'nearby_activity.instructions_done': 'Listo',
 
     // Auth — Login / Reset Password
     'auth.welcome_back': '¡Bienvenido de nuevo!',

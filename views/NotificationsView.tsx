@@ -1,18 +1,17 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useFocusOnMount } from '../hooks/useFocusOnMount';
 import { t, useLang } from '../i18n';
-import { ArrowLeft, MapPin, Bell, LocateFixed, WifiOff, X } from 'lucide-react';
+import { ArrowLeft, MapPin, Bell, LocateFixed, WifiOff } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, where, onSnapshot, Timestamp } from 'firebase/firestore';
-import { deriveNearbyState } from '../utils/nearbyActivity';
-import type { LocationAccess } from '../utils/locationAccess';
+import { deriveNearbyState, type LocationPermissionState, type LocationCallbacks } from '../utils/nearbyActivity';
 
 interface NotificationsViewProps {
     user: any;
     onBack: () => void;
     onSelectSpot?: (spotId: string) => void;
-    locationAccess: LocationAccess;
-    onEnableLocation: () => void;
+    permissionState: LocationPermissionState;
+    callbacks: LocationCallbacks;
 }
 
 const getDistanceKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
@@ -48,8 +47,12 @@ const avatarGradients = [
     'linear-gradient(135deg,#3b2a1a,#92400e)',
 ];
 
+const LOCATION_NEEDED: LocationPermissionState[] = [
+    'not_determined', 'denied_requestable', 'permanently_blocked', 'services_disabled',
+];
+
 export const NotificationsView: React.FC<NotificationsViewProps> = ({
-    user, onBack, onSelectSpot, locationAccess, onEnableLocation,
+    user, onBack, onSelectSpot, permissionState, callbacks,
 }) => {
     const [spots, setSpots] = useState<any[]>([]);
     const [spotsLoading, setSpotsLoading] = useState(true);
@@ -57,48 +60,42 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
     const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
     const [locating, setLocating] = useState(false);
     const [locationError, setLocationError] = useState(false);
-    const [enabling, setEnabling] = useState(false);
-    const [showInstructions, setShowInstructions] = useState(false);
+    const [requesting, setRequesting] = useState(false);
     const headingRef = useRef<HTMLHeadingElement>(null);
     useFocusOnMount(headingRef);
     useLang();
 
     const lastViewed = parseInt(localStorage.getItem('lastViewedNotifications') || '0', 10);
 
-    // Fetch coordinates only when consent is granted
+    // Fetch coordinates only when granted
     const fetchLocation = useCallback(() => {
-        if (!navigator.geolocation) {
-            setLocationError(true);
-            return;
-        }
+        if (!navigator.geolocation) { setLocationError(true); return; }
         setLocating(true);
         setLocationError(false);
-        const timer = setTimeout(() => {
-            setLocating(false);
-            setLocationError(true);
-        }, 10000);
+        const timer = setTimeout(() => { setLocating(false); setLocationError(true); }, 10000);
         navigator.geolocation.getCurrentPosition(
             pos => {
                 clearTimeout(timer);
                 setUserLocation([pos.coords.latitude, pos.coords.longitude]);
                 setLocating(false);
             },
-            () => {
-                clearTimeout(timer);
-                setLocating(false);
-                setLocationError(true);
-            },
+            () => { clearTimeout(timer); setLocating(false); setLocationError(true); },
             { enableHighAccuracy: true, timeout: 10000 }
         );
     }, []);
 
     useEffect(() => {
-        if (locationAccess === 'granted' && !userLocation) {
-            fetchLocation();
-        }
-        // Reset enabling spinner when access resolves
-        setEnabling(false);
-    }, [locationAccess]); // eslint-disable-line react-hooks/exhaustive-deps
+        if (permissionState === 'granted' && !userLocation) fetchLocation();
+        setRequesting(false);
+    }, [permissionState]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Recheck when returning to foreground (for permanently_blocked / services_disabled)
+    useEffect(() => {
+        if (permissionState !== 'permanently_blocked' && permissionState !== 'services_disabled') return;
+        const onVisible = () => { if (document.visibilityState === 'visible') callbacks.recheckPermission(); };
+        document.addEventListener('visibilitychange', onVisible);
+        return () => document.removeEventListener('visibilitychange', onVisible);
+    }, [permissionState, callbacks]);
 
     useEffect(() => {
         if (!db) return;
@@ -122,10 +119,10 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
         : spots;
     const nearbySpots = filteredSpots.slice(0, 10);
     const hasMore = filteredSpots.length > 10;
-    const showNoLocationBanner = !userLocation && spots.length > 0 && locationAccess === 'granted';
+    const showNoLocationBanner = !userLocation && spots.length > 0 && permissionState === 'granted';
 
     const renderState = deriveNearbyState({
-        locationAccess,
+        permissionState,
         locating,
         locationError,
         userLocation,
@@ -134,22 +131,17 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
         nearbyCount: nearbySpots.length,
     });
 
-    const handleEnable = () => {
-        if (enabling) return;
-        setEnabling(true);
-        onEnableLocation();
-    };
+    const isLocationNeeded = (LOCATION_NEEDED as string[]).includes(renderState);
 
-    const handleCheckAgain = async () => {
-        if (!navigator.permissions) return;
-        try {
-            const perm = await navigator.permissions.query({ name: 'geolocation' });
-            if (perm.state === 'granted') {
-                setEnabling(true);
-                onEnableLocation();
-            }
-        } catch {}
-    };
+    // CTA for each location-needed sub-state
+    const locationCTA = renderState === 'permanently_blocked'
+        ? { label: t('nearby_activity.open_settings'), action: callbacks.openAppSettings }
+        : renderState === 'services_disabled'
+        ? { label: t('nearby_activity.turn_on_services'), action: callbacks.openLocationServicesSettings }
+        : {
+            label: requesting ? t('nearby_activity.enable_requesting') : t('nearby_activity.enable_cta'),
+            action: () => { setRequesting(true); callbacks.requestLocationPermission(); },
+        };
 
     return (
         <div className="h-full bg-[var(--color-bg)] flex flex-col">
@@ -182,8 +174,8 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
             {/* Body */}
             <div className="flex-1 overflow-y-auto no-scrollbar">
 
-                {/* ── permission_prompt ─────────────────────────────────────── */}
-                {renderState === 'permission_prompt' && (
+                {/* ── Unified location-needed state ───────────────────────── */}
+                {isLocationNeeded && (
                     <div className="flex flex-col items-center justify-center px-6 py-10 text-center gap-4 min-h-[420px]">
                         {/* Illustration */}
                         <div className="relative mb-2">
@@ -192,11 +184,16 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                                     <MapPin size={28} className="text-[#38bdf8]" />
                                 </div>
                             </div>
-                            {/* Pulse ring */}
-                            <div className="absolute inset-0 rounded-full border border-[#1e75ff]/20 animate-ping" style={{ animationDuration: '2s' }} />
+                            <div
+                                className="absolute inset-0 rounded-full border border-[#1e75ff]/20 animate-ping"
+                                style={{ animationDuration: '2s' }}
+                            />
                         </div>
 
-                        <p className="text-[20px] font-bold text-[var(--color-text)] leading-tight" style={{ textWrap: 'balance' } as React.CSSProperties}>
+                        <p
+                            className="text-[20px] font-bold text-[var(--color-text)] leading-tight"
+                            style={{ textWrap: 'balance' } as React.CSSProperties}
+                        >
                             {t('nearby_activity.enable_headline')}
                         </p>
                         <p className="text-[14px] text-[var(--color-text-secondary)] leading-relaxed max-w-[260px]">
@@ -205,12 +202,12 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
 
                         <button
                             type="button"
-                            onClick={handleEnable}
-                            disabled={enabling}
+                            onClick={locationCTA.action}
+                            disabled={requesting && renderState !== 'permanently_blocked' && renderState !== 'services_disabled'}
                             className="w-full max-w-[280px] h-[54px] rounded-full font-semibold text-[16px] text-white active:scale-[0.985] transition-transform disabled:opacity-70 mt-2"
                             style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}
                         >
-                            {enabling ? t('nearby_activity.enable_requesting') : t('nearby_activity.enable_cta')}
+                            {locationCTA.label}
                         </button>
 
                         <p className="text-[12px] leading-snug max-w-[240px]" style={{ color: 'rgba(255,255,255,0.40)' }}>
@@ -219,38 +216,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                     </div>
                 )}
 
-                {/* ── permission_denied ─────────────────────────────────────── */}
-                {renderState === 'permission_denied' && (
-                    <div className="flex flex-col items-center justify-center px-6 py-10 text-center gap-4 min-h-[420px]">
-                        <div className="w-20 h-20 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mb-1">
-                            <LocateFixed size={26} className="text-rose-400" />
-                        </div>
-                        <p className="text-[20px] font-bold text-[var(--color-text)] leading-tight">
-                            {t('nearby_activity.denied_headline')}
-                        </p>
-                        <p className="text-[14px] text-[var(--color-text-secondary)] leading-relaxed max-w-[260px]">
-                            {t('nearby_activity.denied_body')}
-                        </p>
-                        <button
-                            type="button"
-                            onClick={() => setShowInstructions(true)}
-                            className="w-full max-w-[280px] h-[54px] rounded-full font-semibold text-[15px] text-white active:scale-[0.985] transition-transform border border-[#1e75ff]/40"
-                            style={{ background: '#0d1a2e' }}
-                        >
-                            {t('nearby_activity.denied_how')}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={handleCheckAgain}
-                            className="text-[14px] font-medium min-h-[44px] px-4"
-                            style={{ color: 'rgba(255,255,255,0.55)' }}
-                        >
-                            {t('nearby_activity.denied_check')}
-                        </button>
-                    </div>
-                )}
-
-                {/* ── locating ──────────────────────────────────────────────── */}
+                {/* ── locating ────────────────────────────────────────────── */}
                 {renderState === 'locating' && (
                     <div aria-live="polite" role="status" className="flex flex-col items-center justify-center gap-4 h-48">
                         <div className="w-7 h-7 rounded-full border-2 border-[#1e75ff] border-t-transparent animate-spin" />
@@ -263,7 +229,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                     </div>
                 )}
 
-                {/* ── location_error ────────────────────────────────────────── */}
+                {/* ── location_error ──────────────────────────────────────── */}
                 {renderState === 'location_error' && (
                     <div className="flex flex-col items-center justify-center px-6 py-12 text-center gap-4">
                         <div className="w-16 h-16 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mb-1">
@@ -286,7 +252,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                     </div>
                 )}
 
-                {/* ── pings_loading ─────────────────────────────────────────── */}
+                {/* ── pings_loading ───────────────────────────────────────── */}
                 {renderState === 'pings_loading' && (
                     <div aria-live="polite" role="status" className="flex flex-col items-center justify-center gap-4 h-48">
                         <div className="w-7 h-7 rounded-full border-2 border-[#1e75ff] border-t-transparent animate-spin" />
@@ -296,7 +262,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                     </div>
                 )}
 
-                {/* ── empty ─────────────────────────────────────────────────── */}
+                {/* ── empty ───────────────────────────────────────────────── */}
                 {renderState === 'empty' && (
                     <div aria-live="polite" className="flex flex-col items-center justify-center px-8 py-24 text-center gap-3">
                         <div className="w-16 h-16 rounded-full bg-[#1e75ff]/10 border border-[#1e75ff]/20 flex items-center justify-center mb-1">
@@ -311,7 +277,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                     </div>
                 )}
 
-                {/* ── query_error ───────────────────────────────────────────── */}
+                {/* ── query_error ─────────────────────────────────────────── */}
                 {renderState === 'query_error' && (
                     <div className="flex flex-col items-center justify-center px-6 py-12 text-center gap-4">
                         <div className="w-16 h-16 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mb-1">
@@ -334,7 +300,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                     </div>
                 )}
 
-                {/* ── results ───────────────────────────────────────────────── */}
+                {/* ── results ─────────────────────────────────────────────── */}
                 {renderState === 'results' && (
                     <div className="px-3 py-3 flex flex-col gap-2 pb-10">
                         {showNoLocationBanner && (
@@ -435,54 +401,6 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                     </div>
                 )}
             </div>
-
-            {/* ── "How to enable" instruction sheet ────────────────────────── */}
-            {showInstructions && (
-                <div
-                    className="fixed inset-0 z-50 flex items-end bg-black/60"
-                    onClick={() => setShowInstructions(false)}
-                >
-                    <div
-                        className="bg-[#0a0f1e] rounded-t-[24px] w-full px-6 pt-6 pb-10"
-                        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 24px)' }}
-                        onClick={e => e.stopPropagation()}
-                    >
-                        <div className="flex items-center justify-between mb-5">
-                            <h2 className="text-[17px] font-bold text-[var(--color-text)]">
-                                {t('nearby_activity.denied_how')}
-                            </h2>
-                            <button
-                                type="button"
-                                onClick={() => setShowInstructions(false)}
-                                className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-white/10 text-[var(--color-text-secondary)]"
-                                aria-label="Close"
-                            >
-                                <X size={18} />
-                            </button>
-                        </div>
-                        <ol className="flex flex-col gap-4">
-                            {t('nearby_activity.denied_instructions').split('\n').map((step, i) => (
-                                <li key={i} className="flex items-start gap-3">
-                                    <span className="w-6 h-6 rounded-full bg-[#1e75ff]/15 border border-[#1e75ff]/30 flex items-center justify-center text-[11px] font-bold text-[#38bdf8] shrink-0 mt-0.5">
-                                        {i + 1}
-                                    </span>
-                                    <p className="text-[14px] text-[var(--color-text-secondary)] leading-snug">
-                                        {step.replace(/^\d+\.\s*/, '')}
-                                    </p>
-                                </li>
-                            ))}
-                        </ol>
-                        <button
-                            type="button"
-                            onClick={() => setShowInstructions(false)}
-                            className="w-full h-[50px] rounded-full font-semibold text-[15px] text-white mt-7 border border-[#1e75ff]/30 active:scale-[0.985] transition-transform"
-                            style={{ background: '#0d1a2e' }}
-                        >
-                            {t('nearby_activity.instructions_done')}
-                        </button>
-                    </div>
-                </div>
-            )}
         </div>
     );
 };

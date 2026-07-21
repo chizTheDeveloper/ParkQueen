@@ -313,11 +313,8 @@ const en: Record<string, string> = {
     'nearby_activity.enable_cta': 'Enable location',
     'nearby_activity.enable_requesting': 'Enabling…',
     'nearby_activity.enable_reassurance': 'Your location is only used to power nearby parking features.',
-    'nearby_activity.denied_headline': 'Location access is blocked',
-    'nearby_activity.denied_body': 'Allow location for ParQueen in your browser or device settings to see nearby Pings.',
-    'nearby_activity.denied_how': 'How to enable location',
-    'nearby_activity.denied_check': 'Check again',
-    'nearby_activity.denied_instructions': '1. Open your browser address bar\n2. Tap the lock or settings icon\n3. Find "Location" and set it to Allow\n4. Refresh the page',
+    'nearby_activity.open_settings': 'Open Settings',
+    'nearby_activity.turn_on_services': 'Turn on Location Services',
     'nearby_activity.locating_headline': 'Finding your location…',
     'nearby_activity.locating_body': 'This should only take a moment.',
     'nearby_activity.error_headline': 'We couldn\'t find your location',
@@ -329,7 +326,6 @@ const en: Record<string, string> = {
     'nearby_activity.query_error_headline': 'Nearby activity couldn\'t load',
     'nearby_activity.query_error_body': 'Check your connection and try again.',
     'nearby_activity.query_error_retry': 'Try again',
-    'nearby_activity.instructions_done': 'Done',
 
     // Auth — Login / Reset Password
     'auth.welcome_back': 'Welcome Back!',
