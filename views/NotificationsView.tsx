@@ -1,14 +1,18 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useFocusOnMount } from '../hooks/useFocusOnMount';
 import { t, useLang } from '../i18n';
-import { ArrowLeft, MapPin, Bell } from 'lucide-react';
+import { ArrowLeft, MapPin, Bell, LocateFixed, WifiOff, X } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, where, onSnapshot, Timestamp } from 'firebase/firestore';
+import { deriveNearbyState } from '../utils/nearbyActivity';
+import type { LocationAccess } from '../utils/locationAccess';
 
 interface NotificationsViewProps {
     user: any;
     onBack: () => void;
     onSelectSpot?: (spotId: string) => void;
+    locationAccess: LocationAccess;
+    onEnableLocation: () => void;
 }
 
 const getDistanceKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
@@ -44,63 +48,108 @@ const avatarGradients = [
     'linear-gradient(135deg,#3b2a1a,#92400e)',
 ];
 
-export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBack, onSelectSpot }) => {
+export const NotificationsView: React.FC<NotificationsViewProps> = ({
+    user, onBack, onSelectSpot, locationAccess, onEnableLocation,
+}) => {
     const [spots, setSpots] = useState<any[]>([]);
     const [spotsLoading, setSpotsLoading] = useState(true);
+    const [spotsError, setSpotsError] = useState(false);
     const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
-    const [locationLoading, setLocationLoading] = useState(true);
+    const [locating, setLocating] = useState(false);
+    const [locationError, setLocationError] = useState(false);
+    const [enabling, setEnabling] = useState(false);
+    const [showInstructions, setShowInstructions] = useState(false);
     const headingRef = useRef<HTMLHeadingElement>(null);
     useFocusOnMount(headingRef);
     useLang();
 
     const lastViewed = parseInt(localStorage.getItem('lastViewedNotifications') || '0', 10);
 
-    useEffect(() => {
+    // Fetch coordinates only when consent is granted
+    const fetchLocation = useCallback(() => {
         if (!navigator.geolocation) {
-            setLocationLoading(false);
+            setLocationError(true);
             return;
         }
-        const timer = setTimeout(() => setLocationLoading(false), 5000);
+        setLocating(true);
+        setLocationError(false);
+        const timer = setTimeout(() => {
+            setLocating(false);
+            setLocationError(true);
+        }, 10000);
         navigator.geolocation.getCurrentPosition(
             pos => {
                 clearTimeout(timer);
                 setUserLocation([pos.coords.latitude, pos.coords.longitude]);
-                setLocationLoading(false);
+                setLocating(false);
             },
             () => {
                 clearTimeout(timer);
-                setLocationLoading(false);
+                setLocating(false);
+                setLocationError(true);
             },
             { enableHighAccuracy: true, timeout: 10000 }
         );
-        return () => clearTimeout(timer);
     }, []);
+
+    useEffect(() => {
+        if (locationAccess === 'granted' && !userLocation) {
+            fetchLocation();
+        }
+        // Reset enabling spinner when access resolves
+        setEnabling(false);
+    }, [locationAccess]); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (!db) return;
         const q = query(collection(db, 'spots'), where('expiresAt', '>', Timestamp.now()));
-        return onSnapshot(q, snap => {
-            const all = snap.docs
-                .map(d => ({ id: d.id, ...d.data() }) as any)
-                .filter(s => s.finderId !== user?.id && s.status !== 'interested');
-            all.sort((a, b) => (b.reportedAt?.toMillis() || 0) - (a.reportedAt?.toMillis() || 0));
-            setSpots(all);
-            setSpotsLoading(false);
-        }, () => setSpotsLoading(false));
+        return onSnapshot(
+            q,
+            snap => {
+                const all = snap.docs
+                    .map(d => ({ id: d.id, ...d.data() }) as any)
+                    .filter(s => s.finderId !== user?.id && s.status !== 'interested');
+                all.sort((a, b) => (b.reportedAt?.toMillis() || 0) - (a.reportedAt?.toMillis() || 0));
+                setSpots(all);
+                setSpotsLoading(false);
+            },
+            () => { setSpotsLoading(false); setSpotsError(true); }
+        );
     }, [user?.id]);
-
-    const isLoading = spotsLoading || locationLoading;
 
     const filteredSpots = userLocation
         ? spots.filter(s => getDistanceKm(userLocation[0], userLocation[1], s.lat, s.lng) <= 2.0)
         : spots;
     const nearbySpots = filteredSpots.slice(0, 10);
     const hasMore = filteredSpots.length > 10;
-    const showNoLocationBanner = !userLocation && spots.length > 0;
+    const showNoLocationBanner = !userLocation && spots.length > 0 && locationAccess === 'granted';
 
-    const showList = !isLoading && nearbySpots.length > 0;
-    const showEmpty = !isLoading && nearbySpots.length === 0 && (!!userLocation || spots.length === 0);
-    const showNoLocation = !isLoading && !userLocation && spots.length === 0;
+    const renderState = deriveNearbyState({
+        locationAccess,
+        locating,
+        locationError,
+        userLocation,
+        spotsLoading,
+        spotsError,
+        nearbyCount: nearbySpots.length,
+    });
+
+    const handleEnable = () => {
+        if (enabling) return;
+        setEnabling(true);
+        onEnableLocation();
+    };
+
+    const handleCheckAgain = async () => {
+        if (!navigator.permissions) return;
+        try {
+            const perm = await navigator.permissions.query({ name: 'geolocation' });
+            if (perm.state === 'granted') {
+                setEnabling(true);
+                onEnableLocation();
+            }
+        } catch {}
+    };
 
     return (
         <div className="h-full bg-[var(--color-bg)] flex flex-col">
@@ -111,55 +160,182 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
             >
                 <button
                     onClick={onBack}
-                    className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-white/5 text-[var(--color-text)] transition-colors"
+                    className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-white/5 text-[var(--color-text)] transition-colors shrink-0"
                     aria-label="Back"
                 >
                     <ArrowLeft size={20} />
                 </button>
                 <div>
-                    <h1 ref={headingRef} tabIndex={-1} className="text-[18px] font-bold text-[var(--color-text)] focus:outline-none leading-tight">{t('common.nearby_activity')}</h1>
-                    <p className="text-[11px] text-[#334155] mt-0.5">{t('nearby_activity.subtitle')}</p>
+                    <h1
+                        ref={headingRef}
+                        tabIndex={-1}
+                        className="text-[18px] font-bold text-[var(--color-text)] focus:outline-none leading-tight"
+                    >
+                        {t('common.nearby_activity')}
+                    </h1>
+                    <p className="text-[11px] text-[var(--color-text-secondary)] mt-0.5">
+                        {t('nearby_activity.subtitle')}
+                    </p>
                 </div>
             </div>
 
             {/* Body */}
             <div className="flex-1 overflow-y-auto no-scrollbar">
 
-                {/* Loading */}
-                {isLoading && (
-                    <div aria-live="polite" role="status" className="flex justify-center items-center h-48">
-                        <div className="w-7 h-7 rounded-full border-2 border-[#1e75ff] border-t-transparent animate-spin" />
-                    </div>
-                )}
-
-                {/* Location unavailable */}
-                {showNoLocation && (
-                    <div aria-live="polite" className="flex flex-col items-center justify-center px-8 py-24 text-center gap-3">
-                        <div className="w-16 h-16 rounded-full bg-[#1e75ff]/10 border border-[#1e75ff]/20 flex items-center justify-center mb-1">
-                            <MapPin size={28} className="text-[#38bdf8]" />
+                {/* ── permission_prompt ─────────────────────────────────────── */}
+                {renderState === 'permission_prompt' && (
+                    <div className="flex flex-col items-center justify-center px-6 py-10 text-center gap-4 min-h-[420px]">
+                        {/* Illustration */}
+                        <div className="relative mb-2">
+                            <div className="w-24 h-24 rounded-full bg-[#1e75ff]/10 border border-[#1e75ff]/20 flex items-center justify-center">
+                                <div className="w-16 h-16 rounded-full bg-[#1e75ff]/15 border border-[#1e75ff]/30 flex items-center justify-center">
+                                    <MapPin size={28} className="text-[#38bdf8]" />
+                                </div>
+                            </div>
+                            {/* Pulse ring */}
+                            <div className="absolute inset-0 rounded-full border border-[#1e75ff]/20 animate-ping" style={{ animationDuration: '2s' }} />
                         </div>
-                        <p className="text-[17px] font-bold text-[var(--color-text)]">{t('nearby_activity.location_needed')}</p>
-                        <p className="text-[13px] text-[var(--color-text-secondary)] leading-relaxed max-w-[240px]">
-                            {t('nearby_activity.location_needed_body')}
+
+                        <p className="text-[20px] font-bold text-[var(--color-text)] leading-tight" style={{ textWrap: 'balance' } as React.CSSProperties}>
+                            {t('nearby_activity.enable_headline')}
+                        </p>
+                        <p className="text-[14px] text-[var(--color-text-secondary)] leading-relaxed max-w-[260px]">
+                            {t('nearby_activity.enable_body')}
+                        </p>
+
+                        <button
+                            type="button"
+                            onClick={handleEnable}
+                            disabled={enabling}
+                            className="w-full max-w-[280px] h-[54px] rounded-full font-semibold text-[16px] text-white active:scale-[0.985] transition-transform disabled:opacity-70 mt-2"
+                            style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}
+                        >
+                            {enabling ? t('nearby_activity.enable_requesting') : t('nearby_activity.enable_cta')}
+                        </button>
+
+                        <p className="text-[12px] leading-snug max-w-[240px]" style={{ color: 'rgba(255,255,255,0.40)' }}>
+                            {t('nearby_activity.enable_reassurance')}
                         </p>
                     </div>
                 )}
 
-                {/* Location available, no nearby spots */}
-                {showEmpty && (
+                {/* ── permission_denied ─────────────────────────────────────── */}
+                {renderState === 'permission_denied' && (
+                    <div className="flex flex-col items-center justify-center px-6 py-10 text-center gap-4 min-h-[420px]">
+                        <div className="w-20 h-20 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mb-1">
+                            <LocateFixed size={26} className="text-rose-400" />
+                        </div>
+                        <p className="text-[20px] font-bold text-[var(--color-text)] leading-tight">
+                            {t('nearby_activity.denied_headline')}
+                        </p>
+                        <p className="text-[14px] text-[var(--color-text-secondary)] leading-relaxed max-w-[260px]">
+                            {t('nearby_activity.denied_body')}
+                        </p>
+                        <button
+                            type="button"
+                            onClick={() => setShowInstructions(true)}
+                            className="w-full max-w-[280px] h-[54px] rounded-full font-semibold text-[15px] text-white active:scale-[0.985] transition-transform border border-[#1e75ff]/40"
+                            style={{ background: '#0d1a2e' }}
+                        >
+                            {t('nearby_activity.denied_how')}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleCheckAgain}
+                            className="text-[14px] font-medium min-h-[44px] px-4"
+                            style={{ color: 'rgba(255,255,255,0.55)' }}
+                        >
+                            {t('nearby_activity.denied_check')}
+                        </button>
+                    </div>
+                )}
+
+                {/* ── locating ──────────────────────────────────────────────── */}
+                {renderState === 'locating' && (
+                    <div aria-live="polite" role="status" className="flex flex-col items-center justify-center gap-4 h-48">
+                        <div className="w-7 h-7 rounded-full border-2 border-[#1e75ff] border-t-transparent animate-spin" />
+                        <p className="text-[14px] font-semibold text-[var(--color-text)]">
+                            {t('nearby_activity.locating_headline')}
+                        </p>
+                        <p className="text-[13px] text-[var(--color-text-secondary)]">
+                            {t('nearby_activity.locating_body')}
+                        </p>
+                    </div>
+                )}
+
+                {/* ── location_error ────────────────────────────────────────── */}
+                {renderState === 'location_error' && (
+                    <div className="flex flex-col items-center justify-center px-6 py-12 text-center gap-4">
+                        <div className="w-16 h-16 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mb-1">
+                            <LocateFixed size={24} className="text-amber-400" />
+                        </div>
+                        <p className="text-[17px] font-bold text-[var(--color-text)]">
+                            {t('nearby_activity.error_headline')}
+                        </p>
+                        <p className="text-[13px] text-[var(--color-text-secondary)] leading-relaxed max-w-[240px]">
+                            {t('nearby_activity.error_body')}
+                        </p>
+                        <button
+                            type="button"
+                            onClick={fetchLocation}
+                            className="mt-2 px-8 h-[44px] rounded-full font-semibold text-[14px] text-white border border-[#1e75ff]/40 active:scale-[0.985] transition-transform"
+                            style={{ background: '#0d1a2e' }}
+                        >
+                            {t('nearby_activity.error_retry')}
+                        </button>
+                    </div>
+                )}
+
+                {/* ── pings_loading ─────────────────────────────────────────── */}
+                {renderState === 'pings_loading' && (
+                    <div aria-live="polite" role="status" className="flex flex-col items-center justify-center gap-4 h-48">
+                        <div className="w-7 h-7 rounded-full border-2 border-[#1e75ff] border-t-transparent animate-spin" />
+                        <p className="text-[14px] font-semibold text-[var(--color-text)]">
+                            {t('nearby_activity.loading_headline')}
+                        </p>
+                    </div>
+                )}
+
+                {/* ── empty ─────────────────────────────────────────────────── */}
+                {renderState === 'empty' && (
                     <div aria-live="polite" className="flex flex-col items-center justify-center px-8 py-24 text-center gap-3">
                         <div className="w-16 h-16 rounded-full bg-[#1e75ff]/10 border border-[#1e75ff]/20 flex items-center justify-center mb-1">
                             <Bell size={28} className="text-[#38bdf8]" />
                         </div>
-                        <p className="text-[17px] font-bold text-[var(--color-text)]">{t('nearby_activity.all_clear')}</p>
+                        <p className="text-[17px] font-bold text-[var(--color-text)]">
+                            {t('nearby_activity.empty_headline')}
+                        </p>
                         <p className="text-[13px] text-[var(--color-text-secondary)] leading-relaxed max-w-[240px]">
-                            {t('nearby_activity.no_pings')}
+                            {t('nearby_activity.empty_body')}
                         </p>
                     </div>
                 )}
 
-                {/* Spot list */}
-                {showList && (
+                {/* ── query_error ───────────────────────────────────────────── */}
+                {renderState === 'query_error' && (
+                    <div className="flex flex-col items-center justify-center px-6 py-12 text-center gap-4">
+                        <div className="w-16 h-16 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mb-1">
+                            <WifiOff size={24} className="text-rose-400" />
+                        </div>
+                        <p className="text-[17px] font-bold text-[var(--color-text)]">
+                            {t('nearby_activity.query_error_headline')}
+                        </p>
+                        <p className="text-[13px] text-[var(--color-text-secondary)] leading-relaxed max-w-[240px]">
+                            {t('nearby_activity.query_error_body')}
+                        </p>
+                        <button
+                            type="button"
+                            onClick={() => { setSpotsError(false); setSpotsLoading(true); }}
+                            className="mt-2 px-8 h-[44px] rounded-full font-semibold text-[14px] text-white border border-[#1e75ff]/40 active:scale-[0.985] transition-transform"
+                            style={{ background: '#0d1a2e' }}
+                        >
+                            {t('nearby_activity.query_error_retry')}
+                        </button>
+                    </div>
+                )}
+
+                {/* ── results ───────────────────────────────────────────────── */}
+                {renderState === 'results' && (
                     <div className="px-3 py-3 flex flex-col gap-2 pb-10">
                         {showNoLocationBanner && (
                             <div className="flex items-start gap-3 px-4 py-3 rounded-2xl bg-amber-500/10 border border-amber-500/25 mb-1">
@@ -173,7 +349,6 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
                             </div>
                         )}
 
-                        {/* Section label */}
                         <p className="text-[10px] font-bold text-[#1e75ff] tracking-widest uppercase px-1 pb-1">
                             {nearbySpots.length} {nearbySpots.length === 1 ? 'ping' : 'pings'}{userLocation ? ' within 2 mi' : ' nearby'}
                         </p>
@@ -185,7 +360,8 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
                             const distStr = km !== null ? formatDistance(km) : null;
                             const time = relativeTime(spot.reportedAt);
                             const isNew = (spot.reportedAt?.toMillis?.() || 0) > lastViewed;
-                            const expiringSoon = (spot.expiresAt?.toMillis?.() || 0) > 0 && (spot.expiresAt.toMillis() - Date.now()) < 5 * 60 * 1000;
+                            const expiringSoon = (spot.expiresAt?.toMillis?.() || 0) > 0 &&
+                                (spot.expiresAt.toMillis() - Date.now()) < 5 * 60 * 1000;
                             const address = spot.address || 'Shared spot nearby';
                             const finderName = spot.finderName || spot.username || 'Someone nearby';
                             const initial = finderName.charAt(0).toUpperCase();
@@ -202,7 +378,6 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
                                             : 'bg-[var(--color-card)] border-[var(--color-border)]'
                                     }`}
                                 >
-                                    {/* Rounded-square avatar */}
                                     <div className="relative shrink-0 mt-0.5">
                                         <div
                                             className="w-9 h-9 rounded-[10px] flex items-center justify-center text-[15px] font-extrabold text-white"
@@ -215,7 +390,6 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
                                         )}
                                     </div>
 
-                                    {/* Content */}
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-baseline justify-between gap-2 mb-0.5">
                                             <p className="text-[13px] text-[var(--color-text)] leading-snug truncate">
@@ -250,8 +424,9 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
                                 </button>
                             );
                         })}
+
                         {hasMore && (
-                            <p className="text-center text-[11px] text-[#334155] pt-1 pb-2">
+                            <p className="text-center text-[11px] text-[var(--color-text-secondary)] pt-1 pb-2">
                                 {userLocation
                                     ? t('nearby_activity.showing_closest', { more: filteredSpots.length - 10 })
                                     : t('nearby_activity.showing_recent', { more: filteredSpots.length - 10 })}
@@ -260,6 +435,54 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ user, onBa
                     </div>
                 )}
             </div>
+
+            {/* ── "How to enable" instruction sheet ────────────────────────── */}
+            {showInstructions && (
+                <div
+                    className="fixed inset-0 z-50 flex items-end bg-black/60"
+                    onClick={() => setShowInstructions(false)}
+                >
+                    <div
+                        className="bg-[#0a0f1e] rounded-t-[24px] w-full px-6 pt-6 pb-10"
+                        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 24px)' }}
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div className="flex items-center justify-between mb-5">
+                            <h2 className="text-[17px] font-bold text-[var(--color-text)]">
+                                {t('nearby_activity.denied_how')}
+                            </h2>
+                            <button
+                                type="button"
+                                onClick={() => setShowInstructions(false)}
+                                className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-white/10 text-[var(--color-text-secondary)]"
+                                aria-label="Close"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <ol className="flex flex-col gap-4">
+                            {t('nearby_activity.denied_instructions').split('\n').map((step, i) => (
+                                <li key={i} className="flex items-start gap-3">
+                                    <span className="w-6 h-6 rounded-full bg-[#1e75ff]/15 border border-[#1e75ff]/30 flex items-center justify-center text-[11px] font-bold text-[#38bdf8] shrink-0 mt-0.5">
+                                        {i + 1}
+                                    </span>
+                                    <p className="text-[14px] text-[var(--color-text-secondary)] leading-snug">
+                                        {step.replace(/^\d+\.\s*/, '')}
+                                    </p>
+                                </li>
+                            ))}
+                        </ol>
+                        <button
+                            type="button"
+                            onClick={() => setShowInstructions(false)}
+                            className="w-full h-[50px] rounded-full font-semibold text-[15px] text-white mt-7 border border-[#1e75ff]/30 active:scale-[0.985] transition-transform"
+                            style={{ background: '#0d1a2e' }}
+                        >
+                            {t('nearby_activity.instructions_done')}
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

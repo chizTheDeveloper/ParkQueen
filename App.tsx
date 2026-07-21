@@ -234,6 +234,19 @@ export default function App() {
   };
 
 
+  const handleEnableLocation = () => {
+    if (!navigator.geolocation) {
+      persistAccessChoice('denied');
+      setLocationAccess('denied');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      () => { persistAccessChoice('granted'); setLocationAccess('granted'); },
+      () => { persistAccessChoice('denied'); setLocationAccess('denied'); },
+      { enableHighAccuracy: false, timeout: 15000 }
+    );
+  };
+
   const handleLogout = async () => {
     try {
       await logoutUser();
@@ -343,7 +356,7 @@ export default function App() {
       case AppView.SETTINGS:
         return <SettingsView user={user} setView={setCurrentView} onBack={() => setCurrentView(AppView.PROFILE)} onLogout={handleLogout} onDeleteAccount={handleDeleteAccount} theme={theme} toggleTheme={toggleTheme} />;
       case AppView.NOTIFICATIONS:
-        return <NotificationsView user={user} onBack={() => setCurrentView(AppView.MAP)} onSelectSpot={(id) => { setPendingSpotId(id); setCurrentView(AppView.MAP); }} />;
+        return <NotificationsView user={user} onBack={() => setCurrentView(AppView.MAP)} onSelectSpot={(id) => { setPendingSpotId(id); setCurrentView(AppView.MAP); }} locationAccess={locationAccess} onEnableLocation={handleEnableLocation} />;
       case AppView.ADMIN_LOGIN:
         return <AdminLoginView onVerified={() => setCurrentView(AppView.ADMIN_DASHBOARD)} />;
       case AppView.ADMIN_DASHBOARD:
