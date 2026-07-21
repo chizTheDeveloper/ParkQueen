@@ -315,6 +315,8 @@ const es: Record<string, string> = {
     'nearby_activity.enable_reassurance': 'Tu ubicación solo se usa para mostrar actividad de estacionamiento cercana.',
     'nearby_activity.open_settings': 'Abrir Configuración',
     'nearby_activity.turn_on_services': 'Activar Servicios de Ubicación',
+    'nearby_activity.check_again': 'Verificar de nuevo',
+    'nearby_activity.blocked_web_hint': 'Para reactivarla, revisa los permisos del sitio en tu navegador.',
     'nearby_activity.locating_headline': 'Buscando tu ubicación…',
     'nearby_activity.locating_body': 'Esto debería tardar solo un momento.',
     'nearby_activity.error_headline': 'No pudimos encontrar tu ubicación',

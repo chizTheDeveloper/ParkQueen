@@ -4,7 +4,7 @@ import { t, useLang } from '../i18n';
 import { ArrowLeft, MapPin, Bell, LocateFixed, WifiOff } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, where, onSnapshot, Timestamp } from 'firebase/firestore';
-import { deriveNearbyState, type LocationPermissionState, type LocationCallbacks } from '../utils/nearbyActivity';
+import { deriveNearbyState, resolveBlockedCTA, type LocationPermissionState, type LocationCallbacks } from '../utils/nearbyActivity';
 
 interface NotificationsViewProps {
     user: any;
@@ -89,14 +89,6 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
         setRequesting(false);
     }, [permissionState]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Recheck when returning to foreground (for permanently_blocked / services_disabled)
-    useEffect(() => {
-        if (permissionState !== 'permanently_blocked' && permissionState !== 'services_disabled') return;
-        const onVisible = () => { if (document.visibilityState === 'visible') callbacks.recheckPermission(); };
-        document.addEventListener('visibilitychange', onVisible);
-        return () => document.removeEventListener('visibilitychange', onVisible);
-    }, [permissionState, callbacks]);
-
     useEffect(() => {
         if (!db) return;
         const q = query(collection(db, 'spots'), where('expiresAt', '>', Timestamp.now()));
@@ -133,11 +125,15 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
 
     const isLocationNeeded = (LOCATION_NEEDED as string[]).includes(renderState);
 
-    // CTA for each location-needed sub-state
-    const locationCTA = renderState === 'permanently_blocked'
+    // CTA for each location-needed sub-state — label and action are capability-derived
+    // so a web button never says "Open Settings" when it can't open settings.
+    const blockedAction = resolveBlockedCTA(renderState, callbacks);
+    const locationCTA = blockedAction === 'openSettings'
         ? { label: t('nearby_activity.open_settings'), action: callbacks.openAppSettings }
-        : renderState === 'services_disabled'
+        : blockedAction === 'openLocationServices'
         ? { label: t('nearby_activity.turn_on_services'), action: callbacks.openLocationServicesSettings }
+        : blockedAction === 'recheck'
+        ? { label: t('nearby_activity.check_again'), action: callbacks.recheckPermission }
         : {
             label: requesting ? t('nearby_activity.enable_requesting') : t('nearby_activity.enable_cta'),
             action: () => { setRequesting(true); callbacks.requestLocationPermission(); },
@@ -213,6 +209,13 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                         <p className="text-[12px] leading-snug max-w-[240px]" style={{ color: 'rgba(255,255,255,0.40)' }}>
                             {t('nearby_activity.enable_reassurance')}
                         </p>
+
+                        {/* Concise browser guidance for permanently_blocked on web */}
+                        {blockedAction === 'recheck' && renderState === 'permanently_blocked' && (
+                            <p className="text-[11px] leading-snug max-w-[240px] text-center" style={{ color: 'rgba(255,255,255,0.30)' }}>
+                                {t('nearby_activity.blocked_web_hint')}
+                            </p>
+                        )}
                     </div>
                 )}
 

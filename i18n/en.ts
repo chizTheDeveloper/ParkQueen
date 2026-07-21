@@ -315,6 +315,8 @@ const en: Record<string, string> = {
     'nearby_activity.enable_reassurance': 'Your location is only used to power nearby parking features.',
     'nearby_activity.open_settings': 'Open Settings',
     'nearby_activity.turn_on_services': 'Turn on Location Services',
+    'nearby_activity.check_again': 'Check again',
+    'nearby_activity.blocked_web_hint': 'To re-enable, check your browser’s site permissions.',
     'nearby_activity.locating_headline': 'Finding your location…',
     'nearby_activity.locating_body': 'This should only take a moment.',
     'nearby_activity.error_headline': 'We couldn\'t find your location',

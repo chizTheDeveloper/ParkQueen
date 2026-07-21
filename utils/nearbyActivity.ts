@@ -2,25 +2,43 @@ import type { LocationAccess } from './locationAccess';
 
 /**
  * Native OS permission state — distinct from the web-only LocationAccess enum.
- * The future React Native layer supplies these values directly from the OS.
- * The web beta derives them from LocationAccess (see nearbyPermissionState below).
+ *
+ * `services_disabled` is only emitted by native adapters when device-wide
+ * Location Services is off. The web adapter never emits it because the browser
+ * Permissions API cannot reliably distinguish "app denied" from "services off".
+ * Web geolocation failures map to location_error instead.
  */
 export type LocationPermissionState =
     | 'not_determined'      // never asked
-    | 'denied_requestable'  // denied but OS still allows re-request (Android pattern)
-    | 'permanently_blocked' // user denied permanently — must go to app Settings
-    | 'services_disabled'   // device-wide Location Services off — distinct OS action needed
+    | 'denied_requestable'  // denied but OS allows re-request (Android pattern)
+    | 'permanently_blocked' // permanently denied — must go to app Settings
+    | 'services_disabled'   // device-wide Location Services off (native only)
     | 'granted';
 
 /**
- * Callback surface the native layer supplies; the web beta provides web equivalents.
- * Structure is stable — swapping the web adapter for a native one requires no view changes.
+ * Callback surface supplied by the platform adapter.
+ *
+ * `canOpenAppSettings` and `canOpenLocationServicesSettings` describe what
+ * the adapter can genuinely do. The view uses these to pick a CTA label and
+ * action that is always actionable — never an "Open Settings" button wired
+ * to a no-op. Native adapters set both to true; the web adapter sets both
+ * to false (no deep-link to system settings from a browser).
+ *
+ * Native lifecycle note: when `permanently_blocked` or `services_disabled`,
+ * the native adapter must call `recheckPermission()` from the native
+ * AppState/foreground event (e.g. AppState.addEventListener('change', ...))
+ * rather than relying on the web visibilitychange event. The view does NOT
+ * own lifecycle logic; the adapter does.
  */
 export interface LocationCallbacks {
-    requestLocationPermission: () => void;    // not_determined + denied_requestable
-    openAppSettings: () => void;              // permanently_blocked
-    openLocationServicesSettings: () => void; // services_disabled
-    recheckPermission: () => void;            // called on foreground / visibilitychange
+    requestLocationPermission: () => void;
+    openAppSettings: () => void;
+    openLocationServicesSettings: () => void;
+    recheckPermission: () => void;
+    /** true only when the adapter can genuinely open app-level permission settings */
+    canOpenAppSettings: boolean;
+    /** true only when the adapter can open device-wide Location Services settings */
+    canOpenLocationServicesSettings: boolean;
 }
 
 export type NearbyRenderState =
@@ -59,10 +77,29 @@ export function deriveNearbyState(p: NearbyStateParams): NearbyRenderState {
     return 'results';
 }
 
-/** Web beta adapter: maps the web-only LocationAccess to the native permission model. */
+/** Web beta adapter: maps web-only LocationAccess to the native permission model.
+ *  Never emits services_disabled — the web Permissions API cannot detect it. */
 export function nearbyPermissionState(access: LocationAccess): LocationPermissionState {
     if (access === 'granted') return 'granted';
     if (access === 'denied') return 'permanently_blocked';
     if (access === 'declined') return 'denied_requestable';
     return 'not_determined'; // 'unknown'
+}
+
+/** What CTA action to wire for blocked permission states.
+ *  Derived from capabilities so the view never labels a button with an action
+ *  the adapter cannot perform. */
+export type BlockedCTAAction = 'openSettings' | 'openLocationServices' | 'recheck';
+
+export function resolveBlockedCTA(
+    renderState: NearbyRenderState,
+    caps: Pick<LocationCallbacks, 'canOpenAppSettings' | 'canOpenLocationServicesSettings'>
+): BlockedCTAAction | null {
+    if (renderState === 'permanently_blocked') {
+        return caps.canOpenAppSettings ? 'openSettings' : 'recheck';
+    }
+    if (renderState === 'services_disabled') {
+        return caps.canOpenLocationServicesSettings ? 'openLocationServices' : 'recheck';
+    }
+    return null;
 }

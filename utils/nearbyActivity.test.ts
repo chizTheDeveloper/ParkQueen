@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { deriveNearbyState, nearbyPermissionState, type NearbyStateParams } from './nearbyActivity';
+import { describe, it, expect, vi } from 'vitest';
+import { deriveNearbyState, nearbyPermissionState, resolveBlockedCTA, type NearbyStateParams, type LocationCallbacks } from './nearbyActivity';
 import en from '../i18n/en';
 
 const t = (key: string) => en[key] ?? key;
@@ -114,6 +114,68 @@ describe('deriveNearbyState — priority ordering', () => {
     });
 });
 
+// ─── nearbyPermissionState — never emits services_disabled ───────────────────
+
+describe('nearbyPermissionState — web adapter contract', () => {
+    const allInputs = ['granted', 'declined', 'denied', 'unknown'] as const;
+    for (const access of allInputs) {
+        it(`${access} never maps to services_disabled`, () => {
+            expect(nearbyPermissionState(access)).not.toBe('services_disabled');
+        });
+    }
+});
+
+// ─── resolveBlockedCTA ────────────────────────────────────────────────────────
+
+const webCaps: Pick<LocationCallbacks, 'canOpenAppSettings' | 'canOpenLocationServicesSettings'> = {
+    canOpenAppSettings: false,
+    canOpenLocationServicesSettings: false,
+};
+const nativeCaps: Pick<LocationCallbacks, 'canOpenAppSettings' | 'canOpenLocationServicesSettings'> = {
+    canOpenAppSettings: true,
+    canOpenLocationServicesSettings: true,
+};
+
+describe('resolveBlockedCTA', () => {
+    it('permanently_blocked + web caps → recheck (not openSettings)', () => {
+        expect(resolveBlockedCTA('permanently_blocked', webCaps)).toBe('recheck');
+    });
+
+    it('permanently_blocked + native caps → openSettings', () => {
+        expect(resolveBlockedCTA('permanently_blocked', nativeCaps)).toBe('openSettings');
+    });
+
+    it('services_disabled + web caps → recheck (not openLocationServices)', () => {
+        expect(resolveBlockedCTA('services_disabled', webCaps)).toBe('recheck');
+    });
+
+    it('services_disabled + native caps → openLocationServices', () => {
+        expect(resolveBlockedCTA('services_disabled', nativeCaps)).toBe('openLocationServices');
+    });
+
+    it('returns null for non-blocked states', () => {
+        expect(resolveBlockedCTA('not_determined', webCaps)).toBeNull();
+        expect(resolveBlockedCTA('denied_requestable', webCaps)).toBeNull();
+        expect(resolveBlockedCTA('results', webCaps)).toBeNull();
+        expect(resolveBlockedCTA('empty', webCaps)).toBeNull();
+    });
+
+    it('web: permanently_blocked never wires to openAppSettings (no-op guard)', () => {
+        const action = resolveBlockedCTA('permanently_blocked', webCaps);
+        expect(action).not.toBe('openSettings');
+        // openSettings on web is a no-op; recheck is the correct action
+        expect(action).toBe('recheck');
+    });
+
+    it('location failure on web maps to location_error, not services_disabled', () => {
+        // Web geolocation failures flow through locationError=true → location_error
+        const errorState = deriveNearbyState({ ...base, locationError: true });
+        expect(errorState).toBe('location_error');
+        // resolveBlockedCTA returns null for location_error (not a permission block)
+        expect(resolveBlockedCTA(errorState, webCaps)).toBeNull();
+    });
+});
+
 // ─── i18n coverage ────────────────────────────────────────────────────────────
 
 describe('nearby_activity i18n — English keys present', () => {
@@ -125,6 +187,8 @@ describe('nearby_activity i18n — English keys present', () => {
         'nearby_activity.enable_reassurance',
         'nearby_activity.open_settings',
         'nearby_activity.turn_on_services',
+        'nearby_activity.check_again',
+        'nearby_activity.blocked_web_hint',
         'nearby_activity.locating_headline',
         'nearby_activity.locating_body',
         'nearby_activity.error_headline',

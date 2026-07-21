@@ -185,6 +185,19 @@ export default function App() {
     localStorage.setItem('theme', theme);
   }, [theme]);
 
+  // Web lifecycle: recheck permission when returning to foreground on the Notifications screen.
+  // Native adapters use AppState.addEventListener('change', ...) instead.
+  useEffect(() => {
+    if (currentView !== AppView.NOTIFICATIONS) return;
+    const pState = nearbyPermissionState(locationAccess);
+    if (pState !== 'permanently_blocked' && pState !== 'services_disabled') return;
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') locationCallbacks.recheckPermission();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [currentView, locationAccess]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const toggleTheme = () => {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
   };
@@ -253,6 +266,8 @@ export default function App() {
     openLocationServicesSettings: () => {
       // Web beta: device-wide Location Services does not apply; no-op
     },
+    canOpenAppSettings: false,              // web cannot deep-link to app settings
+    canOpenLocationServicesSettings: false, // web cannot open device Location Services
     recheckPermission: async () => {
       if (!navigator.permissions) return;
       try {
