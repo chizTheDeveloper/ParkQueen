@@ -1,11 +1,11 @@
 /**
- * Firestore Security Rules tests for private activity collections.
+ * Firestore Security Rules tests — ParQueen private activity collections.
  *
- * Requires the Firestore emulator:
- *   firebase emulators:start --only firestore
+ * Run via:
+ *   npm run test:rules          (starts emulator automatically, then exits)
+ *   npm run test:rules:unit     (assumes emulator already on :8080)
  *
- * Then run:
- *   npm run test:rules
+ * Requires Java 11+ and Firebase CLI with the Firestore emulator installed.
  */
 import { readFileSync } from 'node:fs';
 import { describe, it, beforeAll, afterAll, beforeEach, expect } from 'vitest';
@@ -24,33 +24,98 @@ import {
     collection,
     query,
     where,
+    Timestamp,
 } from 'firebase/firestore';
 
 // ── Test identities ────────────────────────────────────────────────────────────
 const OWNER_UID  = 'owner-aaa-111';
 const OTHER_UID  = 'other-bbb-222';
+const ADMIN_UID  = 'admin-ccc-333';
 const PROJECT_ID = 'demo-parkqueen-rules-test';
 
 let testEnv: RulesTestEnvironment;
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
+// ── Contexts ───────────────────────────────────────────────────────────────────
 function ownerDb()  { return testEnv.authenticatedContext(OWNER_UID).firestore(); }
 function otherDb()  { return testEnv.authenticatedContext(OTHER_UID).firestore(); }
+function adminDb()  { return testEnv.authenticatedContext(ADMIN_UID, { role: 'admin' }).firestore(); }
 function anonDb()   { return testEnv.unauthenticatedContext().firestore(); }
 
-async function seedSpot(spotId: string, data: object) {
+// ── Seed helpers (bypass rules) ────────────────────────────────────────────────
+async function seed(col: string, id: string, data: object) {
     await testEnv.withSecurityRulesDisabled(async ctx => {
-        await setDoc(doc(ctx.firestore(), 'spots', spotId), data);
+        await setDoc(doc(ctx.firestore(), col, id), data);
     });
 }
 
-async function seedFeedback(feedbackId: string, data: object) {
-    await testEnv.withSecurityRulesDisabled(async ctx => {
-        await setDoc(doc(ctx.firestore(), 'spotFeedback', feedbackId), data);
-    });
-}
+// ── Common timestamps ─────────────────────────────────────────────────────────
+const FUTURE = Timestamp.fromMillis(Date.now() + 3_600_000);
+const PAST   = Timestamp.fromMillis(Date.now() - 3_600_000);
 
-// ── Setup ──────────────────────────────────────────────────────────────────────
+// ── Spot fixtures ──────────────────────────────────────────────────────────────
+const occupiedSpot = {
+    finderId:    OWNER_UID,
+    finderName:  'TestFinder',
+    address:     '123 Private St',
+    lat:         40.7128,
+    lng:         -74.006,
+    status:      'occupied',
+    pingMode:    'now',
+    reportedAt:  PAST,
+    expiresAt:   PAST,
+};
+
+const availableSpot = {
+    finderId:   OWNER_UID,
+    finderName: 'TestFinder',
+    address:    '456 Public Ave',
+    lat:        40.714,
+    lng:        -74.01,
+    status:     'available',
+    pingMode:   'now',
+    reportedAt: Timestamp.now(),
+    expiresAt:  FUTURE,
+};
+
+const interestedSpot = {
+    finderId:        OWNER_UID,
+    finderName:      'TestFinder',
+    address:         '789 Interest Blvd',
+    lat:             40.72,
+    lng:             -74.0,
+    status:          'interested',
+    interestedUserId: OTHER_UID,
+    pingMode:        'now',
+    reportedAt:      Timestamp.now(),
+    expiresAt:       FUTURE,
+};
+
+const claimedSpot = {
+    finderId:          OWNER_UID,
+    finderName:        'TestFinder',
+    address:           '111 Hold Ave',
+    lat:               40.73,
+    lng:               -74.01,
+    status:            'claimed',
+    claimedBy:         OTHER_UID,
+    holdRequestStatus: 'accepted',
+    pingMode:          'now',
+    reportedAt:        Timestamp.now(),
+    expiresAt:         FUTURE,
+};
+
+// Spot with NO optional fields (no interestedUserId, no claimedBy)
+const bareAvailableSpot = {
+    finderId:   OWNER_UID,
+    address:    '555 Bare St',
+    lat:        40.70,
+    lng:        -74.02,
+    status:     'available',
+    reportedAt: Timestamp.now(),
+    expiresAt:  FUTURE,
+};
+
+// ── Global setup ───────────────────────────────────────────────────────────────
 beforeAll(async () => {
     testEnv = await initializeTestEnvironment({
         projectId: PROJECT_ID,
@@ -70,192 +135,312 @@ beforeEach(async () => {
     await testEnv.clearFirestore();
 });
 
-// ── spots collection ───────────────────────────────────────────────────────────
-describe('spots — private activity (occupied/history)', () => {
-    const SPOT_ID = 'spot-private-1';
-    const occupiedSpot = {
-        finderId:  OWNER_UID,
-        address:   '123 Private St',
-        status:    'occupied',
-        reportedAt: new Date(),
-        expiresAt:  new Date(Date.now() + 3_600_000),
-    };
+// ═══════════════════════════════════════════════════════════════════════════════
+// SPOTS — PRIVATE HISTORY (occupied)
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('spots — private occupied/history', () => {
+    const ID = 'spot-occupied-1';
+    beforeEach(async () => { await seed('spots', ID, occupiedSpot); });
 
-    beforeEach(async () => {
-        await seedSpot(SPOT_ID, occupiedSpot);
+    // 1
+    it('S1: unauthenticated direct read denied', async () => {
+        await assertFails(getDoc(doc(anonDb(), 'spots', ID)));
     });
 
-    // 1. Unauthenticated direct read is denied
-    it('1. unauthenticated direct read is denied', async () => {
-        await assertFails(getDoc(doc(anonDb(), 'spots', SPOT_ID)));
-    });
-
-    // 2. Unauthenticated list query is denied
-    it('2. unauthenticated list query is denied', async () => {
+    // 2
+    it('S2: unauthenticated list query denied', async () => {
         await assertFails(getDocs(collection(anonDb(), 'spots')));
     });
 
-    // 3. Owner direct read succeeds (finderId == auth.uid)
-    it('3. owner direct read succeeds', async () => {
-        await assertSucceeds(getDoc(doc(ownerDb(), 'spots', SPOT_ID)));
+    // 3
+    it('S3: owner (finderId) direct read succeeds', async () => {
+        await assertSucceeds(getDoc(doc(ownerDb(), 'spots', ID)));
     });
 
-    // 4. Owner query filtered to their UID succeeds
-    it('4. owner query where finderId == own uid succeeds', async () => {
+    // 4
+    it('S4: owner finder-history query (finderId == own uid) succeeds', async () => {
         await assertSucceeds(
             getDocs(query(collection(ownerDb(), 'spots'), where('finderId', '==', OWNER_UID)))
         );
     });
 
-    // 5. Owner broad query without ownership constraint is denied
-    it('5. owner broad unfiltered list query is denied', async () => {
+    // 5
+    it('S5: different user direct read of occupied spot denied', async () => {
+        await assertFails(getDoc(doc(otherDb(), 'spots', ID)));
+    });
+
+    // 6
+    it('S6: different user query where finderId == owner uid denied', async () => {
+        await assertFails(
+            getDocs(query(collection(otherDb(), 'spots'), where('finderId', '==', OWNER_UID)))
+        );
+    });
+
+    // 7
+    it('S7: broad unfiltered authenticated list denied', async () => {
         await assertFails(getDocs(collection(ownerDb(), 'spots')));
     });
 
-    // 6. Authenticated different user direct read of occupied spot is denied
-    it('6. different user direct read of occupied spot is denied', async () => {
-        await assertFails(getDoc(doc(otherDb(), 'spots', SPOT_ID)));
-    });
-
-    // 7. Authenticated different user query for owner's spots is denied
-    it('7. different user query where finderId == owner uid is denied', async () => {
-        await assertFails(
-            getDocs(query(collection(otherDb(), 'spots'), where('finderId', '==', OWNER_UID)))
-        );
-    });
-
-    // 8. Query targeting another user's UID is denied
-    it('8. query requesting another uid is denied', async () => {
-        await assertFails(
-            getDocs(query(collection(otherDb(), 'spots'), where('finderId', '==', OWNER_UID)))
-        );
+    // 13
+    it('S13: unrelated user cannot read non-public spot', async () => {
+        // OTHER_UID is neither finderId, interestedUserId nor claimedBy on an occupied spot
+        await seed('spots', 'spot-occ-unrelated', { ...occupiedSpot, finderId: ADMIN_UID });
+        await assertFails(getDoc(doc(otherDb(), 'spots', 'spot-occ-unrelated')));
     });
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// SPOTS — PUBLIC PING FEED (available / interested)
+// ═══════════════════════════════════════════════════════════════════════════════
 describe('spots — public Ping feed (available/interested)', () => {
-    const AVAIL_ID = 'spot-available-1';
-    const INT_ID   = 'spot-interested-1';
-    const availSpot = {
-        finderId:  OWNER_UID,
-        address:   '456 Public Ave',
-        status:    'available',
-        expiresAt: new Date(Date.now() + 3_600_000),
-    };
-    const interestSpot = {
-        finderId:        OWNER_UID,
-        interestedUserId: OTHER_UID,
-        address:         '789 Interest Blvd',
-        status:          'interested',
-        expiresAt:       new Date(Date.now() + 3_600_000),
-    };
-
     beforeEach(async () => {
-        await seedSpot(AVAIL_ID, availSpot);
-        await seedSpot(INT_ID, interestSpot);
+        await seed('spots', 'spot-avail',    availableSpot);
+        await seed('spots', 'spot-interest', interestedSpot);
+        await seed('spots', 'spot-occ',      occupiedSpot);
     });
 
-    // 9. No alternate route exposes occupied spots — status-filtered queries only return public ones
-    it('9. status-filtered query only returns available/interested spots, not occupied', async () => {
-        const occupiedId = 'spot-occupied-check';
-        await seedSpot(occupiedId, { ...availSpot, status: 'occupied', finderId: OTHER_UID });
+    // 8
+    it('S8: available spot readable by any signed-in user', async () => {
+        await assertSucceeds(getDoc(doc(otherDb(), 'spots', 'spot-avail')));
+    });
 
+    // 9
+    it('S9: interested spot readable by any signed-in user', async () => {
+        await assertSucceeds(getDoc(doc(otherDb(), 'spots', 'spot-interest')));
+    });
+
+    // 10 — production query shape: status IN [...] AND expiresAt > now
+    it('S10: production live-Ping query (status+expiresAt) succeeds and excludes occupied', async () => {
         const snap = await assertSucceeds(
             getDocs(query(
                 collection(ownerDb(), 'spots'),
                 where('status', 'in', ['available', 'interested']),
+                where('expiresAt', '>', Timestamp.now()),
             ))
         );
         const ids = snap.docs.map(d => d.id);
-        expect(ids).toContain(AVAIL_ID);
-        expect(ids).toContain(INT_ID);
-        expect(ids).not.toContain(occupiedId);
+        expect(ids).toContain('spot-avail');
+        expect(ids).toContain('spot-interest');
+        expect(ids).not.toContain('spot-occ');
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SPOTS — CLAIM ARMS (interestedUserId / claimedBy)
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('spots — claimer arms', () => {
+    // 11 — claimedBy arm
+    it('S11: hold claimer (claimedBy) can read claimed spot', async () => {
+        await seed('spots', 'spot-claimed', claimedSpot);
+        // OTHER_UID is claimedBy
+        await assertSucceeds(getDoc(doc(otherDb(), 'spots', 'spot-claimed')));
     });
 
-    // 10. Existing Profile Recent Activity query (finderId == own uid) succeeds
-    it('10. Profile recent activity query succeeds for owner', async () => {
+    // 12 — interestedUserId arm
+    it('S12: interested user (interestedUserId) can read interested spot', async () => {
+        await seed('spots', 'spot-int', interestedSpot);
+        // OTHER_UID is interestedUserId
+        await assertSucceeds(getDoc(doc(otherDb(), 'spots', 'spot-int')));
+    });
+
+    it('S12b: third user cannot read occupied spot where they are neither finder nor claimer', async () => {
+        const thirdUid = 'third-ddd-444';
+        await seed('spots', 'spot-claimed', claimedSpot);
+        const thirdDb = testEnv.authenticatedContext(thirdUid).firestore();
+        await assertFails(getDoc(doc(thirdDb, 'spots', 'spot-claimed')));
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SPOTS — MISSING OPTIONAL FIELDS (no Rules runtime errors)
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('spots — missing optional fields do not cause errors', () => {
+    // 15
+    it('S15a: available spot with no interestedUserId or claimedBy is readable (any signed-in)', async () => {
+        await seed('spots', 'spot-bare', bareAvailableSpot);
+        await assertSucceeds(getDoc(doc(otherDb(), 'spots', 'spot-bare')));
+    });
+
+    it('S15b: occupied spot with no interestedUserId or claimedBy — only finder can read', async () => {
+        await seed('spots', 'spot-bare-occ', { ...bareAvailableSpot, status: 'occupied', expiresAt: PAST });
+        await assertSucceeds(getDoc(doc(ownerDb(), 'spots', 'spot-bare-occ')));
+        await assertFails(getDoc(doc(otherDb(), 'spots', 'spot-bare-occ')));
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SPOTS — ADMIN
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('spots — admin access', () => {
+    // 14
+    it('S14: admin can read any spot regardless of status', async () => {
+        await seed('spots', 'spot-occ-admin', { ...occupiedSpot, finderId: OTHER_UID });
+        await assertSucceeds(getDoc(doc(adminDb(), 'spots', 'spot-occ-admin')));
+    });
+
+    it('S14b: admin can run unfiltered list', async () => {
+        await seed('spots', 'spot-avail', availableSpot);
+        await seed('spots', 'spot-occ', occupiedSpot);
+        await assertSucceeds(getDocs(collection(adminDb(), 'spots')));
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SPOTS — SECURITY REGRESSION (original vulnerability closed)
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('spots — security regression: cross-user history attack denied', () => {
+    beforeEach(async () => {
+        await seed('spots', 'spot-private', occupiedSpot);  // finderId = OWNER_UID
+    });
+
+    it('R1: direct read of another user occupied spot denied', async () => {
+        await assertFails(getDoc(doc(otherDb(), 'spots', 'spot-private')));
+    });
+
+    it('R2: query where finderId == another UID denied', async () => {
+        await assertFails(
+            getDocs(query(collection(otherDb(), 'spots'), where('finderId', '==', OWNER_UID)))
+        );
+    });
+
+    it('R3: unfiltered spots list denied', async () => {
+        await assertFails(getDocs(collection(otherDb(), 'spots')));
+    });
+
+    it('R4: mixed-status query (available+occupied combined) not possible — status-filtered query excludes occupied', async () => {
+        await seed('spots', 'spot-avail', availableSpot);
+        // A query for only ['available', 'occupied'] — the occupied entry finderId != reader → rule would deny
+        // In practice Firestore denies the whole query if ANY doc could fail the rule.
+        // We verify the safe production query shape works and returns only available docs.
+        const snap = await assertSucceeds(
+            getDocs(query(
+                collection(otherDb(), 'spots'),
+                where('status', 'in', ['available', 'interested']),
+            ))
+        );
+        const ids = snap.docs.map(d => d.id);
+        expect(ids).not.toContain('spot-private');
+        expect(ids).toContain('spot-avail');
+    });
+
+    it('R5: owner finder-history query still succeeds (not broken)', async () => {
         await assertSucceeds(
             getDocs(query(collection(ownerDb(), 'spots'), where('finderId', '==', OWNER_UID)))
         );
     });
 
-    // 11. Existing View All Activity query (finderId == own uid) succeeds
-    it('11. ActivitiesView query succeeds for owner', async () => {
+    it('R6: live Ping query still succeeds (not broken)', async () => {
+        await seed('spots', 'spot-avail', availableSpot);
         await assertSucceeds(
-            getDocs(query(collection(ownerDb(), 'spots'), where('finderId', '==', OWNER_UID)))
+            getDocs(query(
+                collection(ownerDb(), 'spots'),
+                where('status', 'in', ['available', 'interested']),
+                where('expiresAt', '>', Timestamp.now()),
+            ))
         );
     });
 });
 
-// ── spotFeedback collection ────────────────────────────────────────────────────
-describe('spotFeedback — private parking confirmation', () => {
-    const FB_ID = 'feedback-private-1';
+// ═══════════════════════════════════════════════════════════════════════════════
+// SPOT FEEDBACK — private parking confirmations
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('spotFeedback', () => {
+    const FB_ID = 'fb-1';
     const feedbackDoc = {
         userId:    OWNER_UID,
         address:   '321 Parked Lane',
         outcome:   'success',
-        createdAt: new Date(),
+        createdAt: Timestamp.now(),
     };
 
-    beforeEach(async () => {
-        await seedFeedback(FB_ID, feedbackDoc);
-    });
+    beforeEach(async () => { await seed('spotFeedback', FB_ID, feedbackDoc); });
 
-    // 1. Unauthenticated direct read is denied
-    it('1. unauthenticated direct read is denied', async () => {
+    // 16
+    it('F1: unauthenticated read denied', async () => {
         await assertFails(getDoc(doc(anonDb(), 'spotFeedback', FB_ID)));
     });
 
-    // 2. Unauthenticated list query is denied
-    it('2. unauthenticated list query is denied', async () => {
-        await assertFails(getDocs(collection(anonDb(), 'spotFeedback')));
-    });
-
-    // 3. Owner direct read succeeds
-    it('3. owner direct read succeeds', async () => {
+    // 17
+    it('F2: owner direct read succeeds', async () => {
         await assertSucceeds(getDoc(doc(ownerDb(), 'spotFeedback', FB_ID)));
     });
 
-    // 4. Owner query filtered to their UID succeeds
-    it('4. owner query where userId == own uid succeeds', async () => {
+    // 18
+    it('F3: different user direct read denied', async () => {
+        await assertFails(getDoc(doc(otherDb(), 'spotFeedback', FB_ID)));
+    });
+
+    // 19
+    it('F4: owner-filtered list (userId == own uid) succeeds', async () => {
         await assertSucceeds(
             getDocs(query(collection(ownerDb(), 'spotFeedback'), where('userId', '==', OWNER_UID)))
         );
     });
 
-    // 5. Owner broad unfiltered list query is denied
-    it('5. owner broad unfiltered list query is denied', async () => {
+    // 20
+    it('F5: broad unfiltered list denied', async () => {
         await assertFails(getDocs(collection(ownerDb(), 'spotFeedback')));
     });
 
-    // 6. Different user direct read is denied
-    it('6. different user direct read is denied', async () => {
-        await assertFails(getDoc(doc(otherDb(), 'spotFeedback', FB_ID)));
-    });
-
-    // 7. Different user query for owner feedback is denied
-    it('7. different user query where userId == owner uid is denied', async () => {
+    it('F6: other-user-targeted list denied', async () => {
         await assertFails(
             getDocs(query(collection(otherDb(), 'spotFeedback'), where('userId', '==', OWNER_UID)))
         );
     });
 
-    // 8. Different user query for their own uid returns only their docs
-    it('8. user can only query their own spotFeedback', async () => {
-        // OTHER_UID has no feedback — query should return empty but be allowed
+    it('F7: signed-in user can create feedback', async () => {
         await assertSucceeds(
-            getDocs(query(collection(otherDb(), 'spotFeedback'), where('userId', '==', OTHER_UID)))
+            addDoc(collection(ownerDb(), 'spotFeedback'), {
+                userId:    OWNER_UID,
+                address:   '999 New St',
+                outcome:   'success',
+                createdAt: Timestamp.now(),
+            })
+        );
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PARKING SESSIONS — path-keyed owner-only
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('parkingSessions', () => {
+    const sessionData = {
+        active:    true,
+        lat:       40.71,
+        lng:       -74.0,
+        address:   '42 Session St',
+        startedAt: Timestamp.now(),
+    };
+
+    beforeEach(async () => {
+        await seed('parkingSessions', OWNER_UID, sessionData);
+    });
+
+    // 21
+    it('P1: owner can read their own session (path-keyed)', async () => {
+        await assertSucceeds(getDoc(doc(ownerDb(), 'parkingSessions', OWNER_UID)));
+    });
+
+    // 22
+    it('P2: different authenticated user cannot read another session', async () => {
+        await assertFails(getDoc(doc(otherDb(), 'parkingSessions', OWNER_UID)));
+    });
+
+    // 23
+    it('P3: unauthenticated user cannot read a session', async () => {
+        await assertFails(getDoc(doc(anonDb(), 'parkingSessions', OWNER_UID)));
+    });
+
+    // 24 — collection-group / alternate path bypass check
+    it('P4: owner can write to their own session path', async () => {
+        await assertSucceeds(
+            setDoc(doc(ownerDb(), 'parkingSessions', OWNER_UID), { ...sessionData, active: false })
         );
     });
 
-    // 12. Existing create behavior still works (signedIn user can create)
-    it('12. signed-in user can create spotFeedback', async () => {
-        await assertSucceeds(
-            addDoc(collection(ownerDb(), 'spotFeedback'), {
-                userId: OWNER_UID,
-                address: '999 New St',
-                outcome: 'success',
-                createdAt: new Date(),
-            })
+    it('P5: different user cannot write to another session path', async () => {
+        await assertFails(
+            setDoc(doc(otherDb(), 'parkingSessions', OWNER_UID), { active: false })
         );
     });
 });

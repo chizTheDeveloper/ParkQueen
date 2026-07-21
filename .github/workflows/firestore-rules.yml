@@ -1,0 +1,43 @@
+name: Firestore Security Rules
+
+on:
+  push:
+    paths:
+      - firestore.rules
+      - firestore.rules.test.ts
+      - firestore.indexes.json
+  pull_request:
+    paths:
+      - firestore.rules
+      - firestore.rules.test.ts
+      - firestore.indexes.json
+
+jobs:
+  rules-test:
+    name: Run Rules Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
+      - name: Run Firestore rules tests
+        run: npm run test:rules
+        env:
+          # demo-* project IDs require no real credentials
+          FIREBASE_CLI_EXPERIMENTS: webframeworks

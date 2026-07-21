@@ -11,7 +11,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:rules": "vitest run firestore.rules.test.ts --config vite.rules.config.ts",
+    "test:rules:unit": "vitest run --config vite.rules.config.ts",
+    "test:rules": "firebase emulators:exec --only firestore \"npm run test:rules:unit\"",
     "test:watch": "vitest"
   },
   "dependencies": {
