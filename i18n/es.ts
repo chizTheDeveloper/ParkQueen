@@ -643,7 +643,7 @@ const es: Record<string, string> = {
     'settings.dark_theme': 'Tema oscuro',
     'settings.dark_theme_subtitle': 'Más cómodo para los ojos de noche',
     'settings.language_toggle_aria': 'Cambiar idioma',
-    'settings.section_help': 'Ayuda',
+    'settings.section_help': 'Ayuda y soporte',
     'settings.section_account_actions': 'Acciones de cuenta',
     'settings.logout': 'Cerrar sesión',
     'settings.logout_subtitle': 'Cierra la sesión de tu cuenta',

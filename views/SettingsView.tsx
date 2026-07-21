@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useFocusOnMount } from '../hooks/useFocusOnMount';
-import { ChevronLeft, ChevronRight, Edit, Mail, Bell, Moon, LogOut, Trash2, Check, Navigation, ScanLine, Play, Globe, Shield, FileText, HelpCircle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Edit, Mail, Bell, Moon, LogOut, Trash2, Check, Navigation, ScanLine, Play, Globe, Shield, FileText, MessageCircle } from 'lucide-react';
 import { t, useLang, setLang, getLang } from '../i18n';
 import { doc, updateDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
@@ -293,21 +293,35 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                         <div className="px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]">
                             <p className="text-xs font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">{t('settings.section_help')}</p>
                         </div>
-                        <button
-                            onClick={() => {
-                                localStorage.removeItem('parqueenAppTourSeen_v1');
-                                setView(AppView.MAP);
-                            }}
-                            className="w-full px-4 py-3.5 flex items-center gap-3 text-left hover:bg-white/5 active:bg-white/10 transition-colors"
-                        >
-                            <div className="w-9 h-9 rounded-xl bg-[#1e75ff]/10 flex items-center justify-center text-[#1e75ff] shrink-0">
-                                <Play size={17} />
-                            </div>
-                            <div>
-                                <p className="text-sm font-semibold text-[var(--color-text)]">{t('tour.replay_label')}</p>
-                                <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('tour.replay_subtitle')}</p>
-                            </div>
-                        </button>
+                        <div className="divide-y divide-[var(--color-border)]">
+                            <button
+                                onClick={() => {
+                                    localStorage.removeItem('parqueenAppTourSeen_v1');
+                                    setView(AppView.MAP);
+                                }}
+                                className="w-full px-4 py-3.5 flex items-center gap-3 text-left hover:bg-white/5 active:bg-white/10 transition-colors"
+                            >
+                                <div className="w-9 h-9 rounded-xl bg-[#1e75ff]/10 flex items-center justify-center text-[#1e75ff] shrink-0">
+                                    <Play size={17} />
+                                </div>
+                                <div>
+                                    <p className="text-sm font-semibold text-[var(--color-text)]">{t('tour.replay_label')}</p>
+                                    <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('tour.replay_subtitle')}</p>
+                                </div>
+                            </button>
+                            <button
+                                onClick={() => setView(AppView.CONTACT_US)}
+                                className="w-full px-4 py-3.5 flex items-center gap-3 text-left hover:bg-white/5 active:bg-white/10 transition-colors"
+                            >
+                                <div className="w-9 h-9 rounded-xl bg-[#1e75ff]/10 flex items-center justify-center text-[#38bdf8] shrink-0">
+                                    <MessageCircle size={17} />
+                                </div>
+                                <div>
+                                    <p className="text-sm font-semibold text-[var(--color-text)]">{t('profile.contact_us')}</p>
+                                    <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('profile.contact_subtitle')}</p>
+                                </div>
+                            </button>
+                        </div>
                     </div>
 
                     {/* Legal */}
@@ -329,14 +343,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                                 <div className="flex-1">
                                     <p className="text-sm font-semibold text-[var(--color-text)]">{t('profile.terms_of_use')}</p>
                                     <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('profile.terms_subtitle')}</p>
-                                </div>
-                                <ChevronRight size={16} className="text-[var(--color-text-secondary)] shrink-0" />
-                            </a>
-                            <a href="mailto:hello@parqueen.app" className="w-full px-4 py-3.5 flex items-center gap-3 text-left hover:bg-white/5 active:bg-white/10 transition-colors block">
-                                <div className="w-9 h-9 rounded-xl bg-[#1e75ff]/10 flex items-center justify-center text-[#38bdf8] shrink-0"><HelpCircle size={17} /></div>
-                                <div className="flex-1">
-                                    <p className="text-sm font-semibold text-[var(--color-text)]">{t('profile.contact_us')}</p>
-                                    <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('profile.contact_subtitle')}</p>
                                 </div>
                                 <ChevronRight size={16} className="text-[var(--color-text-secondary)] shrink-0" />
                             </a>
