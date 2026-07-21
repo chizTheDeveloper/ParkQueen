@@ -36,9 +36,11 @@ describe('readPersistedAccess', () => {
         expect(readPersistedAccess(makeStorage({ locationAccessChoice: 'denied' }))).toBe('denied');
     });
 
-    // Test case 14: hasSeenLocationPrompt is separate from onboarding/app-tour keys
-    it('treats legacy hasSeenLocationPrompt as declined for backward compat', () => {
-        expect(readPersistedAccess(makeStorage({ hasSeenLocationPrompt: '1' }))).toBe('declined');
+    // Legacy hasSeenLocationPrompt users never went through the new consent primer.
+    // Return 'unknown' so they see LocationPromptView (which auto-bypasses if browser
+    // already granted). Previously returned 'declined', which permanently blocked tracking.
+    it('treats legacy hasSeenLocationPrompt as unknown (not declined)', () => {
+        expect(readPersistedAccess(makeStorage({ hasSeenLocationPrompt: '1' }))).toBe('unknown');
     });
 
     it('locationAccessChoice takes precedence over the legacy key', () => {
@@ -266,12 +268,9 @@ describe('Previously granted — primer skipped', () => {
 // ─── Routing contract ─────────────────────────────────────────────────────────
 
 describe('post-auth routing', () => {
-    const resolveDest = (s: ReturnType<typeof makeStorage>) => {
-        const stored = s.getItem('locationAccessChoice');
-        const legacy = s.getItem('hasSeenLocationPrompt');
-        if (!stored && !legacy) return 'LOCATION_PROMPT';
-        return 'MAP';
-    };
+    // Uses the real functions so this stays in sync with implementation changes.
+    const resolveDest = (s: ReturnType<typeof makeStorage>) =>
+        shouldShowPrimer(readPersistedAccess(s)) ? 'LOCATION_PROMPT' : 'MAP';
 
     // Test case 2: new user sees primer
     it('new user → LOCATION_PROMPT', () => {
@@ -283,13 +282,41 @@ describe('post-auth routing', () => {
         expect(resolveDest(makeStorage({ locationAccessChoice: 'granted' }))).toBe('MAP');
     });
 
-    // Test case 3: returning user who chose Not now → MAP (no re-prompt)
+    // Test case 3: returning user who chose Not now → MAP (no re-prompt; reconciled at runtime via Permissions API)
     it('returning declined user → MAP', () => {
         expect(resolveDest(makeStorage({ locationAccessChoice: 'declined' }))).toBe('MAP');
     });
 
-    // Test case 3: returning user with legacy flag → MAP
-    it('legacy hasSeenLocationPrompt → MAP', () => {
-        expect(resolveDest(makeStorage({ hasSeenLocationPrompt: '1' }))).toBe('MAP');
+    // Legacy users with only hasSeenLocationPrompt are now treated as 'unknown' → LOCATION_PROMPT
+    // so they can go through the new consent primer (which auto-bypasses if browser already granted).
+    it('legacy hasSeenLocationPrompt → LOCATION_PROMPT', () => {
+        expect(resolveDest(makeStorage({ hasSeenLocationPrompt: '1' }))).toBe('LOCATION_PROMPT');
+    });
+});
+
+// ─── Not now recovery ─────────────────────────────────────────────────────────
+
+describe('Not now recovery — browser later grants permission', () => {
+    // App startup queries Permissions API via resolveFromPermissions. If browser
+    // says 'granted', the stale stored state is overridden and tracking starts.
+
+    it('browser granted overrides stored declined', () => {
+        expect(resolveFromPermissions('granted', 'declined')).toBe('granted');
+    });
+
+    it('browser granted overrides stored denied', () => {
+        expect(resolveFromPermissions('granted', 'denied')).toBe('granted');
+    });
+
+    it('browser granted overrides legacy unknown', () => {
+        expect(resolveFromPermissions('granted', 'unknown')).toBe('granted');
+    });
+
+    it('browser prompt preserves stored declined (no auto-grant without user action)', () => {
+        expect(resolveFromPermissions('prompt', 'declined')).toBe('declined');
+    });
+
+    it('browser denied downgrades stored granted', () => {
+        expect(resolveFromPermissions('denied', 'granted')).toBe('denied');
     });
 });

@@ -9,8 +9,10 @@ type MinStorage = Pick<Storage, 'getItem' | 'setItem'>;
 export function readPersistedAccess(storage: MinStorage = localStorage): LocationAccess {
     const stored = storage.getItem(CHOICE_KEY);
     if (stored === 'granted' || stored === 'declined' || stored === 'denied') return stored;
-    // Backward compat: old hasSeenLocationPrompt means user dismissed the overlay → treat as declined
-    if (storage.getItem(LEGACY_KEY)) return 'declined';
+    // Backward compat: old hasSeenLocationPrompt means user saw the old overlay but did not go
+    // through the new consent primer. Treat as 'unknown' so they see the primer; if the browser
+    // has already granted, LocationPromptView's Permissions API check auto-bypasses immediately.
+    if (storage.getItem(LEGACY_KEY)) return 'unknown';
     return 'unknown';
 }
 

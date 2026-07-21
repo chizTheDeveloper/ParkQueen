@@ -32,7 +32,7 @@ const PrivacyPolicyView = lazy(() => import('./views/PrivacyPolicyView').then(m 
 const TermsOfUseView = lazy(() => import('./views/TermsOfUseView').then(m => ({ default: m.TermsOfUseView })));
 const ContactUsView = lazy(() => import('./views/ContactUsView').then(m => ({ default: m.ContactUsView })));
 import { AppView } from './types';
-import { readPersistedAccess, persistAccessChoice, shouldShowPrimer, type LocationAccess } from './utils/locationAccess';
+import { readPersistedAccess, persistAccessChoice, shouldShowPrimer, resolveFromPermissions, type LocationAccess } from './utils/locationAccess';
 import { ChevronLeft } from 'lucide-react';
 import ErrorBoundary from './ErrorBoundary';
 import { saveUserProfile, logoutUser, deleteUser } from './database';
@@ -133,9 +133,23 @@ export default function App() {
           // For non-admins, check if their profile is set up
           const userDoc = await getDoc(userDocRef);
           if (userDoc.exists()) {
-            // Read fresh from storage — avoids stale closure on locationAccess state
-            const primerNeeded = shouldShowPrimer(readPersistedAccess());
-            setCurrentView(primerNeeded ? AppView.LOCATION_PROMPT : AppView.MAP);
+            // Read stored access, then reconcile against actual browser permission.
+            // This corrects stale 'declined' state (Not now recovery, legacy users) and
+            // catches browser permission revocations before the map mounts.
+            let access = readPersistedAccess();
+            if (navigator.permissions) {
+              try {
+                const perm = await navigator.permissions.query({ name: 'geolocation' });
+                const reconciled = resolveFromPermissions(perm.state, access);
+                if ((reconciled === 'granted' || reconciled === 'denied') && reconciled !== access) {
+                  persistAccessChoice(reconciled);
+                  access = reconciled;
+                }
+              } catch {}
+            }
+            // Sync React state — ensures allowLocationTracking is correct when MapView mounts
+            setLocationAccess(access);
+            setCurrentView(shouldShowPrimer(access) ? AppView.LOCATION_PROMPT : AppView.MAP);
           } else {
             setCurrentView(AppView.SETUP_PROFILE);
           }
