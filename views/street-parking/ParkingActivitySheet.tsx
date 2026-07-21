@@ -32,6 +32,7 @@ export const ParkingActivitySheet: React.FC<ParkingActivitySheetProps> = ({
                 const now = Timestamp.now();
                 const q = query(
                     collection(db, 'spots'),
+                    where('status', 'in', ['available', 'interested']),
                     where('expiresAt', '>', now),
                 );
                 const snap = await getDocs(q);
