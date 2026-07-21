@@ -1,5 +1,6 @@
 const es: Record<string, string> = {
     // Settings
+    'settings.section_legal': 'Legal',
     'settings.language.title': 'Idioma',
     'settings.language.subtitle': 'Elige inglés o español',
     'language.english': 'English',
@@ -547,6 +548,7 @@ const es: Record<string, string> = {
 
     // Profile
     'profile.title': 'Perfil',
+    'profile.back_aria': 'Atrás',
     'profile.settings_aria': 'Configuración',
     'profile.upload_photo_aria': 'Subir foto',
     'profile.complete_profile': 'Completa tu perfil',

@@ -46,3 +46,17 @@ export function getNextTitle(crowns: number): { title: string; crownsNeeded: num
     }
     return null;
 }
+
+/** Progress within the current rank band, 0–100. Returns 100 at max rank. */
+export function getProgressPct(crowns: number): number {
+    const next = getNextTitle(crowns);
+    if (!next) return 100;
+    const thresholds = TITLE_THRESHOLDS.map(t => t.crowns);
+    let prevThreshold = 0;
+    for (let i = thresholds.length - 1; i >= 0; i--) {
+        if (crowns >= thresholds[i]) { prevThreshold = thresholds[i]; break; }
+    }
+    const nextThreshold = crowns + next.crownsNeeded;
+    const range = nextThreshold - prevThreshold;
+    return range > 0 ? Math.min(((crowns - prevThreshold) / range) * 100, 100) : 0;
+}

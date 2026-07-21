@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useFocusOnMount } from '../hooks/useFocusOnMount';
-import { ChevronLeft, ChevronRight, Edit, Mail, Bell, MapPin, Moon, LogOut, Trash2, Check, Navigation, ScanLine, Play, Globe } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Edit, Mail, Bell, Moon, LogOut, Trash2, Check, Navigation, ScanLine, Play, Globe, Shield, FileText, HelpCircle } from 'lucide-react';
 import { t, useLang, setLang, getLang } from '../i18n';
 import { doc, updateDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
@@ -308,6 +308,39 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                                 <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('tour.replay_subtitle')}</p>
                             </div>
                         </button>
+                    </div>
+
+                    {/* Legal */}
+                    <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl overflow-hidden">
+                        <div className="px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]">
+                            <p className="text-xs font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">{t('settings.section_legal')}</p>
+                        </div>
+                        <div className="divide-y divide-[var(--color-border)]">
+                            <a href="https://parqueen.app/privacy" target="_blank" rel="noopener noreferrer" className="w-full px-4 py-3.5 flex items-center gap-3 text-left hover:bg-white/5 active:bg-white/10 transition-colors block">
+                                <div className="w-9 h-9 rounded-xl bg-[#1e75ff]/10 flex items-center justify-center text-[#38bdf8] shrink-0"><Shield size={17} /></div>
+                                <div className="flex-1">
+                                    <p className="text-sm font-semibold text-[var(--color-text)]">{t('profile.privacy_policy')}</p>
+                                    <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('profile.privacy_policy_subtitle')}</p>
+                                </div>
+                                <ChevronRight size={16} className="text-[var(--color-text-secondary)] shrink-0" />
+                            </a>
+                            <a href="https://parqueen.app/terms" target="_blank" rel="noopener noreferrer" className="w-full px-4 py-3.5 flex items-center gap-3 text-left hover:bg-white/5 active:bg-white/10 transition-colors block">
+                                <div className="w-9 h-9 rounded-xl bg-[#1e75ff]/10 flex items-center justify-center text-[#38bdf8] shrink-0"><FileText size={17} /></div>
+                                <div className="flex-1">
+                                    <p className="text-sm font-semibold text-[var(--color-text)]">{t('profile.terms_of_use')}</p>
+                                    <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('profile.terms_subtitle')}</p>
+                                </div>
+                                <ChevronRight size={16} className="text-[var(--color-text-secondary)] shrink-0" />
+                            </a>
+                            <a href="mailto:hello@parqueen.app" className="w-full px-4 py-3.5 flex items-center gap-3 text-left hover:bg-white/5 active:bg-white/10 transition-colors block">
+                                <div className="w-9 h-9 rounded-xl bg-[#1e75ff]/10 flex items-center justify-center text-[#38bdf8] shrink-0"><HelpCircle size={17} /></div>
+                                <div className="flex-1">
+                                    <p className="text-sm font-semibold text-[var(--color-text)]">{t('profile.contact_us')}</p>
+                                    <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('profile.contact_subtitle')}</p>
+                                </div>
+                                <ChevronRight size={16} className="text-[var(--color-text-secondary)] shrink-0" />
+                            </a>
+                        </div>
                     </div>
 
                     {/* Account Actions */}
