@@ -25,6 +25,11 @@ dist-ssr
 .env
 functions/.env
 
+# Service account keys — must never be committed
+*service-account*.json
+*serviceAccount*.json
+*service_account*.json
+
 # Generated caches
 .firebase/
 firebase-debug.log
