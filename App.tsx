@@ -246,14 +246,19 @@ export default function App() {
     try {
       const uid = auth.currentUser?.uid;
       if (!uid) throw new Error("Not authenticated");
-      await import("firebase/firestore").then(({ doc, updateDoc }) =>
-        updateDoc(doc(db, 'users', uid), {
-          fullName: profileData.fullName,
-          email: profileData.email,
-          dob: profileData.dob,
-          gender: profileData.gender,
-        })
-      );
+      const { doc: fsDoc, updateDoc, setDoc } = await import("firebase/firestore");
+      // Public fields only — demographics go to the private subcollection
+      await updateDoc(fsDoc(db, 'users', uid), {
+        fullName: profileData.fullName,
+        email: profileData.email,
+      });
+      // dob and gender are private — write to owner-only subcollection
+      const privateUpdates: Record<string, string> = {};
+      if (profileData.dob)    privateUpdates.dob    = profileData.dob;
+      if (profileData.gender) privateUpdates.gender = profileData.gender;
+      if (Object.keys(privateUpdates).length > 0) {
+        await setDoc(fsDoc(db, 'users', uid, 'private', 'profile'), privateUpdates, { merge: true });
+      }
       setCurrentView(AppView.MAP);
     } catch (error: any) {
       console.error("Failed to save profile: ", error);

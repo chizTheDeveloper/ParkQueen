@@ -10,7 +10,6 @@ import { moderateUsername, moderateDisplayName } from '../utils/moderation';
 import { useFocusOnMount } from '../hooks/useFocusOnMount';
 import { t, useLang } from '../i18n';
 import {
-  deriveAgeRangeFromDob,
   isDirty,
   resolveGenderFromStored,
   buildPublicProfileUpdates,
@@ -86,10 +85,10 @@ export const EditProfileView = ({ onBack }: { onBack: () => void }) => {
             const pd = privateSnap.exists() ? privateSnap.data() : {};
             const uname = d.username || '';
             const dname = d.fullName || '';
-            const area = pd.homeArea ?? d.homeArea ?? '';
-            const dtype = pd.driverType ?? d.driverType ?? '';
-            const ar = pd.ageRange || deriveAgeRangeFromDob(d.dob) || '';
-            const { genderSelect: gs, genderCustom: gc } = resolveGenderFromStored(pd.gender ?? d.gender);
+            const area = pd.homeArea ?? '';
+            const dtype = pd.driverType ?? '';
+            const ar = pd.ageRange ?? '';
+            const { genderSelect: gs, genderCustom: gc } = resolveGenderFromStored(pd.gender);
             setUsername(uname);
             setOriginalUsername(uname);
             setDisplayName(dname);
