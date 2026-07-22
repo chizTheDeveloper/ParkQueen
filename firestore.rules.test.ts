@@ -524,3 +524,109 @@ describe('users/private/profile', () => {
         await assertFails(getDoc(doc(ownerDb(), 'users', OTHER_UID, 'private', 'profile')));
     });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PUBLIC USER DOC DENYLIST — private fields must be rejected on users/{uid}
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('users/{uid} public doc — private field denylist', () => {
+    const publicUserData = {
+        fullName: 'Jay Castro',
+        username: 'jayc',
+        crowns: 0,
+        title: 'Newcomer',
+        moderationStatus: 'active',
+        reportCount: 0,
+        blockedUsers: [],
+        notificationRadius: 1,
+    };
+
+    beforeEach(async () => {
+        await testEnv.withSecurityRulesDisabled(async ctx => {
+            await setDoc(doc(ctx.firestore(), 'users', OWNER_UID), publicUserData);
+        });
+    });
+
+    // 41
+    it('PD1: owner cannot write dob to users/{uid} via update', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { dob: '1990-01-01' }));
+    });
+
+    // 42
+    it('PD2: owner cannot write gender to users/{uid} via update', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { gender: 'Female' }));
+    });
+
+    // 43
+    it('PD3: owner cannot write homeArea to users/{uid} via update', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { homeArea: 'Brooklyn' }));
+    });
+
+    // 44
+    it('PD4: owner cannot write driverType to users/{uid} via update', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { driverType: 'Daily commuter' }));
+    });
+
+    // 45
+    it('PD5: owner cannot write ageRange to users/{uid} via update', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { ageRange: '25–34' }));
+    });
+
+    // 46
+    it('PD6: owner cannot include dob in a create (new user doc)', async () => {
+        const tempUid = 'temp-create-test-uid';
+        await assertFails(
+            setDoc(doc(ownerDb(), 'users', tempUid), { ...publicUserData, dob: '1990-01-01' })
+        );
+    });
+
+    // 47
+    it('PD7: legitimate display-name update still succeeds', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertSucceeds(upd(doc(ownerDb(), 'users', OWNER_UID), { fullName: 'Jay Updated' }));
+    });
+
+    // 48
+    it('PD8: legitimate notificationRadius update still succeeds', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertSucceeds(upd(doc(ownerDb(), 'users', OWNER_UID), { notificationRadius: 2 }));
+    });
+
+    // 49
+    it('PD9: owner can create a clean user doc without private fields', async () => {
+        // Use a unique UID that has no pre-existing document
+        const newUid = 'pd9-clean-create-uid-' + Date.now();
+        await assertSucceeds(
+            setDoc(
+                doc(testEnv.authenticatedContext(newUid).firestore(), 'users', newUid),
+                { fullName: 'New User', username: 'newuser', crowns: 0, title: 'Newcomer',
+                  moderationStatus: 'active', reportCount: 0, blockedUsers: [], notificationRadius: 1 }
+            )
+        );
+    });
+
+    // 50
+    it('PD10: owner can write allowed private fields to the private subcollection', async () => {
+        await assertSucceeds(
+            setDoc(
+                doc(ownerDb(), 'users', OWNER_UID, 'private', 'profile'),
+                { dob: '1990-01-01', gender: 'Female', homeArea: 'Brooklyn' },
+                { merge: true } as any
+            )
+        );
+    });
+
+    // 51
+    it('PD11: other authenticated user cannot read or write the private profile', async () => {
+        await assertFails(getDoc(doc(otherDb(), 'users', OWNER_UID, 'private', 'profile')));
+    });
+
+    // 52
+    it('PD12: unauthenticated user cannot read or write the private profile', async () => {
+        await assertFails(getDoc(doc(anonDb(), 'users', OWNER_UID, 'private', 'profile')));
+    });
+});

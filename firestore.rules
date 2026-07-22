@@ -40,14 +40,17 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if signedIn() || isAdmin();
-      allow create: if signedIn() && request.auth.uid == userId;
+      allow create: if signedIn() && request.auth.uid == userId
+        && !request.resource.data.keys().hasAny(
+             ['dob', 'gender', 'homeArea', 'driverType', 'ageRange']);
       allow update: if isAdmin()
         || (signedIn() && request.auth.uid == userId
             && !request.resource.data.diff(resource.data).affectedKeys()
                   .hasAny(['crowns', 'title', 'trustScore', 'trustStats',
                             'moderationStatus', 'reportCount', 'role', 'status',
                             'suspendedAt', 'suspendedBy', 'suspensionReason',
-                            'unsuspendedAt', 'unsuspendedBy', 'emailVerified']));
+                            'unsuspendedAt', 'unsuspendedBy', 'emailVerified',
+                            'dob', 'gender', 'homeArea', 'driverType', 'ageRange']));
       allow delete: if false;
 
       match /processedTrustEvents/{eventId} {
