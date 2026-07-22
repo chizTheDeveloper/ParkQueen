@@ -4,6 +4,9 @@ import {
   isDirty,
   resolveGenderForSave,
   resolveGenderFromStored,
+  buildPublicProfileUpdates,
+  buildPrivateProfileUpdates,
+  AGE_PREFER_NOT,
   type EditProfileDraft,
 } from './editProfileForm';
 
@@ -155,5 +158,95 @@ describe('resolveGenderFromStored', () => {
   it('treats legacy "Other" as self-describe (not a known gender)', () => {
     // "Other" was a prior stored value — it's not in the new set, so surfaces as self-describe
     expect(resolveGenderFromStored('Other')).toEqual({ genderSelect: 'Self-describe', genderCustom: 'Other' });
+  });
+});
+
+const baseDraft: EditProfileDraft = {
+  displayName: 'Jay',
+  homeArea: 'Brooklyn',
+  driverType: 'Daily commuter',
+  ageRange: '25–34',
+  genderSelect: 'Male',
+  genderCustom: '',
+};
+
+describe('buildPublicProfileUpdates', () => {
+  it('includes fullName when displayName changed', () => {
+    const updates = buildPublicProfileUpdates({ ...baseDraft, displayName: 'Jordan' }, baseDraft);
+    expect(updates.fullName).toBe('Jordan');
+  });
+
+  it('returns empty object when nothing changed', () => {
+    expect(buildPublicProfileUpdates(baseDraft, baseDraft)).toEqual({});
+  });
+
+  it('never includes dob', () => {
+    const updates = buildPublicProfileUpdates({ ...baseDraft, displayName: 'X' }, baseDraft);
+    expect(updates).not.toHaveProperty('dob');
+  });
+
+  it('never includes private fields', () => {
+    const updates = buildPublicProfileUpdates({ ...baseDraft, displayName: 'X' }, baseDraft);
+    expect(updates).not.toHaveProperty('homeArea');
+    expect(updates).not.toHaveProperty('driverType');
+    expect(updates).not.toHaveProperty('ageRange');
+    expect(updates).not.toHaveProperty('gender');
+  });
+});
+
+describe('buildPrivateProfileUpdates', () => {
+  it('returns empty when nothing changed and ageRangeTouched=false', () => {
+    expect(buildPrivateProfileUpdates(baseDraft, baseDraft, false)).toEqual({});
+  });
+
+  it('derived ageRange is omitted when ageRangeTouched=false', () => {
+    const updates = buildPrivateProfileUpdates({ ...baseDraft, homeArea: 'Queens' }, baseDraft, false);
+    expect(updates).not.toHaveProperty('ageRange');
+  });
+
+  it('ageRange is written when ageRangeTouched=true', () => {
+    const updates = buildPrivateProfileUpdates({ ...baseDraft, ageRange: '35–44' }, baseDraft, true);
+    expect(updates.ageRange).toBe('35–44');
+  });
+
+  it('prefer-not-to-say is written as stable internal value when touched', () => {
+    const updates = buildPrivateProfileUpdates({ ...baseDraft, ageRange: AGE_PREFER_NOT }, baseDraft, true);
+    expect(updates.ageRange).toBe('prefer-not-to-say');
+  });
+
+  it('unchanged gender is omitted', () => {
+    const updates = buildPrivateProfileUpdates({ ...baseDraft, homeArea: 'Queens' }, baseDraft, false);
+    expect(updates).not.toHaveProperty('gender');
+  });
+
+  it('changed gender is included', () => {
+    const updates = buildPrivateProfileUpdates({ ...baseDraft, genderSelect: 'Female' }, baseDraft, false);
+    expect(updates.gender).toBe('Female');
+  });
+
+  it('changing homeArea does not rewrite gender', () => {
+    const updates = buildPrivateProfileUpdates({ ...baseDraft, homeArea: 'Queens' }, baseDraft, false);
+    expect(updates).toHaveProperty('homeArea', 'Queens');
+    expect(updates).not.toHaveProperty('gender');
+  });
+
+  it('self-describe gender is saved as custom text', () => {
+    const draft = { ...baseDraft, genderSelect: 'Self-describe', genderCustom: 'Agender' };
+    const updates = buildPrivateProfileUpdates(draft, baseDraft, false);
+    expect(updates.gender).toBe('Agender');
+  });
+
+  it('unchanged self-describe is omitted when custom text matches stored', () => {
+    const init = { ...baseDraft, genderSelect: 'Self-describe', genderCustom: 'Agender' };
+    const updates = buildPrivateProfileUpdates(init, init, false);
+    expect(updates).not.toHaveProperty('gender');
+  });
+
+  it('whitespace-only self-describe is treated as empty and omitted when initial gender is empty', () => {
+    const draft = { ...baseDraft, genderSelect: 'Self-describe', genderCustom: '   ' };
+    const init = { ...baseDraft, genderSelect: '', genderCustom: '' };
+    const updates = buildPrivateProfileUpdates(draft, init, false);
+    // resolveGenderForSave trims → ''; initialGender is ''; no change → omit
+    expect(updates).not.toHaveProperty('gender');
   });
 });

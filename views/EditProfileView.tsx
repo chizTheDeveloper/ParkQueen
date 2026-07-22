@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getApp } from 'firebase/app';
 import { db } from '../firebase';
@@ -12,9 +12,11 @@ import { t, useLang } from '../i18n';
 import {
   deriveAgeRangeFromDob,
   isDirty,
-  resolveGenderForSave,
   resolveGenderFromStored,
+  buildPublicProfileUpdates,
+  buildPrivateProfileUpdates,
   AGE_RANGES,
+  AGE_PREFER_NOT,
   type EditProfileDraft,
 } from '../utils/editProfileForm';
 
@@ -53,6 +55,7 @@ export const EditProfileView = ({ onBack }: { onBack: () => void }) => {
 
   // Demographics
   const [ageRange, setAgeRange] = useState('');
+  const [ageRangeTouched, setAgeRangeTouched] = useState(false);
   const [genderSelect, setGenderSelect] = useState('');
   const [genderCustom, setGenderCustom] = useState('');
 
@@ -72,24 +75,33 @@ export const EditProfileView = ({ onBack }: { onBack: () => void }) => {
     const unsub = onAuthStateChanged(auth, async (fbUser) => {
       if (fbUser) {
         setUid(fbUser.uid);
-        const snap = await getDoc(doc(db, 'users', fbUser.uid));
-        if (snap.exists()) {
-          const d = snap.data();
-          const uname = d.username || '';
-          const dname = d.fullName || '';
-          const area = d.homeArea || '';
-          const dtype = d.driverType || '';
-          const ar = d.ageRange || deriveAgeRangeFromDob(d.dob);
-          const { genderSelect: gs, genderCustom: gc } = resolveGenderFromStored(d.gender);
-          setUsername(uname);
-          setOriginalUsername(uname);
-          setDisplayName(dname);
-          setHomeArea(area);
-          setDriverType(dtype);
-          setAgeRange(ar);
-          setGenderSelect(gs);
-          setGenderCustom(gc);
-          setInitial({ displayName: dname, homeArea: area, driverType: dtype, ageRange: ar, genderSelect: gs, genderCustom: gc });
+        try {
+          const [snap, privateSnap] = await Promise.all([
+            getDoc(doc(db, 'users', fbUser.uid)),
+            getDoc(doc(db, 'users', fbUser.uid, 'private', 'profile')),
+          ]);
+          if (snap.exists()) {
+            const d = snap.data();
+            // pd = private doc; fall back to public doc fields for one-time migration of existing users
+            const pd = privateSnap.exists() ? privateSnap.data() : {};
+            const uname = d.username || '';
+            const dname = d.fullName || '';
+            const area = pd.homeArea ?? d.homeArea ?? '';
+            const dtype = pd.driverType ?? d.driverType ?? '';
+            const ar = pd.ageRange || deriveAgeRangeFromDob(d.dob) || '';
+            const { genderSelect: gs, genderCustom: gc } = resolveGenderFromStored(pd.gender ?? d.gender);
+            setUsername(uname);
+            setOriginalUsername(uname);
+            setDisplayName(dname);
+            setHomeArea(area);
+            setDriverType(dtype);
+            setAgeRange(ar);
+            setGenderSelect(gs);
+            setGenderCustom(gc);
+            setInitial({ displayName: dname, homeArea: area, driverType: dtype, ageRange: ar, genderSelect: gs, genderCustom: gc });
+          }
+        } catch (e) {
+          console.warn('Failed to load profile', e);
         }
       }
       setLoading(false);
@@ -119,7 +131,7 @@ export const EditProfileView = ({ onBack }: { onBack: () => void }) => {
   const currentDraft: EditProfileDraft = { displayName, homeArea, driverType, ageRange, genderSelect, genderCustom };
   const formDirty = initial !== null && isDirty(initial, currentDraft);
   const usernameDirty = usernameEditOpen && username.trim().toLowerCase() !== originalUsername.toLowerCase();
-  const dirty = formDirty || usernameDirty;
+  const dirty = formDirty || usernameDirty || ageRangeTouched;
   const canSave = !saving && dirty && (!usernameDirty || usernameAvailability === 'available');
 
   const handleBack = () => {
@@ -137,14 +149,14 @@ export const EditProfileView = ({ onBack }: { onBack: () => void }) => {
         const functions = getFunctions(getApp(), 'us-central1');
         await httpsCallable(functions, 'claimUsername')({ username: username.trim() });
       }
-      const updates: Record<string, any> = { fullName: displayName };
-      if (homeArea !== initial?.homeArea) updates.homeArea = homeArea;
-      if (driverType !== initial?.driverType) updates.driverType = driverType;
-      if (ageRange !== initial?.ageRange) updates.ageRange = ageRange;
-      const gender = resolveGenderForSave(genderSelect, genderCustom);
-      const initialGender = resolveGenderForSave(initial?.genderSelect || '', initial?.genderCustom || '');
-      if (gender !== initialGender) updates.gender = gender;
-      await updateDoc(doc(db, 'users', uid), updates);
+      const pubUpdates = buildPublicProfileUpdates(currentDraft, initial);
+      const privUpdates = buildPrivateProfileUpdates(currentDraft, initial, ageRangeTouched);
+      if (Object.keys(pubUpdates).length > 0) {
+        await updateDoc(doc(db, 'users', uid), pubUpdates);
+      }
+      if (Object.keys(privUpdates).length > 0) {
+        await setDoc(doc(db, 'users', uid, 'private', 'profile'), privUpdates, { merge: true });
+      }
       setSaveSuccess(true);
       setTimeout(() => onBack(), 1200);
     } catch (e: any) {
@@ -309,8 +321,9 @@ export const EditProfileView = ({ onBack }: { onBack: () => void }) => {
 
         {/* OPTIONAL DEMOGRAPHICS */}
         <div className={rowClass}>
-          <div className="px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]">
+          <div className="px-4 pt-3.5 pb-3 border-b border-[var(--color-border)]">
             <p className={sectionLabel}>{t('edit_profile.demographics_section')}</p>
+            <p className="text-[10px] text-[var(--color-text-secondary)] mt-1 leading-relaxed">{t('edit_profile.demographics_privacy')}</p>
           </div>
 
           {/* Age Range */}
@@ -322,12 +335,13 @@ export const EditProfileView = ({ onBack }: { onBack: () => void }) => {
             <select
               aria-label={t('edit_profile.age_range_label')}
               value={ageRange}
-              onChange={e => setAgeRange(e.target.value)}
+              onChange={e => { setAgeRange(e.target.value); setAgeRangeTouched(true); }}
               className={`${fieldClass} pb-3.5 pr-10 appearance-none cursor-pointer dark:[color-scheme:dark]`}
               style={{ backgroundColor: 'var(--color-card)' }}
             >
               <option value="">{t('edit_profile.age_range_placeholder')}</option>
               {AGE_RANGES.map(r => <option key={r} value={r}>{r}</option>)}
+              <option value={AGE_PREFER_NOT}>{t('edit_profile.age_prefer_not')}</option>
             </select>
             <ChevronRight size={16} className="absolute right-4 bottom-4 text-[var(--color-text-secondary)] pointer-events-none rotate-90" />
           </div>
