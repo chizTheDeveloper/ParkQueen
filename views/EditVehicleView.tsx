@@ -1,7 +1,7 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { useFocusOnMount } from '../hooks/useFocusOnMount';
 import { SignupProgress } from '../components/SignupProgress';
-import { ChevronLeft, ChevronRight, Search, Trash2, Check, Loader2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, X, Trash2, Check, Loader2 } from 'lucide-react';
 import { VehicleIcon } from '../utils/vehicleIcon';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -25,6 +25,13 @@ const ALL_BRANDS = [
   'Peugeot','Polestar','Porsche','Ram','Renault','Rivian','Rolls-Royce',
   'Subaru','Suzuki','Tesla','Toyota','Volkswagen','Volvo',
 ];
+
+// Sentinel stored only in component state — never written to Firestore.
+// When selected, the trimmed customBrandText value is saved instead.
+const CUSTOM_BRAND_KEY = '__custom__';
+
+// Case/whitespace-fold for duplicate detection — never used for storage.
+const normalizeForMatch = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
 
 // ─── Color Data ───────────────────────────────────────────────────────────────
 
@@ -87,8 +94,17 @@ interface Props {
 export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) => {
   useLang();
 
-  const [vehicleType,  setVehicleType]  = useState<string>(user?.vehicleType  || '');
-  const [vehicleBrand, setVehicleBrand] = useState<string>(user?.vehicleBrand || '');
+  // If the stored brand isn't in the listed set it was previously custom-entered.
+  const isInitCustom = !!user?.vehicleBrand && !ALL_BRANDS.includes(user.vehicleBrand);
+
+  const [vehicleType,     setVehicleType]     = useState<string>(user?.vehicleType  || '');
+  const [vehicleBrand,    setVehicleBrand]    = useState<string>(
+    isInitCustom ? CUSTOM_BRAND_KEY : (user?.vehicleBrand || '')
+  );
+  // Text entered when "Brand not listed" is selected; persists if user navigates back
+  const [customBrandText, setCustomBrandText] = useState<string>(
+    isInitCustom ? (user?.vehicleBrand || '') : ''
+  );
   const [vehicleColor, setVehicleColor] = useState<string>(user?.vehicleColor || '');
   const [brandSearch,  setBrandSearch]  = useState('');
   const [saving,       setSaving]       = useState(false);
@@ -96,8 +112,17 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
   const [done,         setDone]         = useState(false);
   const [savedPartial, setSavedPartial] = useState(false);
 
-  const headingRef = useRef<HTMLHeadingElement>(null);
+  const headingRef     = useRef<HTMLHeadingElement>(null);
+  const customBrandRef = useRef<HTMLInputElement>(null);
   useFocusOnMount(headingRef);
+
+  // Focus the custom-brand input when "Brand not listed" is newly selected
+  useEffect(() => {
+    if (vehicleBrand === CUSTOM_BRAND_KEY) {
+      const id = setTimeout(() => customBrandRef.current?.focus(), 50);
+      return () => clearTimeout(id);
+    }
+  }, [vehicleBrand]);
 
   // Resume at first missing step (onboarding only); editing always starts at 0
   const startStep = isOnboarding
@@ -108,7 +133,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
   const clabels = colorLabels();
   const tlabels = typeLabels();
 
-  // Filtered brand list
+  // Filtered brand list — never mutates ALL_BRANDS
   const filteredBrands = useMemo(() => {
     const q = brandSearch.trim().toLowerCase();
     return q ? ALL_BRANDS.filter(b => b.toLowerCase().includes(q)) : ALL_BRANDS;
@@ -130,9 +155,19 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
   };
 
   const handleNextFromBrand = async () => {
-    if (!vehicleBrand) return;
+    if (saving) return;
+    let brandToSave: string;
+    if (vehicleBrand === CUSTOM_BRAND_KEY) {
+      const trimmed = customBrandText.trim();
+      // Auto-promote to canonical if the text matches a listed brand
+      const canonical = ALL_BRANDS.find(b => normalizeForMatch(b) === normalizeForMatch(trimmed));
+      brandToSave = canonical ?? trimmed;
+    } else {
+      brandToSave = vehicleBrand;
+    }
+    if (!brandToSave) return;
     setSaving(true);
-    await saveField({ vehicleBrand });
+    await saveField({ vehicleBrand: brandToSave });
     setSaving(false);
     setStep(2);
   };
@@ -230,8 +265,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
     else onBack();
   };
 
-  // ── Vehicle substep indicator (replaces the unexplained dots) ──
-  // Shows which of the 3 vehicle detail screens is active.
+  // ── Vehicle substep indicator ──
 
   const SubstepIndicator = () => {
     const counts = [
@@ -272,7 +306,6 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
   };
 
   // ── Shared header ──
-  // Step 4 label + SignupProgress shown only during onboarding, matching Steps 1–3 exactly.
 
   const Header = () => (
     <div>
@@ -298,7 +331,6 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
         <div className="flex-1 flex justify-center">
           <SubstepIndicator />
         </div>
-        {/* Quiet text skip — not a prominent pill */}
         <button
           onClick={handleSkip}
           aria-label={t('vehicle.skip_for_now')}
@@ -430,55 +462,251 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
   // ═══════════════════════════════════════════
 
   if (step === 1) {
+    // Next is valid when a listed brand is chosen, or custom brand has non-empty text
+    const brandValid = vehicleBrand !== '' &&
+      (vehicleBrand !== CUSTOM_BRAND_KEY || customBrandText.trim().length > 0);
+
+    // Whether the selected listed brand is hidden by the current search query
+    const selectedFilteredOut =
+      brandSearch.trim() !== '' &&
+      vehicleBrand !== '' &&
+      vehicleBrand !== CUSTOM_BRAND_KEY &&
+      !filteredBrands.includes(vehicleBrand);
+
+    // Canonical brand matching the custom text (case/whitespace-insensitive)
+    const canonicalMatch =
+      vehicleBrand === CUSTOM_BRAND_KEY && customBrandText.trim()
+        ? ALL_BRANDS.find(b => normalizeForMatch(b) === normalizeForMatch(customBrandText))
+        : undefined;
+
     return (
-      <div className="min-h-full bg-[var(--color-bg)] text-[var(--color-text)] pt-4 pb-20 px-4 flex flex-col">
-        <div className="max-w-md mx-auto w-full flex flex-col flex-1">
+      <div className="h-full bg-[var(--color-bg)] text-[var(--color-text)] flex flex-col px-4 pt-10">
+        <div className="max-w-md mx-auto w-full flex-1 flex flex-col min-h-0">
           <Header />
 
-          <h2 ref={headingRef} tabIndex={-1} className="text-2xl font-bold mb-4 focus:outline-none">
-            {t('vehicle.step_brand')}
-          </h2>
-
-          {/* Search bar */}
-          <div className="relative mb-3">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-secondary)] pointer-events-none" />
-            <input
-              type="text"
-              value={brandSearch}
-              onChange={e => setBrandSearch(e.target.value)}
-              placeholder={t('vehicle.search_placeholder')}
-              className="w-full pl-9 pr-4 py-3 rounded-xl bg-[var(--color-card)] border border-[var(--color-border)] text-sm text-[var(--color-text)] placeholder-[var(--color-text-secondary)] focus:outline-none focus:border-[#1e75ff]/50"
-            />
+          {/* Text block */}
+          <div className={`shrink-0 ${prefersReduced ? '' : 'auth-fade-in'}`}>
+            <p className="text-[11px] font-bold tracking-[0.13em] text-blue-400 uppercase mb-3 mt-2">
+              {t('vehicle.eyebrow')}
+            </p>
+            <h2
+              ref={headingRef}
+              tabIndex={-1}
+              className="text-[26px] font-bold text-[var(--color-text)] leading-tight mb-2 focus:outline-none"
+            >
+              {t('vehicle.headline_brand')}
+            </h2>
+            <p className="text-[15px] text-[var(--color-text-secondary)] leading-relaxed mb-5">
+              {t('vehicle.supporting_brand')}
+            </p>
           </div>
 
-          {/* Brand list */}
-          <div className="flex-1 overflow-y-auto rounded-2xl bg-[var(--color-card)] border border-[var(--color-border)] divide-y divide-[var(--color-border)]" style={{ maxHeight: '50vh' }}>
-            {filteredBrands.length > 0 ? filteredBrands.map(b => {
-              const active = vehicleBrand === b;
-              return (
+          {/* Scrollable content — search + brand list card */}
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+
+            {/* Search bar */}
+            <div
+              className={`relative mb-2.5 shrink-0 ${prefersReduced ? '' : 'auth-fade-in'}`}
+              style={prefersReduced ? {} : { animationDelay: '80ms' }}
+            >
+              <label htmlFor="brand-search" className="sr-only">
+                {t('vehicle.search_placeholder')}
+              </label>
+              <Search
+                size={15}
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--color-text-secondary)] pointer-events-none"
+                aria-hidden="true"
+              />
+              <input
+                id="brand-search"
+                type="search"
+                value={brandSearch}
+                onChange={e => setBrandSearch(e.target.value)}
+                placeholder={t('vehicle.search_placeholder')}
+                autoComplete="off"
+                className="w-full pl-9 pr-10 py-3 rounded-xl bg-[var(--color-card)] border border-[var(--color-border)] text-sm text-[var(--color-text)] placeholder-[var(--color-text-secondary)] focus:outline-none focus:border-[#1e75ff]/50 transition-colors"
+              />
+              {brandSearch && (
                 <button
-                  key={b}
-                  onClick={() => setVehicleBrand(b)}
-                  className={`w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors ${active ? 'bg-[#1e75ff]/12' : 'hover:bg-white/5'}`}
+                  onClick={() => setBrandSearch('')}
+                  aria-label={t('vehicle.search_clear')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center rounded-lg text-[var(--color-text-secondary)] hover:text-[var(--color-text)] active:opacity-60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                 >
-                  <span className={`text-sm font-semibold flex-1 ${active ? 'text-[#38bdf8]' : 'text-[var(--color-text)]'}`}>{b}</span>
-                  {active && <Check size={14} className="text-[#1e75ff] shrink-0" />}
+                  <X size={14} />
                 </button>
-              );
-            }) : (
-              <div className="px-4 py-8 text-center text-sm text-[var(--color-text-secondary)]">
-                No brands match "{brandSearch}"
+              )}
+            </div>
+
+            {/* Brand list card — semantic radio group */}
+            <div
+              role="radiogroup"
+              aria-label={t('vehicle.headline_brand')}
+              className={`flex-1 min-h-0 flex flex-col rounded-2xl overflow-hidden ${prefersReduced ? '' : 'auth-fade-in'}`}
+              style={{
+                background: 'var(--color-card)',
+                border: '1px solid rgba(255,255,255,0.07)',
+                ...(prefersReduced ? {} : { animationDelay: '130ms' }),
+              }}
+            >
+              {/* Scrollable brand rows */}
+              <div className="flex-1 overflow-y-auto divide-y divide-white/[0.05] [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-sm [&::-webkit-scrollbar-thumb]:bg-white/10">
+
+                {/* Pinned selected brand — visible when search hides the selection */}
+                {selectedFilteredOut && (
+                  <>
+                    <div className="px-4 pt-2 pb-1 text-[10px] font-bold tracking-[0.1em] uppercase text-[var(--color-text-secondary)]">
+                      {t('vehicle.selected_brand_label')}
+                    </div>
+                    <button
+                      role="radio"
+                      aria-checked={true}
+                      onClick={() => setVehicleBrand(vehicleBrand)}
+                      className="w-full flex items-center gap-3 py-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 border-l-2 bg-[#0f2044] border-l-[#1e75ff] pl-[14px] pr-4"
+                    >
+                      <span className="text-[14px] font-semibold flex-1 min-w-0 text-white">
+                        {vehicleBrand}
+                      </span>
+                      <Check size={14} className="text-[#1e75ff] shrink-0" aria-hidden="true" />
+                    </button>
+                    {filteredBrands.length > 0 && (
+                      <div className="px-4 pt-2 pb-1 text-[10px] font-bold tracking-[0.1em] uppercase text-[var(--color-text-secondary)]">
+                        {t('vehicle.search_results_label')}
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {filteredBrands.length > 0
+                  ? filteredBrands.map(b => {
+                      const active = vehicleBrand === b;
+                      return (
+                        <button
+                          key={b}
+                          role="radio"
+                          aria-checked={active}
+                          onClick={() => setVehicleBrand(b)}
+                          className={`w-full flex items-center gap-3 py-3 text-left transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 border-l-2 ${
+                            active
+                              ? 'bg-[#0f2044] border-l-[#1e75ff] pl-[14px] pr-4'
+                              : 'hover:bg-white/[0.04] border-l-transparent px-4'
+                          }`}
+                        >
+                          <span className={`text-[14px] font-semibold flex-1 min-w-0 ${
+                            active ? 'text-white' : 'text-[var(--color-text-secondary)]'
+                          }`}>
+                            {b}
+                          </span>
+                          {active && (
+                            <Check size={14} className="text-[#1e75ff] shrink-0" aria-hidden="true" />
+                          )}
+                        </button>
+                      );
+                    })
+                  : (
+                    /* No-results state — "Brand not listed" remains below */
+                    <div className="px-5 py-6">
+                      <p className="text-[14px] font-semibold text-[var(--color-text)] mb-1">
+                        {t('vehicle.no_results_title')}
+                      </p>
+                      <p className="text-[13px] text-[var(--color-text-secondary)] leading-relaxed">
+                        {t('vehicle.no_results_body')}
+                      </p>
+                    </div>
+                  )
+                }
+                {/* Bottom breathing room */}
+                <div className="h-2" aria-hidden="true" />
+              </div>
+
+              {/* Brand not listed — always visible, separated from scroll area */}
+              <div className="shrink-0 border-t border-white/[0.07]">
+                <button
+                  role="radio"
+                  aria-checked={vehicleBrand === CUSTOM_BRAND_KEY}
+                  onClick={() => setVehicleBrand(CUSTOM_BRAND_KEY)}
+                  className={`w-full flex items-center gap-3 py-3 text-left transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 border-l-2 ${
+                    vehicleBrand === CUSTOM_BRAND_KEY
+                      ? 'bg-[#0f2044] border-l-[#1e75ff] pl-[14px] pr-4'
+                      : 'hover:bg-white/[0.04] border-l-transparent px-4'
+                  }`}
+                >
+                  <span className={`text-[14px] font-semibold flex-1 ${
+                    vehicleBrand === CUSTOM_BRAND_KEY
+                      ? 'text-white'
+                      : 'text-[var(--color-text-secondary)]'
+                  }`}>
+                    {t('vehicle.brand_not_listed')}
+                  </span>
+                  {vehicleBrand === CUSTOM_BRAND_KEY && (
+                    <Check size={14} className="text-[#1e75ff] shrink-0" aria-hidden="true" />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Custom brand input — revealed when Brand not listed is selected */}
+            {vehicleBrand === CUSTOM_BRAND_KEY && (
+              <div className={`mt-2.5 shrink-0 ${prefersReduced ? '' : 'auth-fade-in'}`}>
+                <label htmlFor="custom-brand" className="sr-only">
+                  {t('vehicle.brand_not_listed')}
+                </label>
+                <input
+                  id="custom-brand"
+                  ref={customBrandRef}
+                  type="text"
+                  value={customBrandText}
+                  onChange={e => setCustomBrandText(e.target.value)}
+                  placeholder={t('vehicle.brand_custom_placeholder')}
+                  maxLength={50}
+                  autoComplete="off"
+                  className="w-full px-4 py-3 rounded-xl bg-[var(--color-card)] border border-[#1e75ff]/40 text-sm text-[var(--color-text)] placeholder-[var(--color-text-secondary)] focus:outline-none focus:border-[#1e75ff]/70 transition-colors"
+                />
+                {/* Canonical match notice — prompt user to select the listed brand */}
+                {canonicalMatch && (
+                  <div className="mt-1.5 flex items-center gap-2 px-1">
+                    <p className="text-[12px] text-[var(--color-text-secondary)] flex-1">
+                      {t('vehicle.brand_already_listed')}{' '}
+                      <span className="text-white font-semibold">{canonicalMatch}</span>
+                    </p>
+                    <button
+                      onClick={() => { setVehicleBrand(canonicalMatch); setCustomBrandText(''); }}
+                      className="text-[12px] text-[#1e75ff] font-semibold active:opacity-60 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded px-1"
+                    >
+                      Select
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
 
-          <button
-            onClick={handleNextFromBrand}
-            disabled={!vehicleBrand || saving}
-            className="mt-4 w-full py-3.5 rounded-xl bg-[#1e75ff] text-white font-bold text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-40"
+          {/* Bottom action area — anchored above safe area */}
+          <div
+            className={`shrink-0 pt-3 pb-8 ${prefersReduced ? '' : 'auth-fade-in'}`}
+            style={{
+              borderTop: '1px solid rgba(255,255,255,0.06)',
+              ...(prefersReduced ? {} : { animationDelay: '200ms' }),
+            }}
           >
-            {t('vehicle.next')} <ChevronRight size={16} />
-          </button>
+            <button
+              onClick={handleNextFromBrand}
+              disabled={!brandValid || saving}
+              aria-disabled={!brandValid || saving}
+              className={`w-full h-[58px] rounded-full font-semibold text-[16px] flex items-center justify-center gap-2 transition-all duration-200 ${
+                brandValid && !saving
+                  ? 'text-white active:scale-[0.985]'
+                  : 'bg-[#111827] text-white/30'
+              }`}
+              style={brandValid && !saving
+                ? { background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }
+                : {}}
+            >
+              {saving
+                ? <Loader2 size={18} className="animate-spin text-white/50" />
+                : <>{t('vehicle.next')} <ChevronRight size={18} /></>
+              }
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -505,7 +733,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
           <VehicleIcon type={vehicleType} color={vehicleColor} size={28} />
           <div>
             <p className="text-sm font-bold text-[var(--color-text)]">
-              {[vehicleColor ? (clabels[vehicleColor] ?? vehicleColor) : '', vehicleBrand].filter(Boolean).join(' ')}
+              {[vehicleColor ? (clabels[vehicleColor] ?? vehicleColor) : '', vehicleBrand === CUSTOM_BRAND_KEY ? customBrandText : vehicleBrand].filter(Boolean).join(' ')}
               {vehicleType ? <span className="text-[var(--color-text-secondary)] font-normal"> · {tlabels[vehicleType] ?? vehicleType}</span> : null}
             </p>
             <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('vehicle.preview_label')}</p>

@@ -505,6 +505,16 @@ const es: Record<string, string> = {
     'vehicle.stage_type': 'Tipo',
     'vehicle.headline_type': 'Elige el tipo de vehículo',
     'vehicle.supporting_type': 'Esto ayuda a otros conductores a reconocer tu vehículo durante los intercambios de estacionamiento.',
+    'vehicle.headline_brand': 'Elige la marca de tu vehículo',
+    'vehicle.supporting_brand': 'Busca o selecciona la marca de tu vehículo.',
+    'vehicle.brand_not_listed': 'La marca no aparece',
+    'vehicle.brand_custom_placeholder': 'Escribe el nombre de la marca…',
+    'vehicle.no_results_title': 'No encontramos esa marca',
+    'vehicle.no_results_body': 'Prueba otra búsqueda o elige "La marca no aparece".',
+    'vehicle.search_clear': 'Borrar búsqueda',
+    'vehicle.selected_brand_label': 'Seleccionada',
+    'vehicle.search_results_label': 'Resultados',
+    'vehicle.brand_already_listed': 'Ya está en la lista:',
 
     // Edit Profile
     'edit_profile.title': 'Editar perfil',

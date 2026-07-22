@@ -505,6 +505,16 @@ const en: Record<string, string> = {
     'vehicle.stage_type': 'Type',
     'vehicle.headline_type': 'Choose your vehicle type',
     'vehicle.supporting_type': 'This helps other drivers recognize your car during parking handoffs.',
+    'vehicle.headline_brand': 'Choose your vehicle brand',
+    'vehicle.supporting_brand': "Search or select your vehicle's brand.",
+    'vehicle.brand_not_listed': 'Brand not listed',
+    'vehicle.brand_custom_placeholder': 'Enter brand name…',
+    'vehicle.no_results_title': 'No matching brands',
+    'vehicle.no_results_body': 'Try another search or choose "Brand not listed."',
+    'vehicle.search_clear': 'Clear search',
+    'vehicle.selected_brand_label': 'Selected',
+    'vehicle.search_results_label': 'Results',
+    'vehicle.brand_already_listed': 'Already in the list:',
 
     // Edit Profile
     'edit_profile.title': 'Edit Profile',
