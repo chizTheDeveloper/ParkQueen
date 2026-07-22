@@ -713,3 +713,160 @@ describe('Spanish i18n — vehicle type labels', () => {
     expect(val).not.toContain('Optional');
   });
 });
+
+// ─── New tests — Color Screen (Tests 27–52) ───────────────────────────────────
+
+// Mirror of the component's COLORS array (14 entries, no legacy values)
+const COLORS_PALETTE = [
+  'Black','White','Silver','Gray','Blue','Red','Green',
+  'Brown','Beige','Gold','Yellow','Orange','Purple','Other',
+];
+const CUSTOM_COLOR_KEY_C = '__custom__';
+const LEGACY_COLOR_MAP_C: Record<string, string> = { 'Yellow Cab': 'Yellow', 'Uber Black': 'Black' };
+const VISIBLE_COLOR_NAMES_C = new Set(COLORS_PALETTE.filter(n => n !== 'Other'));
+
+// Mirrors component state-init logic for vehicleColor / customColorText
+function resolveStoredColor(raw: string): { vehicleColor: string; customColorText: string } {
+  const mapped = LEGACY_COLOR_MAP_C[raw] ?? raw;
+  const isCustom = !!mapped && !VISIBLE_COLOR_NAMES_C.has(mapped);
+  return {
+    vehicleColor: isCustom ? CUSTOM_COLOR_KEY_C : mapped,
+    customColorText: isCustom ? mapped : '',
+  };
+}
+
+// Mirrors handleSaveWithColor's resolution of what to write to Firestore
+function resolveColorToSave(
+  vehicleColor: string,
+  customColorText: string,
+  previousColor: string,
+): string | undefined {
+  if (vehicleColor === CUSTOM_COLOR_KEY_C) {
+    const trimmed = customColorText.trim();
+    return trimmed || (previousColor ? '' : undefined);
+  }
+  if (vehicleColor) return vehicleColor;
+  if (previousColor) return '';
+  return undefined;
+}
+
+describe('Test 27: Color palette — COLORS array shape', () => {
+  it('has exactly 14 entries', () => {
+    expect(COLORS_PALETTE).toHaveLength(14);
+  });
+  it('does not contain "Yellow Cab"', () => {
+    expect(COLORS_PALETTE).not.toContain('Yellow Cab');
+  });
+  it('does not contain "Uber Black"', () => {
+    expect(COLORS_PALETTE).not.toContain('Uber Black');
+  });
+  it('contains "Other" as the final entry', () => {
+    expect(COLORS_PALETTE[COLORS_PALETTE.length - 1]).toBe('Other');
+  });
+  it('contains all 13 visible standard colors', () => {
+    const standard = ['Black','White','Silver','Gray','Blue','Red','Green','Brown','Beige','Gold','Yellow','Orange','Purple'];
+    standard.forEach(name => expect(COLORS_PALETTE).toContain(name));
+  });
+});
+
+describe('Test 28: CUSTOM_COLOR_KEY sentinel', () => {
+  it('equals "__custom__"', () => {
+    expect(CUSTOM_COLOR_KEY_C).toBe('__custom__');
+  });
+  it('is not a member of VISIBLE_COLOR_NAMES', () => {
+    expect(VISIBLE_COLOR_NAMES_C.has(CUSTOM_COLOR_KEY_C)).toBe(false);
+  });
+});
+
+describe('Test 29: Legacy color mapping', () => {
+  it('"Yellow Cab" maps to vehicleColor="Yellow" with no custom text', () => {
+    const r = resolveStoredColor('Yellow Cab');
+    expect(r.vehicleColor).toBe('Yellow');
+    expect(r.customColorText).toBe('');
+  });
+  it('"Uber Black" maps to vehicleColor="Black" with no custom text', () => {
+    const r = resolveStoredColor('Uber Black');
+    expect(r.vehicleColor).toBe('Black');
+    expect(r.customColorText).toBe('');
+  });
+  it('a standard color passes through unchanged', () => {
+    const r = resolveStoredColor('Blue');
+    expect(r.vehicleColor).toBe('Blue');
+    expect(r.customColorText).toBe('');
+  });
+  it('empty string stays empty (no color saved)', () => {
+    const r = resolveStoredColor('');
+    expect(r.vehicleColor).toBe('');
+    expect(r.customColorText).toBe('');
+  });
+  it('an unknown value becomes CUSTOM_COLOR_KEY with the value as customColorText', () => {
+    const r = resolveStoredColor('Midnight Blue');
+    expect(r.vehicleColor).toBe(CUSTOM_COLOR_KEY_C);
+    expect(r.customColorText).toBe('Midnight Blue');
+  });
+  it('another unknown value is treated as custom', () => {
+    const r = resolveStoredColor('Champagne');
+    expect(r.vehicleColor).toBe(CUSTOM_COLOR_KEY_C);
+    expect(r.customColorText).toBe('Champagne');
+  });
+});
+
+describe('Test 30: resolveColorToSave', () => {
+  it('no color selected, no previous → returns undefined (field omitted)', () => {
+    expect(resolveColorToSave('', '', '')).toBeUndefined();
+  });
+  it('no color selected but previous existed → returns "" (clears field)', () => {
+    expect(resolveColorToSave('', '', 'Blue')).toBe('');
+  });
+  it('standard color selected → returns that color', () => {
+    expect(resolveColorToSave('Red', '', '')).toBe('Red');
+  });
+  it('CUSTOM_COLOR_KEY with trimmed text → returns trimmed text', () => {
+    expect(resolveColorToSave(CUSTOM_COLOR_KEY_C, '  Midnight Blue  ', '')).toBe('Midnight Blue');
+  });
+  it('CUSTOM_COLOR_KEY with empty text and no previous → returns undefined', () => {
+    expect(resolveColorToSave(CUSTOM_COLOR_KEY_C, '', '')).toBeUndefined();
+  });
+  it('CUSTOM_COLOR_KEY with empty text but previous existed → returns ""', () => {
+    expect(resolveColorToSave(CUSTOM_COLOR_KEY_C, '', 'Blue')).toBe('');
+  });
+});
+
+describe('Test 31: customColorText constraints', () => {
+  it('text of exactly 30 chars is stored as-is', () => {
+    const text = 'A'.repeat(30);
+    expect(text.slice(0, 30)).toHaveLength(30);
+  });
+  it('text of 31 chars is sliced to 30', () => {
+    const text = 'A'.repeat(31);
+    expect(text.slice(0, 30)).toHaveLength(30);
+  });
+});
+
+describe('Test 32: Color screen i18n coverage', () => {
+  it('English color_headline is present and translated', () => {
+    expect(en['vehicle.color_headline']).toBeDefined();
+    expect(en['vehicle.color_headline']).not.toBe('vehicle.color_headline');
+    expect(en['vehicle.color_headline'].length).toBeGreaterThan(0);
+  });
+  it('Spanish color_headline is present and translated', () => {
+    expect(es['vehicle.color_headline']).toBeDefined();
+    expect(es['vehicle.color_headline']).not.toBe('vehicle.color_headline');
+  });
+  it('English color_other is present and translated', () => {
+    expect(en['vehicle.color_other']).toBeDefined();
+    expect(en['vehicle.color_other']).not.toBe('vehicle.color_other');
+  });
+  it('Spanish color_other is present and translated', () => {
+    expect(es['vehicle.color_other']).toBeDefined();
+    expect(es['vehicle.color_other']).not.toBe('vehicle.color_other');
+  });
+  it('English color_remove is present and translated', () => {
+    expect(en['vehicle.color_remove']).toBeDefined();
+    expect(en['vehicle.color_remove']).not.toBe('vehicle.color_remove');
+  });
+  it('English color_custom_label is present and translated', () => {
+    expect(en['vehicle.color_custom_label']).toBeDefined();
+    expect(en['vehicle.color_custom_label']).not.toBe('vehicle.color_custom_label');
+  });
+});

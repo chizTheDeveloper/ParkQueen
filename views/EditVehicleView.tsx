@@ -36,35 +36,40 @@ const normalizeForMatch = (s: string) => s.trim().toLowerCase().replace(/\s+/g, 
 // ─── Color Data ───────────────────────────────────────────────────────────────
 
 const COLORS: { name: string; hex: string }[] = [
-  { name: 'Black',       hex: '#1C1C1E' },
-  { name: 'White',       hex: '#F2F2F7' },
-  { name: 'Silver',      hex: '#AEAEB2' },
-  { name: 'Gray',        hex: '#636366' },
-  { name: 'Blue',        hex: '#2563EB' },
-  { name: 'Red',         hex: '#DC2626' },
-  { name: 'Green',       hex: '#16A34A' },
-  { name: 'Brown',       hex: '#7C3A1E' },
-  { name: 'Beige',       hex: '#D4B896' },
-  { name: 'Gold',        hex: '#D4AF37' },
-  { name: 'Yellow',      hex: '#EAB308' },
-  { name: 'Orange',      hex: '#EA580C' },
-  { name: 'Purple',      hex: '#7C3AED' },
-  { name: 'Yellow Cab',  hex: '#F7BF00' },
-  { name: 'Uber Black',  hex: '#1F1F22' },
+  { name: 'Black',  hex: '#1C1C1E' },
+  { name: 'White',  hex: '#F2F2F7' },
+  { name: 'Silver', hex: '#AEAEB2' },
+  { name: 'Gray',   hex: '#636366' },
+  { name: 'Blue',   hex: '#2563EB' },
+  { name: 'Red',    hex: '#DC2626' },
+  { name: 'Green',  hex: '#16A34A' },
+  { name: 'Brown',  hex: '#7C3A1E' },
+  { name: 'Beige',  hex: '#D4B896' },
+  { name: 'Gold',   hex: '#D4AF37' },
+  { name: 'Yellow', hex: '#EAB308' },
+  { name: 'Orange', hex: '#EA580C' },
+  { name: 'Purple', hex: '#7C3AED' },
+  { name: 'Other',  hex: 'other'   }, // sentinel — rendered with conic-gradient
 ];
+
+// Sentinel stored only in component state — never written to Firestore.
+const CUSTOM_COLOR_KEY = '__custom__';
+
+// Legacy Firestore values → nearest visible palette entry.
+const LEGACY_COLOR_MAP: Record<string, string> = { 'Yellow Cab': 'Yellow', 'Uber Black': 'Black' };
+
+const VISIBLE_COLOR_NAMES = new Set(COLORS.filter(c => c.name !== 'Other').map(c => c.name));
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const colorLabels = () => ({
-  Black:       t('vehicle.color_black'),      White:      t('vehicle.color_white'),
-  Silver:      t('vehicle.color_silver'),     Gray:       t('vehicle.color_gray'),
-  Blue:        t('vehicle.color_blue'),       Red:        t('vehicle.color_red'),
-  Green:       t('vehicle.color_green'),      Brown:      t('vehicle.color_brown'),
-  Beige:       t('vehicle.color_beige'),      Gold:       t('vehicle.color_gold'),
-  Yellow:      t('vehicle.color_yellow'),     Orange:     t('vehicle.color_orange'),
-  Purple:      t('vehicle.color_purple'),
-  'Yellow Cab': t('vehicle.color_yellow_cab'),
-  'Uber Black': t('vehicle.color_uber_black'),
+  Black:  t('vehicle.color_black'),  White:  t('vehicle.color_white'),
+  Silver: t('vehicle.color_silver'), Gray:   t('vehicle.color_gray'),
+  Blue:   t('vehicle.color_blue'),   Red:    t('vehicle.color_red'),
+  Green:  t('vehicle.color_green'),  Brown:  t('vehicle.color_brown'),
+  Beige:  t('vehicle.color_beige'),  Gold:   t('vehicle.color_gold'),
+  Yellow: t('vehicle.color_yellow'), Orange: t('vehicle.color_orange'),
+  Purple: t('vehicle.color_purple'), Other:  t('vehicle.color_other'),
 } as Record<string, string>);
 
 const typeLabels = () => ({
@@ -105,7 +110,12 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
   const [customBrandText, setCustomBrandText] = useState<string>(
     isInitCustom ? (user?.vehicleBrand || '') : ''
   );
-  const [vehicleColor, setVehicleColor] = useState<string>(user?.vehicleColor || '');
+  // Map legacy Firestore values to visible palette; detect custom text.
+  const _rawColor = user?.vehicleColor || '';
+  const _mappedColor = LEGACY_COLOR_MAP[_rawColor] ?? _rawColor;
+  const isInitCustomColor = !!_mappedColor && !VISIBLE_COLOR_NAMES.has(_mappedColor);
+  const [vehicleColor,    setVehicleColor]    = useState<string>(isInitCustomColor ? CUSTOM_COLOR_KEY : _mappedColor);
+  const [customColorText, setCustomColorText] = useState<string>(isInitCustomColor ? _mappedColor : '');
   const [brandSearch,  setBrandSearch]  = useState('');
   const [saving,       setSaving]       = useState(false);
   const [showSkip,     setShowSkip]     = useState(false);
@@ -114,6 +124,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
 
   const headingRef     = useRef<HTMLHeadingElement>(null);
   const customBrandRef = useRef<HTMLInputElement>(null);
+  const customColorRef = useRef<HTMLInputElement>(null);
   useFocusOnMount(headingRef);
 
   // Focus the custom-brand input when "Brand not listed" is newly selected
@@ -123,6 +134,14 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
       return () => clearTimeout(id);
     }
   }, [vehicleBrand]);
+
+  // Focus the custom-color input when "Other" is newly selected
+  useEffect(() => {
+    if (vehicleColor === CUSTOM_COLOR_KEY) {
+      const id = setTimeout(() => customColorRef.current?.focus(), 50);
+      return () => clearTimeout(id);
+    }
+  }, [vehicleColor]);
 
   // Resume at first missing step (onboarding only); editing always starts at 0
   const startStep = isOnboarding
@@ -174,18 +193,19 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
 
   const handleSaveWithColor = async () => {
     setSaving(true);
-    await saveField({ vehicleColor });
+    if (vehicleColor === CUSTOM_COLOR_KEY) {
+      const colorToSave = customColorText.trim();
+      if (colorToSave) await saveField({ vehicleColor: colorToSave });
+      else if (user?.vehicleColor) await saveField({ vehicleColor: '' });
+    } else if (vehicleColor) {
+      await saveField({ vehicleColor });
+    } else if (user?.vehicleColor) {
+      // Color was cleared via "Remove color" — persist the clearing
+      await saveField({ vehicleColor: '' });
+    }
     setSaving(false);
     setDone(true);
     setSavedPartial(false);
-  };
-
-  const handleSkipColor = async () => {
-    setSaving(true);
-    await saveField({ vehicleColor: '' });
-    setSaving(false);
-    setDone(true);
-    setSavedPartial(true);
   };
 
   const handleClearVehicle = async () => {
@@ -255,12 +275,6 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
   // ── Skip handler ──
 
   const handleSkip = () => {
-    // On color step, type+brand already saved — go to done/partial instead of interstitial
-    if (step === 2) {
-      setDone(true);
-      setSavedPartial(true);
-      return;
-    }
     if (onSkip) setShowSkip(true);
     else onBack();
   };
@@ -331,13 +345,17 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
         <div className="flex-1 flex justify-center">
           <SubstepIndicator />
         </div>
-        <button
-          onClick={handleSkip}
-          aria-label={t('vehicle.skip_for_now')}
-          className="min-h-[44px] min-w-[44px] flex items-center justify-end px-1 text-[13px] font-semibold text-[var(--color-text-secondary)] active:opacity-60 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-lg"
-        >
-          {t('vehicle.skip_for_now')}
-        </button>
+        {step !== 2 ? (
+          <button
+            onClick={handleSkip}
+            aria-label={t('vehicle.skip_for_now')}
+            className="min-h-[44px] min-w-[44px] flex items-center justify-end px-1 text-[13px] font-semibold text-[var(--color-text-secondary)] active:opacity-60 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-lg"
+          >
+            {t('vehicle.skip_for_now')}
+          </button>
+        ) : (
+          <div className="w-11 h-11" aria-hidden="true" />
+        )}
       </div>
     </div>
   );
@@ -716,69 +734,143 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
   // STEP 2 — Color
   // ═══════════════════════════════════════════
 
+  const colorDisplayLabel =
+    vehicleColor === CUSTOM_COLOR_KEY ? customColorText
+    : vehicleColor ? (clabels[vehicleColor] ?? vehicleColor)
+    : null;
+
   return (
-    <div className="min-h-full bg-[var(--color-bg)] text-[var(--color-text)] pt-4 pb-20 px-4">
-      <div className="max-w-md mx-auto flex flex-col">
+    <div className="h-full bg-[var(--color-bg)] text-[var(--color-text)] flex flex-col px-4 pt-4">
+      <div className="max-w-md mx-auto w-full flex-1 flex flex-col min-h-0">
         <Header />
 
-        <h2 ref={headingRef} tabIndex={-1} className="text-2xl font-bold mb-1 focus:outline-none">
-          {t('vehicle.color_optional')}
-        </h2>
-        <p className="text-sm text-[var(--color-text-secondary)] mb-6">
-          {t('vehicle.step_color')}
-        </p>
+        {/* Scrollable content */}
+        <div className="flex-1 overflow-y-auto min-h-0 pb-2">
 
-        {/* Live preview */}
-        <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl px-4 py-4 flex items-center gap-3.5 mb-6">
-          <VehicleIcon type={vehicleType} color={vehicleColor} size={28} />
-          <div>
-            <p className="text-sm font-bold text-[var(--color-text)]">
-              {[vehicleColor ? (clabels[vehicleColor] ?? vehicleColor) : '', vehicleBrand === CUSTOM_BRAND_KEY ? customBrandText : vehicleBrand].filter(Boolean).join(' ')}
-              {vehicleType ? <span className="text-[var(--color-text-secondary)] font-normal"> · {tlabels[vehicleType] ?? vehicleType}</span> : null}
-            </p>
-            <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('vehicle.preview_label')}</p>
-          </div>
-        </div>
+          <h2 ref={headingRef} tabIndex={-1} className="text-2xl font-bold mb-1 focus:outline-none">
+            {t('vehicle.color_headline')}
+          </h2>
+          <p className="text-sm text-[var(--color-text-secondary)] mb-5">
+            {t('vehicle.color_supporting')}
+          </p>
 
-        {/* Color swatches */}
-        <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl overflow-hidden mb-4">
-          <div className="px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]">
-            <p className="text-xs font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
-              {t('vehicle.color_label')}
-              {vehicleColor && <span className="ml-1.5 text-[#38bdf8] normal-case font-semibold tracking-normal">— {clabels[vehicleColor] ?? vehicleColor}</span>}
-            </p>
+          {/* Live preview */}
+          <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl px-4 py-4 flex items-center gap-3.5 mb-5">
+            <VehicleIcon
+              type={vehicleType}
+              color={vehicleColor === CUSTOM_COLOR_KEY ? customColorText : vehicleColor}
+              size={28}
+            />
+            <div>
+              <p className="text-sm font-bold text-[var(--color-text)]">
+                {[
+                  colorDisplayLabel,
+                  vehicleBrand === CUSTOM_BRAND_KEY ? customBrandText : vehicleBrand,
+                ].filter(Boolean).join(' ')}
+                {vehicleType ? <span className="text-[var(--color-text-secondary)] font-normal"> · {tlabels[vehicleType] ?? vehicleType}</span> : null}
+              </p>
+              <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('vehicle.preview_label')}</p>
+            </div>
           </div>
-          <div className="px-4 py-4 grid grid-cols-7 gap-3">
-            {COLORS.map(c => (
-              <button
-                key={c.name}
-                onClick={() => setVehicleColor(vehicleColor === c.name ? '' : c.name)}
-                aria-label={clabels[c.name] ?? c.name}
-                aria-pressed={vehicleColor === c.name}
-                className="flex flex-col items-center gap-1 group"
-              >
-                <div
-                  className="w-8 h-8 rounded-full transition-all duration-150 active:scale-90"
-                  style={{
-                    backgroundColor: c.hex,
-                    boxShadow: vehicleColor === c.name
-                      ? '0 0 0 2px var(--color-bg), 0 0 0 4px #1e75ff'
-                      : '0 0 0 1px rgba(255,255,255,0.12)',
-                  }}
+
+          {/* Color grid */}
+          <div
+            className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl overflow-hidden mb-4"
+            role="radiogroup"
+            aria-label={t('vehicle.color_label')}
+          >
+            <div className="px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]">
+              <p className="text-xs font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
+                {t('vehicle.color_label')}
+                {colorDisplayLabel && (
+                  <span className="ml-1.5 text-[#38bdf8] normal-case font-semibold tracking-normal">
+                    — {colorDisplayLabel}
+                  </span>
+                )}
+              </p>
+            </div>
+            <div className="px-4 py-4 grid grid-cols-4 gap-3">
+              {COLORS.map(c => {
+                const isSelected = c.name === 'Other'
+                  ? vehicleColor === CUSTOM_COLOR_KEY
+                  : vehicleColor === c.name;
+                return (
+                  <button
+                    key={c.name}
+                    role="radio"
+                    aria-checked={isSelected}
+                    aria-label={clabels[c.name] ?? c.name}
+                    onClick={() => {
+                      if (c.name === 'Other') {
+                        setVehicleColor(vehicleColor === CUSTOM_COLOR_KEY ? '' : CUSTOM_COLOR_KEY);
+                      } else {
+                        setVehicleColor(vehicleColor === c.name ? '' : c.name);
+                      }
+                    }}
+                    className="flex flex-col items-center gap-1.5 group"
+                  >
+                    <div
+                      className="w-10 h-10 rounded-full transition-all duration-150 active:scale-90"
+                      style={c.hex === 'other' ? {
+                        background: 'conic-gradient(#DC2626, #EAB308, #16A34A, #2563EB, #7C3AED, #DC2626)',
+                        boxShadow: isSelected
+                          ? '0 0 0 2px var(--color-bg), 0 0 0 4px #1e75ff'
+                          : '0 0 0 1px rgba(255,255,255,0.12)',
+                      } : {
+                        backgroundColor: c.hex,
+                        boxShadow: isSelected
+                          ? '0 0 0 2px var(--color-bg), 0 0 0 4px #1e75ff'
+                          : '0 0 0 1px rgba(255,255,255,0.12)',
+                      }}
+                    />
+                    <span className="text-[10px] text-[var(--color-text-secondary)] leading-none text-center">
+                      {clabels[c.name] ?? c.name}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Custom color input — shown when Other is selected */}
+            {vehicleColor === CUSTOM_COLOR_KEY && (
+              <div className="px-4 pb-4 pt-3 border-t border-[var(--color-border)]">
+                <label className="text-xs font-semibold text-[var(--color-text-secondary)] mb-1.5 block">
+                  {t('vehicle.color_custom_label')}
+                </label>
+                <input
+                  ref={customColorRef}
+                  type="text"
+                  value={customColorText}
+                  onChange={e => setCustomColorText(e.target.value.slice(0, 30))}
+                  placeholder={t('vehicle.color_custom_placeholder')}
+                  maxLength={30}
+                  className="w-full px-3 py-2.5 rounded-xl bg-[var(--color-bg)] border border-[var(--color-border)] text-[var(--color-text)] text-sm placeholder:text-[var(--color-text-secondary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                 />
-                <span className="text-[10px] text-[var(--color-text-secondary)] leading-none">{clabels[c.name] ?? c.name}</span>
-              </button>
-            ))}
+              </div>
+            )}
           </div>
+
+          {/* Remove color — only when a color is actively selected */}
+          {vehicleColor && (
+            <button
+              onClick={() => { setVehicleColor(''); setCustomColorText(''); }}
+              className="w-full py-3 text-sm font-semibold text-[var(--color-text-secondary)] active:opacity-60 transition-opacity"
+            >
+              {t('vehicle.color_remove')}
+            </button>
+          )}
         </div>
 
-        <button
-          onClick={handleSaveWithColor}
-          disabled={saving}
-          className="w-full py-3.5 rounded-xl bg-[#1e75ff] text-white font-bold text-sm active:scale-[0.98] transition-all disabled:opacity-40"
-        >
-          {saving ? t('vehicle.saving') : t('vehicle.save_vehicle')}
-        </button>
+        {/* Anchored Save */}
+        <div className="pt-3 pb-4">
+          <button
+            onClick={handleSaveWithColor}
+            disabled={saving}
+            className="w-full py-3.5 rounded-xl bg-[#1e75ff] text-white font-bold text-sm active:scale-[0.98] transition-all disabled:opacity-40"
+          >
+            {saving ? t('vehicle.saving') : t('vehicle.save_vehicle')}
+          </button>
+        </div>
       </div>
     </div>
   );
