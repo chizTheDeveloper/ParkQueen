@@ -44,6 +44,9 @@ export enum AppView {
   EDIT_VEHICLE = 'edit-vehicle',
   ADMIN_LOGIN = 'admin-login',
   LOCATION_PROMPT = 'location-prompt',
+  NOTIFICATIONS_SETTINGS = 'notifications-settings',
+  LOCATION_SETTINGS = 'location-settings',
+  LANGUAGE_SETTINGS = 'language-settings',
 }
 
 export interface StreetSpot {

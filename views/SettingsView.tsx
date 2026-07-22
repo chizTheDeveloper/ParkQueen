@@ -1,12 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useFocusOnMount } from '../hooks/useFocusOnMount';
-import { ChevronLeft, ChevronRight, Edit, Mail, Bell, Moon, LogOut, Trash2, Check, Navigation, ScanLine, Play, Globe, Shield, FileText, MessageCircle } from 'lucide-react';
-import { t, useLang, setLang, getLang } from '../i18n';
+import { ChevronLeft, ChevronRight, Edit, Mail, Bell, Moon, LogOut, Trash2, Check, Navigation, Play, Globe, Shield, FileText, MessageCircle } from 'lucide-react';
+import { t, useLang, getLang } from '../i18n';
 import { doc, updateDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getApp } from 'firebase/app';
 import { db } from '../firebase';
 import { AppView } from '../types';
+import { getNotificationsSummaryState, getLocationSummaryState } from '../utils/settingsSummary';
+import type { LocationPermissionState } from '../utils/nearbyActivity';
 
 interface SettingsViewProps {
     user: any;
@@ -16,6 +18,7 @@ interface SettingsViewProps {
     onDeleteAccount: () => void;
     theme: string;
     toggleTheme: () => void;
+    permissionState?: LocationPermissionState;
 }
 
 const Toggle = ({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) => (
@@ -24,11 +27,8 @@ const Toggle = ({ checked, onChange }: { checked: boolean; onChange: (v: boolean
     </button>
 );
 
-export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBack, onLogout, onDeleteAccount, theme, toggleTheme }) => {
+export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBack, onLogout, onDeleteAccount, theme, toggleTheme, permissionState }) => {
     useLang();
-    const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(user?.notificationsEnabled ?? true);
-    const [notificationRadius, setNotificationRadius] = useState<number>(user?.notificationRadius ?? 1);
-    const [sharePreciseLocation, setSharePreciseLocation] = useState<boolean>(user?.sharePreciseLocation ?? true);
     const [emailStep, setEmailStep] = useState<'view' | 'input' | 'otp'>('view');
     const [emailDraft, setEmailDraft] = useState(user?.email || '');
     const [otpDigits, setOtpDigits] = useState<string[]>(Array(6).fill(''));
@@ -87,11 +87,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
         if (e.key === 'Backspace' && !otpDigits[index] && index > 0) otpRefs.current[index - 1]?.focus();
     };
 
-    const updatePref = (field: string, value: boolean | number) => {
-        if (user?.id) {
-            updateDoc(doc(db, 'users', user.id), { [field]: value }).catch(e => console.warn(`Failed to update ${field}`, e));
-        }
-    };
+    const notifSummary = getNotificationsSummaryState(user?.notificationsEnabled ?? true, user?.notificationRadius ?? 1);
+    const locSummary = permissionState
+        ? getLocationSummaryState(permissionState, user?.sharePreciseLocation ?? true)
+        : null;
 
     return (
         <div className="min-h-full bg-[var(--color-bg)] text-[var(--color-text)] pt-4 pb-20 px-4">
@@ -203,54 +202,38 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                         </div>
                         <div className="divide-y divide-[var(--color-border)]">
 
-                            {/* Notifications toggle */}
-                            <div className="w-full p-4 flex items-center justify-between">
+                            {/* Notifications → dedicated view */}
+                            <button onClick={() => setView(AppView.NOTIFICATIONS_SETTINGS)} className="w-full p-4 flex items-center justify-between text-left hover:bg-white/5 active:bg-white/10 transition-colors">
                                 <div className="flex items-center gap-3.5">
                                     <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><Bell size={18} /></div>
                                     <div>
                                         <h4 className="font-bold text-[var(--color-text)] text-sm">{t('settings.notifications')}</h4>
-                                        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('settings.notifications_subtitle')}</p>
+                                        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">
+                                            {t(notifSummary.statusKey)}
+                                            {notifSummary.showRadius && `${t('settings.location_summary_separator')}${notifSummary.radius} mi`}
+                                        </p>
                                     </div>
                                 </div>
-                                <Toggle checked={notificationsEnabled} onChange={(v) => { setNotificationsEnabled(v); updatePref('notificationsEnabled', v); }} />
-                            </div>
+                                <ChevronRight size={16} className="text-[var(--color-text-secondary)]" />
+                            </button>
 
-                            {/* Notification radius */}
-                            <div className="w-full p-4">
-                                <div className="flex items-center gap-3.5 mb-3">
-                                    <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><ScanLine size={18} /></div>
-                                    <div>
-                                        <h4 className="font-bold text-[var(--color-text)] text-sm">{t('settings.notif_radius')}</h4>
-                                        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('settings.notif_radius_subtitle')}</p>
-                                    </div>
-                                </div>
-                                <div className="flex gap-2">
-                                    {[0.5, 1, 2, 5].map(r => (
-                                        <button key={r} onClick={() => { setNotificationRadius(r); updatePref('notificationRadius', r); }}
-                                            className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 ${
-                                                notificationRadius === r
-                                                    ? 'bg-[#1e75ff] text-white'
-                                                    : 'bg-white/5 border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-white/10'
-                                            }`}>
-                                            {r} mi
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Share precise location */}
-                            <div className="w-full p-4 flex items-center justify-between">
+                            {/* Location → dedicated view */}
+                            <button onClick={() => setView(AppView.LOCATION_SETTINGS)} className="w-full p-4 flex items-center justify-between text-left hover:bg-white/5 active:bg-white/10 transition-colors">
                                 <div className="flex items-center gap-3.5">
                                     <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><Navigation size={18} /></div>
                                     <div>
-                                        <h4 className="font-bold text-[var(--color-text)] text-sm">{t('settings.precise_location')}</h4>
-                                        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('settings.precise_location_subtitle')}</p>
+                                        <h4 className="font-bold text-[var(--color-text)] text-sm">{t('settings.location')}</h4>
+                                        {locSummary && (
+                                            <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">
+                                                {t(locSummary.permissionKey)}{t('settings.location_summary_separator')}{t(locSummary.preciseKey)}
+                                            </p>
+                                        )}
                                     </div>
                                 </div>
-                                <Toggle checked={sharePreciseLocation} onChange={(v) => { setSharePreciseLocation(v); updatePref('sharePreciseLocation', v); }} />
-                            </div>
+                                <ChevronRight size={16} className="text-[var(--color-text-secondary)]" />
+                            </button>
 
-                            {/* Dark theme */}
+                            {/* Appearance — inline toggle */}
                             <div className="w-full p-4 flex items-center justify-between">
                                 <div className="flex items-center gap-3.5">
                                     <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><Moon size={18} /></div>
@@ -262,24 +245,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                                 <Toggle checked={theme === 'dark'} onChange={toggleTheme} />
                             </div>
 
-                            {/* Language */}
-                            <button
-                                onClick={() => {
-                                    const next = getLang() === 'en' ? 'es' : 'en';
-                                    setLang(next);
-                                    if (user?.id) {
-                                        updateDoc(doc(db, 'users', user.id), { lang: next }).catch(() => {});
-                                    }
-                                }}
-                                className="w-full p-4 flex items-center justify-between text-left hover:bg-white/5 active:bg-white/10 transition-colors"
-                                aria-label={t('settings.language_toggle_aria')}
-                            >
+                            {/* Language → dedicated view */}
+                            <button onClick={() => setView(AppView.LANGUAGE_SETTINGS)} className="w-full p-4 flex items-center justify-between text-left hover:bg-white/5 active:bg-white/10 transition-colors">
                                 <div className="flex items-center gap-3.5">
                                     <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><Globe size={18} /></div>
                                     <div>
-                                        <h4 className="font-bold text-[var(--color-text)] text-sm">{t('settings.language.title')}</h4>
+                                        <h4 className="font-bold text-[var(--color-text)] text-sm">{t('settings.language')}</h4>
                                         <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">
-                                            {getLang() === 'en' ? t('language.english') : t('language.spanish')}
+                                            {getLang() === 'en' ? t('settings.language_english') : t('settings.language_spanish')}
                                         </p>
                                     </div>
                                 </div>

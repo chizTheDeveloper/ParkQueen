@@ -8,6 +8,7 @@ import { VehicleIcon } from '../utils/vehicleIcon';
 import { AppView } from '../types';
 import { getNextTitle, getTierForCrowns, TIER_VISUALS, getProgressPct } from '../utils/crowns';
 import { getInitials } from '../utils/profileAvatar';
+import { deriveImpactCounts } from '../utils/profileImpact';
 import { t, useLang, getLang } from '../i18n';
 
 export const ProfileView = ({ user, onBack, setView }) => {
@@ -18,6 +19,8 @@ export const ProfileView = ({ user, onBack, setView }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const [recentActivity, setRecentActivity] = useState<{ id: string; icon: string; actionKey: string; address: string; ts: number; reward: string | null }[]>([]);
+  const [impactState, setImpactState] = useState<'loading' | 'loaded' | 'error'>('loading');
+  const [impactCounts, setImpactCounts] = useState({ pingsShared: 0, successfulHandoffs: 0, spotsFound: 0 });
   const [showCrownsInfo, setShowCrownsInfo] = useState(false);
   useFocusOnMount(headingRef);
 
@@ -50,31 +53,42 @@ export const ProfileView = ({ user, onBack, setView }) => {
   useEffect(() => {
     if (!user?.id) return;
     const fetchActivity = async () => {
-      const items: { id: string; icon: string; actionKey: string; address: string; reward: string | null; ts: number }[] = [];
+      try {
+        const items: { id: string; icon: string; actionKey: string; address: string; reward: string | null; ts: number }[] = [];
 
-      const spotsSnap = await getDocs(query(collection(db, 'spots'), where('finderId', '==', user.id)));
-      spotsSnap.docs.forEach(d => {
-        const s = d.data();
-        const ts = s.reportedAt?.toMillis?.() || 0;
-        const addr = s.address || '';
-        if (s.status === 'occupied') {
-          items.push({ id: `f-${d.id}`, icon: 'handshake', actionKey: 'profile.activity_helped_driver', address: addr, reward: '+2', ts });
-        } else if (s.pingMode === 'later') {
-          items.push({ id: `f-${d.id}`, icon: 'clock', actionKey: 'profile.activity_scheduled', address: addr, reward: null, ts });
-        } else {
-          items.push({ id: `f-${d.id}`, icon: 'pin', actionKey: 'profile.activity_pinged', address: addr, reward: null, ts });
-        }
-      });
+        const spotsSnap = await getDocs(query(collection(db, 'spots'), where('finderId', '==', user.id)));
+        const allSpots = spotsSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
 
-      const fbSnap = await getDocs(query(collection(db, 'spotFeedback'), where('userId', '==', user.id)));
-      fbSnap.docs.forEach(d => {
-        const f = d.data();
-        const ts = f.createdAt?.toMillis?.() || 0;
-        items.push({ id: `d-${d.id}`, icon: 'parking', actionKey: 'profile.activity_parked', address: f.address || '', reward: '+1', ts });
-      });
+        allSpots.forEach(s => {
+          const ts = s.reportedAt?.toMillis?.() || 0;
+          const addr = s.address || '';
+          if (s.status === 'occupied') {
+            items.push({ id: `f-${s.id}`, icon: 'handshake', actionKey: 'profile.activity_helped_driver', address: addr, reward: '+2', ts });
+          } else if (s.pingMode === 'later') {
+            items.push({ id: `f-${s.id}`, icon: 'clock', actionKey: 'profile.activity_scheduled', address: addr, reward: null, ts });
+          } else {
+            items.push({ id: `f-${s.id}`, icon: 'pin', actionKey: 'profile.activity_pinged', address: addr, reward: null, ts });
+          }
+        });
 
-      items.sort((a, b) => b.ts - a.ts);
-      setRecentActivity(items.slice(0, 3));
+        const fbSnap = await getDocs(query(collection(db, 'spotFeedback'), where('userId', '==', user.id)));
+        const allFeedback = fbSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+
+        allFeedback.forEach(f => {
+          const ts = f.createdAt?.toMillis?.() || 0;
+          items.push({ id: `d-${f.id}`, icon: 'parking', actionKey: 'profile.activity_parked', address: f.address || '', reward: '+1', ts });
+        });
+
+        // Compute impact from all docs before slicing
+        const counts = deriveImpactCounts(allSpots, allFeedback);
+        setImpactCounts(counts);
+        setImpactState('loaded');
+
+        items.sort((a, b) => b.ts - a.ts);
+        setRecentActivity(items.slice(0, 3));
+      } catch {
+        setImpactState('error');
+      }
     };
     fetchActivity();
   }, [user?.id]);
@@ -151,6 +165,9 @@ export const ProfileView = ({ user, onBack, setView }) => {
   const pct = getProgressPct(crowns);
   const initials = getInitials(user?.username, user?.fullName);
 
+  const hasImpact = impactState === 'loaded' &&
+    (impactCounts.pingsShared > 0 || impactCounts.successfulHandoffs > 0 || impactCounts.spotsFound > 0);
+
   return (
     <div className="min-h-full bg-[var(--color-bg)] text-[var(--color-text)] pt-4 pb-20 px-4">
       {user ? (
@@ -181,31 +198,30 @@ export const ProfileView = ({ user, onBack, setView }) => {
             </button>
           </div>
 
-          {/* ── Cards ──────────────────────────────────────────────────── */}
           <div className="space-y-3">
 
-            {/* Identity + Reputation Hero */}
+            {/* ── Identity Card ──────────────────────────────────────── */}
             <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-[22px] overflow-hidden">
-              <div className="flex flex-col items-center text-center px-4 pt-5 pb-4">
+              <div className="flex items-center gap-4 px-4 py-4">
 
                 {/* Avatar */}
-                <div className="relative mb-2">
+                <div className="relative shrink-0">
                   <div
-                    className="w-[108px] h-[108px] rounded-full border-[3px] border-[#1e75ff] overflow-hidden shrink-0 relative flex items-center justify-center shadow-lg shadow-[#1e75ff]/20"
+                    className="w-[92px] h-[92px] rounded-full border-[3px] border-[#1e75ff] overflow-hidden flex items-center justify-center shadow-lg shadow-[#1e75ff]/20"
                     aria-hidden="true"
                   >
                     {user.avatarUrl ? (
                       <img src={user.avatarUrl} alt="" className="w-full h-full object-cover" />
                     ) : initials ? (
                       <span
-                        className="text-[36px] font-extrabold text-white select-none leading-none"
+                        className="text-[30px] font-extrabold text-white select-none leading-none"
                         style={{ background: 'linear-gradient(135deg, #0d1a2e 0%, #1e3a5f 100%)', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                       >
                         {initials}
                       </span>
                     ) : (
                       <div className="w-full h-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #0d1a2e 0%, #1e3a5f 100%)' }}>
-                        <svg viewBox="0 0 24 24" fill="none" className="w-12 h-12 text-[#38bdf8]/60" stroke="currentColor" strokeWidth={1.5}>
+                        <svg viewBox="0 0 24 24" fill="none" className="w-10 h-10 text-[#38bdf8]/60" stroke="currentColor" strokeWidth={1.5}>
                           <circle cx="12" cy="8" r="4" />
                           <path d="M4 20c0-4 3.58-7 8-7s8 3 8 7" strokeLinecap="round" />
                         </svg>
@@ -213,121 +229,141 @@ export const ProfileView = ({ user, onBack, setView }) => {
                     )}
                     {isUploading && (
                       <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                        <div className="animate-spin motion-reduce:animate-none rounded-full h-8 w-8 border-b-2 border-white" />
+                        <div className="animate-spin motion-reduce:animate-none rounded-full h-7 w-7 border-b-2 border-white" />
                       </div>
                     )}
                   </div>
 
-                  {/* Edit badge — 44px touch target, 28px visual */}
+                  {/* Edit badge */}
                   <button
                     onClick={triggerUpload}
                     disabled={isUploading}
                     aria-label={t('profile.upload_photo_aria')}
-                    className="absolute -bottom-2 -right-2 w-11 h-11 flex items-end justify-end pb-0.5 pr-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="absolute -bottom-1 -right-1 w-10 h-10 flex items-end justify-end pb-0.5 pr-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <div className="w-7 h-7 rounded-full bg-[#1e75ff] border-2 border-[var(--color-bg)] flex items-center justify-center text-white shadow-md hover:bg-blue-600 active:scale-95 transition-all pointer-events-none">
-                      <Edit size={12} />
+                    <div className="w-6 h-6 rounded-full bg-[#1e75ff] border-2 border-[var(--color-bg)] flex items-center justify-center text-white shadow-md hover:bg-blue-600 active:scale-95 transition-all pointer-events-none">
+                      <Edit size={11} />
                     </div>
                   </button>
 
                   <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" className="hidden" />
                 </div>
 
-                {/* Username */}
-                <h3 className="text-[20px] font-extrabold text-[var(--color-text)] leading-tight">
-                  {user.username?.startsWith('user_') ? (user.fullName || t('profile.username_fallback')) : (user.username || user.fullName || t('profile.username_fallback'))}
-                </h3>
+                {/* Identity text */}
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-[18px] font-extrabold text-[var(--color-text)] leading-tight truncate">
+                    {user.username?.startsWith('user_') ? (user.fullName || t('profile.username_fallback')) : (user.username || user.fullName || t('profile.username_fallback'))}
+                  </h3>
 
-                {/* Complete profile nudge */}
-                {user.username?.startsWith('user_') && (
-                  <button
-                    onClick={() => setView(AppView.EDIT_PROFILE)}
-                    className="mt-1.5 px-3 py-1 rounded-full bg-[#1e75ff]/15 border border-[#1e75ff]/30 text-[#38bdf8] text-xs font-semibold active:scale-95 transition-transform"
-                  >
-                    {t('profile.complete_profile')}
-                  </button>
-                )}
+                  {user.username?.startsWith('user_') && (
+                    <button
+                      onClick={() => setView(AppView.EDIT_PROFILE)}
+                      className="mt-1 px-2.5 py-0.5 rounded-full bg-[#1e75ff]/15 border border-[#1e75ff]/30 text-[#38bdf8] text-xs font-semibold active:scale-95 transition-transform"
+                    >
+                      {t('profile.complete_profile')}
+                    </button>
+                  )}
 
-                {/* Title · Joined */}
-                <p className="text-[12px] text-[var(--color-text-secondary)] mt-1 leading-snug">
-                  <span className="font-semibold" style={{ color: visual.textColor }}>
-                    {user.title || t('profile.newcomer')}
-                  </span>
                   {(() => {
                     const ts = user.createdAt;
                     if (!ts) return null;
                     const d = typeof ts.toDate === 'function' ? ts.toDate() : new Date(ts);
                     const locale = getLang() === 'es' ? 'es' : 'en-US';
                     return (
-                      <span>
-                        {' · '}
+                      <p className="text-xs text-[var(--color-text-secondary)] mt-1">
                         {t('profile.joined', { date: d.toLocaleDateString(locale, { month: 'long', year: 'numeric' }) })}
-                      </span>
+                      </p>
                     );
                   })()}
-                </p>
 
-                {/* ── Reputation module ─────────────────────────────── */}
-                <div className="w-full mt-4 pt-4 border-t border-[var(--color-border)]">
-
-                  {/* Crown count + info */}
-                  <div className="flex items-center justify-center gap-1.5 mb-2.5">
-                    <Crown size={15} className="text-yellow-400 shrink-0" aria-hidden="true" />
-                    <span className="text-[13px] font-bold text-[var(--color-text)]">
-                      {crowns !== 1 ? t('profile.crowns_plural', { count: crowns }) : t('profile.crowns_singular', { count: crowns })}
-                    </span>
-                    <button
-                      onClick={() => setShowCrownsInfo(true)}
-                      aria-label={t('profile.crowns_what_are')}
-                      className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors active:scale-90 p-1"
-                    >
-                      <Info size={13} />
-                    </button>
-                  </div>
-
-                  {/* Progress bar */}
-                  {next ? (
-                    <>
-                      <div
-                        role="progressbar"
-                        aria-valuenow={Math.round(pct)}
-                        aria-valuemin={0}
-                        aria-valuemax={100}
-                        aria-label={`${crowns} ${crowns !== 1 ? t('profile.crowns_plural', { count: crowns }) : t('profile.crowns_singular', { count: crowns })} — ${next.crownsNeeded} ${t('profile.crowns_until_next')} ${next.title}`}
-                        className="w-full max-w-[260px] mx-auto h-1.5 bg-white/10 rounded-full overflow-hidden"
-                      >
-                        <div
-                          className="h-full rounded-full transition-[width] duration-700 motion-reduce:transition-none"
-                          style={{
-                            width: `${Math.min(pct, 100)}%`,
-                            background: 'linear-gradient(90deg, #1e75ff, #38bdf8)',
-                          }}
-                        />
-                      </div>
-                      <p className="text-[11px] text-[var(--color-text-secondary)] mt-1.5">
-                        <span className="font-semibold text-[var(--color-text)]">{next.crownsNeeded}</span>{' '}
-                        {t('profile.crowns_until_next')}{' '}
-                        <span className="font-semibold" style={{ color: TIER_VISUALS[next.tier].textColor }}>
-                          {next.title}
-                        </span>
-                      </p>
-                    </>
-                  ) : (
-                    <p className="text-xs font-bold text-[#38bdf8]">{t('profile.max_rank')}</p>
+                  {uploadStatus && (
+                    <p aria-live="polite" className={`text-xs mt-1 font-semibold ${uploadError ? 'text-red-400' : 'text-blue-400'}`}>
+                      {uploadStatus}
+                    </p>
                   )}
                 </div>
-
-                {/* Upload status */}
-                <p
-                  aria-live="polite"
-                  className={`text-xs mt-2 font-semibold min-h-[16px] ${uploadError ? 'text-red-400' : 'text-blue-400'}`}
-                >
-                  {uploadStatus}
-                </p>
               </div>
             </div>
 
-            {/* Vehicle Card */}
+            {/* ── Community Progress Card ────────────────────────────── */}
+            <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-[22px] overflow-hidden">
+              <div className="px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]">
+                <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">{t('profile.section_progress')}</p>
+              </div>
+              <div className="px-4 py-4 flex flex-col items-center text-center">
+
+                {/* Rank title */}
+                <p className="text-sm font-bold leading-tight" style={{ color: visual.textColor }}>
+                  {user.title || t('profile.newcomer')}
+                </p>
+
+                {/* Crown count + info */}
+                <div className="flex items-center gap-1.5 mt-2">
+                  <Crown size={14} className="text-yellow-400 shrink-0" aria-hidden="true" />
+                  <span className="text-[13px] font-bold text-[var(--color-text)]">
+                    {crowns !== 1 ? t('profile.crowns_plural', { count: crowns }) : t('profile.crowns_singular', { count: crowns })}
+                  </span>
+                  <button
+                    onClick={() => setShowCrownsInfo(true)}
+                    aria-label={t('profile.crowns_what_are')}
+                    className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors active:scale-90 p-1"
+                  >
+                    <Info size={13} />
+                  </button>
+                </div>
+
+                {/* Progress bar */}
+                {next ? (
+                  <div className="w-full mt-3">
+                    <div
+                      role="progressbar"
+                      aria-valuenow={Math.round(pct)}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-label={`${crowns} ${crowns !== 1 ? t('profile.crowns_plural', { count: crowns }) : t('profile.crowns_singular', { count: crowns })} — ${next.crownsNeeded} ${t('profile.crowns_until_next')} ${next.title}`}
+                      className="w-full max-w-[260px] mx-auto h-1.5 bg-white/10 rounded-full overflow-hidden"
+                    >
+                      <div
+                        className="h-full rounded-full transition-[width] duration-700 motion-reduce:transition-none"
+                        style={{ width: `${Math.min(pct, 100)}%`, background: 'linear-gradient(90deg, #1e75ff, #38bdf8)' }}
+                      />
+                    </div>
+                    <p className="text-[11px] text-[var(--color-text-secondary)] mt-1.5">
+                      <span className="font-semibold text-[var(--color-text)]">{next.crownsNeeded}</span>{' '}
+                      {t('profile.crowns_until_next')}{' '}
+                      <span className="font-semibold" style={{ color: TIER_VISUALS[next.tier].textColor }}>{next.title}</span>
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-xs font-bold text-[#38bdf8] mt-2">{t('profile.max_rank')}</p>
+                )}
+              </div>
+            </div>
+
+            {/* ── Impact Card (only after load, only if nonzero) ─────── */}
+            {hasImpact && (
+              <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-[22px] overflow-hidden">
+                <div className="px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]">
+                  <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">{t('profile.section_impact')}</p>
+                </div>
+                <div className="px-4 py-4 grid grid-cols-3 gap-3">
+                  <div className="flex flex-col items-center text-center">
+                    <span className="text-[22px] font-extrabold text-[var(--color-text)] leading-none">{impactCounts.pingsShared}</span>
+                    <span className="text-[10px] text-[var(--color-text-secondary)] mt-1 leading-snug">{t('profile.pings_shared')}</span>
+                  </div>
+                  <div className="flex flex-col items-center text-center border-x border-[var(--color-border)]">
+                    <span className="text-[22px] font-extrabold text-[var(--color-text)] leading-none">{impactCounts.successfulHandoffs}</span>
+                    <span className="text-[10px] text-[var(--color-text-secondary)] mt-1 leading-snug">{t('profile.successful_handoffs')}</span>
+                  </div>
+                  <div className="flex flex-col items-center text-center">
+                    <span className="text-[22px] font-extrabold text-[var(--color-text)] leading-none">{impactCounts.spotsFound}</span>
+                    <span className="text-[10px] text-[var(--color-text-secondary)] mt-1 leading-snug">{t('profile.spots_found')}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Vehicle Card ───────────────────────────────────────── */}
             <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-[20px] overflow-hidden">
               <div className="px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]">
                 <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">{t('profile.section_vehicle')}</p>
@@ -372,7 +408,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
               </button>
             )}
 
-            {/* Recent Activity Card */}
+            {/* ── Recent Activity Card ───────────────────────────────── */}
             <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-[20px] overflow-hidden">
               <div className="px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]">
                 <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">{t('profile.section_activity')}</p>
@@ -436,12 +472,8 @@ export const ProfileView = ({ user, onBack, setView }) => {
                 {t('profile.crowns_modal_title')}
               </h3>
             </div>
-            <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed">
-              {t('profile.crowns_modal_body1')}
-            </p>
-            <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed">
-              {t('profile.crowns_modal_body2')}
-            </p>
+            <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed">{t('profile.crowns_modal_body1')}</p>
+            <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed">{t('profile.crowns_modal_body2')}</p>
             <button
               onClick={() => setShowCrownsInfo(false)}
               className="w-full py-3 rounded-xl bg-white/8 border border-[var(--color-border)] text-sm font-bold text-[var(--color-text)] hover:bg-white/12 active:scale-[0.98] transition-all"

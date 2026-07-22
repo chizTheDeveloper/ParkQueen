@@ -13,6 +13,9 @@ const AssistantView = lazy(() => import('./views/AssistantView').then(m => ({ de
 const MessagesView = lazy(() => import('./views/MessagesView').then(m => ({ default: m.MessagesView })));
 const ProfileView = lazy(() => import('./views/ProfileView').then(m => ({ default: m.ProfileView })));
 const NotificationsView = lazy(() => import('./views/NotificationsView').then(m => ({ default: m.NotificationsView })));
+const NotificationsSettingsView = lazy(() => import('./views/NotificationsSettingsView').then(m => ({ default: m.NotificationsSettingsView })));
+const LocationSettingsView = lazy(() => import('./views/LocationSettingsView').then(m => ({ default: m.LocationSettingsView })));
+const LanguageSettingsView = lazy(() => import('./views/LanguageSettingsView').then(m => ({ default: m.LanguageSettingsView })));
 const CreateAccountView = lazy(() => import('./views/CreateAccountView').then(m => ({ default: m.CreateAccountView })));
 const SetupProfileView = lazy(() => import('./views/SetupProfileView').then(m => ({ default: m.SetupProfileView })));
 const VerifyPhoneView = lazy(() => import('./views/VerifyPhoneView').then(m => ({ default: m.VerifyPhoneView })));
@@ -388,7 +391,13 @@ export default function App() {
       case AppView.PROFILE:
         return <ProfileView user={user} setView={setCurrentView} onBack={() => setCurrentView(AppView.MAP)} />;
       case AppView.SETTINGS:
-        return <SettingsView user={user} setView={setCurrentView} onBack={() => setCurrentView(AppView.PROFILE)} onLogout={handleLogout} onDeleteAccount={handleDeleteAccount} theme={theme} toggleTheme={toggleTheme} />;
+        return <SettingsView user={user} setView={setCurrentView} onBack={() => setCurrentView(AppView.PROFILE)} onLogout={handleLogout} onDeleteAccount={handleDeleteAccount} theme={theme} toggleTheme={toggleTheme} permissionState={nearbyPermissionState(locationAccess)} />;
+      case AppView.NOTIFICATIONS_SETTINGS:
+        return <NotificationsSettingsView user={user} onBack={() => setCurrentView(AppView.SETTINGS)} />;
+      case AppView.LOCATION_SETTINGS:
+        return <LocationSettingsView user={user} onBack={() => setCurrentView(AppView.SETTINGS)} permissionState={nearbyPermissionState(locationAccess)} callbacks={locationCallbacks} />;
+      case AppView.LANGUAGE_SETTINGS:
+        return <LanguageSettingsView user={user} onBack={() => setCurrentView(AppView.SETTINGS)} />;
       case AppView.NOTIFICATIONS:
         return <NotificationsView user={user} onBack={() => setCurrentView(AppView.MAP)} onSelectSpot={(id) => { setPendingSpotId(id); setCurrentView(AppView.MAP); }} permissionState={nearbyPermissionState(locationAccess)} callbacks={locationCallbacks} />;
       case AppView.ADMIN_LOGIN:
