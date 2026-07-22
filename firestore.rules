@@ -53,6 +53,12 @@ service cloud.firestore {
       match /processedTrustEvents/{eventId} {
         allow read, write: if false;
       }
+
+      // Private demographic profile — owner-only; admin read for moderation
+      match /private/{docId} {
+        allow read, write: if signedIn() && request.auth.uid == userId;
+        allow read: if isAdmin();
+      }
     }
 
     match /spots/{spotId} {

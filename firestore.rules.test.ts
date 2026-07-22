@@ -444,3 +444,83 @@ describe('parkingSessions', () => {
         );
     });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PRIVATE PROFILE — users/{uid}/private/profile (owner-only demographics)
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('users/private/profile', () => {
+    const privateData = {
+        homeArea:   'Brooklyn',
+        driverType: 'Daily commuter',
+        ageRange:   '25–34',
+        gender:     'Female',
+    };
+
+    function privateDoc(db: ReturnType<typeof ownerDb>) {
+        return doc(db, 'users', OWNER_UID, 'private', 'profile');
+    }
+
+    beforeEach(async () => {
+        await testEnv.withSecurityRulesDisabled(async ctx => {
+            await setDoc(doc(ctx.firestore(), 'users', OWNER_UID, 'private', 'profile'), privateData);
+        });
+    });
+
+    // 31
+    it('PP1: owner can read their own private profile', async () => {
+        await assertSucceeds(getDoc(privateDoc(ownerDb())));
+    });
+
+    // 32
+    it('PP2: owner can write (create/overwrite) their own private profile', async () => {
+        await assertSucceeds(setDoc(privateDoc(ownerDb()), { ...privateData, ageRange: '35–44' }));
+    });
+
+    // 33
+    it('PP3: owner can update their own private profile', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertSucceeds(upd(privateDoc(ownerDb()), { ageRange: '35–44' }));
+    });
+
+    // 34
+    it('PP4: another authenticated user cannot read private profile', async () => {
+        await assertFails(getDoc(doc(otherDb(), 'users', OWNER_UID, 'private', 'profile')));
+    });
+
+    // 35
+    it('PP5: another authenticated user cannot list the private subcollection', async () => {
+        await assertFails(getDocs(collection(otherDb(), 'users', OWNER_UID, 'private')));
+    });
+
+    // 36
+    it('PP6: another authenticated user cannot write to private profile', async () => {
+        await assertFails(
+            setDoc(doc(otherDb(), 'users', OWNER_UID, 'private', 'profile'), { gender: 'Male' })
+        );
+    });
+
+    // 37
+    it('PP7: unauthenticated user cannot read private profile', async () => {
+        await assertFails(getDoc(doc(anonDb(), 'users', OWNER_UID, 'private', 'profile')));
+    });
+
+    // 38
+    it('PP8: unauthenticated user cannot write to private profile', async () => {
+        await assertFails(
+            setDoc(doc(anonDb(), 'users', OWNER_UID, 'private', 'profile'), { gender: 'Male' })
+        );
+    });
+
+    // 39
+    it('PP9: admin can read any private profile', async () => {
+        await assertSucceeds(getDoc(doc(adminDb(), 'users', OWNER_UID, 'private', 'profile')));
+    });
+
+    // 40
+    it('PP10: owner private doc is isolated — other owner cannot read a different user private doc', async () => {
+        await testEnv.withSecurityRulesDisabled(async ctx => {
+            await setDoc(doc(ctx.firestore(), 'users', OTHER_UID, 'private', 'profile'), { gender: 'Male' });
+        });
+        await assertFails(getDoc(doc(ownerDb(), 'users', OTHER_UID, 'private', 'profile')));
+    });
+});
