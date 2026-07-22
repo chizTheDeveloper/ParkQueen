@@ -491,6 +491,8 @@ const en: Record<string, string> = {
     'vehicle.color_remove': 'Remove color',
     'vehicle.color_custom_label': 'Describe your color',
     'vehicle.color_custom_placeholder': 'e.g. Midnight Blue, Champagne…',
+    'vehicle.color_already_listed': 'Already available — tap to use:',
+    'vehicle.color_enter_or_remove': 'Enter a color or remove the selection.',
     'vehicle.skip_title': 'Add your vehicle later?',
     'vehicle.skip_body': 'This helps other drivers identify you during a parking handoff. You can add it anytime from Profile → Vehicle details.',
     'vehicle.skip_confirm': 'Got it, skip for now',

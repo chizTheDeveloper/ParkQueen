@@ -491,6 +491,8 @@ const es: Record<string, string> = {
     'vehicle.color_remove': 'Quitar color',
     'vehicle.color_custom_label': 'Describe tu color',
     'vehicle.color_custom_placeholder': 'p. ej. Azul Medianoche, Champán…',
+    'vehicle.color_already_listed': 'Ya disponible — toca para usar:',
+    'vehicle.color_enter_or_remove': 'Escribe un color o quita la selección.',
     'vehicle.skip_title': '¿Agregar tu vehículo después?',
     'vehicle.skip_body': 'Esto ayuda a otros conductores a identificarte durante un traspaso de estacionamiento. Puedes agregarlo en cualquier momento desde Perfil → Detalles del vehículo.',
     'vehicle.skip_confirm': 'Entendido, omitir por ahora',

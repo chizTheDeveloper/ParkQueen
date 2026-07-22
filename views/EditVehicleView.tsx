@@ -3,7 +3,7 @@ import { useFocusOnMount } from '../hooks/useFocusOnMount';
 import { SignupProgress } from '../components/SignupProgress';
 import { ChevronLeft, ChevronRight, Search, X, Trash2, Check, Loader2 } from 'lucide-react';
 import { VehicleIcon } from '../utils/vehicleIcon';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, deleteField } from 'firebase/firestore';
 import { db } from '../firebase';
 import { t, useLang } from '../i18n';
 import { TYPES } from '../utils/vehicleTypes';
@@ -59,6 +59,12 @@ const CUSTOM_COLOR_KEY = '__custom__';
 const LEGACY_COLOR_MAP: Record<string, string> = { 'Yellow Cab': 'Yellow', 'Uber Black': 'Black' };
 
 const VISIBLE_COLOR_NAMES = new Set(COLORS.filter(c => c.name !== 'Other').map(c => c.name));
+
+// Returns the canonical palette name when custom text folds to a standard color.
+const findCanonicalColorMatch = (text: string): string | undefined => {
+  const norm = normalizeForMatch(text);
+  return norm ? [...VISIBLE_COLOR_NAMES].find(n => normalizeForMatch(n) === norm) : undefined;
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -116,6 +122,10 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
   const isInitCustomColor = !!_mappedColor && !VISIBLE_COLOR_NAMES.has(_mappedColor);
   const [vehicleColor,    setVehicleColor]    = useState<string>(isInitCustomColor ? CUSTOM_COLOR_KEY : _mappedColor);
   const [customColorText, setCustomColorText] = useState<string>(isInitCustomColor ? _mappedColor : '');
+  // colorTouched: user interacted with the color section (needed to distinguish "no change" from "cleared")
+  // colorCleared: user explicitly pressed "Remove color"
+  const [colorTouched,    setColorTouched]    = useState(false);
+  const [colorCleared,    setColorCleared]    = useState(false);
   const [brandSearch,  setBrandSearch]  = useState('');
   const [saving,       setSaving]       = useState(false);
   const [showSkip,     setShowSkip]     = useState(false);
@@ -192,17 +202,44 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
   };
 
   const handleSaveWithColor = async () => {
+    if (!user?.id) return;
     setSaving(true);
-    if (vehicleColor === CUSTOM_COLOR_KEY) {
-      const colorToSave = customColorText.trim();
-      if (colorToSave) await saveField({ vehicleColor: colorToSave });
-      else if (user?.vehicleColor) await saveField({ vehicleColor: '' });
-    } else if (vehicleColor) {
-      await saveField({ vehicleColor });
-    } else if (user?.vehicleColor) {
-      // Color was cleared via "Remove color" — persist the clearing
-      await saveField({ vehicleColor: '' });
+
+    // Build update payload. Four cases:
+    // A. No prior color and user didn't touch color → omit field entirely
+    // B. Prior color unchanged (non-legacy) → omit field (Firestore preserves it)
+    // C. User intentionally removed color → deleteField()
+    // D. User selected a color → write canonical or custom text
+
+    const payload: Record<string, unknown> = {};
+
+    if (!colorTouched) {
+      // Case A / B: user didn't interact with the color section
+      const raw = user?.vehicleColor || '';
+      const legacyNorm = LEGACY_COLOR_MAP[raw];
+      if (legacyNorm) {
+        // Legacy value: normalize on save (Yellow Cab → Yellow, Uber Black → Black)
+        payload.vehicleColor = legacyNorm;
+      }
+      // else: non-legacy unchanged — omit (no write)
+    } else if (colorCleared || (!vehicleColor && vehicleColor !== CUSTOM_COLOR_KEY)) {
+      // Case C: intentional removal or deselect of previously existing color
+      if (user?.vehicleColor) payload.vehicleColor = deleteField();
+      // if no prior color, nothing to delete — omit
+    } else if (vehicleColor === CUSTOM_COLOR_KEY) {
+      // Case D (custom): auto-promote to canonical if text matches a palette name
+      const trimmed = customColorText.trim();
+      const canonical = findCanonicalColorMatch(trimmed);
+      payload.vehicleColor = canonical ?? trimmed;
+    } else {
+      // Case D (standard): write the selected palette name
+      payload.vehicleColor = vehicleColor;
     }
+
+    if (Object.keys(payload).length > 0) {
+      await updateDoc(doc(db, 'users', user.id), payload);
+    }
+
     setSaving(false);
     setDone(true);
     setSavedPartial(false);
@@ -739,6 +776,19 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
     : vehicleColor ? (clabels[vehicleColor] ?? vehicleColor)
     : null;
 
+  // Resolved brand for validation (mirrors handleNextFromBrand)
+  const resolvedBrand = vehicleBrand === CUSTOM_BRAND_KEY ? customBrandText.trim() : vehicleBrand;
+
+  // Save is valid when required fields exist AND color choice is complete
+  const colorValid =
+    vehicleType !== '' &&
+    resolvedBrand !== '' &&
+    (vehicleColor !== CUSTOM_COLOR_KEY || customColorText.trim() !== '');
+
+  // Canonical match: custom text folds to a standard palette name
+  const canonicalColorMatch =
+    vehicleColor === CUSTOM_COLOR_KEY ? findCanonicalColorMatch(customColorText) : undefined;
+
   return (
     <div className="h-full bg-[var(--color-bg)] text-[var(--color-text)] flex flex-col px-4 pt-4">
       <div className="max-w-md mx-auto w-full flex-1 flex flex-col min-h-0">
@@ -801,6 +851,8 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
                     aria-checked={isSelected}
                     aria-label={clabels[c.name] ?? c.name}
                     onClick={() => {
+                      setColorTouched(true);
+                      setColorCleared(false);
                       if (c.name === 'Other') {
                         setVehicleColor(vehicleColor === CUSTOM_COLOR_KEY ? '' : CUSTOM_COLOR_KEY);
                       } else {
@@ -846,6 +898,27 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
                   maxLength={30}
                   className="w-full px-3 py-2.5 rounded-xl bg-[var(--color-bg)] border border-[var(--color-border)] text-[var(--color-text)] text-sm placeholder:text-[var(--color-text-secondary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                 />
+                {/* Canonical match notice */}
+                {canonicalColorMatch && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <p className="text-xs text-[var(--color-text-secondary)]">
+                      {t('vehicle.color_already_listed')}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => { setVehicleColor(canonicalColorMatch); setColorTouched(true); setColorCleared(false); }}
+                      className="text-xs font-semibold text-[#38bdf8] active:opacity-70 transition-opacity"
+                    >
+                      {clabels[canonicalColorMatch] ?? canonicalColorMatch}
+                    </button>
+                  </div>
+                )}
+                {/* Helper: incomplete Other choice */}
+                {!canonicalColorMatch && !customColorText.trim() && (
+                  <p className="mt-1.5 text-xs text-[var(--color-text-secondary)]">
+                    {t('vehicle.color_enter_or_remove')}
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -853,7 +926,12 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
           {/* Remove color — only when a color is actively selected */}
           {vehicleColor && (
             <button
-              onClick={() => { setVehicleColor(''); setCustomColorText(''); }}
+              onClick={() => {
+                setVehicleColor('');
+                setCustomColorText('');
+                setColorTouched(true);
+                setColorCleared(true);
+              }}
               className="w-full py-3 text-sm font-semibold text-[var(--color-text-secondary)] active:opacity-60 transition-opacity"
             >
               {t('vehicle.color_remove')}
@@ -865,7 +943,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
         <div className="pt-3 pb-4">
           <button
             onClick={handleSaveWithColor}
-            disabled={saving}
+            disabled={saving || !colorValid}
             className="w-full py-3.5 rounded-xl bg-[#1e75ff] text-white font-bold text-sm active:scale-[0.98] transition-all disabled:opacity-40"
           >
             {saving ? t('vehicle.saving') : t('vehicle.save_vehicle')}

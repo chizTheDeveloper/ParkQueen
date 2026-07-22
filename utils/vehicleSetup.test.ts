@@ -870,3 +870,165 @@ describe('Test 32: Color screen i18n coverage', () => {
     expect(en['vehicle.color_custom_label']).not.toBe('vehicle.color_custom_label');
   });
 });
+
+// ─── New tests — Save validity and write-payload contract (Tests 33–48) ─────────
+
+// Mirror of component's colorValid logic
+function colorValidFn(
+  vehicleType: string,
+  vehicleBrand: string,
+  customBrandText: string,
+  vehicleColor: string,
+  customColorText: string,
+): boolean {
+  const resolvedBrand = vehicleBrand === CUSTOM_COLOR_KEY_C ? customBrandText.trim() : vehicleBrand;
+  return (
+    vehicleType !== '' &&
+    resolvedBrand !== '' &&
+    (vehicleColor !== CUSTOM_COLOR_KEY_C || customColorText.trim() !== '')
+  );
+}
+
+// Mirror of findCanonicalColorMatch
+function findCanonicalColorMatchTest(text: string): string | undefined {
+  const normalize = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
+  const norm = normalize(text);
+  return norm ? [...VISIBLE_COLOR_NAMES_C].find(n => normalize(n) === norm) : undefined;
+}
+
+// Sentinel to represent deleteField() in payload tests
+const DELETE_SENTINEL = '__DELETE__';
+
+// Mirror of handleSaveWithColor payload resolution (no Firestore side-effects)
+function resolveColorPayload(
+  vehicleColor: string,
+  customColorText: string,
+  colorTouched: boolean,
+  colorCleared: boolean,
+  previousColor: string,
+): { vehicleColor?: string | typeof DELETE_SENTINEL } {
+  if (!colorTouched) {
+    const legacyNorm = LEGACY_COLOR_MAP_C[previousColor];
+    if (legacyNorm) return { vehicleColor: legacyNorm };
+    return {}; // omit — non-legacy unchanged
+  }
+  if (colorCleared || (!vehicleColor && vehicleColor !== CUSTOM_COLOR_KEY_C)) {
+    if (previousColor) return { vehicleColor: DELETE_SENTINEL };
+    return {}; // nothing to delete
+  }
+  if (vehicleColor === CUSTOM_COLOR_KEY_C) {
+    const trimmed = customColorText.trim();
+    const canonical = findCanonicalColorMatchTest(trimmed);
+    return { vehicleColor: canonical ?? trimmed };
+  }
+  return { vehicleColor };
+}
+
+describe('Test 33: Save validity — colorValid', () => {
+  it('no color selected + valid type/brand → valid', () => {
+    expect(colorValidFn('Sedan', 'Toyota', '', '', '')).toBe(true);
+  });
+  it('Other selected + empty text → invalid', () => {
+    expect(colorValidFn('Sedan', 'Toyota', '', CUSTOM_COLOR_KEY_C, '')).toBe(false);
+  });
+  it('Other selected + whitespace only → invalid', () => {
+    expect(colorValidFn('Sedan', 'Toyota', '', CUSTOM_COLOR_KEY_C, '   ')).toBe(false);
+  });
+  it('Other selected + valid text → valid', () => {
+    expect(colorValidFn('Sedan', 'Toyota', '', CUSTOM_COLOR_KEY_C, 'Champagne')).toBe(true);
+  });
+  it('after Remove color → vehicleColor="" → valid (no-color state)', () => {
+    expect(colorValidFn('Sedan', 'Toyota', '', '', '')).toBe(true);
+  });
+  it('missing vehicle type → invalid', () => {
+    expect(colorValidFn('', 'Toyota', '', '', '')).toBe(false);
+  });
+  it('missing vehicle brand → invalid', () => {
+    expect(colorValidFn('Sedan', '', '', '', '')).toBe(false);
+  });
+  it('standard color selected → valid', () => {
+    expect(colorValidFn('Sedan', 'Toyota', '', 'Blue', '')).toBe(true);
+  });
+});
+
+describe('Test 34: Write-payload contract', () => {
+  it('Case A — new vehicle, no color, untouched → vehicleColor omitted', () => {
+    const p = resolveColorPayload('', '', false, false, '');
+    expect(p).not.toHaveProperty('vehicleColor');
+  });
+  it('Case B — existing color, untouched, non-legacy → vehicleColor omitted', () => {
+    const p = resolveColorPayload('Blue', '', false, false, 'Blue');
+    expect(p).not.toHaveProperty('vehicleColor');
+  });
+  it('Case C — intentional removal of existing color → deleteField sentinel', () => {
+    const p = resolveColorPayload('', '', true, true, 'Blue');
+    expect(p.vehicleColor).toBe(DELETE_SENTINEL);
+  });
+  it('Case C — deselect with no prior color → field omitted (nothing to delete)', () => {
+    const p = resolveColorPayload('', '', true, true, '');
+    expect(p).not.toHaveProperty('vehicleColor');
+  });
+  it('Case D — standard color selected → exact name written', () => {
+    const p = resolveColorPayload('Red', '', true, false, '');
+    expect(p.vehicleColor).toBe('Red');
+  });
+  it('CUSTOM_COLOR_KEY is never the persisted value', () => {
+    const p = resolveColorPayload(CUSTOM_COLOR_KEY_C, 'Champagne', true, false, '');
+    expect(p.vehicleColor).not.toBe(CUSTOM_COLOR_KEY_C);
+    expect(p.vehicleColor).toBe('Champagne');
+  });
+  it('no empty string, null, or undefined is persisted for intentional removal', () => {
+    const p = resolveColorPayload('', '', true, true, 'Blue');
+    expect(p.vehicleColor).toBe(DELETE_SENTINEL); // deleteField, not ''/'null'/undefined
+  });
+});
+
+describe('Test 35: Canonical color matching', () => {
+  it('" blue " (padded) resolves to canonical "Blue"', () => {
+    expect(findCanonicalColorMatchTest(' blue ')).toBe('Blue');
+  });
+  it('"BLUE" resolves to canonical "Blue"', () => {
+    expect(findCanonicalColorMatchTest('BLUE')).toBe('Blue');
+  });
+  it('"bLuE" resolves to canonical "Blue"', () => {
+    expect(findCanonicalColorMatchTest('bLuE')).toBe('Blue');
+  });
+  it('genuine custom color does not match any palette entry', () => {
+    expect(findCanonicalColorMatchTest('Champagne')).toBeUndefined();
+  });
+  it('custom text matching a standard color is saved as the canonical name', () => {
+    const p = resolveColorPayload(CUSTOM_COLOR_KEY_C, '  red  ', true, false, '');
+    expect(p.vehicleColor).toBe('Red');
+  });
+  it('genuinely custom color is saved trimmed', () => {
+    const p = resolveColorPayload(CUSTOM_COLOR_KEY_C, '  Midnight Blue  ', true, false, '');
+    expect(p.vehicleColor).toBe('Midnight Blue');
+  });
+  it('legacy Uber Black normalizes to Black on save (untouched)', () => {
+    const p = resolveColorPayload('Black', '', false, false, 'Uber Black');
+    expect(p.vehicleColor).toBe('Black');
+  });
+  it('legacy Yellow Cab normalizes to Yellow on save (untouched)', () => {
+    const p = resolveColorPayload('Yellow', '', false, false, 'Yellow Cab');
+    expect(p.vehicleColor).toBe('Yellow');
+  });
+});
+
+describe('Test 36: Color screen helper/error i18n coverage', () => {
+  it('English color_enter_or_remove is present', () => {
+    expect(en['vehicle.color_enter_or_remove']).toBeDefined();
+    expect(en['vehicle.color_enter_or_remove']).not.toBe('vehicle.color_enter_or_remove');
+  });
+  it('Spanish color_enter_or_remove is present', () => {
+    expect(es['vehicle.color_enter_or_remove']).toBeDefined();
+    expect(es['vehicle.color_enter_or_remove']).not.toBe('vehicle.color_enter_or_remove');
+  });
+  it('English color_already_listed is present', () => {
+    expect(en['vehicle.color_already_listed']).toBeDefined();
+    expect(en['vehicle.color_already_listed']).not.toBe('vehicle.color_already_listed');
+  });
+  it('Spanish color_already_listed is present', () => {
+    expect(es['vehicle.color_already_listed']).toBeDefined();
+    expect(es['vehicle.color_already_listed']).not.toBe('vehicle.color_already_listed');
+  });
+});
