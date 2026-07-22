@@ -225,7 +225,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                                         <h4 className="font-bold text-[var(--color-text)] text-sm">{t('settings.location')}</h4>
                                         {locSummary && (
                                             <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">
-                                                {t(locSummary.permissionKey)}{t('settings.location_summary_separator')}{t(locSummary.preciseKey)}
+                                                {t(locSummary.permissionKey)}
+                                                {locSummary.preciseKey && `${t('settings.location_summary_separator')}${t(locSummary.preciseKey)}`}
                                             </p>
                                         )}
                                     </div>

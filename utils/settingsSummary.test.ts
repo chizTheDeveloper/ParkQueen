@@ -21,35 +21,39 @@ describe('getNotificationsSummaryState', () => {
 });
 
 describe('getLocationSummaryState', () => {
-  it('granted + precise on', () => {
+  it('granted + precise on: includes permission key and precise-on key', () => {
     const s = getLocationSummaryState('granted', true);
     expect(s.permissionKey).toBe('settings.location_allowed');
     expect(s.preciseKey).toBe('settings.precise_on');
   });
 
-  it('granted + precise off', () => {
+  it('granted + precise off: includes permission key and precise-off key', () => {
     const s = getLocationSummaryState('granted', false);
     expect(s.permissionKey).toBe('settings.location_allowed');
     expect(s.preciseKey).toBe('settings.precise_off');
   });
 
-  it('not_determined', () => {
-    expect(getLocationSummaryState('not_determined', false).permissionKey)
-      .toBe('settings.location_not_enabled');
+  it('not_determined: correct key, no preciseKey', () => {
+    const s = getLocationSummaryState('not_determined', true);
+    expect(s.permissionKey).toBe('settings.location_not_enabled');
+    expect(s.preciseKey).toBeUndefined();
   });
 
-  it('permanently_blocked', () => {
-    expect(getLocationSummaryState('permanently_blocked', true).permissionKey)
-      .toBe('settings.location_blocked');
+  it('permanently_blocked: correct key, no preciseKey', () => {
+    const s = getLocationSummaryState('permanently_blocked', true);
+    expect(s.permissionKey).toBe('settings.location_blocked');
+    expect(s.preciseKey).toBeUndefined();
   });
 
-  it('denied_requestable', () => {
-    expect(getLocationSummaryState('denied_requestable', false).permissionKey)
-      .toBe('settings.location_not_allowed');
+  it('denied_requestable: correct key, no preciseKey', () => {
+    const s = getLocationSummaryState('denied_requestable', false);
+    expect(s.permissionKey).toBe('settings.location_not_allowed');
+    expect(s.preciseKey).toBeUndefined();
   });
 
-  it('services_disabled', () => {
-    expect(getLocationSummaryState('services_disabled', false).permissionKey)
-      .toBe('settings.location_services_off');
+  it('services_disabled: correct key, no preciseKey', () => {
+    const s = getLocationSummaryState('services_disabled', false);
+    expect(s.permissionKey).toBe('settings.location_services_off');
+    expect(s.preciseKey).toBeUndefined();
   });
 });

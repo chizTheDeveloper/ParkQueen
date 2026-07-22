@@ -37,6 +37,8 @@ const ContactUsView = lazy(() => import('./views/ContactUsView').then(m => ({ de
 import { AppView } from './types';
 import { readPersistedAccess, persistAccessChoice, shouldShowPrimer, resolveFromPermissions, type LocationAccess } from './utils/locationAccess';
 import { nearbyPermissionState, type LocationCallbacks } from './utils/nearbyActivity';
+import { getLang, setLang } from './i18n';
+import { getLanguageHydrationAction } from './utils/languageHydration';
 import { ChevronLeft } from 'lucide-react';
 import ErrorBoundary from './ErrorBoundary';
 import { saveUserProfile, logoutUser, deleteUser } from './database';
@@ -200,6 +202,15 @@ export default function App() {
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [currentView, locationAccess]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Language hydration: when a signed-in user's Firestore profile has a valid
+  // lang value that differs from the active locale, adopt it as the account
+  // source of truth. Only fires when user.lang actually changes.
+  useEffect(() => {
+    if (!user) return;
+    const action = getLanguageHydrationAction(user.lang, getLang());
+    if (action.shouldUpdate) setLang(action.language);
+  }, [user?.lang]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleTheme = () => {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
