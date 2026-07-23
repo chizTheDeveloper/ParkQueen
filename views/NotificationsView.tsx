@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { AvatarComposite } from '../components/AvatarComposite';
 import { useFocusOnMount } from '../hooks/useFocusOnMount';
 import { t, useLang } from '../i18n';
 import { ArrowLeft, MapPin, Bell, LocateFixed, WifiOff } from 'lucide-react';
@@ -40,12 +41,7 @@ const relativeTime = (ts: any): string => {
     return `${Math.floor(diff / 86400)}d ago`;
 };
 
-const avatarGradients = [
-    'linear-gradient(135deg,#1e3a5f,#1e40af)',
-    'linear-gradient(135deg,#1a2e1a,#14532d)',
-    'linear-gradient(135deg,#2e1a2e,#581c87)',
-    'linear-gradient(135deg,#3b2a1a,#92400e)',
-];
+
 
 const LOCATION_NEEDED: LocationPermissionState[] = [
     'not_determined', 'denied_requestable', 'permanently_blocked', 'services_disabled',
@@ -333,8 +329,6 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                                 (spot.expiresAt.toMillis() - Date.now()) < 5 * 60 * 1000;
                             const address = spot.address || 'Shared spot nearby';
                             const finderName = spot.finderName || spot.username || 'Someone nearby';
-                            const initial = finderName.charAt(0).toUpperCase();
-                            const avatarBg = avatarGradients[initial.charCodeAt(0) % avatarGradients.length];
 
                             return (
                                 <button
@@ -348,12 +342,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                                     }`}
                                 >
                                     <div className="relative shrink-0 mt-0.5">
-                                        <div
-                                            className="w-9 h-9 rounded-[10px] flex items-center justify-center text-[15px] font-extrabold text-white"
-                                            style={{ background: avatarBg }}
-                                        >
-                                            {initial}
-                                        </div>
+                                        <AvatarComposite userId={spot.finderId} size={36} />
                                         {isNew && (
                                             <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[#38bdf8] border-2 border-[var(--color-card)]" />
                                         )}

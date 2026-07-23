@@ -39,8 +39,9 @@ service cloud.firestore {
     }
 
     // ── Avatar (Parsona) write guard ─────────────────────────────────────────
-    // Validates that the avatar map, if present, has the required keys and correct version.
-    // Strings are not depth-validated here — app-layer validation handles that.
+    // Validates the avatar map against the approved manifest.
+    // Required fields must be strings matching known asset IDs.
+    // Optional fields (facialHair, glasses, headwear) may be null.
     function isValidAvatarField() {
       let av = request.resource.data.get('avatar', null);
       return av == null || (
@@ -48,12 +49,17 @@ service cloud.firestore {
         && av.keys().hasAll(['version','skin','face','hair','hairColor','facialHair','glasses','headwear','outfit','background'])
         && av.keys().hasOnly(['version','skin','face','hair','hairColor','facialHair','glasses','headwear','outfit','background'])
         && av.version == 1
-        && av.skin is string
-        && av.face is string
-        && av.hair is string
-        && av.hairColor is string
-        && av.outfit is string
-        && av.background is string
+        // Required string fields — validated against approved ID lists
+        && av.skin in ['skin_01','skin_02','skin_03','skin_04','skin_05','skin_06']
+        && av.face in ['face_round','face_oval','face_angular']
+        && av.hair in ['hair_short','hair_medium_straight','hair_long','hair_short_curly','hair_afro','hair_locs','hair_braids','hair_bun','hair_wavy','hair_coily_short']
+        && av.hairColor in ['hair_black','hair_dark_brown','hair_medium_brown','hair_auburn','hair_blonde','hair_gray']
+        && av.outfit in ['outfit_tee','outfit_hoodie','outfit_jacket','outfit_turtleneck','outfit_buttonup']
+        && av.background in ['bg_navy','bg_midnight','bg_teal','bg_charcoal','bg_purple','bg_gold']
+        // Optional fields: null or an approved ID
+        && (av.facialHair == null || av.facialHair in ['fh_stubble','fh_beard_short','fh_mustache'])
+        && (av.glasses   == null || av.glasses   in ['gl_round','gl_square','gl_semi'])
+        && (av.headwear  == null || av.headwear  in ['hw_cap','hw_hijab','hw_wrap','hw_beanie'])
       );
     }
 
@@ -61,7 +67,8 @@ service cloud.firestore {
       allow read: if signedIn() || isAdmin();
       allow create: if signedIn() && request.auth.uid == userId
         && !request.resource.data.keys().hasAny(
-             ['dob', 'gender', 'homeArea', 'driverType', 'ageRange']);
+             ['dob', 'gender', 'homeArea', 'driverType', 'ageRange'])
+        && isValidAvatarField();
       allow update: if isAdmin()
         || (signedIn() && request.auth.uid == userId
             && !request.resource.data.diff(resource.data).affectedKeys()

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { AvatarComposite } from '../components/AvatarComposite';
 import { Send, ChevronLeft, MoreVertical, Sparkles, ArrowLeft, MapPin, MessageSquare } from 'lucide-react';
 import { generateSmartReplies, createSmartReplyRequestKey } from '../services/geminiService';
 import { collection, query, where, onSnapshot, addDoc, doc, setDoc, orderBy, serverTimestamp, getDocs, getDoc, writeBatch, updateDoc } from 'firebase/firestore';
@@ -24,7 +25,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
   const [smartReplies, setSmartReplies] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastSmartReplyKey = useRef<string | null>(null);
-  const [userProfilesCache, setUserProfilesCache] = useState<Record<string, { name: string; avatarUrl: string | null }>>({});
+  const [userProfilesCache, setUserProfilesCache] = useState<Record<string, { name: string }>>({});
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
@@ -119,10 +120,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
           const userDocSnap = await getDoc(userDocRef);
           if (userDocSnap.exists()) {
              const data = userDocSnap.data();
-             newCache[uid] = {
-               name: data.fullName || '',
-               avatarUrl: data.avatarUrl || null
-             };
+             newCache[uid] = { name: data.fullName || '' };
              updated = true;
           }
         } catch (e) {
@@ -331,13 +329,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
             <button onClick={() => activeChatContext ? onBack() : setActiveConversationId(null)} aria-label={t('messages.back_chat_aria')} className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)]">
               <ChevronLeft size={24} />
             </button>
-            <div className="w-10 h-10 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-center text-gray-500 overflow-hidden shrink-0">
-               {userProfilesCache[activeConversation.otherUser.id]?.avatarUrl ? (
-                 <img src={userProfilesCache[activeConversation.otherUser.id].avatarUrl!} alt="Avatar" className="w-full h-full object-cover" />
-               ) : (
-                 <i className="fa-solid fa-user text-xl"></i>
-               )}
-            </div>
+            <AvatarComposite userId={activeConversation.otherUser.id} size={40} />
             <div>
               <h3 className="font-bold text-[var(--color-text)]">{displayName}</h3>
               {activeConversation.relatedSpotTitle && (
@@ -488,13 +480,6 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
     );
   }
 
-  const avatarGradients = [
-    'linear-gradient(135deg,#1e3a5f,#1e40af)',
-    'linear-gradient(135deg,#1a2e1a,#14532d)',
-    'linear-gradient(135deg,#2e1a2e,#581c87)',
-    'linear-gradient(135deg,#3b2a1a,#92400e)',
-  ];
-
   return (
     <div className="h-full flex flex-col bg-[var(--color-bg)] pt-4 pb-20 max-w-md mx-auto">
       {/* Header */}
@@ -529,9 +514,6 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
               const convDisplayName = userProfilesCache[conv.otherUser.id]?.name
                 || conv.otherUser.name
                 || t('messages.anonymous');
-              const initial = convDisplayName.charAt(0).toUpperCase();
-              const avatarBg = avatarGradients[initial.charCodeAt(0) % avatarGradients.length];
-
               return (
                 <button
                   key={conv.id}
@@ -540,13 +522,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
                 >
                   {/* Avatar */}
                   <div className="relative shrink-0">
-                    {userProfilesCache[conv.otherUser.id]?.avatarUrl ? (
-                      <img src={userProfilesCache[conv.otherUser.id].avatarUrl!} alt={convDisplayName} className="w-11 h-11 rounded-2xl object-cover" />
-                    ) : (
-                      <div className="w-11 h-11 rounded-2xl flex items-center justify-center text-[#93c5fd] font-bold text-base" style={{ background: avatarBg }}>
-                        {initial}
-                      </div>
-                    )}
+                    <AvatarComposite userId={conv.otherUser.id} size={44} />
                     {hasUnread && (
                       <span className="absolute -top-1 -right-1 w-3 h-3 bg-[#1e75ff] border-2 border-[var(--color-bg)] rounded-full" />
                     )}

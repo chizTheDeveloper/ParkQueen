@@ -708,4 +708,98 @@ describe('users/{uid} avatar field rules', () => {
             setDoc(doc(adminDb(), 'users', avatarUid), { avatar: VALID_AVATAR }, { merge: true })
         );
     });
+
+    // 60
+    it('AV8: owner can create a user doc with a valid avatar', async () => {
+        const createUid = `av-create-${Date.now()}`;
+        const db = testEnv.authenticatedContext(createUid).firestore();
+        await assertSucceeds(
+            setDoc(doc(db, 'users', createUid), { username: 'new', phone: '+15550001111', avatar: VALID_AVATAR })
+        );
+    });
+
+    // 61
+    it('AV9: owner cannot create a user doc with an invalid avatar', async () => {
+        const createUid = `av-create-bad-${Date.now()}`;
+        const db = testEnv.authenticatedContext(createUid).firestore();
+        await assertFails(
+            setDoc(doc(db, 'users', createUid), { username: 'new', phone: '+15550001112', avatar: { ...VALID_AVATAR, skin: 'skin_99' } })
+        );
+    });
+
+    // 62
+    it('AV10: invalid skin ID is rejected', async () => {
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        await assertFails(
+            setDoc(doc(db, 'users', avatarUid), { avatar: { ...VALID_AVATAR, skin: 'skin_99' } }, { merge: true })
+        );
+    });
+
+    // 63
+    it('AV11: invalid face ID is rejected', async () => {
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        await assertFails(
+            setDoc(doc(db, 'users', avatarUid), { avatar: { ...VALID_AVATAR, face: 'face_square' } }, { merge: true })
+        );
+    });
+
+    // 64
+    it('AV12: invalid outfit ID is rejected', async () => {
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        await assertFails(
+            setDoc(doc(db, 'users', avatarUid), { avatar: { ...VALID_AVATAR, outfit: 'outfit_dress' } }, { merge: true })
+        );
+    });
+
+    // 65
+    it('AV13: invalid optional ID (glasses) is rejected', async () => {
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        await assertFails(
+            setDoc(doc(db, 'users', avatarUid), { avatar: { ...VALID_AVATAR, glasses: 'gl_monocle' } }, { merge: true })
+        );
+    });
+
+    // 66
+    it('AV14: URL value in a required string field is rejected', async () => {
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        await assertFails(
+            setDoc(doc(db, 'users', avatarUid), { avatar: { ...VALID_AVATAR, skin: 'https://evil.com/img.png' } }, { merge: true })
+        );
+    });
+
+    // 67
+    it('AV15: non-string type for required field is rejected', async () => {
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        await assertFails(
+            setDoc(doc(db, 'users', avatarUid), { avatar: { ...VALID_AVATAR, skin: 1 } }, { merge: true })
+        );
+    });
+
+    // 68
+    it('AV16: non-null, non-string type for optional field is rejected', async () => {
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        await assertFails(
+            setDoc(doc(db, 'users', avatarUid), { avatar: { ...VALID_AVATAR, facialHair: true } }, { merge: true })
+        );
+    });
+
+    // 69
+    it('AV17: null is accepted for all three optional fields simultaneously', async () => {
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        await assertSucceeds(
+            setDoc(doc(db, 'users', avatarUid), {
+                avatar: { ...VALID_AVATAR, facialHair: null, glasses: null, headwear: null },
+            }, { merge: true })
+        );
+    });
+
+    // 70
+    it('AV18: valid optional IDs are accepted', async () => {
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        await assertSucceeds(
+            setDoc(doc(db, 'users', avatarUid), {
+                avatar: { ...VALID_AVATAR, facialHair: 'fh_stubble', glasses: 'gl_round', headwear: 'hw_cap' },
+            }, { merge: true })
+        );
+    });
 });

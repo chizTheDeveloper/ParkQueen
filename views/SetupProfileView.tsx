@@ -1,11 +1,11 @@
 
-import React, { useState, useRef } from 'react';
-import { User, Mail, Calendar, ChevronDown, Camera } from 'lucide-react';
+import React, { useState } from 'react';
+import { User, Mail, Calendar, ChevronDown } from 'lucide-react';
 import { t, useLang } from '../i18n';
 
 interface SetupProfileViewProps {
   phone: string;
-  onSave: (profileData: { fullName: string; email: string; dob: string; gender: string, avatar: File | null }) => void;
+  onSave: (profileData: { fullName: string; email: string; dob: string; gender: string }) => void;
   onSkip?: () => void;
 }
 
@@ -89,9 +89,6 @@ export const SetupProfileView: React.FC<SetupProfileViewProps> = ({ phone, onSav
   const [dob, setDob] = useState('');
   const [gender, setGender] = useState('Male');
   const [isGenderDropdownOpen, setGenderDropdownOpen] = useState(false);
-  const [avatar, setAvatar] = useState<File | null>(null);
-  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const genderOptions: SelectOption[] = [
     { value: 'Male',   label: t('setup_profile.gender_male') },
@@ -112,49 +109,13 @@ export const SetupProfileView: React.FC<SetupProfileViewProps> = ({ phone, onSav
   };
 
   const handleSave = () => {
-    onSave({ fullName, email, dob, gender, avatar });
-  };
-
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      setAvatar(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setAvatarPreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const triggerUpload = () => {
-    fileInputRef.current?.click();
+    onSave({ fullName, email, dob, gender });
   };
 
   return (
     <div className="h-full overflow-y-auto bg-[var(--color-bg)] flex flex-col items-center p-4 pb-24 font-sans text-[var(--color-text)]">
       <div className="w-full max-w-sm my-auto">
         <h1 className="text-2xl font-bold text-center text-[var(--color-text)] mt-8 mb-6">{t('setup_profile.title')}</h1>
-
-        <div className="relative w-28 h-28 mx-auto mb-8">
-            <div className="w-full h-full rounded-full bg-white/5 border-2 border-[var(--color-border)] flex items-center justify-center shadow overflow-hidden">
-                {avatarPreview ? (
-                  <img src={avatarPreview} alt="Avatar Preview" className="w-full h-full object-cover" />
-                ) : (
-                  <i className="fa-solid fa-user text-4xl text-[var(--color-text-secondary)]"></i>
-                )}
-            </div>
-            <button onClick={triggerUpload} className="absolute bottom-1 right-1 bg-[#1e75ff] hover:bg-blue-600 text-white rounded-full p-2.5 shadow-md active:scale-95 transition-all">
-                <Camera size={18} />
-            </button>
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={handleFileChange}
-              accept="image/*"
-              className="hidden"
-            />
-        </div>
 
         <div className="space-y-4">
             <InputField

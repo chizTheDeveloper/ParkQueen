@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { AvatarComposite } from '../../components/AvatarComposite';
 import { MessageSquare, MapPin, Clock, Navigation, Car } from 'lucide-react';
 import { MapItem } from './types';
 import { t, useLang } from '../../i18n';
@@ -148,9 +149,7 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
     const hasVehicle = vehicleType || vehicleColor || vehicleBrand;
     const vehicleLabel = [vehicleColor, vehicleBrand, vehicleType].filter(Boolean).join(' · ');
 
-    // Finder initial avatar
     const finderName = selectedItem.finderName || 'Driver';
-    const finderInitial = finderName.charAt(0).toUpperCase();
 
     // Status badge config
     const badgeConfig = state === 'my_claim'
@@ -172,10 +171,7 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
 
                 {/* Finder card */}
                 <div className="flex items-center gap-3 bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl px-4 py-3.5 mb-4">
-                    <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 text-white font-bold text-lg"
-                        style={{ background: 'linear-gradient(135deg, #1e75ff, #0ea5e9)' }}>
-                        {finderInitial}
-                    </div>
+                    <AvatarComposite userId={selectedItem.finderId} size={48} />
                     <div className="flex-1 min-w-0">
                         <p className="text-[15px] font-bold text-[var(--color-text)] truncate">{finderName}</p>
                         {selectedItem.finderTitle ? (() => {
@@ -282,10 +278,7 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
 
                 {/* Finder card */}
                 <div className="flex items-center gap-3 bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl px-4 py-3.5 mb-4">
-                    <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0 text-white font-bold text-lg"
-                        style={{ background: 'linear-gradient(135deg, #1e75ff, #0ea5e9)' }}>
-                        {finderInitial}
-                    </div>
+                    <AvatarComposite userId={selectedItem.finderId} size={48} />
                     <div className="flex-1 min-w-0">
                         <p className="text-[15px] font-bold text-[var(--color-text)] truncate">{finderName}</p>
                         {selectedItem.finderTitle ? (() => {
@@ -525,10 +518,7 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
                 <p className="text-[11px] font-bold text-[#38bdf8] uppercase tracking-widest text-center mb-4">{t('spot_details.available')}</p>
 
                 <div className="flex items-center gap-3 mb-4">
-                    <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 text-white font-bold text-xl"
-                        style={{ background: 'linear-gradient(135deg, #1e75ff, #0ea5e9)' }}>
-                        {finderInitial}
-                    </div>
+                    <AvatarComposite userId={selectedItem.finderId} size={56} />
                     <div className="flex-1 min-w-0">
                         <p className="text-lg font-extrabold text-[var(--color-text)] truncate">{finderName}</p>
                         {selectedItem.finderTitle && (() => {
@@ -610,10 +600,7 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
 
                 {/* Identity row */}
                 <div className="flex items-center gap-3 mb-4">
-                    <div className="w-12 h-12 rounded-[12px] flex items-center justify-center shrink-0 text-white font-extrabold text-xl"
-                        style={{ background: 'linear-gradient(135deg, #1e3a5f, #1e40af)' }}>
-                        {finderInitial}
-                    </div>
+                    <AvatarComposite userId={selectedItem.finderId} size={48} />
                     <div className="flex-1 min-w-0">
                         <p className="text-[16px] font-extrabold text-[var(--color-text)] truncate">{finderName}</p>
                         <span className={`inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-0.5 rounded-full border mt-1 ${pingBadge.color}`}>
@@ -662,10 +649,7 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
     return (
         <div>
             <div className="flex items-center gap-3 mb-4">
-                <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 text-white font-bold text-xl"
-                    style={{ background: 'linear-gradient(135deg, #1e75ff, #0ea5e9)' }}>
-                    {finderInitial}
-                </div>
+                <AvatarComposite userId={selectedItem.finderId} size={56} />
                 <div className="flex-1 min-w-0">
                     <p className="text-lg font-extrabold text-[var(--color-text)] truncate">{finderName}</p>
                     {selectedItem.finderTitle && (
