@@ -31,6 +31,8 @@ const isAdminDomain = window.location.hostname === 'admin.parqueen.app'
 
 const ActivitiesView = lazy(() => import('./views/ActivitiesView').then(m => ({ default: m.ActivitiesView })));
 const EditVehicleView = lazy(() => import('./views/EditVehicleView').then(m => ({ default: m.EditVehicleView })));
+const ParsonaCreatorView = lazy(() => import('./views/ParsonaCreatorView').then(m => ({ default: m.ParsonaCreatorView })));
+const ParsonaPresetPickerView = lazy(() => import('./views/ParsonaPresetPickerView').then(m => ({ default: m.ParsonaPresetPickerView })));
 const PrivacyPolicyView = lazy(() => import('./views/PrivacyPolicyView').then(m => ({ default: m.PrivacyPolicyView })));
 const TermsOfUseView = lazy(() => import('./views/TermsOfUseView').then(m => ({ default: m.TermsOfUseView })));
 const ContactUsView = lazy(() => import('./views/ContactUsView').then(m => ({ default: m.ContactUsView })));
@@ -430,13 +432,24 @@ export default function App() {
         return <ContactUsView onBack={() => setCurrentView(AppView.PROFILE)} />;
       case AppView.EDIT_VEHICLE: {
         const afterVehicle = locationAccess === 'unknown' ? AppView.LOCATION_PROMPT : AppView.MAP;
+        const afterOnboarding = AppView.PARSONA_PRESET_PICKER;
         return <EditVehicleView
           user={user}
-          onBack={() => { setVehicleOnboarding(false); setCurrentView(vehicleOnboarding ? afterVehicle : AppView.PROFILE); }}
+          onBack={() => { setVehicleOnboarding(false); setCurrentView(vehicleOnboarding ? afterOnboarding : AppView.PROFILE); }}
           isOnboarding={vehicleOnboarding}
-          onSkip={() => { setVehicleOnboarding(false); setCurrentView(afterVehicle); }}
+          onSkip={() => { setVehicleOnboarding(false); setCurrentView(vehicleOnboarding ? afterOnboarding : afterVehicle); }}
         />;
       }
+      case AppView.PARSONA_PRESET_PICKER:
+        return <ParsonaPresetPickerView
+          userId={user?.id ?? ''}
+          onDone={() => setCurrentView(locationAccess === 'unknown' ? AppView.LOCATION_PROMPT : AppView.MAP)}
+        />;
+      case AppView.PARSONA_CREATOR:
+        return <ParsonaCreatorView
+          user={user}
+          onBack={() => setCurrentView(AppView.PROFILE)}
+        />;
       case AppView.LOCATION_PROMPT:
         return <LocationPromptView
           onComplete={(access) => {

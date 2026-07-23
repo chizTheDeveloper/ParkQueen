@@ -630,3 +630,82 @@ describe('users/{uid} public doc — private field denylist', () => {
         await assertFails(getDoc(doc(anonDb(), 'users', OWNER_UID, 'private', 'profile')));
     });
 });
+
+// ── Avatar (Parsona) write rules ───────────────────────────────────────────────
+const VALID_AVATAR = {
+    version: 1,
+    skin: 'skin_01',
+    face: 'face_round',
+    hair: 'hair_short',
+    hairColor: 'hair_black',
+    facialHair: null,
+    glasses: null,
+    headwear: null,
+    outfit: 'outfit_tee',
+    background: 'bg_navy',
+};
+
+describe('users/{uid} avatar field rules', () => {
+    const avatarUid = `avatar-test-${Date.now()}`;
+
+    beforeEach(async () => {
+        await seed('users', avatarUid, { username: 'tester', phone: '+15555550199' });
+    });
+
+    // 53
+    it('AV1: owner can write a valid avatar', async () => {
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        await assertSucceeds(
+            setDoc(doc(db, 'users', avatarUid), { avatar: VALID_AVATAR }, { merge: true })
+        );
+    });
+
+    // 54
+    it('AV2: owner can clear avatar (set to null)', async () => {
+        await seed('users', avatarUid, { username: 'tester', avatar: VALID_AVATAR });
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        await assertSucceeds(
+            setDoc(doc(db, 'users', avatarUid), { avatar: null }, { merge: true })
+        );
+    });
+
+    // 55
+    it('AV3: owner cannot write avatar with wrong version', async () => {
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        await assertFails(
+            setDoc(doc(db, 'users', avatarUid), { avatar: { ...VALID_AVATAR, version: 99 } }, { merge: true })
+        );
+    });
+
+    // 56
+    it('AV4: owner cannot write avatar with extra keys', async () => {
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        await assertFails(
+            setDoc(doc(db, 'users', avatarUid), { avatar: { ...VALID_AVATAR, secretField: 'x' } }, { merge: true })
+        );
+    });
+
+    // 57
+    it('AV5: owner cannot write avatar missing required keys', async () => {
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        const { outfit: _omit, ...partial } = VALID_AVATAR;
+        await assertFails(
+            setDoc(doc(db, 'users', avatarUid), { avatar: partial }, { merge: true })
+        );
+    });
+
+    // 58
+    it('AV6: other user cannot write avatar to owner doc', async () => {
+        const db = testEnv.authenticatedContext(OTHER_UID).firestore();
+        await assertFails(
+            setDoc(doc(db, 'users', avatarUid), { avatar: VALID_AVATAR }, { merge: true })
+        );
+    });
+
+    // 59
+    it('AV7: admin can write any avatar', async () => {
+        await assertSucceeds(
+            setDoc(doc(adminDb(), 'users', avatarUid), { avatar: VALID_AVATAR }, { merge: true })
+        );
+    });
+});

@@ -38,6 +38,25 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
     }
 
+    // ── Avatar (Parsona) write guard ─────────────────────────────────────────
+    // Validates that the avatar map, if present, has the required keys and correct version.
+    // Strings are not depth-validated here — app-layer validation handles that.
+    function isValidAvatarField() {
+      let av = request.resource.data.get('avatar', null);
+      return av == null || (
+        av is map
+        && av.keys().hasAll(['version','skin','face','hair','hairColor','facialHair','glasses','headwear','outfit','background'])
+        && av.keys().hasOnly(['version','skin','face','hair','hairColor','facialHair','glasses','headwear','outfit','background'])
+        && av.version == 1
+        && av.skin is string
+        && av.face is string
+        && av.hair is string
+        && av.hairColor is string
+        && av.outfit is string
+        && av.background is string
+      );
+    }
+
     match /users/{userId} {
       allow read: if signedIn() || isAdmin();
       allow create: if signedIn() && request.auth.uid == userId
@@ -50,7 +69,8 @@ service cloud.firestore {
                             'moderationStatus', 'reportCount', 'role', 'status',
                             'suspendedAt', 'suspendedBy', 'suspensionReason',
                             'unsuspendedAt', 'unsuspendedBy', 'emailVerified',
-                            'dob', 'gender', 'homeArea', 'driverType', 'ageRange']));
+                            'dob', 'gender', 'homeArea', 'driverType', 'ageRange'])
+            && isValidAvatarField());
       allow delete: if false;
 
       match /processedTrustEvents/{eventId} {

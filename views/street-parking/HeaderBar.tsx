@@ -2,6 +2,7 @@ import React from 'react';
 import { Search, Camera, MessageSquare, Bell } from 'lucide-react';
 import { AppView } from '../../types';
 import { t, useLang } from '../../i18n';
+import { AvatarComposite } from '../../components/AvatarComposite';
 
 interface HeaderBarProps {
     user: any;
@@ -21,31 +22,15 @@ interface HeaderBarProps {
     onSelectResult: (result: any) => void;
 }
 
-const UserAvatar = ({ user, onClick }: { user: any; onClick: () => void }) => {
-    const initials = (user?.fullName || user?.username || 'PQ')
-        .split(' ')
-        .map((w: string) => w[0])
-        .filter(Boolean)
-        .slice(0, 2)
-        .join('')
-        .toUpperCase();
-
-    return (
-        <button
-            onClick={onClick}
-            className="w-8 h-8 rounded-full overflow-hidden shrink-0 flex items-center justify-center text-[13px] font-bold text-white"
-            aria-label="Profile"
-        >
-            {user?.avatarUrl ? (
-                <img src={user.avatarUrl} alt="Profile" className="w-full h-full object-cover" />
-            ) : (
-                <div className="w-full h-full bg-gradient-to-tr from-blue-600 to-cyan-500 flex items-center justify-center">
-                    {initials}
-                </div>
-            )}
-        </button>
-    );
-};
+const UserAvatar = ({ user, onClick }: { user: any; onClick: () => void }) => (
+    <button
+        onClick={onClick}
+        className="rounded-full overflow-hidden shrink-0"
+        aria-label="Profile"
+    >
+        <AvatarComposite avatar={user?.avatar} userId={user?.id ?? ''} size={32} aria-label="Profile" />
+    </button>
+);
 
 export const HeaderBar: React.FC<HeaderBarProps> = ({
     user,

@@ -47,6 +47,8 @@ export enum AppView {
   NOTIFICATIONS_SETTINGS = 'notifications-settings',
   LOCATION_SETTINGS = 'location-settings',
   LANGUAGE_SETTINGS = 'language-settings',
+  PARSONA_CREATOR = 'parsona-creator',
+  PARSONA_PRESET_PICKER = 'parsona-preset-picker',
 }
 
 export interface StreetSpot {

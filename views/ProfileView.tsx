@@ -1,22 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useFocusOnMount } from '../hooks/useFocusOnMount';
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { doc, updateDoc, onSnapshot, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { ChevronLeft, ChevronRight, Edit, Clock, Info, Settings, Crown, MapPin, Handshake, ParkingSquare } from 'lucide-react';
 import { VehicleIcon } from '../utils/vehicleIcon';
 import { AppView } from '../types';
 import { getNextTitle, getTierForCrowns, TIER_VISUALS, getProgressPct } from '../utils/crowns';
-import { getInitials } from '../utils/profileAvatar';
 import { deriveImpactCounts } from '../utils/profileImpact';
 import { t, useLang, getLang } from '../i18n';
+import { AvatarComposite } from '../components/AvatarComposite';
+import { ParsonaMigrationPrompt } from '../components/ParsonaMigrationPrompt';
 
 export const ProfileView = ({ user, onBack, setView }) => {
   useLang();
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadStatus, setUploadStatus] = useState<string>('');
-  const [uploadError, setUploadError] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [migrationDismissed, setMigrationDismissed] = useState(false);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const [recentActivity, setRecentActivity] = useState<{ id: string; icon: string; actionKey: string; address: string; ts: number; reward: string | null }[]>([]);
   const [impactState, setImpactState] = useState<'loading' | 'loaded' | 'error'>('loading');
@@ -108,62 +105,11 @@ export const ProfileView = ({ user, onBack, setView }) => {
     );
   };
 
-  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file && user) {
-      setIsUploading(true);
-      setUploadError(false);
-      setUploadStatus(t('profile.uploading'));
-      const storage = getStorage();
-      const storageRef = ref(storage, `avatars/${user.id}`);
-      try {
-        await uploadBytes(storageRef, file);
-        setUploadStatus(t('profile.reviewing_photo'));
-
-        const moderationRef = doc(db, 'avatarModeration', user.id);
-        const timeout = setTimeout(() => {
-          unsub();
-          setUploadError(true);
-          setUploadStatus(t('profile.photo_timed_out'));
-          setIsUploading(false);
-        }, 20000);
-
-        const unsub = onSnapshot(moderationRef, async (snap) => {
-          const data = snap.data();
-          if (!data || data.status === 'checking') return;
-
-          clearTimeout(timeout);
-          unsub();
-
-          if (data.status === 'approved') {
-            const avatarUrl = await getDownloadURL(storageRef);
-            await updateDoc(doc(db, 'users', user.id), { avatarUrl });
-            setUploadError(false);
-            setUploadStatus('');
-          } else {
-            setUploadError(true);
-            setUploadStatus(t('profile.photo_rejected'));
-            setTimeout(() => setUploadStatus(''), 4000);
-          }
-          setIsUploading(false);
-        });
-      } catch (error) {
-        console.error('Error uploading file:', error);
-        setUploadError(true);
-        setUploadStatus(t('profile.upload_failed'));
-        setIsUploading(false);
-      }
-    }
-  };
-
-  const triggerUpload = () => fileInputRef.current?.click();
-
   const crowns = user?.crowns || 0;
   const tier = getTierForCrowns(crowns);
   const visual = TIER_VISUALS[tier];
   const next = getNextTitle(crowns);
   const pct = getProgressPct(crowns);
-  const initials = getInitials(user?.username, user?.fullName);
 
   const hasImpact = impactState === 'loaded' &&
     (impactCounts.pingsShared > 0 || impactCounts.successfulHandoffs > 0 || impactCounts.spotsFound > 0);
@@ -204,49 +150,20 @@ export const ProfileView = ({ user, onBack, setView }) => {
             <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-[22px] overflow-hidden">
               <div className="flex items-center gap-4 px-4 py-4">
 
-                {/* Avatar */}
+                {/* Parsona avatar */}
                 <div className="relative shrink-0">
-                  <div
-                    className="w-[92px] h-[92px] rounded-full border-[3px] border-[#1e75ff] overflow-hidden flex items-center justify-center shadow-lg shadow-[#1e75ff]/20"
-                    aria-hidden="true"
-                  >
-                    {user.avatarUrl ? (
-                      <img src={user.avatarUrl} alt="" className="w-full h-full object-cover" />
-                    ) : initials ? (
-                      <span
-                        className="text-[30px] font-extrabold text-white select-none leading-none"
-                        style={{ background: 'linear-gradient(135deg, #0d1a2e 0%, #1e3a5f 100%)', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                      >
-                        {initials}
-                      </span>
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #0d1a2e 0%, #1e3a5f 100%)' }}>
-                        <svg viewBox="0 0 24 24" fill="none" className="w-10 h-10 text-[#38bdf8]/60" stroke="currentColor" strokeWidth={1.5}>
-                          <circle cx="12" cy="8" r="4" />
-                          <path d="M4 20c0-4 3.58-7 8-7s8 3 8 7" strokeLinecap="round" />
-                        </svg>
-                      </div>
-                    )}
-                    {isUploading && (
-                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                        <div className="animate-spin motion-reduce:animate-none rounded-full h-7 w-7 border-b-2 border-white" />
-                      </div>
-                    )}
+                  <div className="rounded-full border-[3px] border-[#1e75ff] shadow-lg shadow-[#1e75ff]/20 overflow-hidden">
+                    <AvatarComposite avatar={user?.avatar} userId={user?.id ?? ''} size={92} aria-label={t('parsona.title')} />
                   </div>
-
-                  {/* Edit badge */}
                   <button
-                    onClick={triggerUpload}
-                    disabled={isUploading}
-                    aria-label={t('profile.upload_photo_aria')}
-                    className="absolute -bottom-1 -right-1 w-10 h-10 flex items-end justify-end pb-0.5 pr-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={() => setView(AppView.PARSONA_CREATOR)}
+                    aria-label={t('parsona.edit')}
+                    className="absolute -bottom-1 -right-1 w-10 h-10 flex items-end justify-end pb-0.5 pr-0.5"
                   >
-                    <div className="w-6 h-6 rounded-full bg-[#1e75ff] border-2 border-[var(--color-bg)] flex items-center justify-center text-white shadow-md hover:bg-blue-600 active:scale-95 transition-all pointer-events-none">
+                    <div className="w-6 h-6 rounded-full bg-[#1e75ff] border-2 border-[var(--color-bg)] flex items-center justify-center text-white shadow-md active:scale-95 transition-transform pointer-events-none">
                       <Edit size={11} />
                     </div>
                   </button>
-
-                  <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" className="hidden" />
                 </div>
 
                 {/* Identity text */}
@@ -276,14 +193,17 @@ export const ProfileView = ({ user, onBack, setView }) => {
                     );
                   })()}
 
-                  {uploadStatus && (
-                    <p aria-live="polite" className={`text-xs mt-1 font-semibold ${uploadError ? 'text-red-400' : 'text-blue-400'}`}>
-                      {uploadStatus}
-                    </p>
-                  )}
                 </div>
               </div>
             </div>
+
+            {/* ── Migration prompt: avatarUrl but no Parsona yet ──────── */}
+            {user?.avatarUrl && !user?.avatar && !migrationDismissed && (
+              <ParsonaMigrationPrompt
+                onCreateParsona={() => setView(AppView.PARSONA_CREATOR)}
+                onDismiss={() => setMigrationDismissed(true)}
+              />
+            )}
 
             {/* ── Community Progress Card ────────────────────────────── */}
             <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-[22px] overflow-hidden">
