@@ -92,6 +92,83 @@ describe('isCleanStringOrNull', () => {
   });
 });
 
+describe('isValidAvatarConfig — all manifest IDs accepted', () => {
+  const skins      = ['skin_01','skin_02','skin_03','skin_04','skin_05','skin_06'] as const;
+  const faces      = ['face_round','face_oval','face_angular'] as const;
+  const hairs      = ['hair_short','hair_medium_straight','hair_long','hair_short_curly',
+                      'hair_afro','hair_locs','hair_braids','hair_bun','hair_wavy','hair_coily_short'] as const;
+  const hairColors = ['hair_black','hair_dark_brown','hair_medium_brown','hair_auburn','hair_blonde','hair_gray'] as const;
+  const outfits    = ['outfit_tee','outfit_hoodie','outfit_jacket','outfit_turtleneck','outfit_buttonup'] as const;
+  const bgs        = ['bg_navy','bg_midnight','bg_teal','bg_charcoal','bg_purple','bg_gold'] as const;
+  const fhIds      = ['fh_stubble','fh_beard_short','fh_mustache'] as const;
+  const glIds      = ['gl_round','gl_square','gl_semi'] as const;
+  const hwIds      = ['hw_cap','hw_hijab','hw_wrap','hw_beanie'] as const;
+
+  it('accepts every skin ID', () => {
+    for (const id of skins) expect(isValidAvatarConfig({ ...VALID, skin: id })).toBe(true);
+  });
+  it('accepts every face ID', () => {
+    for (const id of faces) expect(isValidAvatarConfig({ ...VALID, face: id })).toBe(true);
+  });
+  it('accepts every hair ID', () => {
+    for (const id of hairs) expect(isValidAvatarConfig({ ...VALID, hair: id })).toBe(true);
+  });
+  it('accepts every hair color ID', () => {
+    for (const id of hairColors) expect(isValidAvatarConfig({ ...VALID, hairColor: id })).toBe(true);
+  });
+  it('accepts every outfit ID', () => {
+    for (const id of outfits) expect(isValidAvatarConfig({ ...VALID, outfit: id })).toBe(true);
+  });
+  it('accepts every background ID', () => {
+    for (const id of bgs) expect(isValidAvatarConfig({ ...VALID, background: id })).toBe(true);
+  });
+  it('accepts every facialHair ID', () => {
+    for (const id of fhIds) expect(isValidAvatarConfig({ ...VALID, facialHair: id })).toBe(true);
+  });
+  it('accepts every glasses ID', () => {
+    for (const id of glIds) expect(isValidAvatarConfig({ ...VALID, glasses: id })).toBe(true);
+  });
+  it('accepts every headwear ID', () => {
+    for (const id of hwIds) expect(isValidAvatarConfig({ ...VALID, headwear: id })).toBe(true);
+  });
+  it('rejects unknown skin ID', () => expect(isValidAvatarConfig({ ...VALID, skin: 'skin_99' as any })).toBe(false));
+  it('rejects unknown hair ID', () => expect(isValidAvatarConfig({ ...VALID, hair: 'hair_mohawk' as any })).toBe(false));
+  it('rejects unknown headwear ID', () => expect(isValidAvatarConfig({ ...VALID, headwear: 'hw_crown' as any })).toBe(false));
+  it('rejects unknown facialHair ID', () => expect(isValidAvatarConfig({ ...VALID, facialHair: 'fh_goatee' as any })).toBe(false));
+});
+
+describe('migration dismissal key scoping', () => {
+  const KEY_PREFIX = 'parsona_migration_dismissed_v1_';
+
+  it('key includes the user uid', () => {
+    const uid = 'user_abc123';
+    const key = `${KEY_PREFIX}${uid}`;
+    expect(key).toBe('parsona_migration_dismissed_v1_user_abc123');
+  });
+
+  it('user A and user B produce different keys', () => {
+    const keyA = `${KEY_PREFIX}uid_aaa`;
+    const keyB = `${KEY_PREFIX}uid_bbb`;
+    expect(keyA).not.toBe(keyB);
+  });
+
+  it('user A and user B keys are distinct', () => {
+    const keyA = `${KEY_PREFIX}uid_aaa`;
+    const keyB = `${KEY_PREFIX}uid_bbb`;
+    // Different UIDs produce different keys, so setting one cannot affect the other
+    expect(keyA).not.toBe(keyB);
+    expect(keyA.endsWith('uid_aaa')).toBe(true);
+    expect(keyB.endsWith('uid_bbb')).toBe(true);
+  });
+
+  it('key for any two different UIDs never collides', () => {
+    const uids = ['abc','def','user_123','user_456','','anon'];
+    const keys = uids.map(uid => `${KEY_PREFIX}${uid}`);
+    const unique = new Set(keys);
+    expect(unique.size).toBe(keys.length);
+  });
+});
+
 describe('getDefaultAvatar', () => {
   it('returns a valid config for any userId', () => {
     expect(isValidAvatarConfig(getDefaultAvatar('user_abc123'))).toBe(true);

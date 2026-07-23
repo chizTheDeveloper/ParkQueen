@@ -13,8 +13,9 @@ import { ParsonaMigrationPrompt } from '../components/ParsonaMigrationPrompt';
 
 export const ProfileView = ({ user, onBack, setView }) => {
   useLang();
+  const dismissKey = `parsona_migration_dismissed_v1_${user?.uid ?? ''}`;
   const [migrationDismissed, setMigrationDismissed] = useState(
-    () => localStorage.getItem('parsona_migration_dismissed_v1') === '1'
+    () => localStorage.getItem(`parsona_migration_dismissed_v1_${user?.uid ?? ''}`) === '1'
   );
   const headingRef = useRef<HTMLHeadingElement>(null);
   const [recentActivity, setRecentActivity] = useState<{ id: string; icon: string; actionKey: string; address: string; ts: number; reward: string | null }[]>([]);
@@ -204,7 +205,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
               <ParsonaMigrationPrompt
                 onCreateParsona={() => setView(AppView.PARSONA_CREATOR)}
                 onDismiss={() => {
-                  localStorage.setItem('parsona_migration_dismissed_v1', '1');
+                  localStorage.setItem(dismissKey, '1');
                   setMigrationDismissed(true);
                 }}
               />

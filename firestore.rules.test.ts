@@ -802,4 +802,85 @@ describe('users/{uid} avatar field rules', () => {
             }, { merge: true })
         );
     });
+
+    // 71–76: every skin ID
+    it('AV19: all skin IDs accepted', async () => {
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        for (const id of ['skin_01','skin_02','skin_03','skin_04','skin_05','skin_06']) {
+            await assertSucceeds(setDoc(doc(db, 'users', avatarUid), { avatar: { ...VALID_AVATAR, skin: id } }, { merge: true }));
+        }
+    });
+
+    // 77–79: every face ID
+    it('AV20: all face IDs accepted', async () => {
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        for (const id of ['face_round','face_oval','face_angular']) {
+            await assertSucceeds(setDoc(doc(db, 'users', avatarUid), { avatar: { ...VALID_AVATAR, face: id } }, { merge: true }));
+        }
+    });
+
+    // 80–89: every hair ID
+    it('AV21: all hair IDs accepted', async () => {
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        for (const id of ['hair_short','hair_medium_straight','hair_long','hair_short_curly',
+                          'hair_afro','hair_locs','hair_braids','hair_bun','hair_wavy','hair_coily_short']) {
+            await assertSucceeds(setDoc(doc(db, 'users', avatarUid), { avatar: { ...VALID_AVATAR, hair: id } }, { merge: true }));
+        }
+    });
+
+    // 90–95: every hair color ID
+    it('AV22: all hairColor IDs accepted', async () => {
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        for (const id of ['hair_black','hair_dark_brown','hair_medium_brown','hair_auburn','hair_blonde','hair_gray']) {
+            await assertSucceeds(setDoc(doc(db, 'users', avatarUid), { avatar: { ...VALID_AVATAR, hairColor: id } }, { merge: true }));
+        }
+    });
+
+    // 96–100: every outfit ID
+    it('AV23: all outfit IDs accepted', async () => {
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        for (const id of ['outfit_tee','outfit_hoodie','outfit_jacket','outfit_turtleneck','outfit_buttonup']) {
+            await assertSucceeds(setDoc(doc(db, 'users', avatarUid), { avatar: { ...VALID_AVATAR, outfit: id } }, { merge: true }));
+        }
+    });
+
+    // 101–106: every background ID
+    it('AV24: all background IDs accepted', async () => {
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        for (const id of ['bg_navy','bg_midnight','bg_teal','bg_charcoal','bg_purple','bg_gold']) {
+            await assertSucceeds(setDoc(doc(db, 'users', avatarUid), { avatar: { ...VALID_AVATAR, background: id } }, { merge: true }));
+        }
+    });
+
+    // 107–109: every facialHair ID
+    it('AV25: all facialHair IDs accepted', async () => {
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        for (const id of ['fh_stubble','fh_beard_short','fh_mustache']) {
+            await assertSucceeds(setDoc(doc(db, 'users', avatarUid), { avatar: { ...VALID_AVATAR, facialHair: id } }, { merge: true }));
+        }
+    });
+
+    // 110–112: every glasses ID
+    it('AV26: all glasses IDs accepted', async () => {
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        for (const id of ['gl_round','gl_square','gl_semi']) {
+            await assertSucceeds(setDoc(doc(db, 'users', avatarUid), { avatar: { ...VALID_AVATAR, glasses: id } }, { merge: true }));
+        }
+    });
+
+    // 113–116: every headwear ID including hw_beanie (4th option)
+    it('AV27: all headwear IDs accepted', async () => {
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        for (const id of ['hw_cap','hw_hijab','hw_wrap','hw_beanie']) {
+            await assertSucceeds(setDoc(doc(db, 'users', avatarUid), { avatar: { ...VALID_AVATAR, headwear: id } }, { merge: true }));
+        }
+    });
+
+    // 117: unknown IDs still rejected
+    it('AV28: unknown IDs rejected across categories', async () => {
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        await assertFails(setDoc(doc(db, 'users', avatarUid), { avatar: { ...VALID_AVATAR, skin: 'skin_07' } }, { merge: true }));
+        await assertFails(setDoc(doc(db, 'users', avatarUid), { avatar: { ...VALID_AVATAR, headwear: 'hw_crown' } }, { merge: true }));
+        await assertFails(setDoc(doc(db, 'users', avatarUid), { avatar: { ...VALID_AVATAR, hair: 'hair_mohawk' } }, { merge: true }));
+    });
 });

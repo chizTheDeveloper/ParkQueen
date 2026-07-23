@@ -33,6 +33,10 @@ const ActivitiesView = lazy(() => import('./views/ActivitiesView').then(m => ({ 
 const EditVehicleView = lazy(() => import('./views/EditVehicleView').then(m => ({ default: m.EditVehicleView })));
 const ParsonaCreatorView = lazy(() => import('./views/ParsonaCreatorView').then(m => ({ default: m.ParsonaCreatorView })));
 const ParsonaPresetPickerView = lazy(() => import('./views/ParsonaPresetPickerView').then(m => ({ default: m.ParsonaPresetPickerView })));
+// DEV-only Art Lab — tree-shaken out of production builds
+const ParsonaArtLabView = import.meta.env.DEV
+  ? lazy(() => import('./views/ParsonaArtLabView').then(m => ({ default: m.ParsonaArtLabView })))
+  : null;
 const PrivacyPolicyView = lazy(() => import('./views/PrivacyPolicyView').then(m => ({ default: m.PrivacyPolicyView })));
 const TermsOfUseView = lazy(() => import('./views/TermsOfUseView').then(m => ({ default: m.TermsOfUseView })));
 const ContactUsView = lazy(() => import('./views/ContactUsView').then(m => ({ default: m.ContactUsView })));
@@ -466,6 +470,15 @@ export default function App() {
   };
 
   const isMapView = currentView === AppView.MAP || currentView === AppView.MESSAGES;
+
+  // DEV-only Art Lab — never rendered in production
+  if (import.meta.env.DEV && ParsonaArtLabView && typeof window !== 'undefined' && window.location.search.includes('qa=parsona-art-lab')) {
+    return (
+      <Suspense fallback={<LoadingScreen />}>
+        <ParsonaArtLabView />
+      </Suspense>
+    );
+  }
 
   return (
     <div className="h-screen w-screen flex flex-col bg-[var(--color-bg)] text-[var(--color-text)] font-sans selection:bg-queen-500 selection:text-white transition-colors duration-300">
