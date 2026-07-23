@@ -14,9 +14,11 @@ import { ParsonaMigrationPrompt } from '../components/ParsonaMigrationPrompt';
 export const ProfileView = ({ user, onBack, setView }) => {
   useLang();
   const dismissKey = `parsona_migration_dismissed_v1_${user?.uid ?? ''}`;
-  const [migrationDismissed, setMigrationDismissed] = useState(
-    () => localStorage.getItem(`parsona_migration_dismissed_v1_${user?.uid ?? ''}`) === '1'
-  );
+  const [migrationDismissed, setMigrationDismissed] = useState(false);
+  useEffect(() => {
+    if (!user?.uid) return;
+    setMigrationDismissed(localStorage.getItem(`parsona_migration_dismissed_v1_${user.uid}`) === '1');
+  }, [user?.uid]);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const [recentActivity, setRecentActivity] = useState<{ id: string; icon: string; actionKey: string; address: string; ts: number; reward: string | null }[]>([]);
   const [impactState, setImpactState] = useState<'loading' | 'loaded' | 'error'>('loading');
