@@ -115,7 +115,7 @@ export function AvatarComposite({
         {/* ── 10. coversHair: re-render face opening + features on top ──── */}
         {hwDef?.coversHair && (
           <>
-            <ellipse cx="50" cy="42" rx="20" ry="24" fill={skinSvg} />
+            <g dangerouslySetInnerHTML={{ __html: applyColor(face.svg, skinSvg) }} />
             <g dangerouslySetInnerHTML={{ __html: FACE_FEATURES_SVG }} />
             {fhDef && (
               <g dangerouslySetInnerHTML={{ __html: applyColor(fhDef.svg, hairSvg) }} />

@@ -3,23 +3,25 @@ import type { ParsedPreset } from './types';
 import { PARSONA_VERSION } from './types';
 
 // ─── Default Parsona presets ───────────────────────────────────────────────────
-// Shown during signup and used as the deterministic fallback for users without
-// a saved avatar. Each preset covers a different combination without implying
-// demographic categories.
+// Eight curated combinations — coherent, culturally thoughtful, visually distinct.
+// Each covers a unique intersection of face shape, skin tone, hair type, and style.
+// Skin coverage: skin_01×2, skin_02, skin_03, skin_04, skin_05×2, skin_06.
+// Backgrounds: navy, midnight, teal, charcoal, purple, gold(royal blue), navy, purple.
 
 export const PARSONA_PRESETS: ParsedPreset[] = [
   {
     id: 'preset_royal_night',
     label: 'Royal Night',
     labelEs: 'Noche Real',
+    // Polished professional. Oval face, dark straight hair, round glasses, jacket.
     avatar: {
       version: PARSONA_VERSION,
       skin: 'skin_01',
-      face: 'face_round',
+      face: 'face_oval',
       hair: 'hair_medium_straight',
       hairColor: 'hair_dark_brown',
       facialHair: null,
-      glasses: null,
+      glasses: 'gl_round',
       headwear: null,
       outfit: 'outfit_jacket',
       background: 'bg_navy',
@@ -29,23 +31,25 @@ export const PARSONA_PRESETS: ParsedPreset[] = [
     id: 'preset_cloud_nine',
     label: 'Cloud Nine',
     labelEs: 'Nueve Nubes',
+    // Natural and warm. Round face, full afro, hoodie, deep midnight backdrop.
     avatar: {
       version: PARSONA_VERSION,
       skin: 'skin_03',
-      face: 'face_oval',
+      face: 'face_round',
       hair: 'hair_afro',
       hairColor: 'hair_black',
       facialHair: null,
       glasses: null,
       headwear: null,
       outfit: 'outfit_hoodie',
-      background: 'bg_purple',
+      background: 'bg_midnight',
     },
   },
   {
     id: 'preset_golden_hour',
     label: 'Golden Hour',
     labelEs: 'Hora Dorada',
+    // Warm and creative. Angular face, auburn braids, round glasses, tee, deep royal blue.
     avatar: {
       version: PARSONA_VERSION,
       skin: 'skin_04',
@@ -63,6 +67,7 @@ export const PARSONA_PRESETS: ParsedPreset[] = [
     id: 'preset_midnight_rider',
     label: 'Midnight Rider',
     labelEs: 'Jinete Nocturno',
+    // Dramatic and distinguished. Round face, locs, short beard, turtleneck, deep purple.
     avatar: {
       version: PARSONA_VERSION,
       skin: 'skin_05',
@@ -73,13 +78,14 @@ export const PARSONA_PRESETS: ParsedPreset[] = [
       glasses: null,
       headwear: null,
       outfit: 'outfit_turtleneck',
-      background: 'bg_midnight',
+      background: 'bg_purple',
     },
   },
   {
     id: 'preset_silver_lining',
     label: 'Silver Lining',
     labelEs: 'Rayo de Plata',
+    // Classic and refined. Oval face, bun, square glasses, button-up, charcoal.
     avatar: {
       version: PARSONA_VERSION,
       skin: 'skin_02',
@@ -97,6 +103,7 @@ export const PARSONA_PRESETS: ParsedPreset[] = [
     id: 'preset_ocean_deep',
     label: 'Ocean Deep',
     labelEs: 'Mar Profundo',
+    // Sharp and cool. Angular face, short blonde hair, stubble, jacket, teal.
     avatar: {
       version: PARSONA_VERSION,
       skin: 'skin_01',
@@ -114,9 +121,10 @@ export const PARSONA_PRESETS: ParsedPreset[] = [
     id: 'preset_wrapped_up',
     label: 'Wrapped Up',
     labelEs: 'Bien Cubierta',
+    // Elegant and covered. Round face, hijab, tee, navy.
     avatar: {
       version: PARSONA_VERSION,
-      skin: 'skin_03',
+      skin: 'skin_05',
       face: 'face_round',
       hair: 'hair_short',
       hairColor: 'hair_black',
@@ -131,6 +139,7 @@ export const PARSONA_PRESETS: ParsedPreset[] = [
     id: 'preset_purple_reign',
     label: 'Purple Reign',
     labelEs: 'Reino Morado',
+    // Bold and expressive. Round face, coily hair, half-rim glasses, tee, purple.
     avatar: {
       version: PARSONA_VERSION,
       skin: 'skin_06',
@@ -140,7 +149,7 @@ export const PARSONA_PRESETS: ParsedPreset[] = [
       facialHair: null,
       glasses: 'gl_semi',
       headwear: null,
-      outfit: 'outfit_hoodie',
+      outfit: 'outfit_tee',
       background: 'bg_purple',
     },
   },
