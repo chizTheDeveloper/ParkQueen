@@ -60,10 +60,23 @@ const LEGACY_COLOR_MAP: Record<string, string> = { 'Yellow Cab': 'Yellow', 'Uber
 
 const VISIBLE_COLOR_NAMES = new Set(COLORS.filter(c => c.name !== 'Other').map(c => c.name));
 
-// Returns the canonical palette name when custom text folds to a standard color.
+// Diacritic-insensitive fold for color matching only (marrón → marron, never used for storage).
+const foldForColorMatch = (s: string) =>
+  s.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+// Returns canonical palette name when custom text folds to any standard color.
+// Matches against both English canonical names and the current locale's color labels,
+// so Spanish "azul" → "Blue", accented "marrón" → "Brown", etc.
 const findCanonicalColorMatch = (text: string): string | undefined => {
-  const norm = normalizeForMatch(text);
-  return norm ? [...VISIBLE_COLOR_NAMES].find(n => normalizeForMatch(n) === norm) : undefined;
+  const norm = foldForColorMatch(text);
+  if (!norm) return undefined;
+  const clabels = colorLabels();
+  for (const name of VISIBLE_COLOR_NAMES) {
+    if (foldForColorMatch(name) === norm) return name;
+    const label = clabels[name];
+    if (label && foldForColorMatch(label) === norm) return name;
+  }
+  return undefined;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -771,23 +784,27 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
   // STEP 2 — Color
   // ═══════════════════════════════════════════
 
-  const colorDisplayLabel =
-    vehicleColor === CUSTOM_COLOR_KEY ? customColorText
-    : vehicleColor ? (clabels[vehicleColor] ?? vehicleColor)
-    : null;
-
   // Resolved brand for validation (mirrors handleNextFromBrand)
   const resolvedBrand = vehicleBrand === CUSTOM_BRAND_KEY ? customBrandText.trim() : vehicleBrand;
+
+  // Canonical match: custom text folds to a standard palette name.
+  // Computed before colorDisplayLabel so derived surfaces agree with what will be saved.
+  const canonicalColorMatch =
+    vehicleColor === CUSTOM_COLOR_KEY ? findCanonicalColorMatch(customColorText) : undefined;
+
+  // All derived display surfaces use the canonical label when a match exists,
+  // so preview and header agree with the value that will be persisted.
+  const colorDisplayLabel =
+    vehicleColor === CUSTOM_COLOR_KEY
+      ? (canonicalColorMatch ? (clabels[canonicalColorMatch] ?? canonicalColorMatch) : (customColorText || null))
+      : vehicleColor ? (clabels[vehicleColor] ?? vehicleColor)
+      : null;
 
   // Save is valid when required fields exist AND color choice is complete
   const colorValid =
     vehicleType !== '' &&
     resolvedBrand !== '' &&
     (vehicleColor !== CUSTOM_COLOR_KEY || customColorText.trim() !== '');
-
-  // Canonical match: custom text folds to a standard palette name
-  const canonicalColorMatch =
-    vehicleColor === CUSTOM_COLOR_KEY ? findCanonicalColorMatch(customColorText) : undefined;
 
   return (
     <div className="h-full bg-[var(--color-bg)] text-[var(--color-text)] flex flex-col px-4 pt-4">
@@ -808,7 +825,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
           <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl px-4 py-4 flex items-center gap-3.5 mb-5">
             <VehicleIcon
               type={vehicleType}
-              color={vehicleColor === CUSTOM_COLOR_KEY ? customColorText : vehicleColor}
+              color={vehicleColor === CUSTOM_COLOR_KEY ? (canonicalColorMatch ?? customColorText) : vehicleColor}
               size={28}
             />
             <div>

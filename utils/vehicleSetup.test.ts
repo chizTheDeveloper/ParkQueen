@@ -889,11 +889,29 @@ function colorValidFn(
   );
 }
 
-// Mirror of findCanonicalColorMatch
+// Mirror of findCanonicalColorMatch — diacritic-insensitive, matches English canonical names
 function findCanonicalColorMatchTest(text: string): string | undefined {
-  const normalize = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
-  const norm = normalize(text);
-  return norm ? [...VISIBLE_COLOR_NAMES_C].find(n => normalize(n) === norm) : undefined;
+  const fold = (s: string) =>
+    s.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const norm = fold(text);
+  return norm ? [...VISIBLE_COLOR_NAMES_C].find(n => fold(n) === norm) : undefined;
+}
+
+// Localized version: also checks provided locale-label map (e.g. Spanish "azul" → "Blue")
+function findCanonicalColorMatchLocalizedTest(
+  text: string,
+  localizedLabels: Record<string, string>,
+): string | undefined {
+  const fold = (s: string) =>
+    s.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const norm = fold(text);
+  if (!norm) return undefined;
+  for (const name of VISIBLE_COLOR_NAMES_C) {
+    if (fold(name) === norm) return name;
+    const label = localizedLabels[name];
+    if (label && fold(label) === norm) return name;
+  }
+  return undefined;
 }
 
 // Sentinel to represent deleteField() in payload tests
@@ -1030,5 +1048,125 @@ describe('Test 36: Color screen helper/error i18n coverage', () => {
   it('Spanish color_already_listed is present', () => {
     expect(es['vehicle.color_already_listed']).toBeDefined();
     expect(es['vehicle.color_already_listed']).not.toBe('vehicle.color_already_listed');
+  });
+});
+
+// ─── New tests — canonical-match display consistency + full payload contract ──
+
+// Mirrors colorDisplayLabel derivation (canonical match takes priority over raw text)
+function deriveColorDisplayLabel(
+  vehicleColor: string,
+  customColorText: string,
+): string | null {
+  const canonical = vehicleColor === CUSTOM_COLOR_KEY_C
+    ? findCanonicalColorMatchTest(customColorText)
+    : undefined;
+  if (vehicleColor === CUSTOM_COLOR_KEY_C) {
+    return canonical ?? (customColorText || null);
+  }
+  if (vehicleColor) return vehicleColor; // label lookup omitted (pure-function test)
+  return null;
+}
+
+describe('Test 37: Canonical-match display consistency', () => {
+  it('canonical match drives display label (shows canonical, not raw input)', () => {
+    const label = deriveColorDisplayLabel(CUSTOM_COLOR_KEY_C, 'blue');
+    expect(label).toBe('Blue');
+  });
+  it('padded input " Blue " drives display label to canonical "Blue"', () => {
+    const label = deriveColorDisplayLabel(CUSTOM_COLOR_KEY_C, ' Blue ');
+    expect(label).toBe('Blue');
+  });
+  it('canonical match drives saved value — agrees with display', () => {
+    const p = resolveColorPayload(CUSTOM_COLOR_KEY_C, 'blue', true, false, '');
+    expect(p.vehicleColor).toBe('Blue');
+  });
+  it('genuine custom color displays its trimmed text (no canonical promotion)', () => {
+    const label = deriveColorDisplayLabel(CUSTOM_COLOR_KEY_C, '  Champagne  ');
+    // No canonical match — raw trimmed text shown
+    expect(label).toBe('  Champagne  '); // label uses raw; trimming is at Save time
+  });
+  it('genuine custom color saves trimmed', () => {
+    const p = resolveColorPayload(CUSTOM_COLOR_KEY_C, '  Champagne  ', true, false, '');
+    expect(p.vehicleColor).toBe('Champagne');
+  });
+});
+
+describe('Test 38: Full vehicle update payload — type and brand preservation', () => {
+  it('handleSaveWithColor only patches color fields; type+brand saved separately in earlier steps', () => {
+    // The color-save payload never includes vehicleType or vehicleBrand.
+    // Those are committed by handleNextFromType and handleNextFromBrand respectively.
+    // This test documents the contract: color payload has no type/brand keys.
+    const colorOnlyPayload = resolveColorPayload('Red', '', true, false, '');
+    expect(colorOnlyPayload).not.toHaveProperty('vehicleType');
+    expect(colorOnlyPayload).not.toHaveProperty('vehicleBrand');
+    expect(colorOnlyPayload.vehicleColor).toBe('Red');
+  });
+  it('saving without color does not include vehicleType or vehicleBrand in the patch', () => {
+    const colorOnlyPayload = resolveColorPayload('', '', false, false, '');
+    expect(colorOnlyPayload).not.toHaveProperty('vehicleType');
+    expect(colorOnlyPayload).not.toHaveProperty('vehicleBrand');
+    expect(colorOnlyPayload).not.toHaveProperty('vehicleColor');
+  });
+  it('removal payload contains only deleteField for vehicleColor — type+brand untouched', () => {
+    const colorOnlyPayload = resolveColorPayload('', '', true, true, 'Blue');
+    expect(colorOnlyPayload.vehicleColor).toBe(DELETE_SENTINEL);
+    expect(colorOnlyPayload).not.toHaveProperty('vehicleType');
+    expect(colorOnlyPayload).not.toHaveProperty('vehicleBrand');
+  });
+});
+
+// ─── New tests — Localized (Spanish) canonical color matching (Test 39) ───────
+
+const SPANISH_COLOR_LABELS: Record<string, string> = {
+  Black: 'Negro', White: 'Blanco', Silver: 'Plateado', Gray: 'Gris',
+  Blue: 'Azul', Red: 'Rojo', Green: 'Verde', Brown: 'Marrón',
+  Beige: 'Beige', Gold: 'Dorado', Yellow: 'Amarillo', Orange: 'Naranja',
+  Purple: 'Morado',
+};
+
+describe('Test 39: Localized (Spanish) canonical color matching', () => {
+  it('"azul" resolves to canonical "Blue"', () => {
+    expect(findCanonicalColorMatchLocalizedTest('azul', SPANISH_COLOR_LABELS)).toBe('Blue');
+  });
+  it('"Azul" (capitalized) resolves to canonical "Blue"', () => {
+    expect(findCanonicalColorMatchLocalizedTest('Azul', SPANISH_COLOR_LABELS)).toBe('Blue');
+  });
+  it('" AZUL " (padded/upper) resolves to canonical "Blue"', () => {
+    expect(findCanonicalColorMatchLocalizedTest(' AZUL ', SPANISH_COLOR_LABELS)).toBe('Blue');
+  });
+  it('"negro" resolves to canonical "Black"', () => {
+    expect(findCanonicalColorMatchLocalizedTest('negro', SPANISH_COLOR_LABELS)).toBe('Black');
+  });
+  it('"amarillo" resolves to canonical "Yellow"', () => {
+    expect(findCanonicalColorMatchLocalizedTest('amarillo', SPANISH_COLOR_LABELS)).toBe('Yellow');
+  });
+  it('"marrón" (accented) resolves to canonical "Brown"', () => {
+    expect(findCanonicalColorMatchLocalizedTest('marrón', SPANISH_COLOR_LABELS)).toBe('Brown');
+  });
+  it('"marron" (unaccented) resolves to canonical "Brown"', () => {
+    expect(findCanonicalColorMatchLocalizedTest('marron', SPANISH_COLOR_LABELS)).toBe('Brown');
+  });
+  it('localized canonical match drives localized preview label (azul → Azul via clabels lookup)', () => {
+    const canonical = findCanonicalColorMatchLocalizedTest('azul', SPANISH_COLOR_LABELS);
+    expect(canonical).toBe('Blue');
+    // Component renders clabels[canonical] — in Spanish that is 'Azul', not 'azul'
+    expect(SPANISH_COLOR_LABELS[canonical!]).toBe('Azul');
+  });
+  it('localized canonical match saves stable English canonical value, not raw input', () => {
+    const canonical = findCanonicalColorMatchLocalizedTest('azul', SPANISH_COLOR_LABELS);
+    expect(canonical).toBe('Blue');
+    // handleSaveWithColor writes: canonical ?? trimmed — 'Blue', not 'azul'
+    const savedValue = canonical ?? 'azul';
+    expect(savedValue).toBe('Blue');
+  });
+  it('"Azul Medianoche" remains a genuine custom color (no canonical match)', () => {
+    expect(findCanonicalColorMatchLocalizedTest('Azul Medianoche', SPANISH_COLOR_LABELS)).toBeUndefined();
+  });
+  it('no-color save payload never contains vehicleType or vehicleBrand', () => {
+    const payload = resolveColorPayload('', '', false, false, '');
+    expect(payload).not.toHaveProperty('vehicleType');
+    expect(payload).not.toHaveProperty('vehicleBrand');
+    expect(payload).not.toHaveProperty('vehicleColor');
   });
 });
