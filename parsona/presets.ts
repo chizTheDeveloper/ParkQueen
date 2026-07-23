@@ -99,7 +99,7 @@ export const PARSONA_PRESETS: ParsedPreset[] = [
     labelEs: 'Mar Profundo',
     avatar: {
       version: PARSONA_VERSION,
-      skin: 'skin_02',
+      skin: 'skin_01',
       face: 'face_angular',
       hair: 'hair_short',
       hairColor: 'hair_blonde',

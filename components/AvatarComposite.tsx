@@ -26,7 +26,8 @@ interface AvatarCompositeProps {
  *
  * Layer order (bottom → top):
  *   background → hair_back → outfit → skin/face → face_features →
- *   hair_front → headwear → [face_opening_if_hijab] → glasses → facial_hair
+ *   facial_hair → hair_front → glasses → headwear
+ *   [coversHair headwear: headwear → face_opening → features → facial_hair → glasses]
  */
 export function AvatarComposite({
   avatar: rawAvatar,
@@ -88,37 +89,41 @@ export function AvatarComposite({
         {/* ── 4. Skin — face shape + neck ───────────────────────────────── */}
         <g dangerouslySetInnerHTML={{ __html: applyColor(face.svg, skinSvg) }} />
 
-        {/* ── 5. Face features (eyes, mouth) ────────────────────────────── */}
+        {/* ── 5. Face features (brows, eyes, nose hint, mouth) ─────────── */}
         <g dangerouslySetInnerHTML={{ __html: FACE_FEATURES_SVG }} />
 
-        {/* ── 6. Hair (front layer, above face) ────────────────────────── */}
+        {/* ── 6. Facial hair (below front hair so braids/locs cover it) ── */}
+        {fhDef && !hwDef?.coversHair && (
+          <g dangerouslySetInnerHTML={{ __html: applyColor(fhDef.svg, hairSvg) }} />
+        )}
+
+        {/* ── 7. Hair front (crown cap; hanging strands are in back layer) */}
         {!hwDef?.coversHair && hair.front && (
           <g dangerouslySetInnerHTML={{ __html: applyColor(hair.front, hairSvg) }} />
         )}
 
-        {/* ── 7. Headwear ───────────────────────────────────────────────── */}
+        {/* ── 8. Glasses (above hair, below headwear) ───────────────────── */}
+        {glDef && !hwDef?.coversHair && (
+          <g dangerouslySetInnerHTML={{ __html: glDef.svg }} />
+        )}
+
+        {/* ── 9. Headwear ───────────────────────────────────────────────── */}
         {hwDef && (
           <g dangerouslySetInnerHTML={{ __html: applyColor(hwDef.svg, hwSvg) }} />
         )}
 
-        {/* ── 8. Face opening re-render (for hair-covering headwear) ─────── */}
+        {/* ── 10. coversHair: re-render face opening + features on top ──── */}
         {hwDef?.coversHair && (
           <>
-            {/* Re-render the face oval in skin color on top of headwear */}
             <ellipse cx="50" cy="42" rx="20" ry="24" fill={skinSvg} />
-            {/* Re-render face features on top of face opening */}
             <g dangerouslySetInnerHTML={{ __html: FACE_FEATURES_SVG }} />
+            {fhDef && (
+              <g dangerouslySetInnerHTML={{ __html: applyColor(fhDef.svg, hairSvg) }} />
+            )}
+            {glDef && (
+              <g dangerouslySetInnerHTML={{ __html: glDef.svg }} />
+            )}
           </>
-        )}
-
-        {/* ── 9. Glasses ────────────────────────────────────────────────── */}
-        {glDef && (
-          <g dangerouslySetInnerHTML={{ __html: glDef.svg }} />
-        )}
-
-        {/* ── 10. Facial hair ───────────────────────────────────────────── */}
-        {fhDef && (
-          <g dangerouslySetInnerHTML={{ __html: applyColor(fhDef.svg, hairSvg) }} />
         )}
 
       </g>

@@ -7,7 +7,7 @@ import {
   SKINS, FACES, HAIR_STYLES, HAIR_COLORS, FACIAL_HAIR,
   GLASSES, HEADWEAR, OUTFITS, BACKGROUNDS,
 } from '../parsona/assets';
-import { PARSONA_PRESETS, getDefaultAvatar } from '../parsona/presets';
+import { getDefaultAvatar } from '../parsona/presets';
 import type { AvatarConfig, SkinId, FaceId, HairId, HairColorId, FacialHairId, GlassesId, HeadwearId, OutfitId, BackgroundId } from '../parsona/types';
 import { ChevronLeft, Shuffle, RotateCcw } from 'lucide-react';
 
@@ -39,7 +39,7 @@ function OptionTile({
       aria-label={label + (selected ? ` — ${t('parsona.selected_aria')}` : '')}
       aria-pressed={selected}
       className={`
-        flex flex-col items-center gap-1.5 p-2 rounded-xl min-w-[68px] min-h-[44px]
+        flex flex-col items-center gap-1.5 p-2 rounded-xl w-full min-h-[44px]
         border transition-all
         ${selected
           ? 'border-[#1e75ff] bg-[#1e75ff]/15 shadow-[0_0_0_2px_#1e75ff40]'
@@ -47,7 +47,7 @@ function OptionTile({
       `}
     >
       {children}
-      <span className="text-[10px] text-[var(--color-text-secondary)] font-medium leading-tight text-center whitespace-nowrap overflow-hidden text-ellipsis max-w-[64px]">
+      <span className="text-[10px] text-[var(--color-text-secondary)] font-medium leading-tight text-center w-full">
         {label}
       </span>
     </button>
@@ -66,7 +66,7 @@ function ColorTile({
       aria-label={label + (selected ? ` — ${t('parsona.selected_aria')}` : '')}
       aria-pressed={selected}
       className={`
-        flex flex-col items-center gap-1.5 p-2 rounded-xl min-w-[58px] min-h-[44px]
+        flex flex-col items-center gap-1.5 p-2 rounded-xl w-full min-h-[44px]
         border transition-all
         ${selected
           ? 'border-[#1e75ff] bg-[#1e75ff]/15 shadow-[0_0_0_2px_#1e75ff40]'
@@ -78,7 +78,7 @@ function ColorTile({
         style={{ background: color }}
         aria-hidden="true"
       />
-      <span className="text-[10px] text-[var(--color-text-secondary)] font-medium leading-tight text-center whitespace-nowrap overflow-hidden text-ellipsis max-w-[56px]">
+      <span className="text-[10px] text-[var(--color-text-secondary)] font-medium leading-tight text-center w-full">
         {label}
       </span>
     </button>
@@ -87,13 +87,14 @@ function ColorTile({
 
 // ─── None tile ────────────────────────────────────────────────────────────────
 function NoneTile({ selected, onSelect }: { selected: boolean; onSelect: () => void }) {
+  const label = t('parsona.none');
   return (
     <button
       onClick={onSelect}
-      aria-label={t('parsona.fh.none') + (selected ? ` — ${t('parsona.selected_aria')}` : '')}
+      aria-label={label + (selected ? ` — ${t('parsona.selected_aria')}` : '')}
       aria-pressed={selected}
       className={`
-        flex flex-col items-center gap-1.5 p-2 rounded-xl min-w-[58px] min-h-[44px]
+        flex flex-col items-center gap-1.5 p-2 rounded-xl w-full min-h-[44px]
         border transition-all
         ${selected
           ? 'border-[#1e75ff] bg-[#1e75ff]/15 shadow-[0_0_0_2px_#1e75ff40]'
@@ -103,8 +104,17 @@ function NoneTile({ selected, onSelect }: { selected: boolean; onSelect: () => v
       <span className="w-8 h-8 rounded-full border-2 border-dashed border-[var(--color-border)] flex items-center justify-center" aria-hidden="true">
         <span className="w-4 h-0.5 bg-[var(--color-text-secondary)] rounded"/>
       </span>
-      <span className="text-[10px] text-[var(--color-text-secondary)] font-medium">{t('parsona.fh.none')}</span>
+      <span className="text-[10px] text-[var(--color-text-secondary)] font-medium leading-tight text-center w-full">{label}</span>
     </button>
+  );
+}
+
+// ─── Section header ────────────────────────────────────────────────────────────
+function SectionHeader({ label }: { label: string }) {
+  return (
+    <p className="text-[11px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-2">
+      {label}
+    </p>
   );
 }
 
@@ -114,16 +124,19 @@ function randomItem<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.
 function randomAvatar(): AvatarConfig {
   const fhChance = Math.random() < 0.3;
   const glChance = Math.random() < 0.25;
-  const hwChance = Math.random() < 0.2;
+  // Lower headwear probability; never combine coversHair headwear with facial hair
+  const hwChance = Math.random() < 0.15;
+  const hw = hwChance ? randomItem(HEADWEAR) : null;
+  const coversHair = hw?.coversHair ?? false;
   return {
     version: 1,
     skin:       randomItem(SKINS).id,
     face:       randomItem(FACES).id,
     hair:       randomItem(HAIR_STYLES).id,
     hairColor:  randomItem(HAIR_COLORS).id,
-    facialHair: fhChance ? randomItem(FACIAL_HAIR).id : null,
+    facialHair: (fhChance && !coversHair) ? randomItem(FACIAL_HAIR).id : null,
     glasses:    glChance ? randomItem(GLASSES).id : null,
-    headwear:   (!fhChance && hwChance) ? randomItem(HEADWEAR).id : null,
+    headwear:   hw?.id ?? null,
     outfit:     randomItem(OUTFITS).id,
     background: randomItem(BACKGROUNDS).id,
   };
@@ -182,7 +195,7 @@ export function ParsonaCreatorView({ user, onBack, onSaved }: ParsonaCreatorView
     switch (activeTab) {
       case 'skin':
         return (
-          <div className="flex flex-wrap gap-2 py-1">
+          <div className="grid grid-cols-4 gap-2 py-1">
             {SKINS.map(s => (
               <ColorTile
                 key={s.id}
@@ -197,7 +210,7 @@ export function ParsonaCreatorView({ user, onBack, onSaved }: ParsonaCreatorView
 
       case 'face':
         return (
-          <div className="flex flex-wrap gap-2 py-1">
+          <div className="grid grid-cols-3 gap-2 py-1">
             {FACES.map(f => (
               <OptionTile
                 key={f.id}
@@ -219,8 +232,8 @@ export function ParsonaCreatorView({ user, onBack, onSaved }: ParsonaCreatorView
         return (
           <div className="space-y-4">
             <div>
-              <p className="text-[11px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-2">Style</p>
-              <div className="flex flex-wrap gap-2">
+              <SectionHeader label={t('parsona.section.style')} />
+              <div className="grid grid-cols-3 gap-2">
                 {HAIR_STYLES.map(h => (
                   <OptionTile
                     key={h.id}
@@ -238,8 +251,8 @@ export function ParsonaCreatorView({ user, onBack, onSaved }: ParsonaCreatorView
               </div>
             </div>
             <div>
-              <p className="text-[11px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-2">Color</p>
-              <div className="flex flex-wrap gap-2">
+              <SectionHeader label={t('parsona.section.color')} />
+              <div className="grid grid-cols-4 gap-2">
                 {HAIR_COLORS.map(c => (
                   <ColorTile
                     key={c.id}
@@ -257,10 +270,9 @@ export function ParsonaCreatorView({ user, onBack, onSaved }: ParsonaCreatorView
       case 'extras':
         return (
           <div className="space-y-4">
-            {/* Headwear */}
             <div>
-              <p className="text-[11px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-2">{t('parsona.hw.none') === 'None' ? 'Headwear' : 'Tocado'}</p>
-              <div className="flex flex-wrap gap-2">
+              <SectionHeader label={t('parsona.section.headwear')} />
+              <div className="grid grid-cols-3 gap-2">
                 <NoneTile selected={!draft.headwear} onSelect={() => update('headwear', null)} />
                 {HEADWEAR.map(hw => (
                   <OptionTile
@@ -278,10 +290,9 @@ export function ParsonaCreatorView({ user, onBack, onSaved }: ParsonaCreatorView
                 ))}
               </div>
             </div>
-            {/* Glasses */}
             <div>
-              <p className="text-[11px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-2">{t('parsona.gl.none') === 'None' ? 'Glasses' : 'Gafas'}</p>
-              <div className="flex flex-wrap gap-2">
+              <SectionHeader label={t('parsona.section.glasses')} />
+              <div className="grid grid-cols-3 gap-2">
                 <NoneTile selected={!draft.glasses} onSelect={() => update('glasses', null)} />
                 {GLASSES.map(gl => (
                   <OptionTile
@@ -299,10 +310,9 @@ export function ParsonaCreatorView({ user, onBack, onSaved }: ParsonaCreatorView
                 ))}
               </div>
             </div>
-            {/* Facial hair */}
             <div>
-              <p className="text-[11px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-2">{t('parsona.fh.none') === 'None' ? 'Facial Hair' : 'Vello facial'}</p>
-              <div className="flex flex-wrap gap-2">
+              <SectionHeader label={t('parsona.section.facial_hair')} />
+              <div className="grid grid-cols-3 gap-2">
                 <NoneTile selected={!draft.facialHair} onSelect={() => update('facialHair', null)} />
                 {FACIAL_HAIR.map(fh => (
                   <OptionTile
@@ -325,7 +335,7 @@ export function ParsonaCreatorView({ user, onBack, onSaved }: ParsonaCreatorView
 
       case 'outfit':
         return (
-          <div className="flex flex-wrap gap-2 py-1">
+          <div className="grid grid-cols-3 gap-2 py-1">
             {OUTFITS.map(o => (
               <OptionTile
                 key={o.id}
@@ -345,7 +355,7 @@ export function ParsonaCreatorView({ user, onBack, onSaved }: ParsonaCreatorView
 
       case 'background':
         return (
-          <div className="flex flex-wrap gap-2 py-1">
+          <div className="grid grid-cols-4 gap-2 py-1">
             {BACKGROUNDS.map(bg => (
               <ColorTile
                 key={bg.id}
@@ -397,18 +407,13 @@ export function ParsonaCreatorView({ user, onBack, onSaved }: ParsonaCreatorView
 
       {/* ── Live preview ─────────────────────────────────────────────────── */}
       <div className="flex justify-center py-4 shrink-0">
-        <div className="relative">
-          <AvatarComposite
-            avatar={draft}
-            userId={user?.id}
-            size={96}
-            aria-label="Parsona preview"
-            className="rounded-full shadow-[0_0_0_3px_#1e75ff40]"
-          />
-          {isDirty && (
-            <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-[#1e75ff] border-2 border-[var(--color-bg)]" aria-hidden="true"/>
-          )}
-        </div>
+        <AvatarComposite
+          avatar={draft}
+          userId={user?.id}
+          size={148}
+          aria-label="Parsona preview"
+          className="rounded-full shadow-[0_0_0_3px_#1e75ff40]"
+        />
       </div>
 
       {/* ── Category tabs ────────────────────────────────────────────────── */}
@@ -462,7 +467,7 @@ export function ParsonaCreatorView({ user, onBack, onSaved }: ParsonaCreatorView
               : 'bg-[#1e75ff]/30 text-white/40 cursor-default'}
           `}
         >
-          {saving ? t('parsona.saving') : t('parsona.save')}
+          {saving ? t('parsona.saving') : isDirty ? t('parsona.save') : t('parsona.save_done')}
         </button>
       </div>
 
