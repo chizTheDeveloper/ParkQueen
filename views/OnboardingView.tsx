@@ -97,15 +97,17 @@ export const OnboardingView = ({ onComplete, initialSlide = 0 }: { onComplete: (
             onTouchStart={handleTouchStart}
             onTouchEnd={handleTouchEnd}
         >
-            {/* Skip — top-right, 44px min tap target */}
-            <button
-                onClick={onComplete}
-                aria-label={t('onboarding.skip')}
-                className="absolute right-4 z-20 px-4 min-h-[44px] flex items-center text-[13px] font-medium"
-                style={{ top: 'calc(env(safe-area-inset-top) + 8px)', color: 'rgba(147,197,253,0.72)' }}
-            >
-                {t('onboarding.skip')}
-            </button>
+            {/* Skip — top-right, 44px min tap target; hidden on first slide */}
+            {current > 0 && (
+                <button
+                    onClick={onComplete}
+                    aria-label={t('onboarding.skip')}
+                    className="absolute right-4 z-20 px-4 min-h-[44px] flex items-center text-[13px] font-medium"
+                    style={{ top: 'calc(env(safe-area-inset-top) + 8px)', color: 'rgba(147,197,253,0.72)' }}
+                >
+                    {t('onboarding.skip')}
+                </button>
+            )}
 
             {/* Slides */}
             {slides.map((slide, i) => (
