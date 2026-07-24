@@ -8,13 +8,14 @@ Generated: 2026-07-15
 
 - Work is isolated on `security/browser-key-remediation`, created from `origin/main`.
 - Mapbox requires `VITE_MAPBOX_TOKEN`; no hard-coded fallback or credential logging remains.
-- Google Places browser requests require `VITE_GOOGLE_MAPS_API_KEY`; the hard-coded fallback and partial-key logging were removed.
+- The dormant Google Places garage-discovery path and `VITE_GOOGLE_MAPS_API_KEY` were removed. Mapbox is the only browser mapping provider.
+- First-party private parking listings remain intact. Future nearby-garage discovery should use Mapbox POI search or first-party ParQueen listings.
 - Vite no longer injects the obsolete generic `API_KEY` into frontend code.
 - `.env.example` contains empty placeholders only. `SECURITY.md` documents separate development/production credentials, provider restrictions, and local Gitleaks usage.
 - `.github/workflows/secret-scan.yml` runs an immutable-pinned Gitleaks action with read-only repository permissions.
 - No provider credential was created, rotated, inspected, or deployed.
-- Fresh gates passed: TypeScript, 668 unit tests, production build (1,674 modules), and 58 Firestore Rules tests.
-- Before an approved release, configure restricted development and production values and verify Mapbox styles/geocoding/directions plus Google Places requests.
+- Fresh gates passed: TypeScript, 671 unit tests, production build (1,673 modules), and 58 Firestore Rules tests.
+- Before an approved release, configure restricted development and production Mapbox values and verify styles, search, reverse geocoding, and directions.
 
 ---
 

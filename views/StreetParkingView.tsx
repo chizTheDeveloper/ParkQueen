@@ -62,7 +62,6 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
     const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
     const [searchCenter, setSearchCenter] = useState<[number, number] | null>(null);
     const [mapReady, setMapReady] = useState(false);
-    const [searchRadius] = useState<number>(2000);
     const [stackGroup, setStackGroup] = useState<MapItem[] | null>(null);
     const [spotDetailsBackStack, setSpotDetailsBackStack] = useState<MapItem[] | null>(null);
     const [mapFilterRadiusMiles, setMapFilterRadiusMiles] = useState(2.0);
@@ -71,7 +70,6 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
 
     const [showFree, setShowFree] = useState(true);
     const [showPaid, setShowPaid] = useState(false);
-    const [showPublic, setShowPublic] = useState(false);
 
 
     const [isPinging, setIsPinging] = useState(false);
@@ -112,10 +110,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
         userId: user?.id,
         blockedUsers: user?.blockedUsers,
         searchCenter: searchCenter || NYC_CENTER,
-        searchRadius,
         showFree,
         showPaid,
-        showPublic,
         filterRadiusMiles: mapFilterRadiusMiles,
     });
 

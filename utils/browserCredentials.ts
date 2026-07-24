@@ -11,7 +11,4 @@ const requiredBrowserCredential = (name: string, value: string | undefined): str
 export const getMapboxToken = (): string =>
   requiredBrowserCredential('VITE_MAPBOX_TOKEN', import.meta.env.VITE_MAPBOX_TOKEN);
 
-export const getGoogleMapsApiKey = (): string =>
-  requiredBrowserCredential('VITE_GOOGLE_MAPS_API_KEY', import.meta.env.VITE_GOOGLE_MAPS_API_KEY);
-
 export { requiredBrowserCredential };

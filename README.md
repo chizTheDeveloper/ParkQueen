@@ -40,7 +40,7 @@ ParQueen is a mobile-first, community-driven application designed to solve the n
 
 ### Prerequisites
 - Node.js 20
-- Restricted development browser credentials for Mapbox and Google Maps Platform
+- A restricted development browser token for Mapbox
 
 ### Installation
 
@@ -59,7 +59,6 @@ ParQueen is a mobile-first, community-driven application designed to solve the n
    Copy `.env.example` to `.env.local`:
    ```env
    VITE_MAPBOX_TOKEN=
-   VITE_GOOGLE_MAPS_API_KEY=
    ```
    Use development-only values. See `SECURITY.md` for provider restrictions and production configuration.
 
