@@ -16,7 +16,7 @@ Updated: 2026-07-24
 
 ## Current objective
 
-Commission, review, and approve the 49 professional Parsona v2 runtime layers defined in `docs/PARSONA_V2_ARTWORK_SPEC.md` before enabling the dormant public route.
+Continue the professional Parsona v2 artwork intake defined in `docs/PARSONA_V2_ARTWORK_SPEC.md`. The canonical Feminine and Masculine `tone_03` bases are now present for review; the remaining layers must be commissioned and approved before enabling the dormant public route.
 
 ## Completed Parsona foundation
 
@@ -42,14 +42,18 @@ Commission, review, and approve the 49 professional Parsona v2 runtime layers de
 - Artwork intake validation now checks missing and unexpected files, duplicate IDs/files/paths, unsafe or invalid manifest references, 1024×1024 dimensions, required transparency, empty assets, the 400 KiB hard ceiling, and canonical layer order without adding an image-processing dependency.
 - The existing DEV-only `?qa=parsona-v2-lab` now includes a Batch 1 intake workspace for the fixed background and ten base/skin layers. It probes exact manifest paths, reports loaded/missing/invalid metadata, and provides checkerboard/white/black/navy surfaces, alignment/anchor/safe-zone/alpha-boundary overlays, individual and side-by-side views, all-tone rows, and 180/120/96/48/40 px previews.
 - The fixed background is positively validated as opaque; every other compositing layer, including all ten Batch 1 base layers, requires transparency. No manifest status or production artwork was added.
+- Canonical `tone_03` base production is deterministic and vector-first: `artwork/parsona-v2/source/tone_03.geometry.json` defines the shared 1024×1024 anchors and `scripts/build-parsona-tone03.mjs` renders the two controlled variants. Both variants use the same skull, eyes, nose, ears, neck, crop, and alpha silhouette; only jaw/cheek contour, brow, lower-face treatment, and restrained lip geometry differ.
+- The Feminine and Masculine `tone_03` PNG masters are tracked under `artwork/parsona-v2/masters/bases/`; matching optimized WebPs are tracked at their exact manifest paths under `public/parsona-v2/bases/`. Both runtime files are approximately 25 KiB, contain transparency, and share visible alpha pixel bounds x 246–777 / y 80–939.
+- The DEV lab now includes 50% overlay and user-controlled rapid-blink comparisons in addition to side-by-side review. The overlay measures 0 px difference for outer skull bounds, eye line, chin, ears, neck anchor, and lower termination. Direct review at 48 px and 40 px retained the silhouette and primary facial features.
+- No other production portrait files were added. The other eight Batch 1 base/skin slots and the fixed navy background remain explicitly missing; all manifest statuses remain pending.
 
 ## Quality gates
 
-Batch 1 review-workspace verification on 2026-07-24:
+Canonical `tone_03` base verification on 2026-07-24:
 
 - `npx.cmd tsc --noEmit`: passed.
-- `npm.cmd test`: passed, 23 files and 758 tests.
-- `npm.cmd run build`: passed, 1,686 modules transformed; DEV-only Parsona labs and the dormant v2 creator were absent from the production output.
+- `npm.cmd test`: passed, 24 files and 764 tests.
+- `npm.cmd run build`: passed, 1,686 modules transformed; the DEV lab route, lab title, overlay copy, measurement workspace, and component name were absent from production JavaScript.
 - `npm.cmd run test:rules`: passed, 1 file and 93 Firestore Rules tests.
 - All 1,250 v2 combinations remain unique and valid; invalid or incomplete v2 input still resolves to deterministic v1.
 
@@ -67,11 +71,11 @@ Fresh repository-cleanup checkpoint results on 2026-07-23:
 - Avoid emoji, Bitmoji, anime, childish, fantasy, or generic clip-art styling.
 - No production deployment has been made for Parsona.
 - The feature branch has no configured upstream tracking branch; use the explicit remote and branch when pulling or pushing unless tracking is intentionally configured.
-- All professional v2 portrait layers remain pending. Production must not expose the DEV silhouette or incomplete options.
+- All manifest statuses remain pending, including the two new canonical `tone_03` bases, until explicit artwork approval. Production must not expose the DEV silhouette or incomplete options.
 
 ## Leading recommendation and exact next task
 
-Leading next milestone: deliver Batch 1’s 11 PNG masters and 11 matching WebP exports, review them in `?qa=parsona-v2-lab`, then proceed to hair, accessory, and top batches without changing manifest statuses before explicit approval.
+Leading next milestone: complete Batch 1 with the fixed navy background and the eight remaining `tone_01`, `tone_02`, `tone_04`, and `tone_05` Feminine/Masculine bases, preserving the canonical `tone_03` anchors and alpha silhouette. Review all 11 Batch 1 slots in `?qa=parsona-v2-lab`, then proceed to hair, accessory, and top batches without changing manifest statuses before explicit approval.
 
 Required filename families:
 

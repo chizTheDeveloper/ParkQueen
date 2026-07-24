@@ -17,6 +17,15 @@ describe('Parsona v2 dormant integration boundary', () => {
     expect(lab).not.toMatch(/firebase|firestore|auth|updateDoc|setDoc/i);
   });
 
+  it('keeps canonical tone_03 comparison tools in the DEV-only lab', () => {
+    const lab = readFileSync('views/ParsonaV2LabView.tsx', 'utf8');
+    expect(lab).toContain("'overlay'");
+    expect(lab).toContain("'blink'");
+    expect(lab).toContain('Masculine at 50% opacity over Feminine');
+    expect(lab).toContain('visible alpha bounds: x 246–777, y 80–939');
+    expect(lab).toContain("slot.skinToneId === 'tone_03'");
+  });
+
   it('keeps the dormant creator free of Firestore writes', () => {
     const creator = readFileSync('views/ParsonaV2CreatorView.tsx', 'utf8');
     expect(creator).not.toMatch(/firebase|firestore|updateDoc|setDoc/i);

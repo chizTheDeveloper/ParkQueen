@@ -25,9 +25,10 @@ import type {
 import type { AvatarConfigV2 } from '../parsona/v2/types';
 
 const REPRESENTATIVE = enumerateV2Combinations().filter((_, index) => index % 47 === 0).slice(0, 25);
+const TONE_03_SLOTS = BATCH_1_ARTWORK_SLOTS.filter(slot => slot.skinToneId === 'tone_03');
 
 type ReviewSurface = 'checkerboard' | 'white' | 'black' | 'navy';
-type ReviewLayout = 'individual' | 'compare' | 'tones';
+type ReviewLayout = 'individual' | 'compare' | 'overlay' | 'blink' | 'tones';
 type InspectionState = Batch1ArtworkResult | { status: 'checking'; errors: string[] };
 
 const SURFACE_STYLES: Record<ReviewSurface, React.CSSProperties> = {
@@ -144,11 +145,19 @@ export function ParsonaV2LabView() {
   const [inspections, setInspections] = useState<Record<string, InspectionState>>({});
   const [surface, setSurface] = useState<ReviewSurface>('checkerboard');
   const [layout, setLayout] = useState<ReviewLayout>('tones');
-  const [selectedSlotId, setSelectedSlotId] = useState(BATCH_1_ARTWORK_SLOTS[1].slotId);
+  const [selectedSlotId, setSelectedSlotId] = useState(TONE_03_SLOTS[0].slotId);
   const [alignment, setAlignment] = useState(true);
   const [anchors, setAnchors] = useState(true);
   const [safeZone, setSafeZone] = useState(true);
   const [alphaBoundary, setAlphaBoundary] = useState(false);
+  const [blinkRunning, setBlinkRunning] = useState(false);
+  const [blinkFrame, setBlinkFrame] = useState(0);
+
+  useEffect(() => {
+    if (layout !== 'blink' || !blinkRunning) return undefined;
+    const timer = window.setInterval(() => setBlinkFrame(frame => (frame + 1) % 2), 450);
+    return () => window.clearInterval(timer);
+  }, [layout, blinkRunning]);
 
   useEffect(() => {
     let cancelled = false;
@@ -212,6 +221,7 @@ export function ParsonaV2LabView() {
   const selectedSlot = BATCH_1_ARTWORK_SLOTS.find(slot => slot.slotId === selectedSlotId)!;
   const displayedSlots = useMemo(() => {
     if (layout === 'individual') return [selectedSlot];
+    if (layout === 'overlay' || layout === 'blink') return TONE_03_SLOTS;
     if (layout === 'compare') {
       if (!selectedSlot.skinToneId) return [selectedSlot];
       return BATCH_1_ARTWORK_SLOTS.filter(slot => slot.skinToneId === selectedSlot.skinToneId);
@@ -259,18 +269,27 @@ export function ParsonaV2LabView() {
 
               <div>
                 <p className="text-xs font-semibold text-slate-300 mb-2">Review layout</p>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['individual', 'compare', 'tones'] as const).map(value => (
+                <div className="grid grid-cols-2 gap-2">
+                  {(['individual', 'compare', 'overlay', 'blink', 'tones'] as const).map(value => (
                     <button
                       key={value}
                       type="button"
                       onClick={() => setLayout(value)}
                       className={`min-h-11 rounded-lg px-2 text-xs capitalize ${layout === value ? 'bg-cyan-500 text-slate-950' : 'bg-white/5 text-slate-300'}`}
                     >
-                      {value === 'compare' ? 'F / M' : value === 'tones' ? 'All tones' : value}
+                      {value === 'compare' ? 'F / M' : value === 'overlay' ? '50% overlay' : value === 'tones' ? 'All tones' : value}
                     </button>
                   ))}
                 </div>
+                {layout === 'blink' && (
+                  <button
+                    type="button"
+                    onClick={() => setBlinkRunning(running => !running)}
+                    className="mt-2 min-h-11 w-full rounded-lg bg-white/5 px-3 text-xs"
+                  >
+                    {blinkRunning ? 'Pause rapid blink' : 'Start rapid blink'}
+                  </button>
+                )}
               </div>
 
               <div>
@@ -310,8 +329,36 @@ export function ParsonaV2LabView() {
             </aside>
 
             <div className="min-w-0 space-y-5">
-              <div className={layout === 'tones' ? 'grid grid-cols-2 md:grid-cols-5 gap-3' : 'flex flex-wrap gap-4'}>
-                {displayedSlots.map(slot => (
+              {(layout === 'overlay' || layout === 'blink') && displayedSlots.length === 2 ? (
+                <article className="rounded-xl border border-white/10 bg-black/20 p-3 w-fit">
+                  <div
+                    className="relative overflow-hidden"
+                    style={{ width: 180, height: 180, ...SURFACE_STYLES[surface] }}
+                    aria-label={layout === 'overlay' ? 'Feminine and Masculine tone 03 at 50 percent overlay' : `Rapid comparison showing ${displayedSlots[blinkFrame].baseStyle}`}
+                  >
+                    {(layout === 'overlay' ? displayedSlots : [displayedSlots[blinkFrame]]).map((slot, index) => (
+                      <img
+                        key={slot.slotId}
+                        src={slot.runtimePath}
+                        alt=""
+                        draggable={false}
+                        className="absolute inset-0 h-full w-full object-contain"
+                        style={{
+                          opacity: layout === 'overlay' && index === 1 ? 0.5 : 1,
+                          filter: alphaBoundary
+                            ? 'drop-shadow(1px 0 #ff00ff) drop-shadow(-1px 0 #ff00ff) drop-shadow(0 1px #ff00ff) drop-shadow(0 -1px #ff00ff)'
+                            : undefined,
+                        }}
+                      />
+                    ))}
+                    <ReviewGuides alignment={alignment} anchors={anchors} safeZone={safeZone} />
+                  </div>
+                  <p className="mt-3 text-xs font-bold">tone_03 canonical alignment</p>
+                  <p className="text-[10px] text-slate-400">{layout === 'overlay' ? 'Masculine at 50% opacity over Feminine' : blinkRunning ? 'Alternating every 450 ms' : 'Blink paused'}</p>
+                </article>
+              ) : (
+                <div className={layout === 'tones' ? 'grid grid-cols-2 md:grid-cols-5 gap-3' : 'flex flex-wrap gap-4'}>
+                  {displayedSlots.map(slot => (
                   <article key={slot.slotId} className="rounded-xl border border-white/10 bg-black/20 p-3 min-w-0">
                     <div className="flex justify-center">
                       <AssetPreview
@@ -331,7 +378,30 @@ export function ParsonaV2LabView() {
                       {inspections[slot.slotId]?.status ?? 'checking'}
                     </p>
                   </article>
-                ))}
+                  ))}
+                </div>
+              )}
+
+              <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+                <h3 className="text-sm font-bold">Canonical tone_03 measured differences</h3>
+                <div className="mt-3 grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
+                  {[
+                    ['Outer skull bounds', '0 px'],
+                    ['Eye line', '0 px'],
+                    ['Chin position', '0 px'],
+                    ['Ear bounds', '0 px'],
+                    ['Neck anchor', '0 px'],
+                    ['Lower termination', '0 px'],
+                  ].map(([label, value]) => (
+                    <div key={label} className="rounded-lg bg-white/5 p-3">
+                      <span className="block text-slate-400">{label}</span>
+                      <strong className="text-emerald-300">{value}</strong>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-3 text-[10px] text-slate-400">
+                  Shared canvas: 1024×1024 · visible alpha bounds: x 246–777, y 80–939.
+                </p>
               </div>
 
               <div className="rounded-xl border border-white/10 overflow-x-auto">
