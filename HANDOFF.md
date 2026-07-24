@@ -16,7 +16,7 @@ Updated: 2026-07-24
 
 ## Current objective
 
-Commission, review, and approve the professional Parsona v2 artwork layers before enabling the dormant public route.
+Commission, review, and approve the 49 professional Parsona v2 runtime layers defined in `docs/PARSONA_V2_ARTWORK_SPEC.md` before enabling the dormant public route.
 
 ## Completed Parsona foundation
 
@@ -38,13 +38,15 @@ Commission, review, and approve the professional Parsona v2 artwork layers befor
 - `?qa=parsona-v2-lab` is DEV-only, has no authentication or Firestore access, and uses neutral pending silhouettes.
 - Firestore Rules support exact v1 and v2 shapes locally. No Rules deployment was performed.
 - The attached Minimal Premium Avatar System guide and Example Combinations showcase are the visual target only; neither board nor its embedded portraits, copy, names, or layout was added as production artwork.
+- `docs/PARSONA_V2_ARTWORK_SPEC.md` is the final artwork-production contract: 1024×1024 PNG masters, matching optimized 1024×1024 WebP exports, fixed anchors and safe zones, the canonical seven-layer order, exact filenames, a 49-file intake table, palette and small-size review criteria.
+- Artwork intake validation now checks missing and unexpected files, duplicate IDs/files/paths, unsafe or invalid manifest references, 1024×1024 dimensions, required transparency, empty assets, the 400 KiB hard ceiling, and canonical layer order without adding an image-processing dependency.
 
 ## Quality gates
 
-Post-main-sync verification on 2026-07-24:
+Artwork-contract verification on 2026-07-24:
 
 - `npx.cmd tsc --noEmit`: passed.
-- `npm.cmd test`: passed, 22 files and 752 tests.
+- `npm.cmd test`: passed, 22 files and 753 tests.
 - `npm.cmd run build`: passed, 1,686 modules transformed; DEV-only Parsona labs and the dormant v2 creator were absent from the production output.
 - `npm.cmd run test:rules`: passed, 1 file and 93 Firestore Rules tests.
 - All 1,250 v2 combinations remain unique and valid; invalid or incomplete v2 input still resolves to deterministic v1.
@@ -67,7 +69,7 @@ Fresh repository-cleanup checkpoint results on 2026-07-23:
 
 ## Leading recommendation and exact next task
 
-Leading next milestone: produce the complete professional layer set described in `public/parsona-v2/README.md`, review it against the approved reference boards, and update manifest statuses only after approval.
+Leading next milestone: commission and intake the 49 PNG masters and 49 matching WebP exports specified in `docs/PARSONA_V2_ARTWORK_SPEC.md`, review them against the approved reference boards at every required size, and update manifest statuses only after approval.
 
 Required filename families:
 

@@ -2,6 +2,8 @@
 
 This directory is intentionally artwork-free until professional layers pass review. Do not use the reference boards or v1 SVG artwork as production v2 assets.
 
+The canonical canvas, anchor, palette, filename, review, and intake requirements are tracked in [`docs/PARSONA_V2_ARTWORK_SPEC.md`](../../docs/PARSONA_V2_ARTWORK_SPEC.md). This file is only a directory-level summary.
+
 ## Source and export requirements
 
 - Source masters: 1024×1024 transparent PNG.

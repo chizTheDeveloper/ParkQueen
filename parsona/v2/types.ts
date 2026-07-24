@@ -73,3 +73,7 @@ export interface ResolvedV2Layers {
   accessory?: string;
   foreground?: string;
 }
+
+export const PARSONA_V2_LAYER_ORDER = [
+  'background', 'backHair', 'top', 'base', 'frontHair', 'accessory', 'foreground',
+] as const satisfies readonly (keyof ResolvedV2Layers)[];

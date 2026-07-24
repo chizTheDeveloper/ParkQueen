@@ -1,5 +1,6 @@
 import React from 'react';
-import type { AvatarConfigV2, ResolvedV2Layers } from '../parsona/v2/types';
+import type { AvatarConfigV2 } from '../parsona/v2/types';
+import { PARSONA_V2_LAYER_ORDER } from '../parsona/v2/types';
 import { resolveApprovedV2Layers } from '../parsona/v2/selectors';
 
 interface AvatarCompositeV2Props {
@@ -9,10 +10,6 @@ interface AvatarCompositeV2Props {
   reviewMode?: boolean;
   'aria-label'?: string;
 }
-
-const ORDER: readonly (keyof ResolvedV2Layers)[] = [
-  'background', 'backHair', 'top', 'base', 'frontHair', 'accessory', 'foreground',
-];
 
 export function AvatarCompositeV2({
   avatar,
@@ -57,7 +54,7 @@ export function AvatarCompositeV2({
         flexShrink: 0,
       }}
     >
-      {ORDER.map(key => {
+      {PARSONA_V2_LAYER_ORDER.map(key => {
         const src = layers[key];
         return src ? (
           <img

@@ -113,6 +113,50 @@ describe('Parsona v2 domain', () => {
     ])).toContainEqual(expect.stringContaining('Duplicate path'));
   });
 
+  it('rejects incomplete or malformed artwork intake metadata', () => {
+    const missing = validateV2Manifest(
+      PARSONA_V2_MANIFEST,
+      [],
+      { requireAllFiles: true },
+    );
+    expect(missing.filter(error => error.startsWith('Missing asset:'))).toHaveLength(49);
+
+    const skin = PARSONA_V2_MANIFEST.find(entry => entry.category === 'skin')!;
+    const skinPath = skin.paths.feminine!;
+    const malformed = validateV2Manifest(
+      [skin],
+      [
+        {
+          path: skinPath,
+          width: 512,
+          height: 1024,
+          byteLength: 500_000,
+          hasTransparency: false,
+          hasVisiblePixels: false,
+        },
+        {
+          path: '/parsona-v2/bases/feminine/unexpected.webp',
+          width: 1024,
+          height: 1024,
+          byteLength: 1,
+          hasTransparency: true,
+          hasVisiblePixels: true,
+        },
+      ],
+      {
+        requireAllFiles: true,
+        layerOrder: ['background', 'top', 'backHair', 'base', 'frontHair', 'accessory', 'foreground'],
+      },
+    );
+
+    expect(malformed).toContain(`Wrong canvas dimensions: ${skinPath}`);
+    expect(malformed).toContain(`Transparency required: ${skinPath}`);
+    expect(malformed).toContain(`Empty asset: ${skinPath}`);
+    expect(malformed).toContain(`Asset exceeds 400 KiB: ${skinPath}`);
+    expect(malformed).toContain('Unexpected asset: /parsona-v2/bases/feminine/unexpected.webp');
+    expect(malformed).toContain('Incorrect layer order');
+  });
+
   it('requires both style variants before any option is approved', () => {
     const hair = PARSONA_V2_MANIFEST.find(entry => entry.category === 'hair')!;
     const approved = { ...hair, status: 'approved' as const };
