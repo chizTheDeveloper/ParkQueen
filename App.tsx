@@ -32,6 +32,9 @@ const isAdminDomain = window.location.hostname === 'admin.parqueen.app'
 const ActivitiesView = lazy(() => import('./views/ActivitiesView').then(m => ({ default: m.ActivitiesView })));
 const EditVehicleView = lazy(() => import('./views/EditVehicleView').then(m => ({ default: m.EditVehicleView })));
 const ParsonaCreatorView = lazy(() => import('./views/ParsonaCreatorView').then(m => ({ default: m.ParsonaCreatorView })));
+const ParsonaV2CreatorView = PARSONA_V2_PUBLIC_ENABLED
+  ? lazy(() => import('./views/ParsonaV2CreatorView').then(m => ({ default: m.ParsonaV2CreatorView })))
+  : null;
 const ParsonaPresetPickerView = lazy(() => import('./views/ParsonaPresetPickerView').then(m => ({ default: m.ParsonaPresetPickerView })));
 // DEV-only Art Lab — tree-shaken out of production builds
 const ParsonaArtLabView = import.meta.env.DEV
@@ -39,6 +42,9 @@ const ParsonaArtLabView = import.meta.env.DEV
   : null;
 const ParsonaStyleLabView = import.meta.env.DEV
   ? lazy(() => import('./views/ParsonaStyleLabView').then(m => ({ default: m.ParsonaStyleLabView })))
+  : null;
+const ParsonaV2LabView = import.meta.env.DEV
+  ? lazy(() => import('./views/ParsonaV2LabView').then(m => ({ default: m.ParsonaV2LabView })))
   : null;
 const PrivacyPolicyView = lazy(() => import('./views/PrivacyPolicyView').then(m => ({ default: m.PrivacyPolicyView })));
 const TermsOfUseView = lazy(() => import('./views/TermsOfUseView').then(m => ({ default: m.TermsOfUseView })));
@@ -57,6 +63,10 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { doc, onSnapshot, getDoc, updateDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { getToken, onMessage } from 'firebase/messaging';
 import { getFCM } from './firebaseConfig';
+import { PARSONA_V2_PUBLIC_ENABLED } from './parsona/v2/constants';
+
+const PublicParsonaCreatorView =
+  PARSONA_V2_PUBLIC_ENABLED && ParsonaV2CreatorView ? ParsonaV2CreatorView : ParsonaCreatorView;
 
 export default function App() {
   const [currentView, setCurrentView] = useState(AppView.CREATE_ACCOUNT);
@@ -453,7 +463,7 @@ export default function App() {
           onDone={() => setCurrentView(locationAccess === 'unknown' ? AppView.LOCATION_PROMPT : AppView.MAP)}
         />;
       case AppView.PARSONA_CREATOR:
-        return <ParsonaCreatorView
+        return <PublicParsonaCreatorView
           user={user}
           onBack={() => setCurrentView(AppView.PROFILE)}
         />;
@@ -486,6 +496,13 @@ export default function App() {
     return (
       <Suspense fallback={<LoadingScreen />}>
         <ParsonaStyleLabView />
+      </Suspense>
+    );
+  }
+  if (import.meta.env.DEV && ParsonaV2LabView && typeof window !== 'undefined' && window.location.search.includes('qa=parsona-v2-lab')) {
+    return (
+      <Suspense fallback={<LoadingScreen />}>
+        <ParsonaV2LabView />
       </Suspense>
     );
   }

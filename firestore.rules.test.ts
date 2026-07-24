@@ -645,6 +645,16 @@ const VALID_AVATAR = {
     background: 'bg_navy',
 };
 
+const VALID_AVATAR_V2 = {
+    version: 2,
+    baseStyle: 'feminine',
+    skin: 'tone_01',
+    hair: 'short_fade',
+    accessory: null,
+    top: 'crew_neck',
+    background: 'parqueen_navy',
+};
+
 describe('users/{uid} avatar field rules', () => {
     const avatarUid = `avatar-test-${Date.now()}`;
 
@@ -882,5 +892,72 @@ describe('users/{uid} avatar field rules', () => {
         await assertFails(setDoc(doc(db, 'users', avatarUid), { avatar: { ...VALID_AVATAR, skin: 'skin_07' } }, { merge: true }));
         await assertFails(setDoc(doc(db, 'users', avatarUid), { avatar: { ...VALID_AVATAR, headwear: 'hw_crown' } }, { merge: true }));
         await assertFails(setDoc(doc(db, 'users', avatarUid), { avatar: { ...VALID_AVATAR, hair: 'hair_mohawk' } }, { merge: true }));
+    });
+
+    it('AV29: owner can write complete feminine and masculine v2 configurations', async () => {
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        await assertSucceeds(setDoc(doc(db, 'users', avatarUid), { avatar: VALID_AVATAR_V2 }, { merge: true }));
+        await assertSucceeds(setDoc(doc(db, 'users', avatarUid), {
+            avatar: { ...VALID_AVATAR_V2, baseStyle: 'masculine', accessory: 'round_glasses' },
+        }, { merge: true }));
+    });
+
+    it('AV30: every v2 enum ID is accepted', async () => {
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        for (const baseStyle of ['feminine', 'masculine'])
+            await assertSucceeds(setDoc(doc(db, 'users', avatarUid), { avatar: { ...VALID_AVATAR_V2, baseStyle } }, { merge: true }));
+        for (const skin of ['tone_01','tone_02','tone_03','tone_04','tone_05'])
+            await assertSucceeds(setDoc(doc(db, 'users', avatarUid), { avatar: { ...VALID_AVATAR_V2, skin } }, { merge: true }));
+        for (const hair of ['short_fade','short_curls','medium_textured','long_hair','braids_locs'])
+            await assertSucceeds(setDoc(doc(db, 'users', avatarUid), { avatar: { ...VALID_AVATAR_V2, hair } }, { merge: true }));
+        for (const accessory of [null,'round_glasses','square_glasses','cap_beanie','head_covering'])
+            await assertSucceeds(setDoc(doc(db, 'users', avatarUid), { avatar: { ...VALID_AVATAR_V2, accessory } }, { merge: true }));
+        for (const top of ['crew_neck','hoodie','structured_jacket','turtleneck','smart_casual'])
+            await assertSucceeds(setDoc(doc(db, 'users', avatarUid), { avatar: { ...VALID_AVATAR_V2, top } }, { merge: true }));
+    });
+
+    it('AV31: invalid v2 enum IDs are rejected', async () => {
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        for (const [key, value] of [
+            ['baseStyle', 'neutral'],
+            ['skin', 'tone_06'],
+            ['hair', 'mohawk'],
+            ['accessory', 'crown'],
+            ['top', 'dress'],
+            ['background', 'other'],
+        ]) {
+            await assertFails(setDoc(doc(db, 'users', avatarUid), {
+                avatar: { ...VALID_AVATAR_V2, [key]: value },
+            }, { merge: true }));
+        }
+    });
+
+    it('AV32: v2 rejects extra and missing keys', async () => {
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        await assertFails(setDoc(doc(db, 'users', avatarUid), {
+            avatar: { ...VALID_AVATAR_V2, gender: 'x' },
+        }, { merge: true }));
+        const { top: _top, ...missing } = VALID_AVATAR_V2;
+        await assertFails(setDoc(doc(db, 'users', avatarUid), { avatar: missing }, { merge: true }));
+    });
+
+    it('AV33: v2 rejects URL and path values', async () => {
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        await assertFails(setDoc(doc(db, 'users', avatarUid), {
+            avatar: { ...VALID_AVATAR_V2, hair: 'https://evil.example/a.webp' },
+        }, { merge: true }));
+        await assertFails(setDoc(doc(db, 'users', avatarUid), {
+            avatar: { ...VALID_AVATAR_V2, top: '../secret' },
+        }, { merge: true }));
+    });
+
+    it('AV34: another user cannot write a valid v2 avatar to the owner document', async () => {
+        const db = testEnv.authenticatedContext(OTHER_UID).firestore();
+        await assertFails(setDoc(doc(db, 'users', avatarUid), { avatar: VALID_AVATAR_V2 }, { merge: true }));
+    });
+
+    it('AV35: v1 remains accepted after adding v2 support', async () => {
+        const db = testEnv.authenticatedContext(avatarUid).firestore();
+        await assertSucceeds(setDoc(doc(db, 'users', avatarUid), { avatar: VALID_AVATAR }, { merge: true }));
     });
 });

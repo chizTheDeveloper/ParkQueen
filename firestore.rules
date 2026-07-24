@@ -42,10 +42,8 @@ service cloud.firestore {
     // Validates the avatar map against the approved manifest.
     // Required fields must be strings matching known asset IDs.
     // Optional fields (facialHair, glasses, headwear) may be null.
-    function isValidAvatarField() {
-      let av = request.resource.data.get('avatar', null);
-      return av == null || (
-        av is map
+    function isValidAvatarV1(av) {
+      return av is map
         && av.keys().hasAll(['version','skin','face','hair','hairColor','facialHair','glasses','headwear','outfit','background'])
         && av.keys().hasOnly(['version','skin','face','hair','hairColor','facialHair','glasses','headwear','outfit','background'])
         && av.version == 1
@@ -59,8 +57,25 @@ service cloud.firestore {
         // Optional fields: null or an approved ID
         && (av.facialHair == null || av.facialHair in ['fh_stubble','fh_beard_short','fh_mustache'])
         && (av.glasses   == null || av.glasses   in ['gl_round','gl_square','gl_semi'])
-        && (av.headwear  == null || av.headwear  in ['hw_cap','hw_hijab','hw_wrap','hw_beanie'])
-      );
+        && (av.headwear  == null || av.headwear  in ['hw_cap','hw_hijab','hw_wrap','hw_beanie']);
+    }
+
+    function isValidAvatarV2(av) {
+      return av is map
+        && av.keys().hasAll(['version','baseStyle','skin','hair','accessory','top','background'])
+        && av.keys().hasOnly(['version','baseStyle','skin','hair','accessory','top','background'])
+        && av.version == 2
+        && av.baseStyle in ['feminine','masculine']
+        && av.skin in ['tone_01','tone_02','tone_03','tone_04','tone_05']
+        && av.hair in ['short_fade','short_curls','medium_textured','long_hair','braids_locs']
+        && (av.accessory == null || av.accessory in ['round_glasses','square_glasses','cap_beanie','head_covering'])
+        && av.top in ['crew_neck','hoodie','structured_jacket','turtleneck','smart_casual']
+        && av.background == 'parqueen_navy';
+    }
+
+    function isValidAvatarField() {
+      let av = request.resource.data.get('avatar', null);
+      return av == null || isValidAvatarV1(av) || isValidAvatarV2(av);
     }
 
     match /users/{userId} {

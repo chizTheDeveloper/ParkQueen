@@ -5,14 +5,15 @@ Updated: 2026-07-23
 ## Repository state
 
 - Current branch: `feature/parsona-avatar-creator`
-- Latest feature commit: `f0e73de` (`dev: add Parsona visual style lab`).
+- Starting checkpoint for the dormant v2 milestone: `761eb20` (`chore: clean generated PowerShell cache`).
+- Previous feature commit: `f0e73de` (`dev: add Parsona visual style lab`).
 - Agent workflow/handoff checkpoint: `388b9ce` (`docs: add ParQueen agent workflow and project handoff`).
-- The repository-cleanup checkpoint ended with a clean working tree after its documentation commit.
+- This milestone ends with a clean working tree after the dormant v2 feature commit.
 - `Microsoft/Windows/PowerShell/ModuleAnalysisCache` was confirmed as generated local PowerShell cache data containing no project source or configuration, deleted, and narrowly ignored with `/Microsoft/Windows/PowerShell/ModuleAnalysisCache`.
 
 ## Current objective
 
-Create a curated library of 12–16 premium preset Parsonas while preserving the layered creator behind the feature branch.
+Commission, review, and approve the professional Parsona v2 artwork layers before enabling the dormant public route.
 
 ## Completed Parsona foundation
 
@@ -27,15 +28,22 @@ Create a curated library of 12–16 premium preset Parsonas while preserving the
 - `views/ParsonaArtLabView.tsx` is a committed DEV-only manifest/creator lab.
 - `views/ParsonaStyleLabView.tsx` is a committed DEV-only visual-direction study with 12 concepts across Styles A–C.
 - `App.tsx` guards both the Style Lab lazy import and route with `import.meta.env.DEV`. A production build contained none of the Style Lab route, component, title, or direction identifiers, confirming tree-shaking.
+- Minimal Parsona v2 is now the approved architecture direction: 2 base styles × 5 tones × 5 hairstyles × 5 accessory choices × 5 tops × 1 background = 1,250 configurations.
+- `parsona/v2/` owns the v2 types, constants, pending asset manifest, validation, approved-only selectors, deterministic fallback, combination enumeration, and tests.
+- `PARSONA_V2_PUBLIC_ENABLED` is the single public routing flag and remains `false`. Profile, onboarding, migration, presets, and the normal creator continue using v1.
+- `AvatarComposite` preserves the v1 renderer and dispatches only complete approved v2 assets; incomplete or invalid v2 data falls back to a deterministic valid v1 Parsona.
+- `?qa=parsona-v2-lab` is DEV-only, has no authentication or Firestore access, and uses neutral pending silhouettes.
+- Firestore Rules support exact v1 and v2 shapes locally. No Rules deployment was performed.
+- The attached Minimal Premium Avatar System guide and Example Combinations showcase are the visual target only; neither board nor its embedded portraits, copy, names, or layout was added as production artwork.
 
 ## Quality gates
 
 Fresh repository-cleanup checkpoint results on 2026-07-23:
 
 - `npx.cmd tsc --noEmit`: passed.
-- `npm.cmd test`: passed, 17 files and 701 tests.
-- `npm.cmd run build`: passed, 1,678 modules transformed. Existing warnings remain for the Vite CJS API, a Firestore dynamic/static import combination, and chunks over 500 kB.
-- `npm.cmd run test:rules`: passed, 1 file and 86 Firestore Rules tests.
+- `npm.cmd test`: passed, 20 files and 744 tests.
+- `npm.cmd run build`: passed, 1,686 modules transformed. Existing warnings remain for the Vite CJS API, a Firestore dynamic/static import combination, and chunks over 500 kB.
+- `npm.cmd run test:rules`: passed, 1 file and 93 Firestore Rules tests.
 
 ## Blockers and limitations
 
@@ -44,18 +52,38 @@ Fresh repository-cleanup checkpoint results on 2026-07-23:
 - Avoid emoji, Bitmoji, anime, childish, fantasy, or generic clip-art styling.
 - No production deployment has been made for Parsona.
 - The feature branch has no configured upstream tracking branch; use the explicit remote and branch when pulling or pushing unless tracking is intentionally configured.
+- All professional v2 portrait layers remain pending. Production must not expose the DEV silhouette or incomplete options.
 
 ## Leading recommendation and exact next task
 
-Leading next milestone: create a curated library of 12–16 premium preset Parsonas while retaining the layered creator behind the feature branch.
+Leading next milestone: produce the complete professional layer set described in `public/parsona-v2/README.md`, review it against the approved reference boards, and update manifest statuses only after approval.
 
-Exact next recommended task: define the curated preset roster and acceptance matrix at 180, 96, 48, and 40 px, obtain product/art-direction approval, then implement the approved preset artwork without deleting the layered creator or promoting experimental lab artwork directly into production assets.
+Required filename families:
+
+- `public/parsona-v2/backgrounds/parqueen_navy.webp`
+- `public/parsona-v2/bases/{feminine|masculine}/tone_01.webp` through `tone_05.webp`
+- `public/parsona-v2/hair/{feminine|masculine}/{hair-id}.{back|front}.webp`
+- `public/parsona-v2/accessories/{feminine|masculine}/{accessory-id}.webp`
+- `public/parsona-v2/tops/{feminine|masculine}/{top-id}.webp`
+
+Do not enable v2 publicly until:
+
+- every feminine and masculine variant is approved;
+- every required file is present;
+- 40 px, 48 px, 96 px, 120 px, and 180 px review has passed;
+- English and Spanish labels are complete;
+- accessibility review has passed;
+- all tests are green;
+- Firestore Rules have been reviewed;
+- explicit product approval has been received.
 
 ## Do not repeat
 
 - Do not rebuild the Parsona technical foundation, migration logic, integrations, localization, or Rules validation.
 - Do not delete the layered creator.
 - Do not promote Style Lab experiments directly into production avatar assets.
+- Do not migrate v1 users, remove v1 rendering, route normal users into v2, or set `PARSONA_V2_PUBLIC_ENABLED` to `true`.
+- Do not add the reference boards to the production asset tree or claim pending layers exist.
 - Do not deploy, merge to `main`, force push, expose secrets, or modify production resources.
 
 ---
