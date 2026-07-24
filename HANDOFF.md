@@ -1,4 +1,70 @@
-# ParQueen Engineering Handoff
+# Current Agent Handoff
+
+Updated: 2026-07-23
+
+## Repository state
+
+- Current branch: `feature/parsona-avatar-creator`
+- Latest implementation commit before this documentation milestone: `4173fb6` (`fix: reload migrationDismissed from localStorage when user.uid changes`)
+- Remote status at audit: `origin/feature/parsona-avatar-creator` also pointed to `4173fb6`; explicit `git pull --ff-only origin feature/parsona-avatar-creator` reported already up to date.
+- Initial working tree: dirty, with one tracked modification and one untracked file.
+- Existing uncommitted work that must be preserved:
+  - `App.tsx`: adds a DEV-only lazy route for `?qa=parsona-style-lab`.
+  - `views/ParsonaStyleLabView.tsx`: untracked DEV-only study containing 12 hand-coded portrait concepts across Premium Editorial Vector, Sculpted Minimal Vector, and Soft Luxury Portrait directions, plus size and implementation comparisons.
+- The Style Lab changes predate this documentation milestone. They were not redesigned, deleted, staged, or included in the documentation commit.
+- `Microsoft/Windows/PowerShell/ModuleAnalysisCache` appeared as an untracked local PowerShell cache while running the requested audit/gates. It is not project work, was not staged, and was left untouched in accordance with the no-clean rule.
+
+## Current objective
+
+Establish durable cross-agent instructions and an accurate handoff, then obtain product/art-direction review before changing the Parsona launch model or artwork.
+
+## Completed Parsona foundation
+
+- `components/AvatarComposite.tsx` renders versioned layered avatar configuration from the local manifest.
+- `parsona/` contains typed configuration, assets, presets, validation, deterministic fallbacks, and tests.
+- `views/ParsonaCreatorView.tsx` provides the layered creator.
+- `views/ParsonaPresetPickerView.tsx` provides signup presets.
+- `components/ParsonaMigrationPrompt.tsx` handles legacy `avatarUrl` migration with UID-scoped dismissal.
+- Public photo rendering has been removed and Parsonas are integrated in Messages, Header, Profile, Notifications, and `SpotDetailsCard`.
+- Firestore Rules validate Parsona data and protect public identity fields.
+- English and Spanish strings are present.
+- `views/ParsonaArtLabView.tsx` is a committed DEV-only manifest/creator lab.
+- The uncommitted `views/ParsonaStyleLabView.tsx` is a separate DEV-only visual-direction study.
+
+## Quality gates
+
+Fresh results on 2026-07-23, with the pre-existing Style Lab work present:
+
+- `npx.cmd tsc --noEmit`: passed.
+- `npm.cmd test`: passed, 17 files and 701 tests.
+- `npm.cmd run build`: passed, 1,678 modules transformed. Existing warnings remain for the Vite CJS API, a Firestore dynamic/static import combination, and chunks over 500 kB.
+- `npm.cmd run test:rules`: passed, 1 file and 86 Firestore Rules tests.
+
+## Blockers and limitations
+
+- The avatar system is functionally complete but its hand-coded layered SVG art is not yet at the approved mature, premium editorial quality.
+- Portraits must remain recognizable at 40–48 px with calm adult proportions, smaller eyes, subtle three-quarter angles, sculpted hair, tailored clothing, restrained two-tone shading, minimal outlines, and a navy/royal-blue/charcoal/cyan palette with subtle gold.
+- Avoid emoji, Bitmoji, anime, childish, fantasy, or generic clip-art styling.
+- No production deployment has been made for Parsona.
+- The feature branch has no configured upstream tracking branch; use the explicit remote and branch when pulling or pushing unless tracking is intentionally configured.
+
+## Leading recommendation and exact next task
+
+Leading recommendation, not yet approved: simplify the first Parsona launch to a curated library of approximately 12–16 premium preset Parsonas while retaining the layered creator in the codebase for future use.
+
+Exact next recommended task: obtain ChatGPT product/art-direction review of the current Art Lab and uncommitted Style Lab at 180, 96, 48, and 40 px; decide whether to approve the curated-preset launch; then write an artwork production brief and acceptance matrix before implementing or replacing assets.
+
+## Do not repeat
+
+- Do not rebuild the Parsona technical foundation, migration logic, integrations, localization, or Rules validation.
+- Do not delete the layered creator.
+- Do not treat the uncommitted Style Lab as disposable.
+- Do not make the curated-preset product change without approval.
+- Do not deploy, merge to `main`, force push, expose secrets, or modify production resources.
+
+---
+
+# Historical ParQueen Engineering Handoff
 
 Generated: 2026-07-15
 
