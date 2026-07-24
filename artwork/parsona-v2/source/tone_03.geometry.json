@@ -6,7 +6,7 @@
   },
   "sharedAnchors": {
     "centerX": 512,
-    "skullTop": 80,
+    "skullTop": 108,
     "skullLeft": 300,
     "skullRight": 724,
     "eyeLine": 390,
@@ -15,10 +15,12 @@
     "chinLine": 700,
     "earTop": 360,
     "earBottom": 548,
+    "earOuterLeft": 255,
+    "earOuterRight": 769,
     "neckCenter": 512,
-    "neckBottomLeft": 384,
-    "neckBottomRight": 640,
-    "terminationLine": 940
+    "neckBottomLeft": 408,
+    "neckBottomRight": 616,
+    "terminationLine": 870
   },
   "measuredDifferences": {
     "outerSkullBounds": 0,
@@ -29,19 +31,48 @@
     "termination": 0
   },
   "palette": {
-    "primary": "#A97967",
-    "shadow": "#82584B",
-    "highlight": "#C39582",
-    "feature": "#302521",
-    "eyeWhite": "#F2E9E4",
-    "iris": "#49372F"
+    "skin": {
+      "primary": "#9B806F",
+      "shadow": "#746055",
+      "highlight": "#B6A091"
+    },
+    "features": {
+      "feature": "#382F2B",
+      "eyeWhite": "#DED8D0",
+      "iris": "#463D39"
+    }
+  },
+  "revisionMetrics": {
+    "eye": {
+      "previousWidth": 76,
+      "width": 83,
+      "widthIncreasePercent": 9.2,
+      "previousHeight": 27,
+      "height": 29,
+      "heightIncreasePercent": 7.4,
+      "irisRadiusX": 11,
+      "irisRadiusY": 12
+    },
+    "ear": {
+      "previousWidth": 76,
+      "width": 67,
+      "widthReductionPercent": 11.8
+    },
+    "neck": {
+      "previousVisibleLength": 240,
+      "visibleLength": 170,
+      "lengthReductionPercent": 29.2,
+      "previousBottomWidth": 256,
+      "bottomWidth": 208,
+      "widthReductionPercent": 18.8
+    }
   },
   "construction": {
     "alphaBounds": {
-      "left": 246,
-      "top": 80,
-      "right": 777,
-      "bottom": 939
+      "left": 255,
+      "top": 108,
+      "right": 768,
+      "bottom": 869
     },
     "variantControls": [
       "jawContour",

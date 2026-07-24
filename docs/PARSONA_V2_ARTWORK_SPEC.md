@@ -13,7 +13,9 @@ Parsona v2 uses reusable transparent layers, not flattened portraits. The 49 pro
 - Visible crop: a circle centered at **(512, 512)** with radius **512**. Art outside it is discarded.
 - Critical safe zone: circle centered at **(512, 512)** with radius **440**. Eyes, nose, mouth, jaw, glasses, and distinguishing hair detail must remain inside it.
 - Optical center: **x = 512**. Keep the shared subtle three-quarter orientation consistent; do not mirror layers independently.
-- Eye line: **y = 390 ± 8 px**. Chin: **y = 646 ± 8 px**. Neck/garment seam: **y = 700 ± 10 px**.
+- Canonical base anchors: eye line **y = 390 px**, nose line **y = 510 px**, mouth line **y = 600 px**, and chin **y = 700 px**.
+- Canonical bald-base bounds: shared skull top **y = 108 px**, skull sides **x = 300–724**, and outer ear bounds **x = 255–769** with ear anchors **y = 360–548 px**.
+- Canonical base neck: centered at **x = 512**, lower width **208 px** (`x = 408–616`), with a shallow termination at **y = 870 px**. Feminine and Masculine variants must match these anchors exactly.
 - Hair may reach **y = 48 px** only near the horizontal center. Keep important top detail below **y = 72 px**.
 - Shoulder high points: **y = 770 ± 12 px**. At **y = 900 px**, shoulders/torso must span at least **x = 104–920** and continue through the bottom edge.
 - No essential feature may touch the outer 24 px of the square canvas.
@@ -61,11 +63,11 @@ The five IDs form one consistent tonal ramp, available identically to both base 
 |---|---|---|
 | `tone_01` | `#F2C6A0` | Lightest tone; preserve warm-neutral depth without washing highlights to white. |
 | `tone_02` | `#D99A6C` | Light-medium tone; keep the same highlight/shadow separation as Tone 1. |
-| `tone_03` | `#B86F47` | Medium tone and default; neutral-warm reference for lighting balance. |
+| `tone_03` | `#9B806F` | Medium tone and default; balanced neutral reference without orange, copper, pink, or gray cast. |
 | `tone_04` | `#824A35` | Deep tone; retain readable midtones at 40 px without gray shadows. |
 | `tone_05` | `#4B2A22` | Deepest tone; preserve facial structure without crushing shadows to black. |
 
-References are color targets, not demographic labels. Highlights may move up to 10% lighter and shadows up to 14% darker in perceived lightness, with the same fixed upper-left key light across every asset.
+References are color targets, not demographic labels. Canonical `tone_03` uses primary `#9B806F`, shadow `#746055`, and highlight `#B6A091`. Highlights and shadows use the same fixed upper-left key light across every asset.
 
 ### Hairstyles
 

@@ -16,7 +16,7 @@ Updated: 2026-07-24
 
 ## Current objective
 
-Continue the professional Parsona v2 artwork intake defined in `docs/PARSONA_V2_ARTWORK_SPEC.md`. The canonical Feminine and Masculine `tone_03` bases are now present for review; the remaining layers must be commissioned and approved before enabling the dormant public route.
+Review the uncommitted revised Feminine and Masculine `tone_03` bases against the approved Parsona boards. Do not derive additional tones until this revised canonical pair receives explicit artwork approval.
 
 ## Completed Parsona foundation
 
@@ -43,9 +43,12 @@ Continue the professional Parsona v2 artwork intake defined in `docs/PARSONA_V2_
 - The existing DEV-only `?qa=parsona-v2-lab` now includes a Batch 1 intake workspace for the fixed background and ten base/skin layers. It probes exact manifest paths, reports loaded/missing/invalid metadata, and provides checkerboard/white/black/navy surfaces, alignment/anchor/safe-zone/alpha-boundary overlays, individual and side-by-side views, all-tone rows, and 180/120/96/48/40 px previews.
 - The fixed background is positively validated as opaque; every other compositing layer, including all ten Batch 1 base layers, requires transparency. No manifest status or production artwork was added.
 - Canonical `tone_03` base production is deterministic and vector-first: `artwork/parsona-v2/source/tone_03.geometry.json` defines the shared 1024×1024 anchors and `scripts/build-parsona-tone03.mjs` renders the two controlled variants. Both variants use the same skull, eyes, nose, ears, neck, crop, and alpha silhouette; only jaw/cheek contour, brow, lower-face treatment, and restrained lip geometry differ.
-- The Feminine and Masculine `tone_03` PNG masters are tracked under `artwork/parsona-v2/masters/bases/`; matching optimized WebPs are tracked at their exact manifest paths under `public/parsona-v2/bases/`. Both runtime files are approximately 25 KiB, contain transparency, and share visible alpha pixel bounds x 246–777 / y 80–939.
+- The Feminine and Masculine `tone_03` PNG masters are tracked under `artwork/parsona-v2/masters/bases/`; matching optimized WebPs are tracked at their exact manifest paths under `public/parsona-v2/bases/`. The runtime files are 18,460 and 18,296 bytes, contain transparency, and share visible alpha pixel bounds x 255–768 / y 108–869.
 - The DEV lab now includes 50% overlay and user-controlled rapid-blink comparisons in addition to side-by-side review. The overlay measures 0 px difference for outer skull bounds, eye line, chin, ears, neck anchor, and lower termination. Direct review at 48 px and 40 px retained the silhouette and primary facial features.
 - No other production portrait files were added. The other eight Batch 1 base/skin slots and the fixed navy background remain explicitly missing; all manifest statuses remain pending.
+- The final uncommitted controlled `tone_03` revision preserves the neutral, outline-free, short-neck redesign while moving to its intended visual midpoint: skull top y80→108 (9.0% less upper-skull distance above the fixed eye line), ears 76→67 px wide (11.8% reduction), and eyes 76×27→83×29 px (9.2%/7.4% increase). Restrained local under-brow, nose, cheek, lip, and chin fill planes restore definition without gradients or facial contour strokes.
+- Skin roles remain neutral `#9B806F` / `#746055` / `#B6A091`; feature colors are `#382F2B`, muted eye white `#DED8D0`, and iris `#463D39`.
+- Revised shared anchors remain identical: eyes y390, nose y510, mouth y600, chin y700, neck center x512, lower neck x408–616, termination y870. Feminine and Masculine skull/feature positions remain stationary; only approved cheek/jaw, brow-weight, lower-face, and lip geometry differ.
 
 ## Quality gates
 
@@ -56,6 +59,23 @@ Canonical `tone_03` base verification on 2026-07-24:
 - `npm.cmd run build`: passed, 1,686 modules transformed; the DEV lab route, lab title, overlay copy, measurement workspace, and component name were absent from production JavaScript.
 - `npm.cmd run test:rules`: passed, 1 file and 93 Firestore Rules tests.
 - All 1,250 v2 combinations remain unique and valid; invalid or incomplete v2 input still resolves to deterministic v1.
+
+Uncommitted `tone_03` redesign verification on 2026-07-24:
+
+- Focused artwork and dormant-integration tests: passed, 2 files and 10 tests.
+- `npx.cmd tsc --noEmit`: passed.
+- `npm.cmd test`: passed, 24 files and 764 tests.
+- `npm.cmd run build`: passed, 1,686 modules transformed; v2 remains disabled and the DEV lab remains excluded from production JavaScript.
+- `npm.cmd run test:rules`: passed, 1 file and 93 Firestore Rules tests.
+
+Final controlled `tone_03` revision verification on 2026-07-24:
+
+- Focused artwork and dormant-integration tests: passed, 2 files and 10 tests.
+- `npx.cmd tsc --noEmit`: passed.
+- `npm.cmd test`: passed, 24 files and 764 tests.
+- `npm.cmd run build`: passed, 1,686 modules transformed; v2 remains disabled and the DEV lab remains excluded from production JavaScript.
+- `npm.cmd run test:rules`: passed, 1 file and 93 Firestore Rules tests.
+- All 1,250 v2 combinations remain structurally valid.
 
 Fresh repository-cleanup checkpoint results on 2026-07-23:
 
@@ -75,7 +95,7 @@ Fresh repository-cleanup checkpoint results on 2026-07-23:
 
 ## Leading recommendation and exact next task
 
-Leading next milestone: complete Batch 1 with the fixed navy background and the eight remaining `tone_01`, `tone_02`, `tone_04`, and `tone_05` Feminine/Masculine bases, preserving the canonical `tone_03` anchors and alpha silhouette. Review all 11 Batch 1 slots in `?qa=parsona-v2-lab`, then proceed to hair, accessory, and top batches without changing manifest statuses before explicit approval.
+Leading next milestone: obtain explicit visual approval or revision notes for the revised `tone_03` review sheet. Only after approval, commit this canonical pair and derive the fixed navy background plus `tone_01`, `tone_02`, `tone_04`, and `tone_05` while preserving the revised anchors.
 
 Required filename families:
 

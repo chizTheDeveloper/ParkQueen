@@ -128,7 +128,7 @@ describe('canonical Parsona tone_03 production bases', () => {
     expect(geometry.canvas).toEqual({ width: 1024, height: 1024 });
     expect(geometry.sharedAnchors).toEqual({
       centerX: 512,
-      skullTop: 80,
+      skullTop: 108,
       skullLeft: 300,
       skullRight: 724,
       eyeLine: 390,
@@ -137,10 +137,42 @@ describe('canonical Parsona tone_03 production bases', () => {
       chinLine: 700,
       earTop: 360,
       earBottom: 548,
+      earOuterLeft: 255,
+      earOuterRight: 769,
       neckCenter: 512,
-      neckBottomLeft: 384,
-      neckBottomRight: 640,
-      terminationLine: 940,
+      neckBottomLeft: 408,
+      neckBottomRight: 616,
+      terminationLine: 870,
+    });
+    expect(geometry.palette.skin).toEqual({
+      primary: '#9B806F',
+      shadow: '#746055',
+      highlight: '#B6A091',
+    });
+    expect(geometry.revisionMetrics).toEqual({
+      eye: {
+        previousWidth: 76,
+        width: 83,
+        widthIncreasePercent: 9.2,
+        previousHeight: 27,
+        height: 29,
+        heightIncreasePercent: 7.4,
+        irisRadiusX: 11,
+        irisRadiusY: 12,
+      },
+      ear: {
+        previousWidth: 76,
+        width: 67,
+        widthReductionPercent: 11.8,
+      },
+      neck: {
+        previousVisibleLength: 240,
+        visibleLength: 170,
+        lengthReductionPercent: 29.2,
+        previousBottomWidth: 256,
+        bottomWidth: 208,
+        widthReductionPercent: 18.8,
+      },
     });
     expect(geometry.measuredDifferences).toEqual({
       outerSkullBounds: 0,
@@ -162,7 +194,7 @@ describe('canonical Parsona tone_03 production bases', () => {
       height: 1024,
       hasTransparency: true,
       hasVisiblePixels: true,
-      alphaBounds: { left: 246, top: 80, right: 777, bottom: 939 },
+      alphaBounds: { left: 255, top: 108, right: 768, bottom: 869 },
     });
   });
 

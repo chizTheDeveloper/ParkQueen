@@ -74,10 +74,10 @@ function ReviewGuides({
       )}
       {anchors && (
         <>
-          <span className="absolute left-0 right-0 border-t border-amber-300/70" style={{ top: '63.1%' }} />
+          <span className="absolute left-0 right-0 border-t border-amber-300/70" style={{ top: '49.8%' }} />
+          <span className="absolute left-0 right-0 border-t border-amber-300/70" style={{ top: '58.6%' }} />
           <span className="absolute left-0 right-0 border-t border-amber-300/70" style={{ top: '68.4%' }} />
-          <span className="absolute left-0 right-0 border-t border-amber-300/70" style={{ top: '75.2%' }} />
-          <span className="absolute bottom-[12%] left-[10.2%] right-[10.2%] border-t border-amber-300/70" />
+          <span className="absolute left-0 right-0 border-t border-amber-300/70" style={{ top: '85%' }} />
         </>
       )}
       {safeZone && (
@@ -400,7 +400,7 @@ export function ParsonaV2LabView() {
                   ))}
                 </div>
                 <p className="mt-3 text-[10px] text-slate-400">
-                  Shared canvas: 1024×1024 · visible alpha bounds: x 246–777, y 80–939.
+                   Shared canvas: 1024×1024 · visible alpha bounds: x 255–768, y 108–869.
                 </p>
               </div>
 

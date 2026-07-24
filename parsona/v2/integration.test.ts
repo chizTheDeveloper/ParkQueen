@@ -22,7 +22,7 @@ describe('Parsona v2 dormant integration boundary', () => {
     expect(lab).toContain("'overlay'");
     expect(lab).toContain("'blink'");
     expect(lab).toContain('Masculine at 50% opacity over Feminine');
-    expect(lab).toContain('visible alpha bounds: x 246–777, y 80–939');
+    expect(lab).toContain('visible alpha bounds: x 255–768, y 108–869');
     expect(lab).toContain("slot.skinToneId === 'tone_03'");
   });
 
