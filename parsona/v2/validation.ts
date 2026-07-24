@@ -119,6 +119,9 @@ export function validateV2Manifest(
       if (file.width !== ARTWORK_CANVAS_SIZE || file.height !== ARTWORK_CANVAS_SIZE) {
         errors.push(`Wrong canvas dimensions: ${path}`);
       }
+      if (categoriesByPath.get(path) === 'background' && file.hasTransparency) {
+        errors.push(`Background must be opaque: ${path}`);
+      }
       if (categoriesByPath.get(path) !== 'background' && !file.hasTransparency) {
         errors.push(`Transparency required: ${path}`);
       }

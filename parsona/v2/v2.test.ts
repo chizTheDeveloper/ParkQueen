@@ -157,6 +157,37 @@ describe('Parsona v2 domain', () => {
     expect(malformed).toContain('Incorrect layer order');
   });
 
+  it('requires an opaque background and transparent base layers', () => {
+    const background = PARSONA_V2_MANIFEST.find(entry => entry.category === 'background')!;
+    const skin = PARSONA_V2_MANIFEST.find(entry => entry.category === 'skin')!;
+    const backgroundPath = background.paths.feminine!;
+    const skinPath = skin.paths.feminine!;
+    const errors = validateV2Manifest(
+      [background, skin],
+      [
+        {
+          path: backgroundPath,
+          width: 1024,
+          height: 1024,
+          byteLength: 1,
+          hasTransparency: true,
+          hasVisiblePixels: true,
+        },
+        {
+          path: skinPath,
+          width: 1024,
+          height: 1024,
+          byteLength: 1,
+          hasTransparency: false,
+          hasVisiblePixels: true,
+        },
+      ],
+    );
+
+    expect(errors).toContain(`Background must be opaque: ${backgroundPath}`);
+    expect(errors).toContain(`Transparency required: ${skinPath}`);
+  });
+
   it('requires both style variants before any option is approved', () => {
     const hair = PARSONA_V2_MANIFEST.find(entry => entry.category === 'hair')!;
     const approved = { ...hair, status: 'approved' as const };
