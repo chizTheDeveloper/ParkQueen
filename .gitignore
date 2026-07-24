@@ -36,3 +36,4 @@ firebase-debug.log
 **/__pycache__/
 **/*.pyc
 /Microsoft/Windows/PowerShell/ModuleAnalysisCache
+.claude/settings.local.json
