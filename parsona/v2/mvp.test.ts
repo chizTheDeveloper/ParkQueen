@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { PARSONA_V2_LAYER_ORDER } from './types';
 
 const MVP_MODULE_PATH = 'parsona/v2/mvp.ts';
+const MVP_ARTWORK_SCRIPT_PATH = 'scripts/build-parsona-v2-mvp.mjs';
 const MVP_RUNTIME_PATHS = [
   'backgrounds/parqueen_navy.webp',
   ...['feminine', 'masculine'].flatMap(style => [
@@ -119,7 +120,7 @@ describe('Parsona v2 DEV-only MVP', () => {
     }
   });
 
-  it('exports exactly the provisional MVP layers with the correct alpha contracts', () => {
+  it('exports exactly the premium MVP layers with the correct alpha contracts', () => {
     expect(MVP_RUNTIME_PATHS).toHaveLength(15);
     const actualRuntime = readdirSync('public/parsona-v2', { recursive: true })
       .map(String)
@@ -141,6 +142,15 @@ describe('Parsona v2 DEV-only MVP', () => {
       });
       expect(readFileSync(runtime).length).toBeLessThanOrEqual(400 * 1024);
     }
+  });
+
+  it('uses the premium MVP construction without provisional or temporary asset paths', () => {
+    const source = readFileSync(MVP_ARTWORK_SCRIPT_PATH, 'utf8');
+    expect(source).toContain('PREMIUM_MVP_ARTWORK_VERSION');
+    expect(source).toContain('waveGroups');
+    expect(source).toContain('coilTexture');
+    expect(source).toContain('garmentConstruction');
+    expect(MVP_RUNTIME_PATHS.every(path => !/provisional|placeholder|temporary|debug/i.test(path))).toBe(true);
   });
 
   it('exposes only artwork-backed choices and never substitutes unavailable IDs', async () => {

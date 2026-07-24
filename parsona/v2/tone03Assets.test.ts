@@ -145,9 +145,9 @@ describe('canonical Parsona tone_03 production bases', () => {
       terminationLine: 870,
     });
     expect(geometry.palette.skin).toEqual({
-      primary: '#9B806F',
-      shadow: '#746055',
-      highlight: '#B6A091',
+      primary: '#9C735D',
+      shadow: '#705044',
+      highlight: '#BC927A',
     });
     expect(geometry.revisionMetrics).toEqual({
       eye: {

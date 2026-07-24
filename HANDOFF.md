@@ -16,7 +16,7 @@ Updated: 2026-07-24
 
 ## Current objective
 
-Test the functional, DEV-only Parsona v2 MVP in `?qa=parsona-v2-lab`. It uses 16 provisional artwork-backed combinations and local browser draft persistence while public v1 remains unchanged.
+Use the approved renderer and 16-combination DEV-only MVP as the technical baseline. The checked-in layered artwork is explicitly provisional fallback material, not final production art.
 
 ## Completed Parsona foundation
 
@@ -51,8 +51,9 @@ Test the functional, DEV-only Parsona v2 MVP in `?qa=parsona-v2-lab`. It uses 16
 - Revised shared anchors remain identical: eyes y390, nose y510, mouth y600, chin y700, neck center x512, lower neck x408–616, termination y870. Feminine and Masculine skull/feature positions remain stationary; only approved cheek/jaw, brow-weight, lower-face, and lip geometry differ.
 - The approved-for-MVP `tone_03` revision is preserved in commit `5701fba` (`feat: finalize Parsona tone 03 MVP bases`).
 - The functional MVP allowlist uses `short_fade`/`long_hair`, `crew_neck`/`hoodie`, and fileless `none`/`round_glasses` across both base styles with fixed `tone_03` and `parqueen_navy`, for 16 combinations.
-- `scripts/build-parsona-v2-mvp.mjs` deterministically produces the 15 provisional runtime layers and 15 matching masters: one opaque background, eight hair files, four top files, and two accessory files. All final manifest entries remain `pending`.
-- `parsona/v2/mvp.ts` owns the strict MVP subset, 16-combination enumeration, provisional layer resolution, randomize/reset behavior, and schema-validated local draft persistence.
+- `scripts/build-parsona-v2-mvp.mjs` deterministically produces the 15 provisional fallback runtime layers and 15 matching masters. The renderer and 16 combinations are approved; the artwork is not visually approved and all manifest entries remain `pending`.
+- `parsona/v2/mvp.ts` owns the strict MVP subset, 16-combination enumeration, exact layer resolution, randomize/reset behavior, and schema-validated local draft persistence.
+- The provisional checkpoint improves technical layering without changing any manifest ID, runtime path, saved draft, renderer, or compositor order. It is retained only as a recoverable fallback while the premium raster experiment is reviewed.
 - `views/ParsonaV2MvpCreator.tsx` adds the mobile-sized creator, 40/48 px previews, four-combination sample, and full 16-combination review matrix inside the existing DEV lab. It has no account or remote data dependency.
 
 ## Quality gates
@@ -111,7 +112,7 @@ Fresh repository-cleanup checkpoint results on 2026-07-23:
 
 ## Leading recommendation and exact next task
 
-Leading next milestone: user-test the 16-combination local MVP and collect interaction/art-direction feedback. Replace provisional layers with approved professional files under the same IDs and paths before expanding the artwork set or considering public enablement.
+Leading next milestone: complete product review of the 16 premium MVP combinations at 180/96/48/40 px. If approved, retain these exact IDs and anchors while producing the remaining skin tones and option inventory; do not consider public enablement until the full approval checklist passes.
 
 Required filename families:
 

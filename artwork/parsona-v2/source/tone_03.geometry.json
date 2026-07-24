@@ -32,14 +32,14 @@
   },
   "palette": {
     "skin": {
-      "primary": "#9B806F",
-      "shadow": "#746055",
-      "highlight": "#B6A091"
+      "primary": "#9C735D",
+      "shadow": "#705044",
+      "highlight": "#BC927A"
     },
     "features": {
-      "feature": "#382F2B",
-      "eyeWhite": "#DED8D0",
-      "iris": "#463D39"
+      "feature": "#342925",
+      "eyeWhite": "#E1D8D0",
+      "iris": "#49372E"
     }
   },
   "revisionMetrics": {

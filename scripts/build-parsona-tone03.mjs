@@ -27,23 +27,34 @@ const shared = {
     '<path d="M424 674 Q512 710 600 674 Q584 718 512 724 Q440 718 424 674 Z" opacity=".42"/>',
   ].join(''),
   highlight: '<path d="M438 214 Q462 202 486 216 Q470 236 446 242 Z" opacity=".18"/>',
+  facePlanes: [
+    '<path d="M326 420 Q350 465 381 485 Q351 493 326 475 Z" fill="' + shadow + '" opacity=".18"/>',
+    '<path d="M698 420 Q674 465 643 485 Q673 493 698 475 Z" fill="' + shadow + '" opacity=".12"/>',
+    '<path d="M458 282 Q512 260 566 282 Q535 298 512 297 Q489 298 458 282 Z" fill="' + highlight + '" opacity=".13"/>',
+    '<path d="M456 520 Q512 542 568 520 Q550 562 512 570 Q474 562 456 520 Z" fill="' + highlight + '" opacity=".08"/>',
+  ].join(''),
   underBrow: [
     '<path d="M360 358 Q400 346 440 358 Q420 368 400 368 Q380 368 360 358 Z" fill="' + shadow + '" opacity=".16"/>',
     '<path d="M584 358 Q624 346 664 358 Q644 368 624 368 Q604 368 584 358 Z" fill="' + shadow + '" opacity=".16"/>',
   ].join(''),
   eyes: [
-    '<path d="M358.5 390 C371 376.5 386 375.5 400 375.5 C414 375.5 429 376.5 441.5 390 C429 404.5 414 404.5 400 404.5 C386 404.5 371 403.5 358.5 390 Z" fill="' + eyeWhite + '"/>',
-    '<ellipse cx="400" cy="390" rx="11" ry="12" fill="' + iris + '"/>',
-    '<ellipse cx="400" cy="390" rx="5" ry="6" fill="' + feature + '"/>',
-    '<path d="M582.5 390 C595 376.5 610 375.5 624 375.5 C638 375.5 653 376.5 665.5 390 C653 404.5 638 404.5 624 404.5 C610 404.5 595 403.5 582.5 390 Z" fill="' + eyeWhite + '"/>',
-    '<ellipse cx="624" cy="390" rx="11" ry="12" fill="' + iris + '"/>',
-    '<ellipse cx="624" cy="390" rx="5" ry="6" fill="' + feature + '"/>',
+    '<path d="M365 390 Q381 380 400 380 Q419 380 435 390 Q418 397 400 397 Q382 397 365 390 Z" fill="' + eyeWhite + '" opacity=".90"/>',
+    '<ellipse cx="400" cy="389" rx="8.5" ry="9.5" fill="' + iris + '"/>',
+    '<ellipse cx="400" cy="389" rx="4" ry="5" fill="' + feature + '"/>',
+    '<path d="M365 390 Q381 378 400 379 Q419 378 435 390" fill="none" stroke="' + feature + '" stroke-width="4.5" stroke-linecap="round" opacity=".68"/>',
+    '<path d="M371 397 Q400 403 429 397" fill="none" stroke="' + shadow + '" stroke-width="3" opacity=".24"/>',
+    '<path d="M589 390 Q605 380 624 380 Q643 380 659 390 Q642 397 624 397 Q606 397 589 390 Z" fill="' + eyeWhite + '" opacity=".90"/>',
+    '<ellipse cx="624" cy="389" rx="8.5" ry="9.5" fill="' + iris + '"/>',
+    '<ellipse cx="624" cy="389" rx="4" ry="5" fill="' + feature + '"/>',
+    '<path d="M589 390 Q605 378 624 379 Q643 378 659 390" fill="none" stroke="' + feature + '" stroke-width="4.5" stroke-linecap="round" opacity=".68"/>',
+    '<path d="M595 397 Q624 403 653 397" fill="none" stroke="' + shadow + '" stroke-width="3" opacity=".24"/>',
   ].join(''),
   nose: [
-    '<path d="M503 447 Q510 476 506 505 Q500 515 489 520 Q501 483 503 447 Z" fill="' + shadow + '" opacity=".48"/>',
-    '<path d="M514 466 Q520 494 536 515 Q524 522 513 516 Q518 493 514 466 Z" fill="' + highlight + '" opacity=".36"/>',
-    '<path d="M488 519 Q497 526 506 521 Q499 530 489 527 Z" fill="' + shadow + '" opacity=".50"/>',
-    '<path d="M518 521 Q527 526 536 519 L535 527 Q525 530 518 521 Z" fill="' + shadow + '" opacity=".50"/>',
+    '<path d="M501 443 Q507 476 504 508 Q496 519 486 523 Q497 484 501 443 Z" fill="' + shadow + '" opacity=".36"/>',
+    '<path d="M515 454 Q520 488 535 515 Q526 523 514 518 Q519 488 515 454 Z" fill="' + highlight + '" opacity=".28"/>',
+    '<path d="M484 521 Q496 530 506 523 Q500 535 486 531 Z" fill="' + shadow + '" opacity=".58"/>',
+    '<path d="M518 523 Q529 530 540 520 L538 531 Q524 535 518 523 Z" fill="' + shadow + '" opacity=".58"/>',
+    '<path d="M495 535 Q512 543 529 535 Q520 550 512 551 Q504 550 495 535 Z" fill="' + highlight + '" opacity=".18"/>',
   ].join(''),
 };
 
@@ -55,15 +66,17 @@ const variants = {
       '<path d="M688 500 Q668 548 617 586 Q649 575 676 544 Z" fill="' + shadow + '" opacity=".22"/>',
       '<path d="M430 650 Q512 680 594 650 Q562 687 512 696 Q462 687 430 650 Z" fill="' + highlight + '" opacity=".23"/>',
       '<path d="M483 626 Q512 634 541 626 Q530 641 512 643 Q494 641 483 626 Z" fill="' + shadow + '" opacity=".18"/>',
+      '<path d="M344 470 Q373 518 417 544 Q385 549 354 526 Z" fill="' + highlight + '" opacity=".12"/>',
+      '<path d="M680 470 Q651 518 607 544 Q639 549 670 526 Z" fill="' + highlight + '" opacity=".08"/>',
     ].join(''),
     brows: [
-      '<path d="M354 340 Q400 320 446 338" fill="none" stroke="' + feature + '" stroke-width="10" stroke-linecap="round" opacity=".78"/>',
-      '<path d="M578 338 Q624 320 670 340" fill="none" stroke="' + feature + '" stroke-width="10" stroke-linecap="round" opacity=".78"/>',
+      '<path d="M356 342 Q399 320 444 337 Q405 331 362 349 Z" fill="' + feature + '" opacity=".78"/>',
+      '<path d="M580 337 Q625 320 668 342 L662 349 Q619 331 580 337 Z" fill="' + feature + '" opacity=".78"/>',
     ].join(''),
     lips: [
-      '<path d="M470 598 Q488 590 512 596 Q536 590 554 598 Q535 607 512 606 Q489 607 470 598 Z" fill="' + shadow + '" opacity=".72"/>',
-      '<path d="M474 602 Q493 611 512 609 Q531 611 550 602 Q540 621 512 623 Q484 621 474 602 Z" fill="' + highlight + '" opacity=".52"/>',
-      '<path d="M501 603 Q512 606 523 603 Q512 610 501 603 Z" fill="' + feature + '" opacity=".42"/>',
+      '<path d="M468 598 Q487 586 512 595 Q537 586 556 598 Q536 606 512 605 Q488 606 468 598 Z" fill="#81584D" opacity=".82"/>',
+      '<path d="M472 602 Q492 613 512 609 Q532 613 552 602 Q541 623 512 625 Q483 623 472 602 Z" fill="#A97867" opacity=".88"/>',
+      '<path d="M493 603 Q512 609 531 603 Q512 612 493 603 Z" fill="' + feature + '" opacity=".43"/>',
     ].join(''),
   },
   masculine: {
@@ -73,15 +86,17 @@ const variants = {
       '<path d="M696 497 Q668 568 599 615 Q643 604 679 557 Z" fill="' + shadow + '" opacity=".29"/>',
       '<path d="M410 643 Q512 679 614 643 Q578 688 512 697 Q446 688 410 643 Z" fill="' + shadow + '" opacity=".20"/>',
       '<path d="M485 626 Q512 634 539 626 Q530 640 512 642 Q494 640 485 626 Z" fill="' + shadow + '" opacity=".20"/>',
+      '<path d="M333 470 Q365 532 426 566 Q384 565 348 536 Z" fill="' + shadow + '" opacity=".18"/>',
+      '<path d="M691 470 Q659 532 598 566 Q640 565 676 536 Z" fill="' + shadow + '" opacity=".12"/>',
     ].join(''),
     brows: [
-      '<path d="M350 338 Q400 324 450 338" fill="none" stroke="' + feature + '" stroke-width="12" stroke-linecap="round" opacity=".86"/>',
-      '<path d="M574 338 Q624 324 674 338" fill="none" stroke="' + feature + '" stroke-width="12" stroke-linecap="round" opacity=".86"/>',
+      '<path d="M352 340 Q400 322 448 338 Q404 335 357 350 Z" fill="' + feature + '" opacity=".86"/>',
+      '<path d="M576 338 Q624 322 672 340 L667 350 Q620 335 576 338 Z" fill="' + feature + '" opacity=".86"/>',
     ].join(''),
     lips: [
-      '<path d="M473 598 Q492 592 512 597 Q532 592 551 598 Q533 605 512 605 Q491 605 473 598 Z" fill="' + shadow + '" opacity=".76"/>',
-      '<path d="M477 602 Q495 608 512 607 Q529 608 547 602 Q538 616 512 618 Q486 616 477 602 Z" fill="' + highlight + '" opacity=".38"/>',
-      '<path d="M502 603 Q512 606 522 603 Q512 609 502 603 Z" fill="' + feature + '" opacity=".44"/>',
+      '<path d="M472 598 Q492 590 512 596 Q532 590 552 598 Q534 605 512 604 Q490 605 472 598 Z" fill="#795248" opacity=".82"/>',
+      '<path d="M476 602 Q494 610 512 607 Q530 610 548 602 Q539 618 512 620 Q485 618 476 602 Z" fill="#996B5D" opacity=".78"/>',
+      '<path d="M496 603 Q512 608 528 603 Q512 611 496 603 Z" fill="' + feature + '" opacity=".45"/>',
     ].join(''),
   },
 };
@@ -93,6 +108,7 @@ function svgFor(variant) {
       <g fill="${primary}">${shared.neck}${shared.ears}${styled.head}</g>
       <g fill="${shadow}">${shared.shadow}</g>
       <g fill="${highlight}">${shared.highlight}</g>
+      ${shared.facePlanes}
       ${styled.contours}
       ${styled.brows}
       ${shared.underBrow}

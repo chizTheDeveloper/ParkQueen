@@ -52,7 +52,7 @@ export function ParsonaV2MvpCreator() {
       <header className="border-b border-white/10 px-5 py-4">
         <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-400">DEV-only MVP</p>
         <h2 className="mt-1 text-xl font-bold">MVP Creator</h2>
-        <p className="mt-1 text-xs text-slate-400">16 provisional artwork-backed combinations</p>
+        <p className="mt-1 text-xs text-slate-400">16 provisional layered combinations</p>
       </header>
 
       <div className="bg-[#030812] px-5 py-5">
