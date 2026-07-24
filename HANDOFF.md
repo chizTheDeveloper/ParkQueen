@@ -1,5 +1,17 @@
 # ParQueen Engineering Handoff
 
+## Firestore Ping synchronization fix — 2026-07-24
+
+- Root cause: the live `spots` listener queried every unexpired status, but the July 21 private-history Rules allow cross-user reads only for `available` and `interested` Pings. Firestore rejected the entire listener with `Missing or insufficient permissions`.
+- Fix branch: `fix/firestore-ping-sync`.
+- The listener now uses the Rules-compatible indexed query shape: `status in ['available', 'interested']` plus `expiresAt > now`.
+- Own manual Pings remain visible; only the separate My Car-linked Ping suppression remains intentional.
+- A focused regression test prevents the production listener from losing its public-status constraint. Existing Rules tests already verify that this query returns public Pings and excludes occupied history.
+- Quality gates pass: TypeScript, 672 unit tests, production build (1,673 modules), and 58 Firestore Rules tests.
+- No Firebase resource was deployed. Merge and Rules deployment remain separate approved actions.
+
+---
+
 Generated: 2026-07-15
 
 ---

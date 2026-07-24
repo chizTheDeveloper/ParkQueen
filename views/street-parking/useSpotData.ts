@@ -29,6 +29,7 @@ export function useSpotData({ userId, blockedUsers, searchCenter, showFree, show
         const nowTimestamp = Timestamp.now();
         const q = query(
             collection(db, "spots"),
+            where("status", "in", ["available", "interested"]),
             where("expiresAt", ">", nowTimestamp)
         );
         const unsubscribe = onSnapshot(q, (snapshot) => {
