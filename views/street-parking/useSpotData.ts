@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { db } from '../../firebase';
 import { collection, onSnapshot, query, where, Timestamp } from 'firebase/firestore';
-import { useLocalParkingData } from '../../hooks/useLocalParkingData';
 import { MapItem } from './types';
 import { getDistance, NYC_CENTER } from './utils';
 
@@ -9,27 +8,19 @@ interface UseSpotDataOptions {
     userId: string | undefined;
     blockedUsers?: string[];
     searchCenter: [number, number];
-    searchRadius: number;
     showFree: boolean;
     showPaid: boolean;
-    showPublic: boolean;
     filterRadiusMiles?: number;
 }
 
-export function useSpotData({ userId, blockedUsers, searchCenter, searchRadius, showFree, showPaid, showPublic, filterRadiusMiles }: UseSpotDataOptions) {
+export function useSpotData({ userId, blockedUsers, searchCenter, showFree, showPaid, filterRadiusMiles }: UseSpotDataOptions) {
     const [freeSpots, setFreeSpots] = useState<MapItem[]>([]);
     const [paidListings, setPaidListings] = useState<MapItem[]>([]);
-    const [publicGarages, setPublicGarages] = useState<MapItem[]>([]);
     const [activeSpots, setActiveSpots] = useState<any[]>([]);
     const [pendingUpdatesCount, setPendingUpdatesCount] = useState(() => {
         const stored = localStorage.getItem('pendingUpdatesCount');
         return stored ? parseInt(stored, 10) : 3;
     });
-
-    const { parkingData } = useLocalParkingData(
-        (showPaid || showPublic) ? { lat: searchCenter[1], lng: searchCenter[0] } : null,
-        searchRadius
-    );
 
     // Firestore free spots listener
     useEffect(() => {
@@ -38,6 +29,7 @@ export function useSpotData({ userId, blockedUsers, searchCenter, searchRadius, 
         const nowTimestamp = Timestamp.now();
         const q = query(
             collection(db, "spots"),
+            where("status", "in", ["available", "interested"]),
             where("expiresAt", ">", nowTimestamp)
         );
         const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -140,32 +132,6 @@ export function useSpotData({ userId, blockedUsers, searchCenter, searchRadius, 
         return () => unsubscribe();
     }, [db, userId, searchCenter, showPaid]);
 
-    // Google Places public/paid garages
-    useEffect(() => {
-        if (!parkingData) return;
-        const newPublicItems: MapItem[] = parkingData.map(p => ({
-            id: p.id,
-            lat: p.lat,
-            lng: p.lng,
-            type: p.isPaid ? 'paid' : 'public',
-            status: 'available',
-            title: p.title,
-            pricePerHour: p.pricePerHour,
-            description: p.address,
-            rawSpot: null
-        }));
-
-        const paidItems = newPublicItems.filter(p => p.type === 'paid');
-        const publicItems = newPublicItems.filter(p => p.type === 'public');
-
-        setPublicGarages(publicItems);
-
-        setPaidListings(prev => {
-            const firestoreListings = prev.filter(p => !p.id.startsWith('places_'));
-            return [...firestoreListings, ...paidItems];
-        });
-    }, [parkingData]);
-
     const radiusFilteredItems = useMemo(() => {
         const centerLat = searchCenter[1];
         const centerLng = searchCenter[0];
@@ -173,19 +139,17 @@ export function useSpotData({ userId, blockedUsers, searchCenter, searchRadius, 
         const visibleItems: MapItem[] = [];
         if (showFree) visibleItems.push(...freeSpots);
         if (showPaid) visibleItems.push(...paidListings);
-        if (showPublic) visibleItems.push(...publicGarages);
 
         return visibleItems.filter(item => {
             const distanceVal = getDistance(centerLat, centerLng, item.lat, item.lng);
             const distanceInMiles = distanceVal * 0.621371;
             return distanceInMiles <= (filterRadiusMiles ?? 2.0);
         });
-    }, [showFree, showPaid, showPublic, freeSpots, paidListings, publicGarages, searchCenter, filterRadiusMiles]);
+    }, [showFree, showPaid, freeSpots, paidListings, searchCenter, filterRadiusMiles]);
 
     return {
         freeSpots,
         paidListings,
-        publicGarages,
         activeSpots,
         radiusFilteredItems,
         pendingUpdatesCount,

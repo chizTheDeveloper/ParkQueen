@@ -39,8 +39,8 @@ ParQueen is a mobile-first, community-driven application designed to solve the n
 ## 🚀 Getting Started
 
 ### Prerequisites
-- Node.js (v18 or higher recommended)
-- A Google Gemini API Key ([Get one here](https://aistudio.google.com/))
+- Node.js 20
+- A restricted development browser token for Mapbox
 
 ### Installation
 
@@ -56,11 +56,11 @@ ParQueen is a mobile-first, community-driven application designed to solve the n
    ```
 
 3. **Set up Environment Variables**
-   Create a `.env` file in the root directory:
+   Copy `.env.example` to `.env.local`:
    ```env
-   # Your Google Gemini API Key
-   API_KEY=your_actual_api_key_here
+   VITE_MAPBOX_TOKEN=
    ```
+   Use development-only values. See `SECURITY.md` for provider restrictions and production configuration.
 
 4. **Run the development server**
    ```bash
@@ -77,7 +77,7 @@ This project is configured for seamless deployment on Netlify.
 
 1. Connect your repository to Netlify.
 2. The `netlify.toml` file handles the build settings (`npm run build`).
-3. **Important**: Go to **Site Settings > Environment Variables** in Netlify and add your `API_KEY`.
+3. Configure the browser variable from `.env.example` in the approved production environment. Never commit its value.
 
 ## 📱 Mobile First Design
 ParQueen is optimized for mobile browsers. For the best experience during development, use your browser's DevTools and toggle "Device Toolbar" to simulate a mobile view (e.g., iPhone 12/14 Pro).

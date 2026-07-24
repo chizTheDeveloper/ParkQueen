@@ -1,6 +1,6 @@
 import mapboxgl from 'mapbox-gl';
+import { getMapboxToken } from '../../utils/browserCredentials';
 
-export const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 export const NYC_CENTER: [number, number] = [-73.9712, 40.7831];
 
 const deg2rad = (deg: number) => deg * (Math.PI / 180);
@@ -127,12 +127,12 @@ export const clearRoute = (map: mapboxgl.Map) => {
 };
 
 export const drawRoute = async (map: mapboxgl.Map, start: [number, number], end: [number, number]) => {
-    if (!MAPBOX_TOKEN) return;
+    const mapboxToken = getMapboxToken();
     if (!map.isStyleLoaded()) return;
 
     try {
         const response = await fetch(
-            `https://api.mapbox.com/directions/v5/mapbox/walking/${start[0]},${start[1]};${end[0]},${end[1]}?geometries=geojson&access_token=${MAPBOX_TOKEN}`
+            `https://api.mapbox.com/directions/v5/mapbox/walking/${start[0]},${start[1]};${end[0]},${end[1]}?geometries=geojson&access_token=${mapboxToken}`
         );
         const data = await response.json();
         if (!data.routes || data.routes.length === 0) return;

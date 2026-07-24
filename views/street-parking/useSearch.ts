@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { getMapboxToken } from '../../utils/browserCredentials';
 
 export function useSearch() {
     const inputRef = useRef<HTMLInputElement>(null);
@@ -19,8 +20,7 @@ export function useSearch() {
             return;
         }
 
-        const token = import.meta.env.VITE_MAPBOX_TOKEN;
-        if (!token) return;
+        const token = getMapboxToken();
 
         const t = setTimeout(async () => {
             try {

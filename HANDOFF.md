@@ -1,10 +1,13 @@
 # Current Agent Handoff
 
-Updated: 2026-07-23
+Updated: 2026-07-24
 
 ## Repository state
 
 - Current branch: `feature/parsona-avatar-creator`
+- Secured `origin/main` at `b761795` is merged into this branch without rebasing.
+- Browser-key remediation is included: Mapbox now requires `VITE_MAPBOX_TOKEN`, the dormant Google Places integration is removed, and secret scanning/documentation are present.
+- The Ping synchronization fix is included: the live listener uses the Rules-compatible `status in ['available', 'interested']` plus `expiresAt > now` query.
 - Starting checkpoint for the dormant v2 milestone: `761eb20` (`chore: clean generated PowerShell cache`).
 - Previous feature commit: `f0e73de` (`dev: add Parsona visual style lab`).
 - Agent workflow/handoff checkpoint: `388b9ce` (`docs: add ParQueen agent workflow and project handoff`).
@@ -37,6 +40,14 @@ Commission, review, and approve the professional Parsona v2 artwork layers befor
 - The attached Minimal Premium Avatar System guide and Example Combinations showcase are the visual target only; neither board nor its embedded portraits, copy, names, or layout was added as production artwork.
 
 ## Quality gates
+
+Post-main-sync verification on 2026-07-24:
+
+- `npx.cmd tsc --noEmit`: passed.
+- `npm.cmd test`: passed, 22 files and 752 tests.
+- `npm.cmd run build`: passed, 1,686 modules transformed; DEV-only Parsona labs and the dormant v2 creator were absent from the production output.
+- `npm.cmd run test:rules`: passed, 1 file and 93 Firestore Rules tests.
+- All 1,250 v2 combinations remain unique and valid; invalid or incomplete v2 input still resolves to deterministic v1.
 
 Fresh repository-cleanup checkpoint results on 2026-07-23:
 
@@ -90,7 +101,38 @@ Do not enable v2 publicly until:
 
 # Historical ParQueen Engineering Handoff
 
+## Firestore Ping synchronization fix — 2026-07-24
+
+- Root cause: the live `spots` listener queried every unexpired status, but the July 21 private-history Rules allow cross-user reads only for `available` and `interested` Pings. Firestore rejected the entire listener with `Missing or insufficient permissions`.
+- Fix branch: `fix/firestore-ping-sync`.
+- The listener now uses the Rules-compatible indexed query shape: `status in ['available', 'interested']` plus `expiresAt > now`.
+- Own manual Pings remain visible; only the separate My Car-linked Ping suppression remains intentional.
+- A focused regression test prevents the production listener from losing its public-status constraint. Existing Rules tests already verify that this query returns public Pings and excludes occupied history.
+- Quality gates pass: TypeScript, 672 unit tests, production build (1,673 modules), and 58 Firestore Rules tests.
+- No Firebase resource was deployed. Merge and Rules deployment remain separate approved actions.
+
+---
+
 Generated: 2026-07-15
+
+---
+
+## Security checkpoint — 2026-07-23
+
+- Work is isolated on `security/browser-key-remediation`, created from `origin/main`.
+- Mapbox requires `VITE_MAPBOX_TOKEN`; no hard-coded fallback or credential logging remains.
+- The dormant Google Places garage-discovery path and `VITE_GOOGLE_MAPS_API_KEY` were removed. Mapbox is the only browser mapping provider.
+- First-party private parking listings remain intact. Future nearby-garage discovery should use Mapbox POI search or first-party ParQueen listings.
+- Vite no longer injects the obsolete generic `API_KEY` into frontend code.
+- `.env.example` contains empty placeholders only. `SECURITY.md` documents separate development/production credentials, provider restrictions, and local Gitleaks usage.
+- `.github/workflows/secret-scan.yml` runs an immutable-pinned Gitleaks action with read-only repository permissions.
+- No provider credential was created, rotated, inspected, or deployed.
+- Restricted development and production Mapbox values are present in ignored, untracked `.env.local` and `.env.production.local` files. Their contents were not read, printed, fingerprinted, or copied.
+- Merge-readiness gates passed: TypeScript, 671 unit tests, production build (1,673 modules), and 58 Firestore Rules tests.
+- The production bundle contains no SendGrid-key pattern, Gemini frontend secret name, Google Maps browser-key dependency, or Google Places endpoint. The old hard-coded Mapbox fallback is absent from source.
+- Missing-token behavior was verified with the isolated credential-helper test, without modifying or reading the real environment files.
+- A temporary localhost-only DEV harness completed the authentication-free Mapbox smoke pass at `http://localhost:5174` and was removed afterward. Dark/light basemaps, pan/zoom, forward search and result centering, reverse geocoding, walking directions, route rendering, and standard/origin/destination markers all passed.
+- Mapbox produced no HTTP 401/403 responses or console errors at the allowed localhost origin, and no credential value appeared in the harness UI or captured console output. The prior `127.0.0.1` failure was caused by Mapbox URL restrictions not supporting IP-address origins.
 
 ---
 
@@ -729,7 +771,7 @@ firebase use parkqueen-46475363-ccf36
 | `SENDGRID_API_KEY` | `functions/.env` | Email OTP delivery via SendGrid REST API |
 | `SOCRATA_APP_TOKEN` | `functions/.env` | NYC Open Data app token — optional but strongly recommended; without it, fallback is rate-limited to 1000 req/day unauthenticated |
 | `GEMINI_API_KEY` | Firebase Secret Manager v3 | Gemini AI — accessed server-side only via Cloud Functions; not present in frontend |
-| Mapbox token | Hardcoded in `StreetParkingView.tsx` | Map rendering |
+| `VITE_MAPBOX_TOKEN` | Root `.env.local` for development; approved production environment for releases | Map rendering, geocoding, and directions |
 
 `functions/.env` is in `.gitignore`. Create it manually:
 ```
