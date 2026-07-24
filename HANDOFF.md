@@ -5,18 +5,14 @@ Updated: 2026-07-23
 ## Repository state
 
 - Current branch: `feature/parsona-avatar-creator`
-- Latest implementation commit before this documentation milestone: `4173fb6` (`fix: reload migrationDismissed from localStorage when user.uid changes`)
-- Remote status at audit: `origin/feature/parsona-avatar-creator` also pointed to `4173fb6`; explicit `git pull --ff-only origin feature/parsona-avatar-creator` reported already up to date.
-- Initial working tree: dirty, with one tracked modification and one untracked file.
-- Existing uncommitted work that must be preserved:
-  - `App.tsx`: adds a DEV-only lazy route for `?qa=parsona-style-lab`.
-  - `views/ParsonaStyleLabView.tsx`: untracked DEV-only study containing 12 hand-coded portrait concepts across Premium Editorial Vector, Sculpted Minimal Vector, and Soft Luxury Portrait directions, plus size and implementation comparisons.
-- The Style Lab changes predate this documentation milestone. They were not redesigned, deleted, staged, or included in the documentation commit.
-- `Microsoft/Windows/PowerShell/ModuleAnalysisCache` appeared as an untracked local PowerShell cache while running the requested audit/gates. It is not project work, was not staged, and was left untouched in accordance with the no-clean rule.
+- Latest feature commit: `f0e73de` (`dev: add Parsona visual style lab`).
+- Agent workflow/handoff checkpoint: `388b9ce` (`docs: add ParQueen agent workflow and project handoff`).
+- The repository-cleanup checkpoint ended with a clean working tree after its documentation commit.
+- `Microsoft/Windows/PowerShell/ModuleAnalysisCache` was confirmed as generated local PowerShell cache data containing no project source or configuration, deleted, and narrowly ignored with `/Microsoft/Windows/PowerShell/ModuleAnalysisCache`.
 
 ## Current objective
 
-Establish durable cross-agent instructions and an accurate handoff, then obtain product/art-direction review before changing the Parsona launch model or artwork.
+Create a curated library of 12–16 premium preset Parsonas while preserving the layered creator behind the feature branch.
 
 ## Completed Parsona foundation
 
@@ -29,11 +25,12 @@ Establish durable cross-agent instructions and an accurate handoff, then obtain 
 - Firestore Rules validate Parsona data and protect public identity fields.
 - English and Spanish strings are present.
 - `views/ParsonaArtLabView.tsx` is a committed DEV-only manifest/creator lab.
-- The uncommitted `views/ParsonaStyleLabView.tsx` is a separate DEV-only visual-direction study.
+- `views/ParsonaStyleLabView.tsx` is a committed DEV-only visual-direction study with 12 concepts across Styles A–C.
+- `App.tsx` guards both the Style Lab lazy import and route with `import.meta.env.DEV`. A production build contained none of the Style Lab route, component, title, or direction identifiers, confirming tree-shaking.
 
 ## Quality gates
 
-Fresh results on 2026-07-23, with the pre-existing Style Lab work present:
+Fresh repository-cleanup checkpoint results on 2026-07-23:
 
 - `npx.cmd tsc --noEmit`: passed.
 - `npm.cmd test`: passed, 17 files and 701 tests.
@@ -50,16 +47,15 @@ Fresh results on 2026-07-23, with the pre-existing Style Lab work present:
 
 ## Leading recommendation and exact next task
 
-Leading recommendation, not yet approved: simplify the first Parsona launch to a curated library of approximately 12–16 premium preset Parsonas while retaining the layered creator in the codebase for future use.
+Leading next milestone: create a curated library of 12–16 premium preset Parsonas while retaining the layered creator behind the feature branch.
 
-Exact next recommended task: obtain ChatGPT product/art-direction review of the current Art Lab and uncommitted Style Lab at 180, 96, 48, and 40 px; decide whether to approve the curated-preset launch; then write an artwork production brief and acceptance matrix before implementing or replacing assets.
+Exact next recommended task: define the curated preset roster and acceptance matrix at 180, 96, 48, and 40 px, obtain product/art-direction approval, then implement the approved preset artwork without deleting the layered creator or promoting experimental lab artwork directly into production assets.
 
 ## Do not repeat
 
 - Do not rebuild the Parsona technical foundation, migration logic, integrations, localization, or Rules validation.
 - Do not delete the layered creator.
-- Do not treat the uncommitted Style Lab as disposable.
-- Do not make the curated-preset product change without approval.
+- Do not promote Style Lab experiments directly into production avatar assets.
 - Do not deploy, merge to `main`, force push, expose secrets, or modify production resources.
 
 ---
