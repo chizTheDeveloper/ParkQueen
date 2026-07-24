@@ -14,8 +14,11 @@ Generated: 2026-07-15
 - `.env.example` contains empty placeholders only. `SECURITY.md` documents separate development/production credentials, provider restrictions, and local Gitleaks usage.
 - `.github/workflows/secret-scan.yml` runs an immutable-pinned Gitleaks action with read-only repository permissions.
 - No provider credential was created, rotated, inspected, or deployed.
-- Fresh gates passed: TypeScript, 671 unit tests, production build (1,673 modules), and 58 Firestore Rules tests.
-- Before an approved release, configure restricted development and production Mapbox values and verify styles, search, reverse geocoding, and directions.
+- Restricted development and production Mapbox values are present in ignored, untracked `.env.local` and `.env.production.local` files. Their contents were not read, printed, fingerprinted, or copied.
+- Merge-readiness gates passed: TypeScript, 671 unit tests, production build (1,673 modules), and 58 Firestore Rules tests.
+- The production bundle contains no SendGrid-key pattern, Gemini frontend secret name, Google Maps browser-key dependency, or Google Places endpoint. The old hard-coded Mapbox fallback is absent from source.
+- Missing-token behavior was verified with the isolated credential-helper test, without modifying or reading the real environment files.
+- Remaining pre-merge blocker: perform an authenticated local browser smoke test of dark/light map rendering, pan/zoom, forward and reverse geocoding, search centering, walking directions/route line, and markers. The available clean browser session stopped at unauthenticated onboarding, and no account or production-data access was authorized for this pass.
 
 ---
 
@@ -654,7 +657,7 @@ firebase use parkqueen-46475363-ccf36
 | `SENDGRID_API_KEY` | `functions/.env` | Email OTP delivery via SendGrid REST API |
 | `SOCRATA_APP_TOKEN` | `functions/.env` | NYC Open Data app token — optional but strongly recommended; without it, fallback is rate-limited to 1000 req/day unauthenticated |
 | `GEMINI_API_KEY` | Firebase Secret Manager v3 | Gemini AI — accessed server-side only via Cloud Functions; not present in frontend |
-| Mapbox token | Hardcoded in `StreetParkingView.tsx` | Map rendering |
+| `VITE_MAPBOX_TOKEN` | Root `.env.local` for development; approved production environment for releases | Map rendering, geocoding, and directions |
 
 `functions/.env` is in `.gitignore`. Create it manually:
 ```
