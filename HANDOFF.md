@@ -18,7 +18,8 @@ Generated: 2026-07-15
 - Merge-readiness gates passed: TypeScript, 671 unit tests, production build (1,673 modules), and 58 Firestore Rules tests.
 - The production bundle contains no SendGrid-key pattern, Gemini frontend secret name, Google Maps browser-key dependency, or Google Places endpoint. The old hard-coded Mapbox fallback is absent from source.
 - Missing-token behavior was verified with the isolated credential-helper test, without modifying or reading the real environment files.
-- Remaining pre-merge blocker: perform an authenticated local browser smoke test of dark/light map rendering, pan/zoom, forward and reverse geocoding, search centering, walking directions/route line, and markers. The available clean browser session stopped at unauthenticated onboarding, and no account or production-data access was authorized for this pass.
+- A temporary localhost-only DEV harness completed the authentication-free Mapbox smoke pass and was removed afterward. Pan/zoom and standard, origin, and destination markers worked; no credential value appeared in its UI or captured console output.
+- Remaining pre-merge blocker: Mapbox returned HTTP 403 for dark/light map resources, forward geocoding, reverse geocoding, and walking directions at `http://127.0.0.1:5174`. Search centering and route rendering therefore could not complete. Because every Mapbox surface failed at the same origin, the likely cause is a missing allowed-URL entry rather than an individual API scope. Add the exact localhost development origins, including ports used by Vite, to the development token restrictions and repeat the smoke pass.
 
 ---
 
