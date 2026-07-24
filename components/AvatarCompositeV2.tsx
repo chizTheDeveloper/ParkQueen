@@ -1,5 +1,5 @@
 import React from 'react';
-import type { AvatarConfigV2 } from '../parsona/v2/types';
+import type { AvatarConfigV2, ResolvedV2Layers } from '../parsona/v2/types';
 import { PARSONA_V2_LAYER_ORDER } from '../parsona/v2/types';
 import { resolveApprovedV2Layers } from '../parsona/v2/selectors';
 
@@ -8,6 +8,7 @@ interface AvatarCompositeV2Props {
   size?: number;
   className?: string;
   reviewMode?: boolean;
+  resolvedLayers?: ResolvedV2Layers | null;
   'aria-label'?: string;
 }
 
@@ -16,9 +17,10 @@ export function AvatarCompositeV2({
   size = 48,
   className = '',
   reviewMode = false,
+  resolvedLayers,
   'aria-label': ariaLabel = 'Parsona',
 }: AvatarCompositeV2Props) {
-  const layers = resolveApprovedV2Layers(avatar);
+  const layers = resolvedLayers === undefined ? resolveApprovedV2Layers(avatar) : resolvedLayers;
   if (!layers) {
     if (!import.meta.env.DEV || !reviewMode) return null;
     return (

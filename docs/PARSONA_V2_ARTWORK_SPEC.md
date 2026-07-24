@@ -119,6 +119,23 @@ At 40–48 px:
 - contrast remains legible in light and dark surrounding UI;
 - no layer seam, gap, collision, or crop appears.
 
+## DEV-only functional MVP provisional assets
+
+The functional MVP is an intentionally narrow artwork-backed subset for interaction testing in `?qa=parsona-v2-lab`. It does not change the final manifest IDs, approval process, 49-file contract, or public enablement criteria.
+
+- Fixed: `tone_03` and `parqueen_navy`.
+- Base styles: `feminine`, `masculine`.
+- Hair: `short_fade`, `long_hair`.
+- Tops: `crew_neck`, `hoodie`.
+- Accessories: fileless `none`, rendered `round_glasses`.
+- Working combinations: **16**.
+- Newly produced provisional delivery: **15 WebP runtime layers and 15 matching PNG masters**: one opaque background, eight hair layers, four top layers, and two accessory layers.
+- Generator: `scripts/build-parsona-v2-mvp.mjs`.
+- Runtime paths remain the exact final manifest paths. Replacing any provisional file with approved professional artwork must not change its ID, path, saved-data shape, or compositor order.
+- These files remain provisional and their manifest entries remain `pending`. The DEV-only MVP resolver has a strict allowlist and cannot make them production-approved.
+- The MVP creator writes only the schema-validated draft to local browser storage. It does not update a profile or use remote persistence.
+- Missing or unavailable final options are never substituted. They remain outside the selectable MVP subset.
+
 ## Prohibited traits
 
 - Childish head-to-body proportions or oversized eyes

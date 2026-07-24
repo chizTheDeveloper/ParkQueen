@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AvatarCompositeV2 } from '../components/AvatarCompositeV2';
 import { ParsonaV2CreatorView } from './ParsonaV2CreatorView';
+import { ParsonaV2MvpCreator, ParsonaV2MvpMatrix } from './ParsonaV2MvpCreator';
 import {
   ACCESSORY_IDS,
   BASE_STYLE_IDS,
@@ -245,6 +246,16 @@ export function ParsonaV2LabView() {
       </header>
 
       <section className="max-w-7xl mx-auto space-y-8">
+        <div className="rounded-2xl border border-blue-400/20 bg-white/[0.02] p-4 sm:p-6">
+          <div className="mb-5">
+            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-blue-400">Functional MVP workspace</p>
+            <h2 className="mt-1 text-xl font-bold">Test the 16 working combinations</h2>
+            <p className="mt-1 text-sm text-slate-400">Drafts stay in this browser. No account, profile, or remote data write occurs.</p>
+          </div>
+          <ParsonaV2MvpCreator />
+          <ParsonaV2MvpMatrix />
+        </div>
+
         <div className="rounded-2xl border border-cyan-400/20 bg-[#071426] p-4 sm:p-6">
           <div className="flex flex-col gap-1 mb-5">
             <p className="text-[11px] font-bold tracking-[0.16em] text-cyan-400 uppercase">Batch 1 artwork intake</p>

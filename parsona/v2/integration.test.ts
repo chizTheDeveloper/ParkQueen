@@ -26,6 +26,15 @@ describe('Parsona v2 dormant integration boundary', () => {
     expect(lab).toContain("slot.skinToneId === 'tone_03'");
   });
 
+  it('keeps the MVP creator inside the existing DEV-only lab boundary', () => {
+    const app = readFileSync('App.tsx', 'utf8');
+    const lab = readFileSync('views/ParsonaV2LabView.tsx', 'utf8');
+    expect(app).not.toContain('ParsonaV2MvpCreator');
+    expect(lab).toContain("from './ParsonaV2MvpCreator'");
+    expect(lab).toContain('<ParsonaV2MvpCreator');
+    expect(lab).toContain('<ParsonaV2MvpMatrix');
+  });
+
   it('keeps the dormant creator free of Firestore writes', () => {
     const creator = readFileSync('views/ParsonaV2CreatorView.tsx', 'utf8');
     expect(creator).not.toMatch(/firebase|firestore|updateDoc|setDoc/i);
