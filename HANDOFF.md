@@ -16,7 +16,7 @@ Updated: 2026-07-24
 
 ## Current objective
 
-Use the approved renderer and 16-combination DEV-only MVP as the technical baseline. The checked-in layered artwork is explicitly provisional fallback material, not final production art.
+Use the two curated premium raster presets as the approved visual-production checkpoint. The procedural 16-combination artwork remains only a technical fallback; mix-and-match premium customization is not yet visually approved.
 
 ## Completed Parsona foundation
 
@@ -55,6 +55,10 @@ Use the approved renderer and 16-combination DEV-only MVP as the technical basel
 - `parsona/v2/mvp.ts` owns the strict MVP subset, 16-combination enumeration, exact layer resolution, randomize/reset behavior, and schema-validated local draft persistence.
 - The provisional checkpoint improves technical layering without changing any manifest ID, runtime path, saved draft, renderer, or compositor order. It is retained only as a recoverable fallback while the premium raster experiment is reviewed.
 - `views/ParsonaV2MvpCreator.tsx` adds the mobile-sized creator, 40/48 px previews, four-combination sample, and full 16-combination review matrix inside the existing DEV lab. It has no account or remote data dependency.
+- The DEV-only Premium MVP Preview contains exactly two curated, visually approved preset stacks: Feminine / `tone_03` / `long_hair` / `hoodie` / `round_glasses`, and Masculine / `tone_03` / `short_fade` / `crew_neck` / `none`, both on `parqueen_navy`.
+- The premium preview uses real transparent raster layers in the existing compositor order, retains 48 px and 40 px previews, and saves only the preset ID to local browser storage. Invalid stored IDs are removed and deterministically fall back to the Feminine preset.
+- Every committed premium experimental master and runtime file is referenced by one of those two presets. Copied, transformed, stretched, mirrored, scratch, and unreferenced cross-style derivatives were removed before commit.
+- Premium raster layers are the approved visual-production direction. Additional options require bespoke premium layered artwork; no derivative should be promoted as final art and mix-and-match customization remains unapproved.
 
 ## Quality gates
 
@@ -93,6 +97,16 @@ Functional Parsona v2 MVP verification on 2026-07-24:
 - `npm.cmd run test:rules`: passed, 1 file and 93 Firestore Rules tests.
 - Production JavaScript/HTML/CSS contained zero matches for the v2 lab route, MVP component/title, local-storage key, or workspace copy.
 - The existing Vite CJS, Firestore mixed-import, and large-chunk warnings remain unchanged.
+
+Curated premium MVP checkpoint verification on 2026-07-24:
+
+- Focused premium preset, dormant-integration, MVP, and full-combination tests passed: 4 files and 58 tests.
+- `npx.cmd tsc --noEmit`: passed.
+- `npm.cmd test`: passed, 26 files and 779 tests.
+- `npm.cmd run build`: passed, 1,686 modules transformed.
+- `npm.cmd run test:rules`: passed, 1 file and 93 Firestore Rules tests.
+- Production output contains none of the premium preview title, component, storage key, or experimental asset paths.
+- All 1,250 final v2 configurations remain structurally valid, public v1 remains active, and `PARSONA_V2_PUBLIC_ENABLED` remains `false`.
 
 Fresh repository-cleanup checkpoint results on 2026-07-23:
 

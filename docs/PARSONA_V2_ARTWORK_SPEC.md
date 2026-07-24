@@ -136,6 +136,24 @@ The functional MVP is an intentionally narrow artwork-backed subset for interact
 - The MVP creator writes only the schema-validated draft to local browser storage. It does not update a profile or use remote persistence.
 - Missing or unavailable final options are never substituted. They remain outside the selectable MVP subset.
 
+## DEV-only curated premium MVP checkpoint
+
+Premium raster layers are the approved visual-production direction. The procedural 16-combination artwork above remains only a technical fallback for exercising the final manifest and compositor.
+
+The visually approved premium checkpoint intentionally contains exactly two curated presets:
+
+| Preset | Base | Tone | Hair | Top | Accessory | Background |
+| --- | --- | --- | --- | --- | --- | --- |
+| Feminine | `feminine` | `tone_03` | `long_hair` | `hoodie` | `round_glasses` | `parqueen_navy` |
+| Masculine | `masculine` | `tone_03` | `short_fade` | `crew_neck` | `none` | `parqueen_navy` |
+
+- Each preset renders real transparent raster layers in the canonical compositor order.
+- The preview saves only the selected preset ID to local browser storage and performs no Firestore read or write.
+- Mix-and-match use of these premium layers is not visually approved. The DEV workspace exposes no unsupported premium option controls.
+- Additional choices require bespoke premium layered artwork with deliberate underlap, overlap, lighting, and alignment review.
+- Copied, mirrored, stretched, transformed, or cross-style derivatives must never be promoted as final artwork.
+- The curated premium files remain outside `public/parsona-v2/`, are imported only through the DEV lab, and cannot enable v2 publicly.
+
 ## Prohibited traits
 
 - Childish head-to-body proportions or oversized eyes

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AvatarCompositeV2 } from '../components/AvatarCompositeV2';
 import { ParsonaV2CreatorView } from './ParsonaV2CreatorView';
 import { ParsonaV2MvpCreator, ParsonaV2MvpMatrix } from './ParsonaV2MvpCreator';
+import { ParsonaPremiumExperiment } from './ParsonaPremiumExperiment';
 import {
   ACCESSORY_IDS,
   BASE_STYLE_IDS,
@@ -254,6 +255,7 @@ export function ParsonaV2LabView() {
           </div>
           <ParsonaV2MvpCreator />
           <ParsonaV2MvpMatrix />
+          <ParsonaPremiumExperiment />
         </div>
 
         <div className="rounded-2xl border border-cyan-400/20 bg-[#071426] p-4 sm:p-6">
