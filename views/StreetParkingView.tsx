@@ -11,7 +11,8 @@ import { getApp } from 'firebase/app';
 import mapboxgl from 'mapbox-gl';
 import * as geofire from 'geofire-common';
 
-import { MAPBOX_TOKEN, NYC_CENTER, createMarkerElement, createStackMarkerElement, clearRoute, drawRoute, getDistance } from './street-parking/utils';
+import { NYC_CENTER, createMarkerElement, createStackMarkerElement, clearRoute, drawRoute, getDistance } from './street-parking/utils';
+import { getMapboxToken } from '../utils/browserCredentials';
 import { t, useLang } from '../i18n';
 import { VehicleIcon } from '../utils/vehicleIcon';
 import { getTitleForCrowns } from '../utils/crowns';
@@ -21,7 +22,7 @@ const SCHEDULED_PING_EXPIRY_MS = 60 * 60 * 1000;
 
 const reverseGeocode = async (lng: number, lat: number): Promise<string> => {
     try {
-        const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?types=address&limit=1&access_token=${MAPBOX_TOKEN}`);
+        const res = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?types=address&limit=1&access_token=${getMapboxToken()}`);
         const json = await res.json();
         return json.features?.[0]?.place_name?.split(',')[0] || '';
     } catch { return ''; }
@@ -777,11 +778,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
     // Get initial GPS fix, then create map centered on real location
     useEffect(() => {
         if (!mapContainerRef.current) return;
-        if (!MAPBOX_TOKEN) {
-            console.error("VITE_MAPBOX_TOKEN is not set");
-        } else {
-            mapboxgl.accessToken = MAPBOX_TOKEN;
-        }
+        const mapboxToken = getMapboxToken();
+        mapboxgl.accessToken = mapboxToken;
 
         let cancelled = false;
         let watchId: number | undefined;
@@ -1028,10 +1026,10 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
         if (!coords) { setSpotAddress(""); return; }
         if (coords.title) { setSpotAddress(coords.title); return; }
         if (coords.address) { setSpotAddress(coords.address); return; }
-        if (!MAPBOX_TOKEN) { setSpotAddress(t('my_car.street_spot')); return; }
+        const mapboxToken = getMapboxToken();
 
         setSpotAddress(t('my_car.resolving_address'));
-        fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${coords.lng},${coords.lat}.json?types=address&access_token=${MAPBOX_TOKEN}&limit=1`)
+        fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${coords.lng},${coords.lat}.json?types=address&access_token=${mapboxToken}&limit=1`)
             .then(res => res.json())
             .then(data => {
                 if (data.features && data.features.length > 0) {
@@ -1041,7 +1039,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
                 }
             })
             .catch(() => { setSpotAddress(t('my_car.street_spot')); });
-    }, [selectedItem, spotData.freeSpots, userLocation, MAPBOX_TOKEN]);
+    }, [selectedItem, spotData.freeSpots, userLocation]);
 
     // User location marker
     useEffect(() => {

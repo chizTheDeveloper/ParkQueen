@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { getGoogleMapsApiKey } from '../utils/browserCredentials';
 
 export interface LocationCoords {
   lat: number;
@@ -16,8 +17,6 @@ export interface GoogleParkingData {
   pricePerHour?: number;
 }
 
-const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || 'AIzaSyCKSqWVd6JqpcrNUG6hei8Ug1njaIkAI7Y';
-
 export const useLocalParkingData = (userLocation: LocationCoords | null, searchRadiusMeters: number = 2000) => {
   const [parkingData, setParkingData] = useState<GoogleParkingData[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -28,11 +27,12 @@ export const useLocalParkingData = (userLocation: LocationCoords | null, searchR
     const fetchLocalParking = async () => {
       setLoading(true);
       try {
+        const googleMapsApiKey = getGoogleMapsApiKey();
         const response = await fetch('https://places.googleapis.com/v1/places:searchText', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY,
+            'X-Goog-Api-Key': googleMapsApiKey,
             'X-Goog-FieldMask': 'places.id,places.displayName,places.location,places.formattedAddress,places.editorialSummary,places.rating'
           },
           body: JSON.stringify({
@@ -51,8 +51,7 @@ export const useLocalParkingData = (userLocation: LocationCoords | null, searchR
         });
 
         if (!response.ok) {
-            const errorText = await response.text();
-            console.error("Google API Error:", response.status, errorText, "Using key:", GOOGLE_MAPS_API_KEY.substring(0, 10) + '...');
+            console.error("Google Places API request failed:", response.status);
             setLoading(false);
             return;
         }

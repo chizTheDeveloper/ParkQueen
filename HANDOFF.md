@@ -4,6 +4,20 @@ Generated: 2026-07-15
 
 ---
 
+## Security checkpoint — 2026-07-23
+
+- Work is isolated on `security/browser-key-remediation`, created from `origin/main`.
+- Mapbox requires `VITE_MAPBOX_TOKEN`; no hard-coded fallback or credential logging remains.
+- Google Places browser requests require `VITE_GOOGLE_MAPS_API_KEY`; the hard-coded fallback and partial-key logging were removed.
+- Vite no longer injects the obsolete generic `API_KEY` into frontend code.
+- `.env.example` contains empty placeholders only. `SECURITY.md` documents separate development/production credentials, provider restrictions, and local Gitleaks usage.
+- `.github/workflows/secret-scan.yml` runs an immutable-pinned Gitleaks action with read-only repository permissions.
+- No provider credential was created, rotated, inspected, or deployed.
+- Fresh gates passed: TypeScript, 668 unit tests, production build (1,674 modules), and 58 Firestore Rules tests.
+- Before an approved release, configure restricted development and production values and verify Mapbox styles/geocoding/directions plus Google Places requests.
+
+---
+
 ## 1. Project Overview
 
 **ParQueen** is a community-driven street parking app for New York City. Users report when they're leaving a parking spot ("ping"), and nearby drivers get notified so they can claim the spot before it's taken by someone else.
