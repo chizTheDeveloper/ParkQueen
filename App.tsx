@@ -37,6 +37,9 @@ const ParsonaPresetPickerView = lazy(() => import('./views/ParsonaPresetPickerVi
 const ParsonaArtLabView = import.meta.env.DEV
   ? lazy(() => import('./views/ParsonaArtLabView').then(m => ({ default: m.ParsonaArtLabView })))
   : null;
+const ParsonaStyleLabView = import.meta.env.DEV
+  ? lazy(() => import('./views/ParsonaStyleLabView').then(m => ({ default: m.ParsonaStyleLabView })))
+  : null;
 const PrivacyPolicyView = lazy(() => import('./views/PrivacyPolicyView').then(m => ({ default: m.PrivacyPolicyView })));
 const TermsOfUseView = lazy(() => import('./views/TermsOfUseView').then(m => ({ default: m.TermsOfUseView })));
 const ContactUsView = lazy(() => import('./views/ContactUsView').then(m => ({ default: m.ContactUsView })));
@@ -476,6 +479,13 @@ export default function App() {
     return (
       <Suspense fallback={<LoadingScreen />}>
         <ParsonaArtLabView />
+      </Suspense>
+    );
+  }
+  if (import.meta.env.DEV && ParsonaStyleLabView && typeof window !== 'undefined' && window.location.search.includes('qa=parsona-style-lab')) {
+    return (
+      <Suspense fallback={<LoadingScreen />}>
+        <ParsonaStyleLabView />
       </Suspense>
     );
   }
