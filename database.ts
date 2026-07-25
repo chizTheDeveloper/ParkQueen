@@ -6,8 +6,6 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 interface UserProfile {
   fullName?: string;
   username?: string;
-  phone?: string;
-  email?: string;
 }
 
 export const saveUserProfile = async (profile: UserProfile) => {
@@ -26,8 +24,6 @@ export const saveUserProfile = async (profile: UserProfile) => {
   const updates: Record<string, unknown> = { id: firebaseUser.uid };
   if (profile.fullName)  updates.fullName  = profile.fullName;
   if (profile.username)  updates.username  = profile.username;
-  if (profile.phone)     updates.phone     = profile.phone;
-  if (profile.email)     updates.email     = profile.email;
 
   if (!snap.exists()) {
     // First-time creation — set required defaults that must only be established once

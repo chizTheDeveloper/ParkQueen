@@ -803,4 +803,53 @@ describe('users/{uid} public doc — private field denylist', () => {
     it('PD12: unauthenticated user cannot read or write the private profile', async () => {
         await assertFails(getDoc(doc(anonDb(), 'users', OWNER_UID, 'private', 'profile')));
     });
+
+    // 53
+    it('PD13: owner cannot write phone to public users/{uid} via update', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { phone: '+15551234567' }));
+    });
+
+    // 54
+    it('PD14: owner cannot include phone in public users/{uid} create', async () => {
+        const newUid = 'pd14-uid-' + Date.now();
+        await assertFails(
+            setDoc(
+                doc(testEnv.authenticatedContext(newUid).firestore(), 'users', newUid),
+                { fullName: 'Test', username: 'testpd14', phone: '+15551234567' }
+            )
+        );
+    });
+
+    // 55
+    it('PD15: owner cannot write email to public users/{uid} via update', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { email: 'test@example.com' }));
+    });
+
+    // 56
+    it('PD16: owner cannot include email in public users/{uid} create', async () => {
+        const newUid = 'pd16-uid-' + Date.now();
+        await assertFails(
+            setDoc(
+                doc(testEnv.authenticatedContext(newUid).firestore(), 'users', newUid),
+                { fullName: 'Test', username: 'testpd16', email: 'test@example.com' }
+            )
+        );
+    });
+
+    // 57
+    it('PD17: owner can read users/{uid}/private/account', async () => {
+        await assertSucceeds(getDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'account')));
+    });
+
+    // 58
+    it('PD18: other authenticated user cannot read users/{uid}/private/account', async () => {
+        await assertFails(getDoc(doc(otherDb(), 'users', OWNER_UID, 'private', 'account')));
+    });
+
+    // 59
+    it('PD19: unauthenticated user cannot read users/{uid}/private/account', async () => {
+        await assertFails(getDoc(doc(anonDb(), 'users', OWNER_UID, 'private', 'account')));
+    });
 });

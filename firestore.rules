@@ -47,11 +47,12 @@ service cloud.firestore {
       allow read: if signedIn() || isAdmin();
       allow create: if signedIn() && request.auth.uid == userId
         && !request.resource.data.keys().hasAny(
-             ['dob', 'gender', 'homeArea', 'driverType', 'ageRange']);
+             ['phone', 'email', 'dob', 'gender', 'homeArea', 'driverType', 'ageRange']);
       allow update: if isAdmin()
         || (signedIn() && request.auth.uid == userId
             && !request.resource.data.diff(resource.data).affectedKeys()
-                  .hasAny(['crowns', 'title', 'trustScore', 'trustStats',
+                  .hasAny(['phone', 'email',
+                            'crowns', 'title', 'trustScore', 'trustStats',
                             'moderationStatus', 'reportCount', 'role', 'status',
                             'suspendedAt', 'suspendedBy', 'suspensionReason',
                             'unsuspendedAt', 'unsuspendedBy', 'emailVerified',
@@ -274,6 +275,11 @@ service cloud.firestore {
         );
       allow read: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
       allow update, delete: if false;
+    }
+
+    match /accountDeletionJobs/{userId} {
+      allow read: if signedIn() && request.auth.uid == userId;
+      allow write: if false;
     }
 
     match /adminAuditLog/{logId} {

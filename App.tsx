@@ -64,15 +64,19 @@ export default function App() {
   const [pushToast, setPushToast] = useState<{ title: string; body: string } | null>(null);
   const [titleUnlock, setTitleUnlock] = useState<string | null>(null);
   const prevTitleRef = useRef<string | null>(null);
+  const privateEmailRef = useRef<string | undefined>(undefined);
   // phone stores canonical E.164 (e.g. "+15555551234", "+51987654321")
   const [phone, setPhone] = useState('');
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
 
   useEffect(() => {
     let userProfileUnsubscribe = () => {};
+    let privateAccountUnsubscribe = () => {};
 
     const authStateUnsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       userProfileUnsubscribe();
+      privateAccountUnsubscribe();
+      privateEmailRef.current = undefined;
       setLoading(true);
 
       if (firebaseUser) {
@@ -117,7 +121,11 @@ export default function App() {
         userProfileUnsubscribe = onSnapshot(userDocRef, (userDoc) => {
           if (userDoc.exists()) {
             const userData = userDoc.data();
-            setUser({ id: userDoc.id, ...userData });
+            // Prefer email from private subcollection; fall back to public doc for pre-migration accounts
+            const emailOverride = privateEmailRef.current !== undefined
+              ? { email: privateEmailRef.current }
+              : {};
+            setUser({ id: userDoc.id, ...userData, ...emailOverride });
             const newTitle = userData.title || 'Newcomer';
             if (prevTitleRef.current && prevTitleRef.current !== newTitle && newTitle !== 'Newcomer') {
               setTitleUnlock(newTitle);
@@ -127,6 +135,14 @@ export default function App() {
           } else {
             setUser({ id: firebaseUser.uid });
           }
+        });
+
+        // Listen for private account data (email) — owner-only subcollection
+        const privateAccountRef = doc(db, 'users', firebaseUser.uid, 'private', 'account');
+        privateAccountUnsubscribe = onSnapshot(privateAccountRef, (snap) => {
+          const email = snap.exists() ? snap.data().email : undefined;
+          privateEmailRef.current = email;
+          setUser(prev => prev ? { ...prev, email } : prev);
         });
 
         // Check for admin claims and route accordingly
@@ -176,6 +192,7 @@ export default function App() {
     return () => {
       authStateUnsubscribe();
       userProfileUnsubscribe();
+      privateAccountUnsubscribe();
     };
   }, []);
 
@@ -233,7 +250,7 @@ export default function App() {
     // phone is canonical E.164 — store directly
     try {
       // Only write the fields this step owns — fullName is collected later
-      await saveUserProfile({ phone, username });
+      await saveUserProfile({ username });
       setVehicleOnboarding(true);
       setCurrentView(AppView.EDIT_VEHICLE);
     } catch (error: any) {
@@ -247,11 +264,13 @@ export default function App() {
       const uid = auth.currentUser?.uid;
       if (!uid) throw new Error("Not authenticated");
       const { doc: fsDoc, updateDoc, setDoc } = await import("firebase/firestore");
-      // Public fields only — demographics go to the private subcollection
+      // Public fields only — demographics and contact info go to private subcollections
       await updateDoc(fsDoc(db, 'users', uid), {
         fullName: profileData.fullName,
-        email: profileData.email,
       });
+      if (profileData.email) {
+        await setDoc(fsDoc(db, 'users', uid, 'private', 'account'), { email: profileData.email }, { merge: true });
+      }
       // dob and gender are private — write to owner-only subcollection
       const privateUpdates: Record<string, string> = {};
       if (profileData.dob)    privateUpdates.dob    = profileData.dob;

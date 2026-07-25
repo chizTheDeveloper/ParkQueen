@@ -527,7 +527,12 @@ exports.verifyEmailOTP = onCall(
     }
 
     await docRef.delete();
-    await db.collection("users").doc(uid).update({ email, emailVerified: true });
+    // email goes to the owner-only private subcollection; only the verified boolean is public
+    await db.collection("users").doc(uid).collection("private").doc("account").set(
+      { email },
+      { merge: true }
+    );
+    await db.collection("users").doc(uid).update({ emailVerified: true });
     return { success: true };
   }
 );
