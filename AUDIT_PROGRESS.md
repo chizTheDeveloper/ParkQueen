@@ -26,9 +26,16 @@ Deployment status: prohibited; none performed
 | 5 — Authentication/account security | In progress | Phone auth and incomplete deletion traced |
 | 6 — App Check/Functions/IAM | In progress | App Check absent in source; console verification pending |
 | 7 — Firestore/Rules/indexes/concurrency | In progress | Chat, feedback/reward, and notification vulnerabilities fixed test-first |
-| 8–9 | Pending | |
-| 10 — Privacy/retention/deletion | In progress | `docs/PRIVACY_DATA_INVENTORY.md`; deletion gap documented |
-| 11–28 | Pending | See implementation plan |
+| 8 — Client security | Complete | CSP absent, voice agent script (BLK-01, TM-21, TM-22), localStorage gaps (TM-23) documented |
+| 9 — Bundle/performance | Complete | `docs/PERFORMANCE_AND_COST_BUDGET.md`; StreetParkingView chunk 1.8 MB, main bundle 927 kB |
+| 10 — Privacy/retention/deletion | Complete | `docs/PRIVACY_DATA_INVENTORY.md`; deletion gap documented (TM-05); phone in public doc (TM-24) |
+| 11 — Functions audit | Complete | App Check absent (TM-12), smart-reply no bounds (TM-25), bootstrap race (TM-14), `deleteAccount` gap (FN-06) |
+| 12 — Storage audit | Complete | No `storage.rules` in repo (TM-06); avatar upload active without known rules |
+| 13 — Architecture | Complete | Duplicate firebase config files, `firebase-admin` in root deps, dormant Expo/RN, Tailwind CDN |
+| 14 — Release readiness | Complete | `docs/RELEASE_READINESS_AUDIT_2026.md`; 5 blocking items identified |
+| 15 — QA matrix | Complete | `docs/QA_RELEASE_MATRIX.md`; 12 gates, 80+ scenarios |
+| 16 — Release operations | Complete | `docs/RELEASE_OPERATIONS_RUNBOOK.md`; deploy, rollback, break-glass procedures |
+| 17 — Threat model update | Complete | TM-21 through TM-26 added; 26 total items |
 
 ## Initial repository facts
 
