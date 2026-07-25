@@ -829,6 +829,7 @@ const en: Record<string, string> = {
     'settings.delete_failed': 'Deletion failed. Tap Retry or contact support.',
     'settings.delete_retry': 'Retry',
     'settings.delete_cancel': 'Cancel',
+    'settings.delete_reauth_required': 'For security, please sign out and sign back in before deleting your account.',
 };
 
 export default en;

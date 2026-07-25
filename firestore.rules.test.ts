@@ -901,3 +901,236 @@ describe('users/{uid} public doc — private field denylist', () => {
         await assertFails(getDoc(doc(anonDb(), 'users', OWNER_UID, 'private', 'account')));
     });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TM-11 — users/{uid} update allowlist
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('users — update allowlist (TM-11)', () => {
+    const publicUserData = { fullName: 'Alice', username: 'alice99', fcmToken: 'tok123' };
+
+    beforeEach(async () => {
+        await seed('users', OWNER_UID, publicUserData);
+    });
+
+    it('TM11-A: owner can update an explicitly allowed field (fullName)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertSucceeds(upd(doc(ownerDb(), 'users', OWNER_UID), { fullName: 'Alice B.' }));
+    });
+
+    it('TM11-B: owner can update fcmToken', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertSucceeds(upd(doc(ownerDb(), 'users', OWNER_UID), { fcmToken: 'newtoken' }));
+    });
+
+    it('TM11-C: owner cannot update crowns (not in allowlist)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { crowns: 999 }));
+    });
+
+    it('TM11-D: owner cannot update title (not in allowlist)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { title: 'King' }));
+    });
+
+    it('TM11-E: owner cannot write an arbitrary unknown field', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { evilField: true }));
+    });
+
+    it('TM11-F: other user cannot update another user\'s profile fields', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(otherDb(), 'users', OWNER_UID), { fullName: 'Hacked' }));
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TM-10 — spots create schema validation
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('spots — create schema (TM-10)', () => {
+    const validSpot = {
+        lat: 40.7128,
+        lng: -74.0060,
+        type: 'free',
+        status: 'available',
+        finderId: OWNER_UID,
+        finderName: 'Alice',
+        pingMode: 'now',
+        reportedAt: Timestamp.now(),
+        expiresAt: FUTURE,
+        geohash: 'dr5ru',
+        address: '123 Main St, New York, NY',
+    };
+
+    it('TM10-A: valid spot create succeeds', async () => {
+        await assertSucceeds(addDoc(collection(ownerDb(), 'spots'), validSpot));
+    });
+
+    it('TM10-B: create with forged finderId denied', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'spots'), { ...validSpot, finderId: OTHER_UID })
+        );
+    });
+
+    it('TM10-C: create with non-available status denied', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'spots'), { ...validSpot, status: 'occupied' })
+        );
+    });
+
+    it('TM10-D: create with non-free type denied', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'spots'), { ...validSpot, type: 'paid' })
+        );
+    });
+
+    it('TM10-E: create missing required field (address) denied', async () => {
+        const { address: _a, ...noAddress } = validSpot;
+        await assertFails(addDoc(collection(ownerDb(), 'spots'), noAddress));
+    });
+
+    it('TM10-F: create with past expiresAt denied', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'spots'), { ...validSpot, expiresAt: PAST })
+        );
+    });
+
+    it('TM10-G: create with extra unknown field denied', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'spots'), { ...validSpot, adminOverride: true })
+        );
+    });
+
+    it('TM10-H: unauthenticated create denied', async () => {
+        await assertFails(addDoc(collection(anonDb(), 'spots'), validSpot));
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TM-08 — reports create schema validation
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('reports — create schema (TM-08)', () => {
+    const validReport = {
+        reporterId: OWNER_UID,
+        reportedUserId: OTHER_UID,
+        type: 'behavior',
+        reason: 'User was rude.',
+        status: 'pending',
+        createdAt: Timestamp.now(),
+    };
+
+    it('TM08-A: valid report create succeeds', async () => {
+        await assertSucceeds(addDoc(collection(ownerDb(), 'reports'), validReport));
+    });
+
+    it('TM08-B: report with forged reporterId denied', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'reports'), { ...validReport, reporterId: OTHER_UID })
+        );
+    });
+
+    it('TM08-C: self-report denied', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'reports'), { ...validReport, reportedUserId: OWNER_UID })
+        );
+    });
+
+    it('TM08-D: report with invalid type denied', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'reports'), { ...validReport, type: 'made_up' })
+        );
+    });
+
+    it('TM08-E: report with status other than pending denied', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'reports'), { ...validReport, status: 'resolved' })
+        );
+    });
+
+    it('TM08-F: report with empty reason denied', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'reports'), { ...validReport, reason: '' })
+        );
+    });
+
+    it('TM08-G: unauthenticated report create denied', async () => {
+        await assertFails(addDoc(collection(anonDb(), 'reports'), validReport));
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TM-07 — listings write disabled
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('listings — write disabled (TM-07)', () => {
+    it('TM07-A: authenticated user cannot create a listing', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'listings'), { title: 'My Garage', price: 10 })
+        );
+    });
+
+    it('TM07-B: authenticated user cannot write to a specific listing', async () => {
+        await assertFails(
+            setDoc(doc(ownerDb(), 'listings', 'listing-123'), { title: 'Exploit' })
+        );
+    });
+
+    it('TM07-C: any signed-in user can still read listings', async () => {
+        await assertSucceeds(getDocs(collection(ownerDb(), 'listings')));
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TM-09 — parseFailures update field restriction
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('parseFailures — update allowlist (TM-09)', () => {
+    beforeEach(async () => {
+        await seed('parseFailures', 'failure-1', { count: 1, lastSeenAt: Timestamp.now() });
+    });
+
+    it('TM09-A: signed-in user can increment count and update lastSeenAt', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertSucceeds(
+            upd(doc(ownerDb(), 'parseFailures', 'failure-1'), {
+                count: 2,
+                lastSeenAt: Timestamp.now(),
+            })
+        );
+    });
+
+    it('TM09-B: signed-in user cannot add resolvedAt', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(
+            upd(doc(ownerDb(), 'parseFailures', 'failure-1'), {
+                count: 2,
+                resolvedAt: Timestamp.now(),
+            })
+        );
+    });
+
+    it('TM09-C: signed-in user cannot add arbitrary fields', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(
+            upd(doc(ownerDb(), 'parseFailures', 'failure-1'), { injected: true })
+        );
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TM-14 — adminBootstrap singleton not client-writable
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('adminBootstrap — client writes blocked (TM-14)', () => {
+    it('TM14-A: unauthenticated cannot write adminBootstrap/singleton', async () => {
+        await assertFails(
+            setDoc(doc(anonDb(), 'adminBootstrap', 'singleton'), { bootstrappedBy: 'anon' })
+        );
+    });
+
+    it('TM14-B: authenticated user cannot write adminBootstrap/singleton', async () => {
+        await assertFails(
+            setDoc(doc(ownerDb(), 'adminBootstrap', 'singleton'), { bootstrappedBy: OWNER_UID })
+        );
+    });
+
+    it('TM14-C: admin can read adminBootstrap/singleton', async () => {
+        await assertSucceeds(getDoc(doc(adminDb(), 'adminBootstrap', 'singleton')));
+    });
+});

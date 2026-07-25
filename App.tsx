@@ -65,7 +65,7 @@ export default function App() {
   const [titleUnlock, setTitleUnlock] = useState<string | null>(null);
   const prevTitleRef = useRef<string | null>(null);
   const privateEmailRef = useRef<string | undefined>(undefined);
-  const [deletePhase, setDeletePhase] = useState<'idle' | 'confirming' | 'deleting' | 'failed'>('idle');
+  const [deletePhase, setDeletePhase] = useState<'idle' | 'confirming' | 'deleting' | 'failed' | 'reauth_required'>('idle');
   // phone stores canonical E.164 (e.g. "+15555551234", "+51987654321")
   const [phone, setPhone] = useState('');
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
@@ -339,9 +339,13 @@ export default function App() {
       await deleteUser();
       localStorage.clear();
       await logoutUser();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to delete account:", error);
-      setDeletePhase('failed');
+      if (error?.code === 'functions/failed-precondition') {
+        setDeletePhase('reauth_required');
+      } else {
+        setDeletePhase('failed');
+      }
     }
   };
 
@@ -555,6 +559,17 @@ export default function App() {
                     {t('settings.delete_retry')}
                   </button>
                 </div>
+              </>
+            )}
+            {deletePhase === 'reauth_required' && (
+              <>
+                <p className="text-center text-amber-500 mb-4">{t('settings.delete_reauth_required')}</p>
+                <button
+                  onClick={() => setDeletePhase('idle')}
+                  className="w-full py-3 rounded-xl border border-[var(--color-border)] text-[var(--color-text)]"
+                >
+                  {t('settings.delete_cancel')}
+                </button>
               </>
             )}
           </div>

@@ -46,6 +46,10 @@ export const saveUserProfile = async (profile: UserProfile) => {
 };
 
 export const logoutUser = async () => {
+  // Preserve device-level preferences; clear all account-scoped browser state
+  const theme = localStorage.getItem('theme');
+  localStorage.clear();
+  if (theme !== null) localStorage.setItem('theme', theme);
   await signOut(auth);
 };
 

@@ -829,6 +829,7 @@ const es: Record<string, string> = {
     'settings.delete_failed': 'La eliminación falló. Intenta de nuevo o contacta soporte.',
     'settings.delete_retry': 'Reintentar',
     'settings.delete_cancel': 'Cancelar',
+    'settings.delete_reauth_required': 'Por seguridad, cierra sesión y vuelve a iniciarla antes de eliminar tu cuenta.',
 };
 
 export default es;
