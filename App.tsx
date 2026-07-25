@@ -42,7 +42,8 @@ import { getLanguageHydrationAction } from './utils/languageHydration';
 import { ChevronLeft } from 'lucide-react';
 import ErrorBoundary from './ErrorBoundary';
 import { saveUserProfile, logoutUser, deleteUser } from './database';
-import { ConfirmationResult, RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth';
+import { ConfirmationResult, RecaptchaVerifier, reauthenticateWithPhoneNumber, signOut } from 'firebase/auth';
+import { maskPhoneNumber, verifyUidUnchanged } from './utils/reauthBeforeDelete';
 import { auth, db } from './firebaseConfig';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, onSnapshot, getDoc, updateDoc, collection, query, where, getDocs } from "firebase/firestore";
@@ -73,6 +74,7 @@ export default function App() {
   const [reauthResendCooldown, setReauthResendCooldown] = useState(0);
   const reauthRecaptchaRef = useRef<RecaptchaVerifier | null>(null);
   const reauthCooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const originalUidRef = useRef<string | null>(null);
 
   useEffect(() => {
     let userProfileUnsubscribe = () => {};
@@ -357,17 +359,16 @@ export default function App() {
   };
 
   const handleReauthSendOtp = async () => {
-    const phoneNum = phone.trim();
-    if (!phoneNum) return;
+    const currentUser = auth.currentUser;
+    if (!currentUser?.phoneNumber) { setDeletePhase('failed'); return; }
     try {
       if (reauthRecaptchaRef.current) { try { reauthRecaptchaRef.current.clear(); } catch {} }
       reauthRecaptchaRef.current = new RecaptchaVerifier(auth, 'reauth-recaptcha-anchor', { size: 'invisible' });
-      const result = await signInWithPhoneNumber(auth, phoneNum, reauthRecaptchaRef.current);
+      const result = await reauthenticateWithPhoneNumber(currentUser, currentUser.phoneNumber, reauthRecaptchaRef.current);
       setConfirmationResult(result);
       setDeletePhase('reauth_verifying_otp');
       startResendCooldown();
     } catch {
-      // Do not surface whether the phone is registered
       clearReauthState();
       setDeletePhase('failed');
     }
@@ -375,14 +376,18 @@ export default function App() {
 
   const handleReauthVerifyOtp = async () => {
     if (!confirmationResult || reauthOtp.length < 6) return;
+    const originalUid = originalUidRef.current;
+    if (!originalUid) { setDeletePhase('failed'); return; }
     setDeletePhase('deleting');
     try {
       await confirmationResult.confirm(reauthOtp);
-      // Fresh auth_time — retry deletion
+      // UID preservation check — abort if a different account was signed in during OTP
+      verifyUidUnchanged(auth.currentUser?.uid, originalUid);
       await deleteUser();
       localStorage.clear();
       await logoutUser();
-    } catch {
+    } catch (e: any) {
+      if (e?.code === 'auth/account-switched') { try { await signOut(auth); } catch {} }
       clearReauthState();
       setDeletePhase('failed');
     }
@@ -390,10 +395,12 @@ export default function App() {
 
   const handleReauthResend = async () => {
     if (reauthResendCooldown > 0) return;
+    const currentUser = auth.currentUser;
+    if (!currentUser?.phoneNumber) { setDeletePhase('failed'); return; }
     try {
       if (reauthRecaptchaRef.current) { try { reauthRecaptchaRef.current.clear(); } catch {} }
       reauthRecaptchaRef.current = new RecaptchaVerifier(auth, 'reauth-recaptcha-anchor', { size: 'invisible' });
-      const result = await signInWithPhoneNumber(auth, phone.trim(), reauthRecaptchaRef.current);
+      const result = await reauthenticateWithPhoneNumber(currentUser, currentUser.phoneNumber, reauthRecaptchaRef.current);
       setConfirmationResult(result);
       startResendCooldown();
     } catch {
@@ -411,7 +418,7 @@ export default function App() {
     } catch (error: any) {
       console.error("Failed to delete account:", error);
       if (error?.code === 'functions/failed-precondition') {
-        setPhone(auth.currentUser?.phoneNumber ?? '');
+        originalUidRef.current = auth.currentUser?.uid ?? null;
         setDeletePhase('reauth_entering_phone');
       } else {
         setDeletePhase('failed');
@@ -635,13 +642,12 @@ export default function App() {
               <>
                 <h2 className="text-lg font-bold text-[var(--color-text)] mb-1">{t('settings.delete_reauth_title')}</h2>
                 <p className="text-sm text-[var(--color-text-secondary)] mb-4">{t('settings.delete_reauth_phone_hint')}</p>
-                <input
-                  type="tel"
-                  value={phone}
-                  onChange={e => setPhone(e.target.value)}
-                  placeholder="+1 (555) 000-0000"
-                  className="w-full mb-4 px-4 py-3 rounded-xl border border-[var(--color-border)] bg-transparent text-[var(--color-text)] placeholder:text-[var(--color-text-secondary)] focus:outline-none focus:border-red-500"
-                />
+                <p
+                  aria-live="assertive"
+                  className="w-full mb-4 px-4 py-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] text-center tracking-widest select-none"
+                >
+                  {maskPhoneNumber(auth.currentUser?.phoneNumber ?? '')}
+                </p>
                 <div className="flex gap-3">
                   <button
                     onClick={() => { clearReauthState(); setDeletePhase('idle'); }}
@@ -649,8 +655,7 @@ export default function App() {
                   >{t('settings.delete_cancel')}</button>
                   <button
                     onClick={handleReauthSendOtp}
-                    disabled={!phone.trim()}
-                    className="flex-1 py-3 rounded-xl bg-red-600 disabled:opacity-50 text-white font-semibold"
+                    className="flex-1 py-3 rounded-xl bg-red-600 text-white font-semibold"
                   >{t('settings.delete_reauth_send_code')}</button>
                 </div>
               </>

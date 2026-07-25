@@ -830,7 +830,7 @@ const en: Record<string, string> = {
     'settings.delete_retry': 'Retry',
     'settings.delete_cancel': 'Cancel',
     'settings.delete_reauth_title': 'Confirm your identity',
-    'settings.delete_reauth_phone_hint': 'Enter your registered phone number to receive a one-time code.',
+    'settings.delete_reauth_phone_hint': 'We\'ll send a one-time code to your registered number.',
     'settings.delete_reauth_send_code': 'Send Code',
     'settings.delete_reauth_otp_hint': 'Enter the 6-digit code sent to your phone.',
     'settings.delete_reauth_verify': 'Verify & Delete',

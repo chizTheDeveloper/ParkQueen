@@ -830,7 +830,7 @@ const es: Record<string, string> = {
     'settings.delete_retry': 'Reintentar',
     'settings.delete_cancel': 'Cancelar',
     'settings.delete_reauth_title': 'Confirma tu identidad',
-    'settings.delete_reauth_phone_hint': 'Ingresa tu número de teléfono registrado para recibir un código de un solo uso.',
+    'settings.delete_reauth_phone_hint': 'Enviaremos un código de un solo uso a tu número registrado.',
     'settings.delete_reauth_send_code': 'Enviar código',
     'settings.delete_reauth_otp_hint': 'Ingresa el código de 6 dígitos enviado a tu teléfono.',
     'settings.delete_reauth_verify': 'Verificar y eliminar',
