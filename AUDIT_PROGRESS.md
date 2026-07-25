@@ -23,10 +23,10 @@ Deployment status: prohibited; none performed
 | 2 — Mobile architecture/packaging | Complete | Vite web app; no reproducible iOS/Android package, native projects, manifests, signing, or release pipeline |
 | 3 — Threat model | Complete, evolves with findings | `docs/THREAT_MODEL.md` |
 | 4 — Secrets/supply chain | Complete | `docs/DEPENDENCY_AND_SDK_INVENTORY.md`; peer conflict resolved; vulnerability baseline documented |
-| 5 — Authentication/account security | In progress | Phone auth and incomplete deletion traced |
-| 6 — App Check/Functions/IAM | In progress | App Check absent in source; console verification pending |
-| 7 — Firestore/Rules/indexes/concurrency | In progress | Chat, feedback/reward, and notification vulnerabilities fixed test-first |
-| 8 — Client security | Complete | CSP absent, voice agent script (BLK-01, TM-21, TM-22), localStorage gaps (TM-23) documented |
+| 5 — Authentication/account security | Complete | BLK-03 (deleteAccount covers all collections + Storage) and BLK-05 (phone/email moved to private subcollection) fixed in source; migration utility added |
+| 6 — App Check/Functions/IAM | In progress | App Check absent in source; console verification pending; BLK-03 callable extended with idempotent deletion job |
+| 7 — Firestore/Rules/indexes/concurrency | Complete | Chat, feedback/reward, and notification vulnerabilities fixed; BLK-02 coverage added (C7, N5, N6, F10); 81 Rules tests pass |
+| 8 — Client security | Complete | BLK-01 fixed (voice agent script removed from index.html); BLK-04 fixed (CSP report-only in firebase.json); securityAssertions and cspConfig test suites added |
 | 9 — Bundle/performance | Complete | `docs/PERFORMANCE_AND_COST_BUDGET.md`; StreetParkingView chunk 1.8 MB, main bundle 927 kB |
 | 10 — Privacy/retention/deletion | Complete | `docs/PRIVACY_DATA_INVENTORY.md`; deletion gap documented (TM-05); phone in public doc (TM-24) |
 | 11 — Functions audit | Complete | App Check absent (TM-12), smart-reply no bounds (TM-25), bootstrap race (TM-14), `deleteAccount` gap (FN-06) |
@@ -99,6 +99,47 @@ Fresh focused verification:
 - Firestore Rules: 70 tests PASS.
 
 These Rules and client changes have **not** been deployed.
+
+## Phase C — BLK remediation checkpoint
+
+All five source-level blockers closed on `audit/app-store-readiness-2026`. No deployment performed.
+
+### Commits
+
+| Commit | Message |
+|---|---|
+| `dd4c6f7` | `security: remove unapproved third-party script from index.html` |
+| `56434cb` | `privacy: isolate phone and email to private user subcollection` |
+| `2d8d0cc` | `privacy: complete account deletion — all linked collections and Storage` |
+| `608cbb5` | `security: add Firebase Hosting security headers with CSP report-only` |
+| `dbe8754` | `test: add missing Rules coverage for BLK-02 review (C7, N5, N6, F10)` |
+
+### Quality gates after remediation
+
+| Gate | Result |
+|---|---|
+| `npx tsc --noEmit` | PASS |
+| `npm test` | PASS — 21 files, 686 tests |
+| `npm run build` | PASS |
+| `npm run test:rules` | PASS — 81 tests |
+| `grep -rl "voiceagent\|acme-corp" dist/` | PASS — no matches |
+
+### Threat model final triage
+
+| Open CRITICAL | 0 |
+|---|---|
+| Open HIGH | 11 (TM-04, 06, 07, 08, 10, 11, 12, 13, 14, 19, 20) |
+| Open MEDIUM | 5 (TM-09, 16, 17, 23, 25) |
+| Open LOW | 0 |
+
+### Manual actions still required
+
+- BLK-02: authorized deployment of Firestore Rules (see deployment plan in `docs/RELEASE_READINESS_AUDIT_2026.md`)
+- TM-06: export `storage.rules` from Firebase console and commit
+- TM-12: App Check enrollment decision
+- TM-19: credential rotation verification via provider metadata
+- Production data migration: run `utils/migration/privatizeContactFields.ts` in apply mode with admin credentials post-deployment
+- Legal sign-off on `adminAuditLog` and `moderationLog` retention categories
 
 ## Phase B — Dependency fix checkpoint
 

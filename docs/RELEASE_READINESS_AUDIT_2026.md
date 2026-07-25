@@ -13,54 +13,67 @@ Scope: shipped web application, Firestore security rules, Cloud Functions, Fireb
 ParQueen is a Vite/React 18/TypeScript web application backed by Firebase. It is **not currently releasable** to Apple App Store or Google Play for the following reasons:
 
 1. No native iOS/Android packaging architecture has been selected or implemented.
-2. A critical third-party script with a placeholder ID ships in `index.html` (`cdn.voiceagent.ai/widget.js`, `data-agent-id="acme-corp-123"`).
-3. Account deletion is incomplete, blocking store compliance under both App Store and Play Store requirements.
-4. Three security vulnerabilities were found and fixed on this audit branch (chat isolation, feedback forgery, notification spoofing); they remain undeployed.
-5. Twenty-six open threat model items remain, eight of which are CRITICAL or HIGH without a mitigation.
+2. Five source-level blockers (BLK-01 through BLK-05) have been fixed on this audit branch but none have been deployed to production. BLK-02 (Firestore Rules) is the most urgent.
+3. Eleven HIGH threat-model findings remain open, most requiring provider-console or product decisions beyond source changes.
+4. Storage Rules are not tracked in the repository (TM-06).
+5. App Check is not configured (TM-12).
 
-The web application can proceed toward a monitored limited-access web release after the CRITICAL items below are resolved, tested, and separately approved for deployment.
+**BLK-01, BLK-03, BLK-04, BLK-05 are fixed in source on `audit/app-store-readiness-2026`.** Zero open CRITICAL items remain. The web application can proceed toward a monitored limited-access web beta after BLK-02 is deployed and the remaining HIGH items have owners and due dates.
 
 ---
 
 ## Blocking findings — must resolve before any release
 
-### BLK-01 (CRITICAL): Third-party voice agent script in production HTML
+### BLK-01 (CRITICAL): Third-party voice agent script in production HTML — **FIXED IN SOURCE**
 
-`index.html` line 86 loads `https://cdn.voiceagent.ai/widget.js` with `data-agent-id="acme-corp-123"`. This is a vendor placeholder ID. The script executes in the application origin with full DOM and localStorage access, can read Firebase authentication state, and sends data to an unreviewed third party. This is both a security and a privacy/store-compliance failure.
+`index.html` previously loaded `https://cdn.voiceagent.ai/widget.js` with `data-agent-id="acme-corp-123"`. The `<script>` tag and the vestigial `@google/genai` importmap entry have been removed. `utils/securityAssertions.test.ts` asserts both are absent from source and from the production build.
 
-**Required action:** Remove the `<script>` tag from `index.html` before any deployment. If a voice agent feature is planned, evaluate and scope it in a separate task with CSP isolation, SRI hash, privacy review, and provider contract.
+Commit: `dd4c6f7` — `security: remove unapproved third-party script from index.html`
 
 ### BLK-02 (CRITICAL, undeployed fix): Firestore security rules on audit branch
 
-Three CRITICAL/HIGH security fixes are committed on `audit/app-store-readiness-2026` but have never been deployed to the production project:
+Five CRITICAL/HIGH security fixes are committed on `audit/app-store-readiness-2026` but have never been deployed to the production project:
 
 - Chat/message participant isolation (TM-01)
 - Feedback forgery and Crown/trust replay prevention (TM-02)
 - Notification spoofing prevention (TM-03)
+- Phone/email denylist on public user document (BLK-05)
+- `accountDeletionJobs` read-only rule for owner
 
-The production project currently runs the baseline Rules, which allow any signed-in user to read all chat messages and create arbitrary feedback/notifications.
+The production project currently runs the baseline Rules. All 81 emulator tests pass on the audit branch.
 
-**Required action:** Review, approve, and deploy the fixed `firestore.rules` to the production project via a separately authorized deployment. Run the 70-test emulator suite immediately before deployment to confirm no regression.
+**Deployment plan (do not execute without separate authorization):**
 
-### BLK-03 (HIGH): Incomplete account deletion
+1. Merge `audit/app-store-readiness-2026` to `main` via a reviewed PR after all BLK items are cleared and signed off.
+2. From a clean install (`npm ci`), run `npm run test:rules` — confirm 81/81 pass.
+3. `firebase deploy --only firestore:indexes` if `firestore.indexes.json` has changed vs deployed state.
+4. `firebase deploy --only firestore:rules` — live change; monitor Firebase console → Firestore → Usage for 5 minutes post-deploy.
+5. Production smoke tests: sign-in → create Ping → claim Ping → send message → check notifications (all should succeed); attempt cross-user chat read (should return `PERMISSION_DENIED`).
+6. Rollback: `git checkout <prior-rules-commit> -- firestore.rules && firebase deploy --only firestore:rules`.
 
-The `deleteAccount` callable deletes only `users/{uid}`, username reservations, and the Firebase Auth user. It does not delete private profile subcollections, avatar Storage objects, Pings with participant identity, chats and messages, feedback, notifications, reports, moderation logs, parking sessions, or browser-local data. Both Apple and Google require a deletion mechanism that removes all associated data.
+Commit: `dbe8754` — `test: add missing Rules coverage for BLK-02 review (C7, N5, N6, F10)`
 
-Full gap analysis: `docs/PRIVACY_DATA_INVENTORY.md`.
+### BLK-03 (HIGH): Incomplete account deletion — **FIXED IN SOURCE**
 
-**Required action:** Implement a server-side idempotent deletion job covering all listed collections and Storage objects. Test with partial failure, replay, large history, and account-key verification before deployment.
+The `deleteAccount` callable previously deleted only `users/{uid}`, username reservations, and the Firebase Auth user. The callable has been replaced with a complete idempotent deletion job covering: private subcollections, parking sessions, avatar moderation, email verification codes, spot feedback (delete own; anonymize as finder), spot notifications, active Pings (delete finder Pings; clear claimer fields on others), chats with full message subcollection tree (`db.recursiveDelete()`), reports (anonymize reporter), and Storage `avatars/{uid}`. Auth user is deleted last. Progress is recorded to `accountDeletionJobs/{uid}` (server-created, owner-read-only, not client-writable). The callable is idempotent on retry. A proper confirmation dialog replaces the `window.confirm` call.
 
-### BLK-04 (HIGH): No Content-Security-Policy
+Commit: `2d8d0cc` — `privacy: complete account deletion — all linked collections and Storage`
 
-`firebase.json` has no `headers` block. `index.html` has no CSP meta tag. All script, style, image, connect, and fetch sources are unrestricted. External CDN domains load Tailwind, FontAwesome, and Mapbox CSS without integrity hashes.
+**Remaining manual items:** Legal sign-off on `adminAuditLog` and `moderationLog` retention periods; production data migration for existing accounts (`utils/migration/privatizeContactFields.ts`).
 
-**Required action:** Define and deploy a CSP in Firebase Hosting headers covering at minimum `default-src`, `script-src`, `style-src`, `connect-src`, and `img-src`. Add `integrity` attributes (SRI) to all external `<script>` and `<link>` tags in `index.html`, or move them to Vite-bundled imports.
+### BLK-04 (HIGH): No Content-Security-Policy — **FIXED IN SOURCE (report-only)**
 
-### BLK-05 (HIGH): Phone number in public user document
+`firebase.json` now includes a full `headers` block: HSTS (`max-age=31536000; includeSubDomains`), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy`, `Content-Security-Policy-Report-Only` covering all required origins, and `Cache-Control` for assets and `index.html`. `utils/cspConfig.test.ts` (8 tests) asserts the policy is present and structurally correct.
 
-`saveUserProfile` in `database.ts` writes `phone` and `email` directly into the public `users/{uid}` Firestore document, which any signed-in user can read (TM-04). Phone is the sole authentication credential and must not be exposed to the full authenticated user population.
+Phase 2 (separate PR): flip to enforced `Content-Security-Policy` after bundling Tailwind and FontAwesome (removes `'unsafe-inline'` dependency and CDN script-src entries).
 
-**Required action:** Remove `phone` and `email` from the public user document write path. Store them server-side only or in `users/{uid}/private/profile`.
+Commit: `608cbb5` — `security: add Firebase Hosting security headers with CSP report-only`
+
+### BLK-05 (HIGH): Phone number in public user document — **FIXED IN SOURCE**
+
+`saveUserProfile` in `database.ts` no longer writes `phone` or `email`. `verifyEmailOTP` in `functions/index.js` now writes email to `users/{uid}/private/account` and only `emailVerified: true` to the root doc. `handleSaveProfile` in `App.tsx` writes email to the private subcollection. Firestore Rules denylist blocks `phone` and `email` on all user doc creates/updates (Rules tests PD13-PD16). A private account listener in App.tsx merges the private email back into client state without race conditions. A dry-run migration utility (`utils/migration/privatizeContactFields.ts`) is available for existing production accounts.
+
+Commit: `56434cb` — `privacy: isolate phone and email to private user subcollection`
 
 ---
 
@@ -68,32 +81,35 @@ Full gap analysis: `docs/PRIVACY_DATA_INVENTORY.md`.
 
 ### Fixed on audit branch (undeployed)
 
-| ID | Title | Severity | Test coverage |
-|---|---|---|---|
-| TM-01 | Cross-account chat disclosure | CRITICAL | C1–C6 (6 tests) |
-| TM-02 | Crown/trust farming via forged feedback | CRITICAL | F7–F9 (3 tests) |
-| TM-03 | Notification spoofing | HIGH | N1–N4 (4 tests) |
-| TM-15 | Dependency graph not clean-installable | HIGH | npm ci PASS |
+| ID | Title | Severity | Test coverage | Commit |
+|---|---|---|---|---|
+| TM-01 | Cross-account chat disclosure | CRITICAL | C1–C7 (7 tests) | prior |
+| TM-02 | Crown/trust farming via forged feedback | CRITICAL | F7–F10 (4 tests) | prior |
+| TM-03 | Notification spoofing | HIGH | N1–N6 (6 tests) | prior |
+| TM-15 | Dependency graph not clean-installable | HIGH | npm ci PASS | prior |
+| TM-21 | Third-party voice agent script | CRITICAL | securityAssertions (4 tests) | `dd4c6f7` |
+| TM-22 | No Content-Security-Policy | HIGH | cspConfig (8 tests) | `608cbb5` |
+| TM-24 | Phone/email in public user document | HIGH | PD13–PD16, PD17–PD19 (7 tests) | `56434cb` |
+| TM-05 | Incomplete account deletion | HIGH | deletion flow + state machine | `2d8d0cc` |
+| TM-26 | Vestigial @google/genai importmap entry | LOW | securityAssertions | `dd4c6f7` |
 
-### Open CRITICAL/HIGH items
+**Open CRITICAL:** 0
 
-| ID | Title | Severity | Blocker for |
-|---|---|---|---|
-| TM-21 | Third-party voice agent script | CRITICAL | Any deployment |
-| BLK-04 | No CSP | HIGH | Web and store release |
-| TM-04 | Full user-directory exposure | HIGH | Store and privacy |
-| TM-05 | Incomplete account deletion | HIGH | Store compliance |
-| TM-06 | Untracked Storage authorization | HIGH | Avatar upload |
-| TM-07 | Arbitrary listing writes | HIGH | Listing feature |
-| TM-08 | Reports accept arbitrary payloads | HIGH | Report feature |
-| TM-10 | Client-controlled Ping shape | HIGH | Core Ping safety |
-| TM-11 | Client-modifiable profile counters | HIGH | Rewards safety |
-| TM-12 | App Check absent | HIGH | All Firebase services |
-| TM-13 | Function rate-limit/idempotency gaps | HIGH | AI/email/notification |
-| TM-14 | Admin bootstrap exposure | HIGH | Admin hardening |
-| TM-19 | Historical credentials in Git | HIGH | Provider verification |
-| TM-20 | Native permission boundary undefined | HIGH | Store packaging |
-| TM-24 | Phone/email in public user document | HIGH | Privacy |
+### Open HIGH items
+
+| ID | Title | Blocker for |
+|---|---|---|
+| TM-04 | Full user-directory exposure | Store and privacy |
+| TM-06 | Untracked Storage authorization | Avatar upload |
+| TM-07 | Arbitrary listing writes | Listing feature |
+| TM-08 | Reports accept arbitrary payloads | Report feature |
+| TM-10 | Client-controlled Ping shape | Core Ping safety |
+| TM-11 | Client-modifiable profile counters | Rewards safety |
+| TM-12 | App Check absent | All Firebase services |
+| TM-13 | Function rate-limit/idempotency gaps | AI/email/notification |
+| TM-14 | Admin bootstrap exposure | Admin hardening |
+| TM-19 | Historical credentials in Git | Provider verification |
+| TM-20 | Native permission boundary undefined | Store packaging |
 
 ### Open MEDIUM items
 
@@ -102,7 +118,6 @@ Full gap analysis: `docs/PRIVACY_DATA_INVENTORY.md`.
 | TM-09 | Suspension/parse-failure data exposure |
 | TM-16 | Mutable CI action references |
 | TM-17 | Sensitive logging |
-| TM-22 | No CSP (same as BLK-04) |
 | TM-23 | Logout does not clear localStorage |
 | TM-25 | Smart-reply callable has no message size bound |
 
@@ -266,18 +281,18 @@ Both `i18n/en.ts` and `i18n/es.ts` contain matching key counts for translated st
 | Gate | Status | Evidence |
 |---|---|---|
 | `npm ci` | PASS | Phase B fix; exits 0 without flags |
-| TypeScript | PASS | `npx tsc --noEmit` |
-| Unit tests | PASS | 19 files, 674 tests |
-| Production build | PASS | 1,673 modules |
-| Firestore Rules emulator | PASS | 70 tests |
-| No BLK-01 (voice agent script) | **FAIL** | `index.html:86` |
-| No BLK-02 (Rules deployed) | **FAIL** | Production runs baseline |
-| Account deletion complete | **FAIL** | TM-05, BLK-03 |
-| CSP deployed | **FAIL** | No headers in firebase.json |
-| Phone out of public doc | **FAIL** | database.ts saveUserProfile |
-| Storage Rules in repo | **FAIL** | No storage.rules |
-| App Check configured | **FAIL** | TM-12 |
-| No open CRITICAL items | **FAIL** | TM-21 (voice agent) |
+| TypeScript | PASS | `npx tsc --noEmit` — no errors |
+| Unit tests | PASS | 21 files, 686 tests |
+| Production build | PASS | 1,673 modules; StreetParkingView 1,867 kB / 510 kB gzip |
+| Firestore Rules emulator | PASS | 81 tests |
+| No BLK-01 (voice agent script) | **PASS (fixed in source)** | `index.html` — script removed; securityAssertions confirms absent in source and dist |
+| No BLK-02 (Rules deployed) | **PENDING** | Source correct, 81 tests pass; requires separate authorized deployment |
+| Account deletion complete | **PASS (fixed in source)** | `deleteAccount` covers all collections + Storage; pending deployment |
+| CSP deployed | **PASS (report-only in source)** | `firebase.json` headers block added; pending deployment |
+| Phone out of public doc | **PASS (fixed in source)** | `database.ts`, `App.tsx`, `functions/index.js` all corrected; Firestore denylist updated |
+| Storage Rules in repo | **FAIL** | No `storage.rules` — requires console export (TM-06) |
+| App Check configured | **FAIL** | TM-12 — provider decision required |
+| No open CRITICAL items | **PASS** | 0 open CRITICAL items; all 3 prior CRITICAL findings fixed in source |
 
 ---
 
