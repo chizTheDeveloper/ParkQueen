@@ -220,6 +220,81 @@ Resumed from interrupted session. Completed all remaining 10-step hardening item
 - TM-19: credential rotation verification
 - Production data migration and legal sign-off (unchanged from Phase C)
 
+## Phase E — Targeted correction and final verification (2026-07-25)
+
+Resumed from compacted session. Closed all 8 targeted steps.
+
+### Commits
+
+| Commit | Message |
+|---|---|
+| `739320a` | `security: replace signInWithPhoneNumber with reauthenticateWithPhoneNumber` |
+| `d924266` | `test: add Storage Rules emulator test suite (ST-01 through ST-15)` |
+| `d786f5a` | `security: complete TM-16 SHA pinning and add TM-17 redactForLog utility` |
+| `a09843c` | `fix: apply safe npm audit fixes to functions dependencies` |
+
+### Work completed
+
+**Step 2 — Reauthentication security fix (App.tsx):**
+- Replaced `signInWithPhoneNumber(auth, phoneInput, ...)` with `reauthenticateWithPhoneNumber(currentUser, currentUser.phoneNumber, verifier)` — phone sourced from Firebase Auth, never from user input
+- Editable `<input type="tel">` removed; replaced with masked non-editable display using `maskPhoneNumber()` utility
+- `originalUidRef` captures UID before reauth starts; `verifyUidUnchanged()` asserts it matches after `confirm()` — aborts with `signOut()` if account was switched
+- New `utils/reauthBeforeDelete.ts`: `maskPhoneNumber` (ITU-T CC lookup table, 1/2/3-digit CC detection) and `verifyUidUnchanged` (throws `auth/account-switched`)
+- New `utils/reauthBeforeDelete.test.ts`: 15 tests covering phone masking (CC detection), UID unchanged invariant, account-switch detection, cancellation safety, wrong credential blocking
+
+**Step 3 — Functions test run:**
+- `npm run test:functions`: 1 file, 16 tests, 0 skips PASS
+
+**Step 4 — Storage Rules surface audit:**
+- All avatar renders in MessagesView, HeaderBar, UsersPage use stored `avatarUrl` strings (Firebase download URLs with per-file tokens that bypass rules) — no cross-user SDK reads
+- ProfileView uploads to `avatars/${user.id}` (direct path); owner SDK read/write/delete is correct
+- `storage.rules` verified correct; no rule changes needed
+- New `storage.rules.test.ts`: 16 tests (ST-01–ST-15) covering owner write, non-owner/unauth rejection, MIME spoof, 5 MB limit, read/delete ownership, catch-all deny, direct-path coverage
+- New `npm run test:storage:rules` script (starts storage emulator); excluded from default `npm test`
+
+**Step 5 — npm audit triage:**
+- Root: 67 vulns (1 critical, 42 high, 23 moderate, 1 low) — all in expo build tooling or firebase-admin (not shipped to browser); critical `tar` requires `expo@57` (breaking). No safe auto-fixes available; `npm audit fix` unchanged at 67.
+- Root production-only (`--omit=dev`): 65 vulns — same packages, none browser-runtime-loaded
+- Functions: critical `websocket-driver` FIXED via `npm audit fix`; 32 remaining (8 moderate, 24 high) in `@google-cloud/*` — all require `--force` (breaking)
+- `functions/package-lock.json` updated
+
+**Step 6 — TM-16 + TM-17:**
+- TM-16 CLOSED: `setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020` (v4) and `setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9` (v4) pinned in `firestore-rules.yml`. All 3 CI actions now SHA-pinned.
+- TM-17 (partial→structured): `utils/redactForLog.ts` — scrubs phone, email, token, FCM, coordinates, message bodies, AI prompts/responses, passwords, secrets, credentials, auth, OTP. Deep-walk mode. 15 unit tests. Callers should migrate `console.error(obj)` → `console.error(redactForLog(obj))`.
+
+### Quality gates
+
+| Gate | Result |
+|---|---|
+| `npx tsc --noEmit` | PASS |
+| `npm test` | PASS — 24 files, 725 tests, 0 skips |
+| `npm run build` | PASS |
+| `npm run test:rules` | PASS — 1 file, 111 tests |
+| `npm run test:storage:rules` | PASS — 1 file, 16 tests |
+| `npm run test:functions` | PASS — 1 file, 16 tests, 0 skips |
+| `node --check functions/index.js` | PASS |
+| `git diff --check` | PASS (line-ending warning only, non-error) |
+
+### Updated threat model triage
+
+| Open CRITICAL | 0 |
+|---|---|
+| Open HIGH | 2 (TM-12 App Check, TM-13 rate limits) |
+| Open MEDIUM | 0 |
+| Open LOW | 0 |
+| Partially addressed | TM-04, TM-06 |
+| Addressed this pass | TM-16 CLOSED, TM-17 structured utility added |
+| Blocked/external | 3 (TM-19 credentials, TM-20 native packaging, TM-12 console) |
+
+### Remaining manual actions
+
+- Deploy Storage Rules (`storage.rules`) in a separately approved rollout
+- Migrate call sites in `functions/index.js` to use `redactForLog()` for structured log scrubbing (TM-17 completion)
+- TM-12: App Check enrollment decision
+- TM-13: Per-function rate limits — requires Firestore-based counters or Cloud Run config
+- TM-19: credential rotation verification
+- Production data migration and legal sign-off (unchanged from Phase C)
+
 ## Phase B — Dependency fix checkpoint
 
 `@firebase/rules-unit-testing` was downgraded from `5.0.1` to `3.0.4` to resolve an `ERESOLVE` peer conflict with `firebase@10.14.1`. Version 3.0.4 declares `firebase@'^10.0.0'` as its peer, is the latest 3.x release, and passes all 70 Rules tests unchanged. The `package-lock.json` was regenerated from a clean `node_modules` directory; `npm ci` now succeeds without any override flags.
