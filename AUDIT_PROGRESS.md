@@ -124,7 +124,7 @@ All five source-level blockers closed on `audit/app-store-readiness-2026`. No de
 | `npm run test:rules` | PASS — 81 tests |
 | `grep -rl "voiceagent\|acme-corp" dist/` | PASS — no matches |
 
-### Threat model final triage
+### Threat model triage after Phase C
 
 | Open CRITICAL | 0 |
 |---|---|
@@ -135,7 +135,7 @@ All five source-level blockers closed on `audit/app-store-readiness-2026`. No de
 
 Closed this pass (commit `93aa02b`): TM-05 defects (auth_time, requiredStep, batch pagination, moderationLog), TM-07, TM-08, TM-09, TM-10, TM-11, TM-14, TM-23, TM-25.
 
-### Manual actions still required
+### Manual actions still required (after Phase C)
 
 - BLK-02: authorized deployment of Firestore Rules (see deployment plan in `docs/RELEASE_READINESS_AUDIT_2026.md`)
 - TM-06: export `storage.rules` from Firebase console and commit
@@ -145,6 +145,80 @@ Closed this pass (commit `93aa02b`): TM-05 defects (auth_time, requiredStep, bat
 - TM-19: credential rotation verification via provider metadata
 - Production data migration: run `utils/migration/privatizeContactFields.ts` in apply mode with admin credentials post-deployment
 - Legal sign-off on `adminAuditLog` and `moderationLog` retention categories
+
+## Phase D — Security hardening checkpoint (2026-07-25)
+
+Resumed from interrupted session. Completed all remaining 10-step hardening items for the account-deletion and emulator pass.
+
+### Commits
+
+| Commit | Message |
+|---|---|
+| `955582c` | `security: threat model update and audit progress checkpoint` |
+| `c44d3b7` | `security: complete retry-safe account deletion and emulator coverage` |
+
+### Work completed
+
+**Integration test hardening (zero skipped tests):**
+- Replaced `it.skip('FN-02')` with direct-handler tests via `deleteAccount.run()`:
+  - FN-02a: stale `auth_time` (700 s) rejected
+  - FN-02b: `undefined` `auth_time` rejected — closes NaN-bypass (was `NaN > 600 = false`)
+  - FN-02c: `null` `auth_time` rejected
+  - FN-14: monkey-patch `db.recursiveDelete` to inject step failure; asserts Auth user NOT deleted and job in `failed` state
+- `callDirect()` helper added — bypasses HTTP/JWT to inject arbitrary token claims
+
+**Bug fixes in functions/index.js:**
+- `auth_time` undefined/null bypass: added `!authTime ||` guard before the `> 600` check
+- Storage prefix bug: `deleteAccount` used `prefix: avatars/{uid}/` (trailing slash), silently missing the actual file at `avatars/{uid}`; fixed by removing trailing slash
+
+**Storage rules:**
+- `storage.rules` created: `match /avatars/{uid}` (direct) + `match /avatars/{uid}/{allPaths=**}` (subdirectory); `isOwner`/`isValidAvatar` helpers; catch-all deny
+- `firebase.json`: storage emulator port 9199 added
+
+**In-app phone OTP reauthentication (App.tsx):**
+- State machine: `reauth_entering_phone → reauth_verifying_otp → (deleting | failed)`
+- `RecaptchaVerifier` lifecycle management (clear on cancel/resend)
+- 30-second resend cooldown with countdown
+- Pre-populate phone from `auth.currentUser.phoneNumber`; no phone enumeration
+- English and Spanish i18n keys added; old `reauth_required` static-message flow removed
+
+**TM-16 (CI SHA pinning):**
+- `actions/checkout` pinned to `11bd71901bbe5b1630ceea73d27597364c9af683` (v4.2.2) in both workflows
+- `setup-node` and `setup-java` retain version tags with inline `gh api` commands to complete pinning
+
+**TM-17 (log redaction):**
+- SendGrid error handler: `await res.body?.cancel()` — body not logged (may contain recipient email)
+- FCM reminder: UID masked to `first4***`
+
+### Quality gates
+
+| Gate | Result |
+|---|---|
+| `npx tsc --noEmit` | PASS |
+| `npm test` | PASS — 22 files, 695 tests |
+| `npm run build` | PASS |
+| `npm run test:rules` | PASS — 111 tests |
+| `node --check functions/index.js` | PASS |
+| `git diff --check` | PASS — no whitespace errors |
+
+### Updated threat model triage
+
+| Open CRITICAL | 0 |
+|---|---|
+| Open HIGH | 2 (TM-12 App Check, TM-13 rate limits) |
+| Open MEDIUM | 1 (TM-16 — 2 of 3 actions still need SHA) |
+| Open LOW | 0 |
+| Partially addressed | TM-04, TM-06, TM-17 |
+| Blocked/external | 3 (TM-19 credentials, TM-20 native packaging, TM-12 console) |
+
+### Remaining manual actions
+
+- Pin `actions/setup-node@v4` and `actions/setup-java@v4` to SHAs (commands in workflow files)
+- Deploy Storage Rules (`storage.rules`) in a separately approved rollout
+- TM-12: App Check enrollment decision
+- TM-13: Per-function rate limits — requires Firestore-based counters or Cloud Run config
+- TM-19: credential rotation verification
+- Production data migration and legal sign-off (unchanged from Phase C)
 
 ## Phase B — Dependency fix checkpoint
 

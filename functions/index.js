@@ -270,7 +270,7 @@ exports.processScheduledClaims = onSchedule(
             apns: { payload: { aps: { sound: "default", badge: 1 } } },
           });
         } catch (e) {
-          console.error("FCM reminder failed for", spot.interestedUserId, e.message);
+          console.error("FCM reminder failed for", (spot.interestedUserId || '').slice(0, 4) + '***', e.message); // TM-17: mask UID
         }
       }
 
@@ -498,7 +498,8 @@ exports.generateEmailOTP = onCall(
       }),
     });
     if (!res.ok) {
-      console.error("SendGrid error:", res.status, await res.text());
+      await res.body?.cancel(); // TM-17: consume body without logging — may contain recipient email
+      console.error("SendGrid error:", res.status);
       throw new HttpsError("internal", "Failed to send verification email.");
     }
     return { success: true };
