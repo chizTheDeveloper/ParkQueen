@@ -1169,25 +1169,146 @@ exports.adminArchiveSuspension = onCall(
   }
 );
 
-// Delete account — Admin SDK bypasses the client-side reauthentication requirement
-exports.deleteAccount = onCall(async (request) => {
+// Delete account — idempotent; covers all user-linked collections and Storage.
+// Auth user is deleted last so the callable can be retried on partial failure.
+exports.deleteAccount = onCall({ region: 'us-central1' }, async (request) => {
     const uid = request.auth?.uid;
     if (!uid) throw new HttpsError('unauthenticated', 'Must be signed in.');
 
-    const auth = getAuth();
-    const batch = db.batch();
+    const jobRef = db.doc(`accountDeletionJobs/${uid}`);
+    const jobSnap = await jobRef.get();
+    if (jobSnap.exists && jobSnap.data().completedAt) {
+        return { alreadyCompleted: true };
+    }
 
-    // Remove Firestore user doc
-    batch.delete(db.doc(`users/${uid}`));
+    const maskedUid = uid.slice(0, 4) + '***';
+    await jobRef.set({ startedAt: Timestamp.now(), steps: {} }, { merge: true });
 
-    // Remove username reservation if one exists
-    const usernameSnap = await db.collection('usernames').where('uid', '==', uid).get();
-    usernameSnap.forEach(d => batch.delete(d.ref));
+    // Run a named step; records result but never throws — lets subsequent steps run.
+    async function tryStep(name, fn) {
+        try {
+            await fn();
+            await jobRef.update({ [`steps.${name}`]: 'done' }).catch(() => {});
+        } catch (err) {
+            await jobRef.update({ [`steps.${name}`]: 'error' }).catch(() => {});
+            console.error(`[deleteAccount] ${maskedUid} step=${name}:`, err.message);
+        }
+    }
 
-    await batch.commit();
+    // 1. User document tree — recursiveDelete covers private/* and processedTrustEvents/*
+    await tryStep('userDoc', () => db.recursiveDelete(db.doc(`users/${uid}`)));
 
-    // Delete the Auth account last — after Firestore cleanup
-    await auth.deleteUser(uid);
+    // 2. Username reservation
+    await tryStep('usernames', async () => {
+        const snap = await db.collection('usernames').where('uid', '==', uid).get();
+        if (snap.empty) return;
+        const batch = db.batch();
+        snap.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+    });
+
+    // 3. Path-keyed singleton documents
+    await tryStep('parkingSessions',       () => db.doc(`parkingSessions/${uid}`).delete());
+    await tryStep('avatarModeration',      () => db.doc(`avatarModeration/${uid}`).delete());
+    await tryStep('emailVerificationCodes',() => db.doc(`emailVerificationCodes/${uid}`).delete());
+
+    // 4. spotFeedback the user submitted as the driver — delete
+    await tryStep('spotFeedbackAsDriver', async () => {
+        const snap = await db.collection('spotFeedback').where('userId', '==', uid).get();
+        if (snap.empty) return;
+        const batch = db.batch();
+        snap.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+    });
+
+    // 5. spotFeedback where user was the finder — anonymize (other party's record)
+    await tryStep('spotFeedbackAsFinder', async () => {
+        const snap = await db.collection('spotFeedback').where('finderId', '==', uid).get();
+        if (snap.empty) return;
+        const batch = db.batch();
+        snap.forEach(d => batch.update(d.ref, {
+            finderId: FieldValue.delete(),
+            address: '[removed]',
+        }));
+        await batch.commit();
+    });
+
+    // 6. Notifications in the user's inbox
+    await tryStep('spotNotifications', async () => {
+        const snap = await db.collection('spotNotifications').where('targetUserId', '==', uid).get();
+        if (snap.empty) return;
+        const batch = db.batch();
+        snap.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+    });
+
+    // 7. Spots the user posted as finder
+    await tryStep('spotsAsFinder', async () => {
+        const snap = await db.collection('spots').where('finderId', '==', uid).get();
+        if (snap.empty) return;
+        const batch = db.batch();
+        snap.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+    });
+
+    // 8. Active Pings the user is claiming — release back to available
+    await tryStep('spotsAsClaimer', async () => {
+        const snap = await db.collection('spots').where('interestedUserId', '==', uid).get();
+        if (snap.empty) return;
+        const batch = db.batch();
+        snap.forEach(d => batch.update(d.ref, {
+            interestedUserId: FieldValue.delete(),
+            interestedUserName: FieldValue.delete(),
+            interestedUserVehicleColor: FieldValue.delete(),
+            interestedUserVehicleType: FieldValue.delete(),
+            interestedUserVehicleBrand: FieldValue.delete(),
+            interestedUserTitle: FieldValue.delete(),
+            status: 'available',
+        }));
+        await batch.commit();
+    });
+
+    // 9. Chats the user participated in (delete chat doc + all messages subcollection)
+    await tryStep('chats', async () => {
+        const snap = await db.collection('chats').where('participants', 'array-contains', uid).get();
+        for (const chatDoc of snap.docs) {
+            await db.recursiveDelete(chatDoc.ref);
+        }
+    });
+
+    // 10. Reports the user filed — anonymize reporter, retain doc for compliance
+    await tryStep('reports', async () => {
+        const snap = await db.collection('reports').where('reporterId', '==', uid).get();
+        if (snap.empty) return;
+        const batch = db.batch();
+        snap.forEach(d => batch.update(d.ref, {
+            reporterId: '[deleted]',
+            reporterDeletedAt: Timestamp.now(),
+        }));
+        await batch.commit();
+    });
+
+    // 11. Storage avatar (non-fatal: file may not exist)
+    await tryStep('storage', async () => {
+        await getStorage().bucket().deleteFiles({ prefix: `avatars/${uid}` });
+    });
+
+    // 12. Auth user — must be last; failure here leaves the callable retryable
+    try {
+        await getAuth().deleteUser(uid);
+        await jobRef.update({ 'steps.authUser': 'done', completedAt: Timestamp.now() });
+    } catch (err) {
+        if (err.code === 'auth/user-not-found') {
+            // Already deleted — still mark complete
+            await jobRef.update({ 'steps.authUser': 'done', completedAt: Timestamp.now() });
+            return { success: true };
+        }
+        await jobRef.update({ 'steps.authUser': 'error' }).catch(() => {});
+        console.error(`[deleteAccount] ${maskedUid} authUser:`, err.message);
+        throw new HttpsError('internal', 'Data deleted; Auth cleanup failed. Contact support.');
+    }
+
+    return { success: true };
 });
 
 // 11) Trust: record successful handoff for the finder

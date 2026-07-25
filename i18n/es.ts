@@ -821,6 +821,14 @@ const es: Record<string, string> = {
     'street_intel.try_again': 'Intentar de nuevo',
     'street_intel.check_again': 'Verificar de nuevo',
     'street_intel.trying': 'Intentando…',
+
+    'settings.delete_confirm_title': '¿Eliminar tu cuenta?',
+    'settings.delete_confirm_body': 'Esto elimina permanentemente tu historial de estacionamiento, mensajes y perfil. Esta acción no se puede deshacer.',
+    'settings.delete_deleting': 'Eliminando tus datos…',
+    'settings.delete_success': 'Cuenta eliminada',
+    'settings.delete_failed': 'La eliminación falló. Intenta de nuevo o contacta soporte.',
+    'settings.delete_retry': 'Reintentar',
+    'settings.delete_cancel': 'Cancelar',
 };
 
 export default es;

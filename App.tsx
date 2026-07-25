@@ -37,7 +37,7 @@ const ContactUsView = lazy(() => import('./views/ContactUsView').then(m => ({ de
 import { AppView } from './types';
 import { readPersistedAccess, persistAccessChoice, shouldShowPrimer, resolveFromPermissions, type LocationAccess } from './utils/locationAccess';
 import { nearbyPermissionState, type LocationCallbacks } from './utils/nearbyActivity';
-import { getLang, setLang } from './i18n';
+import { getLang, setLang, t } from './i18n';
 import { getLanguageHydrationAction } from './utils/languageHydration';
 import { ChevronLeft } from 'lucide-react';
 import ErrorBoundary from './ErrorBoundary';
@@ -65,6 +65,7 @@ export default function App() {
   const [titleUnlock, setTitleUnlock] = useState<string | null>(null);
   const prevTitleRef = useRef<string | null>(null);
   const privateEmailRef = useRef<string | undefined>(undefined);
+  const [deletePhase, setDeletePhase] = useState<'idle' | 'confirming' | 'deleting' | 'failed'>('idle');
   // phone stores canonical E.164 (e.g. "+15555551234", "+51987654321")
   const [phone, setPhone] = useState('');
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
@@ -328,14 +329,19 @@ export default function App() {
     }
   };
 
-  const handleDeleteAccount = async () => {
-    if (window.confirm("Are you sure you want to delete your account? This action cannot be undone.")) {
-      try {
-        await deleteUser();
-      } catch (error) {
-        console.error("Failed to delete account: ", error);
-        alert("Failed to delete account.");
-      }
+  const handleDeleteAccount = () => {
+    setDeletePhase('confirming');
+  };
+
+  const handleDeleteConfirm = async () => {
+    setDeletePhase('deleting');
+    try {
+      await deleteUser();
+      localStorage.clear();
+      await logoutUser();
+    } catch (error) {
+      console.error("Failed to delete account:", error);
+      setDeletePhase('failed');
     }
   };
 
@@ -503,6 +509,55 @@ export default function App() {
           <div className="text-3xl mb-1">👑</div>
           <p className="text-sm font-bold text-[var(--color-text)]">New Title Unlocked!</p>
           <p className="text-base font-extrabold text-yellow-400 mt-0.5">{titleUnlock}</p>
+        </div>
+      )}
+
+      {deletePhase !== 'idle' && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-[var(--color-bg)] border border-[var(--color-border)] rounded-2xl p-6 max-w-sm w-full">
+            {deletePhase === 'confirming' && (
+              <>
+                <h2 className="text-xl font-bold text-red-500 mb-2">{t('settings.delete_confirm_title')}</h2>
+                <p className="text-sm text-[var(--color-text-secondary)] mb-6">{t('settings.delete_confirm_body')}</p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setDeletePhase('idle')}
+                    className="flex-1 py-3 rounded-xl border border-[var(--color-border)] text-[var(--color-text)] font-medium"
+                  >
+                    {t('settings.delete_cancel')}
+                  </button>
+                  <button
+                    onClick={handleDeleteConfirm}
+                    className="flex-1 py-3 rounded-xl bg-red-600 text-white font-semibold"
+                  >
+                    {t('settings.delete_account')}
+                  </button>
+                </div>
+              </>
+            )}
+            {deletePhase === 'deleting' && (
+              <p className="text-center text-[var(--color-text)] py-4">{t('settings.delete_deleting')}</p>
+            )}
+            {deletePhase === 'failed' && (
+              <>
+                <p className="text-center text-red-500 mb-4">{t('settings.delete_failed')}</p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setDeletePhase('idle')}
+                    className="flex-1 py-3 rounded-xl border border-[var(--color-border)] text-[var(--color-text)]"
+                  >
+                    {t('settings.delete_cancel')}
+                  </button>
+                  <button
+                    onClick={handleDeleteConfirm}
+                    className="flex-1 py-3 rounded-xl bg-red-600 text-white font-semibold"
+                  >
+                    {t('settings.delete_retry')}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
     </div>
