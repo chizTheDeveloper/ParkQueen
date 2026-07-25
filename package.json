@@ -36,7 +36,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
-    "@firebase/rules-unit-testing": "^5.0.1",
+    "@firebase/rules-unit-testing": "^3.0.4",
     "@types/mapbox-gl": "^3.4.1",
     "@types/react": "~18.2.45",
     "@vitejs/plugin-react": "^4.2.1",

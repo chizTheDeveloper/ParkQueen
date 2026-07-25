@@ -18,11 +18,11 @@ Deployment status: prohibited; none performed
 
 | Phase | Status | Evidence |
 |---|---|---|
-| 0 — Baseline, inventory, reproducibility | Complete with blocker | Clean audit branch, inventory, toolchain, clean-install failure, and baseline gates captured |
+| 0 — Baseline, inventory, reproducibility | Complete | Clean audit branch, inventory, toolchain, clean-install failure, and baseline gates captured |
 | 1 — Store policy/platform requirements | Complete | Dated official-source matrix in `docs/STORE_SUBMISSION_READINESS.md` |
 | 2 — Mobile architecture/packaging | Complete | Vite web app; no reproducible iOS/Android package, native projects, manifests, signing, or release pipeline |
 | 3 — Threat model | Complete, evolves with findings | `docs/THREAT_MODEL.md` |
-| 4 — Secrets/supply chain | In progress | CI/ignore/static scan reviewed; dependency blocker confirmed |
+| 4 — Secrets/supply chain | Complete | `docs/DEPENDENCY_AND_SDK_INVENTORY.md`; peer conflict resolved; vulnerability baseline documented |
 | 5 — Authentication/account security | In progress | Phone auth and incomplete deletion traced |
 | 6 — App Check/Functions/IAM | In progress | App Check absent in source; console verification pending |
 | 7 — Firestore/Rules/indexes/concurrency | In progress | Chat, feedback/reward, and notification vulnerabilities fixed test-first |
@@ -92,3 +92,28 @@ Fresh focused verification:
 - Firestore Rules: 70 tests PASS.
 
 These Rules and client changes have **not** been deployed.
+
+## Phase B — Dependency fix checkpoint
+
+`@firebase/rules-unit-testing` was downgraded from `5.0.1` to `3.0.4` to resolve an `ERESOLVE` peer conflict with `firebase@10.14.1`. Version 3.0.4 declares `firebase@'^10.0.0'` as its peer, is the latest 3.x release, and passes all 70 Rules tests unchanged. The `package-lock.json` was regenerated from a clean `node_modules` directory; `npm ci` now succeeds without any override flags.
+
+Post-fix quality gates:
+
+| Gate | Result |
+|---|---|
+| `npm ci` | PASS — no ERESOLVE |
+| `npx tsc --noEmit` | PASS |
+| `npm test` | PASS — 19 files, 674 tests |
+| `npm run build` | PASS |
+| `npm run test:rules` | PASS — 70 tests |
+| `npm audit` (no flags) | 67 vulnerabilities (1 critical, 42 high, 23 moderate, 1 low) |
+
+Vulnerability assessment:
+
+- All 43 critical and high findings trace to `expo@~50.0.14` and `react-native@0.73.6` toolchain packages. These are dormant in the shipped Vite web app — not loaded at runtime, not served to users.
+- The single critical (`tar`) is in `expo`'s dev CLI dependency chain; fix requires `expo@57` (breaking major).
+- `vite@5` reports one high; fix requires `vite@8` (breaking major, build tool only).
+- `npm audit fix` (no force) was run; the remaining count reflects packages blocked by peer constraints or requiring breaking major upgrades.
+- No new directly exploitable vulnerabilities were introduced by this change.
+
+Full dependency inventory: `docs/DEPENDENCY_AND_SDK_INVENTORY.md`.
