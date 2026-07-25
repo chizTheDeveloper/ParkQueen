@@ -42,7 +42,7 @@ import { getLanguageHydrationAction } from './utils/languageHydration';
 import { ChevronLeft } from 'lucide-react';
 import ErrorBoundary from './ErrorBoundary';
 import { saveUserProfile, logoutUser, deleteUser } from './database';
-import { ConfirmationResult } from 'firebase/auth';
+import { ConfirmationResult, RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth';
 import { auth, db } from './firebaseConfig';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, onSnapshot, getDoc, updateDoc, collection, query, where, getDocs } from "firebase/firestore";
@@ -65,10 +65,14 @@ export default function App() {
   const [titleUnlock, setTitleUnlock] = useState<string | null>(null);
   const prevTitleRef = useRef<string | null>(null);
   const privateEmailRef = useRef<string | undefined>(undefined);
-  const [deletePhase, setDeletePhase] = useState<'idle' | 'confirming' | 'deleting' | 'failed' | 'reauth_required'>('idle');
+  const [deletePhase, setDeletePhase] = useState<'idle' | 'confirming' | 'deleting' | 'failed' | 'reauth_entering_phone' | 'reauth_verifying_otp'>('idle');
   // phone stores canonical E.164 (e.g. "+15555551234", "+51987654321")
   const [phone, setPhone] = useState('');
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
+  const [reauthOtp, setReauthOtp] = useState('');
+  const [reauthResendCooldown, setReauthResendCooldown] = useState(0);
+  const reauthRecaptchaRef = useRef<RecaptchaVerifier | null>(null);
+  const reauthCooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     let userProfileUnsubscribe = () => {};
@@ -333,6 +337,71 @@ export default function App() {
     setDeletePhase('confirming');
   };
 
+  const clearReauthState = () => {
+    if (reauthCooldownRef.current) { clearInterval(reauthCooldownRef.current); reauthCooldownRef.current = null; }
+    if (reauthRecaptchaRef.current) { try { reauthRecaptchaRef.current.clear(); } catch {} reauthRecaptchaRef.current = null; }
+    setConfirmationResult(null);
+    setReauthOtp('');
+    setReauthResendCooldown(0);
+  };
+
+  const startResendCooldown = () => {
+    if (reauthCooldownRef.current) clearInterval(reauthCooldownRef.current);
+    setReauthResendCooldown(30);
+    reauthCooldownRef.current = setInterval(() => {
+      setReauthResendCooldown(prev => {
+        if (prev <= 1) { clearInterval(reauthCooldownRef.current!); reauthCooldownRef.current = null; return 0; }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  const handleReauthSendOtp = async () => {
+    const phoneNum = phone.trim();
+    if (!phoneNum) return;
+    try {
+      if (reauthRecaptchaRef.current) { try { reauthRecaptchaRef.current.clear(); } catch {} }
+      reauthRecaptchaRef.current = new RecaptchaVerifier(auth, 'reauth-recaptcha-anchor', { size: 'invisible' });
+      const result = await signInWithPhoneNumber(auth, phoneNum, reauthRecaptchaRef.current);
+      setConfirmationResult(result);
+      setDeletePhase('reauth_verifying_otp');
+      startResendCooldown();
+    } catch {
+      // Do not surface whether the phone is registered
+      clearReauthState();
+      setDeletePhase('failed');
+    }
+  };
+
+  const handleReauthVerifyOtp = async () => {
+    if (!confirmationResult || reauthOtp.length < 6) return;
+    setDeletePhase('deleting');
+    try {
+      await confirmationResult.confirm(reauthOtp);
+      // Fresh auth_time — retry deletion
+      await deleteUser();
+      localStorage.clear();
+      await logoutUser();
+    } catch {
+      clearReauthState();
+      setDeletePhase('failed');
+    }
+  };
+
+  const handleReauthResend = async () => {
+    if (reauthResendCooldown > 0) return;
+    try {
+      if (reauthRecaptchaRef.current) { try { reauthRecaptchaRef.current.clear(); } catch {} }
+      reauthRecaptchaRef.current = new RecaptchaVerifier(auth, 'reauth-recaptcha-anchor', { size: 'invisible' });
+      const result = await signInWithPhoneNumber(auth, phone.trim(), reauthRecaptchaRef.current);
+      setConfirmationResult(result);
+      startResendCooldown();
+    } catch {
+      clearReauthState();
+      setDeletePhase('failed');
+    }
+  };
+
   const handleDeleteConfirm = async () => {
     setDeletePhase('deleting');
     try {
@@ -342,7 +411,8 @@ export default function App() {
     } catch (error: any) {
       console.error("Failed to delete account:", error);
       if (error?.code === 'functions/failed-precondition') {
-        setDeletePhase('reauth_required');
+        setPhone(auth.currentUser?.phoneNumber ?? '');
+        setDeletePhase('reauth_entering_phone');
       } else {
         setDeletePhase('failed');
       }
@@ -561,17 +631,67 @@ export default function App() {
                 </div>
               </>
             )}
-            {deletePhase === 'reauth_required' && (
+            {deletePhase === 'reauth_entering_phone' && (
               <>
-                <p className="text-center text-amber-500 mb-4">{t('settings.delete_reauth_required')}</p>
+                <h2 className="text-lg font-bold text-[var(--color-text)] mb-1">{t('settings.delete_reauth_title')}</h2>
+                <p className="text-sm text-[var(--color-text-secondary)] mb-4">{t('settings.delete_reauth_phone_hint')}</p>
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={e => setPhone(e.target.value)}
+                  placeholder="+1 (555) 000-0000"
+                  className="w-full mb-4 px-4 py-3 rounded-xl border border-[var(--color-border)] bg-transparent text-[var(--color-text)] placeholder:text-[var(--color-text-secondary)] focus:outline-none focus:border-red-500"
+                />
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => { clearReauthState(); setDeletePhase('idle'); }}
+                    className="flex-1 py-3 rounded-xl border border-[var(--color-border)] text-[var(--color-text)] font-medium"
+                  >{t('settings.delete_cancel')}</button>
+                  <button
+                    onClick={handleReauthSendOtp}
+                    disabled={!phone.trim()}
+                    className="flex-1 py-3 rounded-xl bg-red-600 disabled:opacity-50 text-white font-semibold"
+                  >{t('settings.delete_reauth_send_code')}</button>
+                </div>
+              </>
+            )}
+            {deletePhase === 'reauth_verifying_otp' && (
+              <>
+                <h2 className="text-lg font-bold text-[var(--color-text)] mb-1">{t('settings.delete_reauth_title')}</h2>
+                <p className="text-sm text-[var(--color-text-secondary)] mb-4">{t('settings.delete_reauth_otp_hint')}</p>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={reauthOtp}
+                  onChange={e => setReauthOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="123456"
+                  className="w-full mb-3 px-4 py-3 rounded-xl border border-[var(--color-border)] bg-transparent text-[var(--color-text)] text-center tracking-widest text-xl placeholder:text-[var(--color-text-secondary)] focus:outline-none focus:border-red-500"
+                />
+                <div className="flex gap-3 mb-3">
+                  <button
+                    onClick={() => { clearReauthState(); setDeletePhase('idle'); }}
+                    className="flex-1 py-3 rounded-xl border border-[var(--color-border)] text-[var(--color-text)] font-medium"
+                  >{t('settings.delete_cancel')}</button>
+                  <button
+                    onClick={handleReauthVerifyOtp}
+                    disabled={reauthOtp.length < 6}
+                    className="flex-1 py-3 rounded-xl bg-red-600 disabled:opacity-50 text-white font-semibold"
+                  >{t('settings.delete_reauth_verify')}</button>
+                </div>
                 <button
-                  onClick={() => setDeletePhase('idle')}
-                  className="w-full py-3 rounded-xl border border-[var(--color-border)] text-[var(--color-text)]"
+                  onClick={handleReauthResend}
+                  disabled={reauthResendCooldown > 0}
+                  className="w-full text-sm text-[var(--color-text-secondary)] disabled:opacity-40"
                 >
-                  {t('settings.delete_cancel')}
+                  {reauthResendCooldown > 0
+                    ? `${t('settings.delete_reauth_resend')} (${reauthResendCooldown}s)`
+                    : t('settings.delete_reauth_resend')}
                 </button>
               </>
             )}
+            {/* Invisible reCAPTCHA anchor — must remain in DOM whenever the modal is open */}
+            <div id="reauth-recaptcha-anchor" />
           </div>
         </div>
       )}

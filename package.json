@@ -13,6 +13,8 @@
     "test": "vitest run",
     "test:rules:unit": "vitest run --config vite.rules.config.ts",
     "test:rules": "firebase emulators:exec --only firestore \"npm run test:rules:unit\"",
+    "install:functions": "npm install --prefix functions",
+    "test:functions": "firebase emulators:exec --only functions,firestore,auth,storage \"vitest run --config vite.functions.config.ts\"",
     "test:watch": "vitest"
   },
   "dependencies": {

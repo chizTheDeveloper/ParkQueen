@@ -829,7 +829,12 @@ const en: Record<string, string> = {
     'settings.delete_failed': 'Deletion failed. Tap Retry or contact support.',
     'settings.delete_retry': 'Retry',
     'settings.delete_cancel': 'Cancel',
-    'settings.delete_reauth_required': 'For security, please sign out and sign back in before deleting your account.',
+    'settings.delete_reauth_title': 'Confirm your identity',
+    'settings.delete_reauth_phone_hint': 'Enter your registered phone number to receive a one-time code.',
+    'settings.delete_reauth_send_code': 'Send Code',
+    'settings.delete_reauth_otp_hint': 'Enter the 6-digit code sent to your phone.',
+    'settings.delete_reauth_verify': 'Verify & Delete',
+    'settings.delete_reauth_resend': 'Resend Code',
 };
 
 export default en;

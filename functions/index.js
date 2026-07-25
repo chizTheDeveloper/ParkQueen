@@ -1176,118 +1176,186 @@ exports.adminArchiveSuspension = onCall(
   }
 );
 
-// Delete account — idempotent; covers all user-linked collections and Storage.
-// Auth user is deleted last so the callable can be retried on partial failure.
+// Delete account — idempotent; covers all user-linked collections, Storage, and Auth.
+// Job document at accountDeletionJobs/{uid} tracks state: running → failed | completed.
+// A 'running' lease (< 10 min old) blocks concurrent callers. A stale lease or 'failed'
+// state allows retry. Completed steps are skipped on retry. Auth is deleted last.
 exports.deleteAccount = onCall({ region: 'us-central1' }, async (request) => {
     const uid = request.auth?.uid;
     if (!uid) throw new HttpsError('unauthenticated', 'Must be signed in.');
 
-    // Require authentication within the last 10 minutes — defense-in-depth for a destructive action
+    // Require re-authentication within the last 10 minutes.
+    // Reject undefined/null auth_time — NaN > 600 is false in JS and would bypass the check.
     const authTime = request.auth.token.auth_time; // epoch seconds
-    if ((Date.now() / 1000) - authTime > 600) {
+    if (!authTime || (Date.now() / 1000) - authTime > 600) {
         throw new HttpsError(
             'failed-precondition',
-            'Recent sign-in required. Please sign out and sign back in, then try again.'
+            'Recent sign-in required to delete your account.'
         );
     }
 
     const jobRef = db.doc(`accountDeletionJobs/${uid}`);
-    const jobSnap = await jobRef.get();
-    if (jobSnap.exists && jobSnap.data().completedAt) {
-        return { alreadyCompleted: true };
-    }
-    await jobRef.set({ startedAt: Timestamp.now(), steps: {} }, { merge: true });
-
     const maskedUid = uid.slice(0, 4) + '***';
 
-    // Paginated batch delete — Firestore batches are limited to 500 writes
-    async function batchDelete(q) {
-        const snap = await q.get();
-        if (snap.empty) return;
-        for (let i = 0; i < snap.docs.length; i += 499) {
+    // ── Atomic lock ───────────────────────────────────────────────────────────
+    // Transaction prevents two concurrent callers from both entering the deletion body.
+    // A fresh 'running' lease (< 10 min) is an active worker — reject the second caller.
+    // A stale lease or 'failed' state → claim the job and resume.
+    let alreadyDone = false;
+    let doneSteps = {};
+
+    await db.runTransaction(async (tx) => {
+        const snap = await tx.get(jobRef);
+        if (snap.exists) {
+            const job = snap.data();
+            if (job.state === 'completed') {
+                alreadyDone = true;
+                return;
+            }
+            if (job.state === 'running') {
+                const leaseAge = (Date.now() / 1000) - job.leaseAt.seconds;
+                if (leaseAge < 600) {
+                    throw new HttpsError('already-exists', 'A deletion request is already in progress.');
+                }
+                // Stale lease — previous worker died; take over and resume
+            }
+            // 'failed' or stale 'running' — resume from where we left off
+            doneSteps = job.steps || {};
+            tx.update(jobRef, {
+                state: 'running',
+                leaseAt: Timestamp.now(),
+                currentStep: null,
+                lastError: null,
+                attemptNumber: (job.attemptNumber || 0) + 1,
+            });
+        } else {
+            tx.set(jobRef, {
+                state: 'running',
+                leaseAt: Timestamp.now(),
+                startedAt: Timestamp.now(),
+                currentStep: null,
+                lastError: null,
+                attemptNumber: 1,
+                steps: {},
+            });
+        }
+    });
+
+    if (alreadyDone) return { alreadyCompleted: true };
+
+    // ── True cursor-based paginated delete ────────────────────────────────────
+    // Does NOT load the entire result set into memory. Uses startAfter cursor to
+    // page through results in chunks of 499 (below the Firestore 500-write limit).
+    async function paginatedDelete(baseQuery) {
+        let cursor = null;
+        while (true) {
+            const q = cursor
+                ? baseQuery.startAfter(cursor).limit(499)
+                : baseQuery.limit(499);
+            const snap = await q.get();
+            if (snap.empty) break;
             const batch = db.batch();
-            snap.docs.slice(i, i + 499).forEach(d => batch.delete(d.ref));
+            snap.docs.forEach(d => batch.delete(d.ref));
             await batch.commit();
+            if (snap.size < 499) break;
+            cursor = snap.docs[snap.docs.length - 1];
         }
     }
 
-    // Paginated batch update — applies updateData to all matching documents
-    async function batchUpdate(q, updateData) {
-        const snap = await q.get();
-        if (snap.empty) return;
-        for (let i = 0; i < snap.docs.length; i += 499) {
+    // ── True cursor-based paginated update ────────────────────────────────────
+    async function paginatedUpdate(baseQuery, updateData) {
+        let cursor = null;
+        while (true) {
+            const q = cursor
+                ? baseQuery.startAfter(cursor).limit(499)
+                : baseQuery.limit(499);
+            const snap = await q.get();
+            if (snap.empty) break;
             const batch = db.batch();
-            snap.docs.slice(i, i + 499).forEach(d => batch.update(d.ref, updateData));
+            snap.docs.forEach(d => batch.update(d.ref, updateData));
             await batch.commit();
+            if (snap.size < 499) break;
+            cursor = snap.docs[snap.docs.length - 1];
         }
     }
 
-    // Optional step: records failure but continues; use for cleanup that is non-critical
-    async function tryStep(name, fn) {
-        try {
-            await fn();
-            await jobRef.update({ [`steps.${name}`]: 'done' }).catch(() => {});
-        } catch (err) {
-            await jobRef.update({ [`steps.${name}`]: 'error' }).catch(() => {});
-            console.error(`[deleteAccount] ${maskedUid} step=${name}:`, err.message);
-        }
-    }
+    // ── Required step executor ────────────────────────────────────────────────
+    // All personal-data cleanup is required. If any step fails, Auth is NOT deleted
+    // and the job state is set to 'failed' (retryable). Already-done steps are skipped
+    // on retry. Error messages are sanitized before being written to the job document.
+    async function step(name, fn) {
+        if (doneSteps[name] === 'done') return; // idempotent resume after 'failed'
 
-    // Required step: throws on failure — Auth will NOT be deleted if this errors.
-    // The job remains retryable: completedAt is only written after Auth deletion succeeds.
-    async function requiredStep(name, fn) {
         try {
+            // Refresh lease timestamp on each step so long-running jobs don't expire
+            await jobRef.update({ currentStep: name, leaseAt: Timestamp.now() });
             await fn();
-            await jobRef.update({ [`steps.${name}`]: 'done' }).catch(() => {});
+            await jobRef.update({ [`steps.${name}`]: 'done', currentStep: null });
+            doneSteps[name] = 'done';
         } catch (err) {
-            await jobRef.update({ [`steps.${name}`]: 'error' }).catch(() => {});
-            console.error(`[deleteAccount] ${maskedUid} step=${name} REQUIRED FAILED:`, err.message);
+            // Strip PII from error payloads before writing to Firestore
+            const safe = (err.message || 'error')
+                .replace(/\S+@\S+\.\S+/g, '[email]')
+                .replace(/\+?[0-9]{10,}/g, '[phone]')
+                .substring(0, 200);
+            await jobRef.update({
+                state: 'failed',
+                currentStep: null,
+                lastError: `${name}: ${safe}`,
+                [`steps.${name}`]: 'error',
+            }).catch(() => {});
+            console.error(`[deleteAccount] ${maskedUid} step=${name} failed`);
             throw new HttpsError(
                 'internal',
-                `Deletion paused at "${name}". Your request is saved — retry or contact support.`
+                `Deletion paused at "${name}". Your data is safe — retry or contact support.`
             );
         }
     }
 
-    // 1. User document tree (required) — recursiveDelete covers private/* and processedTrustEvents/*
-    await requiredStep('userDoc', () => db.recursiveDelete(db.doc(`users/${uid}`)));
+    // ── Cleanup steps — all required; Auth is not deleted until all pass ──────
 
-    // 2. Username reservation
-    await tryStep('usernames', () =>
-        batchDelete(db.collection('usernames').where('uid', '==', uid))
+    // User document tree — recursiveDelete covers private/* and processedTrustEvents/*
+    await step('userDoc', () => db.recursiveDelete(db.doc(`users/${uid}`)));
+
+    // Username reservation record
+    await step('usernames', () =>
+        paginatedDelete(db.collection('usernames').where('uid', '==', uid))
     );
 
-    // 3. Path-keyed singleton documents
-    await tryStep('parkingSessions',        () => db.doc(`parkingSessions/${uid}`).delete());
-    await tryStep('avatarModeration',       () => db.doc(`avatarModeration/${uid}`).delete());
-    await tryStep('emailVerificationCodes', () => db.doc(`emailVerificationCodes/${uid}`).delete());
+    // Path-keyed singleton documents — absence is success (idempotent delete)
+    await step('parkingSessions',
+        () => db.doc(`parkingSessions/${uid}`).delete());
+    await step('avatarModeration',
+        () => db.doc(`avatarModeration/${uid}`).delete());
+    await step('emailVerificationCodes',
+        () => db.doc(`emailVerificationCodes/${uid}`).delete());
 
-    // 4. spotFeedback the user submitted as the driver — delete
-    await tryStep('spotFeedbackAsDriver', () =>
-        batchDelete(db.collection('spotFeedback').where('userId', '==', uid))
+    // spotFeedback submitted by user as driver
+    await step('spotFeedbackAsDriver', () =>
+        paginatedDelete(db.collection('spotFeedback').where('userId', '==', uid))
     );
 
-    // 5. spotFeedback where user was the finder — anonymize (retains the other party's record)
-    await tryStep('spotFeedbackAsFinder', () =>
-        batchUpdate(
+    // spotFeedback where user was the finder — anonymize, retain for other party
+    await step('spotFeedbackAsFinder', () =>
+        paginatedUpdate(
             db.collection('spotFeedback').where('finderId', '==', uid),
             { finderId: FieldValue.delete(), address: '[removed]' }
         )
     );
 
-    // 6. Notifications in the user's inbox
-    await tryStep('spotNotifications', () =>
-        batchDelete(db.collection('spotNotifications').where('targetUserId', '==', uid))
+    // Spot notifications in user's inbox
+    await step('spotNotifications', () =>
+        paginatedDelete(db.collection('spotNotifications').where('targetUserId', '==', uid))
     );
 
-    // 7. Spots the user posted as finder
-    await tryStep('spotsAsFinder', () =>
-        batchDelete(db.collection('spots').where('finderId', '==', uid))
+    // Spots posted as finder
+    await step('spotsAsFinder', () =>
+        paginatedDelete(db.collection('spots').where('finderId', '==', uid))
     );
 
-    // 8. Active Pings the user is claiming — release back to available
-    await tryStep('spotsAsClaimer', () =>
-        batchUpdate(
+    // Active Pings being claimed — release back to available
+    await step('spotsAsClaimer', () =>
+        paginatedUpdate(
             db.collection('spots').where('interestedUserId', '==', uid),
             {
                 interestedUserId: FieldValue.delete(),
@@ -1301,50 +1369,77 @@ exports.deleteAccount = onCall({ region: 'us-central1' }, async (request) => {
         )
     );
 
-    // 9. Chats the user participated in (recursive delete covers messages subcollection)
-    await tryStep('chats', async () => {
-        const snap = await db.collection('chats').where('participants', 'array-contains', uid).get();
-        for (const chatDoc of snap.docs) {
-            await db.recursiveDelete(chatDoc.ref);
+    // Chats — paginated to avoid loading all IDs into memory;
+    // recursiveDelete on each chat covers its messages subcollection.
+    await step('chats', async () => {
+        let cursor = null;
+        while (true) {
+            const baseQ = db.collection('chats').where('participants', 'array-contains', uid);
+            const q = cursor ? baseQ.startAfter(cursor).limit(50) : baseQ.limit(50);
+            const snap = await q.get();
+            if (snap.empty) break;
+            for (const chatDoc of snap.docs) {
+                await db.recursiveDelete(chatDoc.ref);
+            }
+            if (snap.size < 50) break;
+            cursor = snap.docs[snap.docs.length - 1];
         }
     });
 
-    // 10. Reports the user filed — anonymize reporter identity; retain doc for compliance
-    await tryStep('reports', () =>
-        batchUpdate(
+    // Reports filed by user — anonymize reporter; retain doc for compliance
+    await step('reports', () =>
+        paginatedUpdate(
             db.collection('reports').where('reporterId', '==', uid),
             { reporterId: '[deleted]', reporterDeletedAt: Timestamp.now() }
         )
     );
 
-    // 11. Moderation log entries — anonymize userId and submitted text; retain for safety review
-    // LEGAL: retention period for moderation records requires legal sign-off
-    await tryStep('moderationLog', () =>
-        batchUpdate(
+    // Moderation log — anonymize content; retain for safety review
+    // LEGAL: retention period requires legal sign-off before converting to deletion
+    await step('moderationLog', () =>
+        paginatedUpdate(
             db.collection('moderationLog').where('userId', '==', uid),
             { userId: '[deleted]', text: '[removed]' }
         )
     );
 
-    // 12. Storage avatar (non-fatal: file may not exist)
-    await tryStep('storage', async () => {
-        await getStorage().bucket().deleteFiles({ prefix: `avatars/${uid}` });
+    // Storage avatars — absence is success (idempotent)
+    await step('storage', async () => {
+        // Client uploads to avatars/{uid} (no subdirectory). Use prefix without
+        // trailing slash so getFiles matches both avatars/{uid} and avatars/{uid}/sub.
+        const [files] = await getStorage().bucket().getFiles({ prefix: `avatars/${uid}` });
+        if (files.length > 0) {
+            await getStorage().bucket().deleteFiles({ prefix: `avatars/${uid}` });
+        }
     });
 
-    // 13. Auth user — last step; only reached when requiredStep (userDoc) passed.
-    //     completedAt is written only here, ensuring a failed requiredStep stays retryable.
+    // ── Auth deletion — only reached after every required step passes ─────────
     try {
         await getAuth().deleteUser(uid);
-        await jobRef.update({ 'steps.authUser': 'done', completedAt: Timestamp.now() });
+        await jobRef.update({
+            state: 'completed',
+            completedAt: Timestamp.now(),
+            currentStep: null,
+            'steps.authUser': 'done',
+        });
     } catch (err) {
         if (err.code === 'auth/user-not-found') {
-            // Auth already deleted — mark complete (idempotent)
-            await jobRef.update({ 'steps.authUser': 'done', completedAt: Timestamp.now() });
+            // Auth was already deleted on a previous attempt — mark complete
+            await jobRef.update({
+                state: 'completed',
+                completedAt: Timestamp.now(),
+                currentStep: null,
+                'steps.authUser': 'done',
+            });
             return { success: true };
         }
-        await jobRef.update({ 'steps.authUser': 'error' }).catch(() => {});
-        console.error(`[deleteAccount] ${maskedUid} authUser:`, err.message);
-        throw new HttpsError('internal', 'Data deleted; Auth cleanup failed. Contact support to complete.');
+        await jobRef.update({
+            state: 'failed',
+            lastError: 'authUser: deletion failed (check function logs)',
+            'steps.authUser': 'error',
+        }).catch(() => {});
+        console.error(`[deleteAccount] ${maskedUid} authUser deletion failed`);
+        throw new HttpsError('internal', 'Data deleted; Auth cleanup failed. Contact support to complete removal.');
     }
 
     return { success: true };
