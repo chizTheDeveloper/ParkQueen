@@ -31,6 +31,7 @@ import {
 const OWNER_UID  = 'owner-aaa-111';
 const OTHER_UID  = 'other-bbb-222';
 const ADMIN_UID  = 'admin-ccc-333';
+const THIRD_UID  = 'third-ddd-444';
 const PROJECT_ID = 'demo-parkqueen-rules-test';
 
 let testEnv: RulesTestEnvironment;
@@ -39,6 +40,7 @@ let testEnv: RulesTestEnvironment;
 function ownerDb()  { return testEnv.authenticatedContext(OWNER_UID).firestore(); }
 function otherDb()  { return testEnv.authenticatedContext(OTHER_UID).firestore(); }
 function adminDb()  { return testEnv.authenticatedContext(ADMIN_UID, { role: 'admin' }).firestore(); }
+function thirdDb()  { return testEnv.authenticatedContext(THIRD_UID).firestore(); }
 function anonDb()   { return testEnv.unauthenticatedContext().firestore(); }
 
 // ── Seed helpers (bypass rules) ────────────────────────────────────────────────
@@ -389,11 +391,183 @@ describe('spotFeedback', () => {
     });
 
     it('F7: signed-in user can create feedback', async () => {
+        await seed('spots', 'feedback-spot', {
+            ...interestedSpot,
+            status: 'occupied',
+        });
         await assertSucceeds(
-            addDoc(collection(ownerDb(), 'spotFeedback'), {
-                userId:    OWNER_UID,
+            setDoc(doc(otherDb(), 'spotFeedback', `feedback-spot_${OTHER_UID}`), {
+                spotId:    'feedback-spot',
+                userId:    OTHER_UID,
+                finderId:  OWNER_UID,
                 address:   '999 New St',
                 outcome:   'success',
+                failureReason: null,
+                createdAt: Timestamp.now(),
+            })
+        );
+    });
+
+    it('F8: user cannot forge successful feedback for a spot they did not claim', async () => {
+        await seed('spots', 'feedback-spot', {
+            ...interestedSpot,
+            status: 'occupied',
+        });
+        await assertFails(
+            setDoc(doc(thirdDb(), 'spotFeedback', `feedback-spot_${THIRD_UID}`), {
+                spotId: 'feedback-spot',
+                userId: THIRD_UID,
+                finderId: OWNER_UID,
+                address: '999 New St',
+                outcome: 'success',
+                failureReason: null,
+                createdAt: Timestamp.now(),
+            })
+        );
+    });
+
+    it('F9: feedback cannot be overwritten to trigger rewards twice', async () => {
+        await assertFails(
+            setDoc(doc(ownerDb(), 'spotFeedback', FB_ID), {
+                ...feedbackDoc,
+                outcome: 'success',
+                createdAt: Timestamp.now(),
+            })
+        );
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CHATS — participants only
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('chats and messages — participant isolation', () => {
+    const CHAT_ID = `${OTHER_UID}_${OWNER_UID}`;
+    const chatData = {
+        id: CHAT_ID,
+        participants: [OWNER_UID, OTHER_UID],
+        participantNames: {
+            [OWNER_UID]: 'Owner',
+            [OTHER_UID]: 'Other',
+        },
+        relatedSpotTitle: 'Street Spot',
+        lastMessage: 'Conversation started',
+        lastMessageTimestamp: Timestamp.now(),
+        lastSenderId: OWNER_UID,
+    };
+
+    beforeEach(async () => {
+        await seed('chats', CHAT_ID, chatData);
+        await testEnv.withSecurityRulesDisabled(async ctx => {
+            await setDoc(
+                doc(ctx.firestore(), 'chats', CHAT_ID, 'messages', 'message-1'),
+                { senderId: OWNER_UID, text: 'On my way out', timestamp: Timestamp.now() },
+            );
+        });
+    });
+
+    it('C1: participant can read their chat and messages', async () => {
+        await assertSucceeds(getDoc(doc(ownerDb(), 'chats', CHAT_ID)));
+        await assertSucceeds(getDocs(collection(ownerDb(), 'chats', CHAT_ID, 'messages')));
+    });
+
+    it('C2: non-participant cannot read a chat or its messages', async () => {
+        await assertFails(getDoc(doc(thirdDb(), 'chats', CHAT_ID)));
+        await assertFails(getDocs(collection(thirdDb(), 'chats', CHAT_ID, 'messages')));
+    });
+
+    it('C3: participant query used by the inbox remains allowed', async () => {
+        await assertSucceeds(
+            getDocs(query(collection(ownerDb(), 'chats'), where('participants', 'array-contains', OWNER_UID)))
+        );
+    });
+
+    it('C4: non-participant cannot alter another chat', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(
+            upd(doc(thirdDb(), 'chats', CHAT_ID), {
+                lastMessage: 'spoofed',
+                lastMessageTimestamp: Timestamp.now(),
+                lastSenderId: THIRD_UID,
+            })
+        );
+    });
+
+    it('C5: message sender must match the authenticated participant', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'chats', CHAT_ID, 'messages'), {
+                senderId: OTHER_UID,
+                text: 'spoofed',
+                timestamp: Timestamp.now(),
+            })
+        );
+    });
+
+    it('C6: participant can send a correctly attributed message', async () => {
+        await assertSucceeds(
+            addDoc(collection(ownerDb(), 'chats', CHAT_ID, 'messages'), {
+                senderId: OWNER_UID,
+                text: 'Leaving now',
+                timestamp: Timestamp.now(),
+            })
+        );
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SPOT NOTIFICATIONS — Ping participants only
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('spotNotifications — participant-bound creation', () => {
+    beforeEach(async () => {
+        await seed('spots', 'notification-spot', interestedSpot);
+    });
+
+    it('N1: finder can notify the active claimer', async () => {
+        await assertSucceeds(
+            addDoc(collection(ownerDb(), 'spotNotifications'), {
+                spotId: 'notification-spot',
+                senderId: OWNER_UID,
+                targetUserId: OTHER_UID,
+                type: 'delayed',
+                message: 'Driver needs a few more minutes',
+                createdAt: Timestamp.now(),
+            })
+        );
+    });
+
+    it('N2: claimer can notify the finder', async () => {
+        await assertSucceeds(
+            addDoc(collection(otherDb(), 'spotNotifications'), {
+                spotId: 'notification-spot',
+                senderId: OTHER_UID,
+                targetUserId: OWNER_UID,
+                type: 'claimer_cancelled',
+                message: 'The other driver canceled',
+                createdAt: Timestamp.now(),
+            })
+        );
+    });
+
+    it('N3: unrelated user cannot send a notification for another Ping', async () => {
+        await assertFails(
+            addDoc(collection(thirdDb(), 'spotNotifications'), {
+                spotId: 'notification-spot',
+                senderId: THIRD_UID,
+                targetUserId: OWNER_UID,
+                type: 'handoff_success',
+                message: 'spoofed',
+                createdAt: Timestamp.now(),
+            })
+        );
+    });
+
+    it('N4: sender cannot impersonate another participant', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'spotNotifications'), {
+                spotId: 'notification-spot',
+                senderId: OTHER_UID,
+                targetUserId: OTHER_UID,
+                type: 'delayed',
+                message: 'spoofed',
                 createdAt: Timestamp.now(),
             })
         );

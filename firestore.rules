@@ -38,6 +38,11 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
     }
 
+    function chatParticipant(chatData) {
+      return signedIn()
+        && request.auth.uid in chatData.participants;
+    }
+
     match /users/{userId} {
       allow read: if signedIn() || isAdmin();
       allow create: if signedIn() && request.auth.uid == userId
@@ -207,14 +212,68 @@ service cloud.firestore {
 
     match /spotNotifications/{notifId} {
       allow read: if signedIn() && resource.data.targetUserId == request.auth.uid;
-      allow create: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasAll(
+             ['spotId', 'senderId', 'targetUserId', 'type', 'message', 'createdAt'])
+        && request.resource.data.keys().hasOnly(
+             ['spotId', 'senderId', 'targetUserId', 'type', 'message', 'createdAt'])
+        && request.resource.data.senderId == request.auth.uid
+        && request.resource.data.type in [
+             'cancelled', 'claimer_cancelled', 'delayed',
+             'handoff_success', 'owner_leaving_now']
+        && request.resource.data.message is string
+        && request.resource.data.message.size() > 0
+        && request.resource.data.message.size() <= 500
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.createdAt <= request.time
+        && request.resource.data.createdAt >= request.time - duration.value(5, 'm')
+        && exists(/databases/$(database)/documents/spots/$(request.resource.data.spotId))
+        && (
+          (get(/databases/$(database)/documents/spots/$(request.resource.data.spotId)).data.finderId
+               == request.auth.uid
+            && get(/databases/$(database)/documents/spots/$(request.resource.data.spotId)).data
+                 .get('interestedUserId', null) == request.resource.data.targetUserId)
+          || (get(/databases/$(database)/documents/spots/$(request.resource.data.spotId)).data
+                 .get('interestedUserId', null) == request.auth.uid
+            && get(/databases/$(database)/documents/spots/$(request.resource.data.spotId)).data.finderId
+                 == request.resource.data.targetUserId)
+        );
       allow delete: if signedIn() && resource.data.targetUserId == request.auth.uid;
     }
 
     match /spotFeedback/{feedbackId} {
-      allow create: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasAll(
+             ['spotId', 'userId', 'finderId', 'outcome', 'address', 'createdAt'])
+        && request.resource.data.keys().hasOnly(
+             ['spotId', 'userId', 'finderId', 'outcome', 'failureReason',
+              'address', 'confirmedByFinder', 'createdAt'])
+        && request.resource.data.spotId is string
+        && request.resource.data.userId is string
+        && request.resource.data.finderId is string
+        && request.resource.data.outcome in ['success', 'failed']
+        && request.resource.data.address is string
+        && request.resource.data.address.size() <= 500
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.createdAt <= request.time
+        && request.resource.data.createdAt >= request.time - duration.value(5, 'm')
+        && feedbackId == request.resource.data.spotId + '_' + request.resource.data.userId
+        && exists(/databases/$(database)/documents/spots/$(request.resource.data.spotId))
+        && get(/databases/$(database)/documents/spots/$(request.resource.data.spotId)).data.status == 'occupied'
+        && (
+          (request.auth.uid == request.resource.data.userId
+            && get(/databases/$(database)/documents/spots/$(request.resource.data.spotId)).data
+                 .get('interestedUserId', null) == request.auth.uid
+            && get(/databases/$(database)/documents/spots/$(request.resource.data.spotId)).data.finderId
+                 == request.resource.data.finderId)
+          || (request.auth.uid == request.resource.data.finderId
+            && get(/databases/$(database)/documents/spots/$(request.resource.data.spotId)).data.finderId
+                 == request.auth.uid
+            && get(/databases/$(database)/documents/spots/$(request.resource.data.spotId)).data
+                 .get('interestedUserId', null) == request.resource.data.userId)
+        );
       allow read: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
-      allow update: if signedIn() && resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
     }
 
     match /adminAuditLog/{logId} {
@@ -266,10 +325,45 @@ service cloud.firestore {
     }
 
     match /chats/{chatId} {
-      allow read, write: if signedIn();
+      allow read: if chatParticipant(resource.data);
+      allow create: if signedIn()
+        && request.resource.data.keys().hasAll(
+             ['id', 'participants', 'participantNames', 'lastMessage',
+              'lastMessageTimestamp', 'lastSenderId'])
+        && request.resource.data.keys().hasOnly(
+             ['id', 'participants', 'participantNames', 'relatedSpotTitle',
+              'lastMessage', 'lastMessageTimestamp', 'lastSenderId'])
+        && request.resource.data.id == chatId
+        && request.resource.data.participants is list
+        && request.resource.data.participants.size() == 2
+        && request.auth.uid in request.resource.data.participants
+        && request.resource.data.lastSenderId == request.auth.uid;
+      allow update: if chatParticipant(resource.data)
+        && request.resource.data.participants == resource.data.participants
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.lastSenderId == request.auth.uid
+        && onlyChanges(['participantNames', 'relatedSpotTitle', 'lastMessage',
+                        'lastMessageTimestamp', 'lastSenderId']);
+      allow delete: if chatParticipant(resource.data);
       
       match /messages/{messageId} {
-        allow read, write: if signedIn();
+        allow read: if chatParticipant(
+          get(/databases/$(database)/documents/chats/$(chatId)).data
+        );
+        allow create: if chatParticipant(
+            get(/databases/$(database)/documents/chats/$(chatId)).data
+          )
+          && request.resource.data.keys().hasAll(['senderId', 'text', 'timestamp'])
+          && request.resource.data.keys().hasOnly(['senderId', 'text', 'timestamp'])
+          && request.resource.data.senderId == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() <= 1000
+          && request.resource.data.timestamp is timestamp;
+        allow update: if false;
+        allow delete: if chatParticipant(
+          get(/databases/$(database)/documents/chats/$(chatId)).data
+        );
       }
     }
   }

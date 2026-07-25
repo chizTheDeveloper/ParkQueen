@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { db } from '../../firebase';
-import { doc, updateDoc, deleteDoc, runTransaction, Timestamp, collection, query, where, getDocs, addDoc, onSnapshot, orderBy, limit, increment } from 'firebase/firestore';
+import { doc, updateDoc, deleteDoc, runTransaction, Timestamp, collection, query, where, getDocs, addDoc, setDoc, onSnapshot, orderBy, limit, increment } from 'firebase/firestore';
 import { MapItem } from './types';
 import { getDistance, drawRoute, clearRoute, NYC_CENTER } from './utils';
 import { getTitleForCrowns } from '../../utils/crowns';
+import { spotFeedbackDocId } from '../../utils/spotFeedback';
 
 interface UseInterestFlowOptions {
     selectedItem: any;
@@ -214,7 +215,7 @@ export function useInterestFlow({
     };
 
     const handleCancelByFinder = async (reason: string) => {
-        if (!selectedItem || !db) return;
+        if (!selectedItem || !user || !db) return;
         const interestedId = selectedItem.interestedUserId;
         if (interestedId) {
             const messages: Record<string, string> = {
@@ -222,6 +223,8 @@ export function useInterestFlow({
                 "Spot no longer available": "The spot is no longer available.",
             };
             await addDoc(collection(db, 'spotNotifications'), {
+                spotId: selectedItem.id,
+                senderId: user.id,
                 targetUserId: interestedId,
                 type: 'cancelled',
                 message: messages[reason] ?? "The driver had to cancel.",
@@ -240,7 +243,8 @@ export function useInterestFlow({
 
         await updateDoc(doc(db, 'spots', selectedItem.id), { status: 'occupied' });
 
-        await addDoc(collection(db, 'spotFeedback'), {
+        if (!claimerId) throw new Error('Missing claimer for completed handoff');
+        await setDoc(doc(db, 'spotFeedback', spotFeedbackDocId(selectedItem.id, claimerId)), {
             spotId: selectedItem.id,
             userId: claimerId,
             finderId: user.id,
@@ -253,6 +257,8 @@ export function useInterestFlow({
 
         if (claimerId) {
             await addDoc(collection(db, 'spotNotifications'), {
+                spotId: selectedItem.id,
+                senderId: user.id,
                 targetUserId: claimerId,
                 type: 'handoff_success',
                 message: `${user.username || 'The driver'} confirmed you're parked — +1 Crown earned!`,
@@ -277,6 +283,8 @@ export function useInterestFlow({
                 "Changed my mind": "The driver changed their mind — your spot is available again.",
             };
             await addDoc(collection(db, 'spotNotifications'), {
+                spotId: selectedItem.id,
+                senderId: user.id,
                 targetUserId: finderId,
                 type: 'claimer_cancelled',
                 message: messages[reason] ?? "The other driver canceled — your spot is available again.",
@@ -308,7 +316,7 @@ export function useInterestFlow({
     };
 
     const handleDelayByFinder = async (extraMinutes = 3) => {
-        if (!selectedItem || !db) return;
+        if (!selectedItem || !user || !db) return;
         const newExpiry = Timestamp.fromMillis(Date.now() + extraMinutes * 60000);
         await updateDoc(doc(db, 'spots', selectedItem.id), {
             interestExpiresAt: newExpiry,
@@ -316,6 +324,8 @@ export function useInterestFlow({
         const interestedId = selectedItem.interestedUserId;
         if (interestedId) {
             await addDoc(collection(db, 'spotNotifications'), {
+                spotId: selectedItem.id,
+                senderId: user.id,
                 targetUserId: interestedId,
                 type: 'delayed',
                 message: 'Driver needs a few more minutes',
@@ -352,7 +362,7 @@ export function useInterestFlow({
         const spotSnap = handoffSpotRef.current;
         if (!spotSnap || !user) return;
 
-        await addDoc(collection(db, 'spotFeedback'), {
+        await setDoc(doc(db, 'spotFeedback', spotFeedbackDocId(spotSnap.id, user.id)), {
             spotId: spotSnap.id,
             userId: user.id,
             finderId: spotSnap.finderId,
@@ -364,6 +374,8 @@ export function useInterestFlow({
 
         if (outcome === 'success') {
             await addDoc(collection(db, 'spotNotifications'), {
+                spotId: spotSnap.id,
+                senderId: user.id,
                 targetUserId: spotSnap.finderId,
                 type: 'handoff_success',
                 message: `${user.username || 'Someone'} parked in your spot — +2 Crowns earned!`,
@@ -530,6 +542,8 @@ export function useInterestFlow({
 
         if (spot.interestedUserId) {
             await addDoc(collection(db, 'spotNotifications'), {
+                spotId: spot.id,
+                senderId: user.id,
                 targetUserId: spot.interestedUserId,
                 type: 'owner_leaving_now',
                 message: `${user.username || user.fullName || 'The driver'} is leaving now — time to head over`,
