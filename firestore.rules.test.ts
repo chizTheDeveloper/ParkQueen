@@ -435,6 +435,23 @@ describe('spotFeedback', () => {
             })
         );
     });
+
+    it('F10: feedback for a non-occupied spot is rejected', async () => {
+        await seed('spots', 'avail-feedback-spot', {
+            ...interestedSpot,
+            status: 'interested', // not occupied — rule requires status == 'occupied'
+        });
+        await assertFails(
+            setDoc(doc(otherDb(), 'spotFeedback', `avail-feedback-spot_${OTHER_UID}`), {
+                spotId:    'avail-feedback-spot',
+                userId:    OTHER_UID,
+                finderId:  OWNER_UID,
+                address:   '999 Not Occupied St',
+                outcome:   'success',
+                createdAt: Timestamp.now(),
+            })
+        );
+    });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -511,6 +528,11 @@ describe('chats and messages — participant isolation', () => {
             })
         );
     });
+
+    it('C7: participant can delete their chat', async () => {
+        const { deleteDoc } = await import('firebase/firestore');
+        await assertSucceeds(deleteDoc(doc(ownerDb(), 'chats', CHAT_ID)));
+    });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -568,6 +590,32 @@ describe('spotNotifications — participant-bound creation', () => {
                 targetUserId: OTHER_UID,
                 type: 'delayed',
                 message: 'spoofed',
+                createdAt: Timestamp.now(),
+            })
+        );
+    });
+
+    it('N5: notification with a timestamp older than 5 minutes is rejected', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'spotNotifications'), {
+                spotId: 'notification-spot',
+                senderId: OWNER_UID,
+                targetUserId: OTHER_UID,
+                type: 'delayed',
+                message: 'This message is stale',
+                createdAt: PAST, // 1 hour ago — outside the 5-minute window
+            })
+        );
+    });
+
+    it('N6: finder cannot send notification to a user who is not the claimer of the Ping', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'spotNotifications'), {
+                spotId: 'notification-spot',
+                senderId: OWNER_UID,
+                targetUserId: THIRD_UID, // not the interestedUserId of this spot (OTHER_UID is)
+                type: 'delayed',
+                message: 'Wrong target',
                 createdAt: Timestamp.now(),
             })
         );
