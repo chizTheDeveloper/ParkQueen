@@ -128,15 +128,20 @@ All five source-level blockers closed on `audit/app-store-readiness-2026`. No de
 
 | Open CRITICAL | 0 |
 |---|---|
-| Open HIGH | 11 (TM-04, 06, 07, 08, 10, 11, 12, 13, 14, 19, 20) |
-| Open MEDIUM | 5 (TM-09, 16, 17, 23, 25) |
+| Open HIGH | 4 (TM-04, 06, 12, 13) |
+| Open MEDIUM | 2 (TM-16 SHA pinning, TM-17) |
 | Open LOW | 0 |
+| Blocked/external | 3 (TM-19 credentials, TM-20 native packaging, console-only: TM-12) |
+
+Closed this pass (commit `93aa02b`): TM-05 defects (auth_time, requiredStep, batch pagination, moderationLog), TM-07, TM-08, TM-09, TM-10, TM-11, TM-14, TM-23, TM-25.
 
 ### Manual actions still required
 
 - BLK-02: authorized deployment of Firestore Rules (see deployment plan in `docs/RELEASE_READINESS_AUDIT_2026.md`)
 - TM-06: export `storage.rules` from Firebase console and commit
 - TM-12: App Check enrollment decision
+- TM-16: pin `actions/checkout@v4`, `actions/setup-node@v4`, `actions/setup-java@v4` to commit SHAs
+- TM-17: audit and redact sensitive Function log statements
 - TM-19: credential rotation verification via provider metadata
 - Production data migration: run `utils/migration/privatizeContactFields.ts` in apply mode with admin credentials post-deployment
 - Legal sign-off on `adminAuditLog` and `moderationLog` retention categories
