@@ -93,8 +93,10 @@ async function applyTrustDelta(uid, statField, eventId, source = 'user') {
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─── Per-user rate limiter (TM-13) ───────────────────────────────────────────
-// Atomically increments a per-user, per-operation counter in a sliding window.
-// Throws resource-exhausted if the caller exceeds `limit` calls within `windowSec`.
+// Fixed-window limiter: divides time into non-overlapping windows of windowSec each.
+// Boundary-burst risk: a caller can make 2× limit requests in 1 second by straddling
+// a window boundary. Acceptable for current threat model; upgrade to token-bucket or
+// sliding-window (e.g. Redis INCR + EXPIRE) if stricter enforcement is needed.
 // Doc IDs: rateLimits/{operation}_{windowKey}_{uid}  (server-only, rules deny all client access)
 // Operator action required: enable Firestore TTL policy on rateLimits.expiresAt
 // to prevent unbounded collection growth.
@@ -508,6 +510,11 @@ exports.generateEmailOTP = onCall(
 
     const uid = request.auth.uid;
     await checkRateLimit(uid, 'generateEmailOTP', { limit: 10, windowSec: 3600 });
+    // Also rate-limit by a one-way hash of the normalised target address to prevent a
+    // single account from flooding one inbox (account-farm defence).
+    const emailHash = require('crypto').createHash('sha256')
+        .update(email.trim().toLowerCase()).digest('hex');
+    await checkRateLimit(emailHash, 'generateEmailOTP_email', { limit: 10, windowSec: 3600 });
     const docRef = db.collection("emailVerificationCodes").doc(uid);
     const existing = await docRef.get();
     if (existing.exists) {
@@ -1219,10 +1226,9 @@ exports.adminArchiveSuspension = onCall(
 exports.deleteAccount = onCall({ region: 'us-central1' }, async (request) => {
     const uid = request.auth?.uid;
     if (!uid) throw new HttpsError('unauthenticated', 'Must be signed in.');
-    await checkRateLimit(uid, 'deleteAccount', { limit: 3, windowSec: 86400 });
 
-    // Require re-authentication within the last 10 minutes.
-    // Reject undefined/null auth_time — NaN > 600 is false in JS and would bypass the check.
+    // Auth-freshness check BEFORE rate limit — a stale-session rejection must not
+    // consume quota; the user should re-auth and retry without hitting the daily cap.
     const authTime = request.auth.token.auth_time; // epoch seconds
     if (!authTime || (Date.now() / 1000) - authTime > 600) {
         throw new HttpsError(
@@ -1230,6 +1236,8 @@ exports.deleteAccount = onCall({ region: 'us-central1' }, async (request) => {
             'Recent sign-in required to delete your account.'
         );
     }
+
+    await checkRateLimit(uid, 'deleteAccount', { limit: 3, windowSec: 86400 });
 
     const jobRef = db.doc(`accountDeletionJobs/${uid}`);
     const maskedUid = uid.slice(0, 4) + '***';
@@ -2701,6 +2709,10 @@ exports.analyzeSign = onCall(
     const { imageBase64 } = request.data;
     if (typeof imageBase64 !== "string" || imageBase64.length === 0) {
       throw new HttpsError("invalid-argument", "imageBase64 is required.");
+    }
+    // ~4MB limit: base64 encodes 3 bytes as 4 chars, so 4MB raw ≈ 5.5M chars
+    if (imageBase64.length > 5_500_000) {
+      throw new HttpsError("invalid-argument", "Image too large. Maximum 4 MB.");
     }
     let response;
     try {
