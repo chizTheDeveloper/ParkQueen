@@ -135,6 +135,39 @@ System baseline: `origin/main` at `b761795c52056c0d940da31969a142a7cdcd46a8`
 - Admin UI hostname checks are presentation only.
 - Every mutation writes a server timestamped audit record; audit records are append-only and non-client-readable.
 
+## Avatar access policy decision (2026-07-28)
+
+**Decision: avatars are intentionally public via Firebase Storage download URLs.**
+
+### Rationale
+
+Firebase Storage download URLs are long opaque bearer tokens (256-bit entropy). They are accessible to any HTTP client that possesses the URL — security rules do not apply to download URL access. This is the standard model used by social apps (Twitter, Instagram, etc.) for profile photos.
+
+ParQueen avatars are Parsona-generated SVG composites. They are not photographs and contain no biometric or location data.
+
+### Controls in place
+
+| Control | Mechanism |
+|---|---|
+| Upload authorization | Storage Rules: only the owning UID may write to `avatars/{uid}` |
+| Content moderation | `moderateAvatarUpload` Cloud Function (Google Vision Safe Search) deletes non-compliant uploads within seconds |
+| Account deletion | `deleteAccount` function step `storage` deletes `avatars/{uid}` via Admin SDK |
+| URL obfuscation | Download URL tokens are not guessable; enumeration requires a leaked `avatarUrl` value |
+
+### Accepted risk
+
+A user who knows another user's `avatarUrl` can access the image without authentication. This is acceptable because:
+1. `avatarUrl` is stored in the public `users/{uid}` document (readable by any signed-in user — intended for profile display).
+2. The image contains no identifying information beyond visual style choices.
+3. Revoking access requires deleting the Storage object and re-uploading (operationally feasible via Admin SDK).
+
+### Remaining gap
+
+If a user's account is deleted but their `avatarUrl` was previously copied by another party, the token becomes a dead link (the object is deleted). No further action is needed.
+
+**Owner:** Product/Legal  
+**Status:** ACCEPTED — no code changes required.
+
 ## Verification plan
 
 - Rules emulator: cross-user direct reads, constrained queries, creates, mutations, deletes, extra fields, malformed types, boundary timestamps, replay attempts.
