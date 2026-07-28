@@ -16,8 +16,10 @@ function consoleLinesMatching(pattern: RegExp) {
 }
 
 describe('TM-17 — Functions log redaction audit', () => {
-    it('no console call logs raw coordinates (lat= or lng=)', () => {
-        expect(consoleLinesMatching(/lat=|lng=|lon=/)).toEqual([]);
+    it('no console call logs raw coordinates (lat=/lng= or lat:/lng: object notation)', () => {
+        // Covers both assignment-style (lat=...) and object-literal style (lat: ..., lng: ...)
+        // The FCM data payload previously used { lat: String(...), lng: String(...) } — this catches regressions.
+        expect(consoleLinesMatching(/lat[=:]|lng[=:]|lon[=:]/)).toEqual([]);
     });
 
     it('no console call logs a raw userData reference', () => {

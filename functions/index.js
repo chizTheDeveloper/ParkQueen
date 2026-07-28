@@ -16,6 +16,7 @@ const db = getFirestore();
 const { geohashForLocation } = require('geofire-common');
 const sendgridApiKey = defineSecret("SENDGRID_API_KEY");
 const { osmNameToDOT, streetNameToLikePattern, dotSideToCardinal, BOROUGH_CODE_TO_NAME, nycOdSegmentDocId, selectBlockFace } = require('./nycOpenDataNormalizer');
+const { redactForLog } = require('./redactForLog');
 
 // Crown title thresholds (must match client-side utils/crowns.ts)
 const TITLE_THRESHOLDS = [
@@ -480,10 +481,12 @@ exports.notifyNearbyUsers = onDocumentCreated(
                   messages.push({
                       token: prefs.fcmToken,
                       notification: {
-                  title: "👑 New Spot Near You!",
+                          title: "👑 New Spot Near You!",
                           body: "Someone just left a spot " + distLabel + "."
                       },
-                      data: { spotId: event.params.spotId, lat: String(spotData.lat), lng: String(spotData.lng), finderId: String(spotData.finderId || '') }
+                      // TM-17: no exact coordinates or finder identity in FCM data payload;
+                      // client fetches full spot details from Firestore after receiving the notification.
+                      data: { spotId: event.params.spotId }
                   });
               })
           );
@@ -604,10 +607,10 @@ exports.moderateAvatarUpload = onObjectFinalized(
       if (rejected) {
         await file.delete().catch(() => {});
         await moderationRef.set({ status: "rejected", reason: "Content policy violation", updatedAt: Timestamp.now() });
-        console.log(`Avatar rejected for user ${uid}: adult=${safe.adult}, racy=${safe.racy}`);
+        console.log(`Avatar rejected for user ${uid.slice(0,4)}***: adult=${safe.adult}, racy=${safe.racy}`);
       } else {
         await moderationRef.set({ status: "approved", updatedAt: Timestamp.now() });
-        console.log(`Avatar approved for user ${uid}`);
+        console.log(`Avatar approved for user ${uid.slice(0,4)}***`);
       }
     } catch (error) {
       console.error("Vision API error:", error);
@@ -860,7 +863,7 @@ exports.awardCrowns = onDocumentCreated(
     });
 
     await batch.commit();
-    console.log(`Crowns awarded: driver ${driverId} +1 (${driverCrowns}), finder ${finderId} +2 (${finderCrowns})`);
+    console.log(`Crowns awarded: driver ${driverId.slice(0,4)}*** +1 (${driverCrowns}), finder ${finderId.slice(0,4)}*** +2 (${finderCrowns})`);
   }
 );
 
