@@ -323,6 +323,10 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /rateLimits/{docId} {
+      allow read, write: if false;
+    }
+
     match /adminBootstrap/{docId} {
       allow read: if isAdmin();
       allow write: if false;

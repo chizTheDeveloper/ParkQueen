@@ -92,6 +92,31 @@ async function applyTrustDelta(uid, statField, eventId, source = 'user') {
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─── Per-user rate limiter (TM-13) ───────────────────────────────────────────
+// Atomically increments a per-user, per-operation counter in a sliding window.
+// Throws resource-exhausted if the caller exceeds `limit` calls within `windowSec`.
+// Doc IDs: rateLimits/{operation}_{windowKey}_{uid}  (server-only, rules deny all client access)
+// Operator action required: enable Firestore TTL policy on rateLimits.expiresAt
+// to prevent unbounded collection growth.
+async function checkRateLimit(uid, operation, { limit, windowSec }) {
+    const windowKey = Math.floor(Date.now() / (windowSec * 1000));
+    const ref = db.collection('rateLimits').doc(`${operation}_${windowKey}_${uid}`);
+    await db.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        const count = snap.exists ? (snap.data().count || 0) : 0;
+        if (count >= limit) {
+            throw new HttpsError('resource-exhausted', 'Too many requests. Try again later.');
+        }
+        tx.set(ref, {
+            count: count + 1,
+            uid,
+            operation,
+            expiresAt: Timestamp.fromMillis(Date.now() + windowSec * 2000),
+        }, { merge: true });
+    });
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 // 1) Delete expired spots every hour
 exports.cleanupExpiredSpotsHourly = onSchedule(
   {
@@ -482,6 +507,7 @@ exports.generateEmailOTP = onCall(
     if (!email || !email.includes("@")) throw new HttpsError("invalid-argument", "Valid email required.");
 
     const uid = request.auth.uid;
+    await checkRateLimit(uid, 'generateEmailOTP', { limit: 10, windowSec: 3600 });
     const docRef = db.collection("emailVerificationCodes").doc(uid);
     const existing = await docRef.get();
     if (existing.exists) {
@@ -522,6 +548,7 @@ exports.verifyEmailOTP = onCall(
     if (!email || !code) throw new HttpsError("invalid-argument", "Email and code required.");
 
     const uid = request.auth.uid;
+    await checkRateLimit(uid, 'verifyEmailOTP', { limit: 10, windowSec: 900 });
     const docRef = db.collection("emailVerificationCodes").doc(uid);
     const snap = await docRef.get();
     if (!snap.exists) throw new HttpsError("not-found", "No verification code found. Request a new one.");
@@ -716,6 +743,7 @@ exports.claimUsername = onCall(
   { region: "us-central1" },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Sign in first.");
+    await checkRateLimit(request.auth.uid, 'claimUsername', { limit: 5, windowSec: 3600 });
 
     const username = request.data?.username;
     if (!username || typeof username !== "string") throw new HttpsError("invalid-argument", "Username required.");
@@ -1191,6 +1219,7 @@ exports.adminArchiveSuspension = onCall(
 exports.deleteAccount = onCall({ region: 'us-central1' }, async (request) => {
     const uid = request.auth?.uid;
     if (!uid) throw new HttpsError('unauthenticated', 'Must be signed in.');
+    await checkRateLimit(uid, 'deleteAccount', { limit: 3, windowSec: 86400 });
 
     // Require re-authentication within the last 10 minutes.
     // Reject undefined/null auth_time — NaN > 600 is false in JS and would bypass the check.
@@ -2668,6 +2697,7 @@ exports.analyzeSign = onCall(
   { secrets: [geminiApiKey], enforceAppCheck: false },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Must be signed in.");
+    await checkRateLimit(request.auth.uid, 'analyzeSign', { limit: 30, windowSec: 3600 });
     const { imageBase64 } = request.data;
     if (typeof imageBase64 !== "string" || imageBase64.length === 0) {
       throw new HttpsError("invalid-argument", "imageBase64 is required.");
@@ -2712,6 +2742,7 @@ exports.generateSmartReplies = onCall(
   { secrets: [geminiApiKey], enforceAppCheck: false },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Must be signed in.");
+    await checkRateLimit(request.auth.uid, 'generateSmartReplies', { limit: 20, windowSec: 3600 });
     const { lastMessage, context } = request.data;
     if (typeof lastMessage !== "string" || lastMessage.length === 0) {
       throw new HttpsError("invalid-argument", "lastMessage is required.");
