@@ -55,18 +55,8 @@ service cloud.firestore {
                    // Display and vehicle
                    'fullName', 'username',
                    'vehicleType', 'vehicleBrand', 'vehicleColor',
-                   // Preferences
-                   'lang', 'sharePreciseLocation',
-                   'notificationsEnabled', 'notificationRadius',
-                   // Social
-                   'blockedUsers',
                    // Avatar
                    'avatarUrl', 'avatarManifestId', 'avatarAgeGroup', 'avatarUpdatedAt',
-                   // Location (device-side cache only)
-                   'lastParkedLocation', 'claimCount',
-                   'lastGeohash', 'lastGeohashUpdatedAt',
-                   // Device token
-                   'fcmToken'
                  ]));
       allow delete: if false;
 
@@ -79,6 +69,10 @@ service cloud.firestore {
         allow read, write: if signedIn() && request.auth.uid == userId;
         allow read: if isAdmin();
       }
+    }
+
+    match /userLocations/{userId} {
+      allow read, write: if signedIn() && request.auth.uid == userId;
     }
 
     match /spots/{spotId} {

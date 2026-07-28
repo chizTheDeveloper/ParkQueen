@@ -812,10 +812,10 @@ describe('users/{uid} public doc — private field denylist', () => {
         await assertSucceeds(upd(doc(ownerDb(), 'users', OWNER_UID), { fullName: 'Jay Updated' }));
     });
 
-    // 48
-    it('PD8: legitimate notificationRadius update still succeeds', async () => {
+    // 48 — notificationRadius moved to private/preferences; root write now blocked (TM-04)
+    it('PD8: notificationRadius write to root doc is now blocked', async () => {
         const { updateDoc: upd } = await import('firebase/firestore');
-        await assertSucceeds(upd(doc(ownerDb(), 'users', OWNER_UID), { notificationRadius: 2 }));
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { notificationRadius: 2 }));
     });
 
     // 49
@@ -917,9 +917,9 @@ describe('users — update allowlist (TM-11)', () => {
         await assertSucceeds(upd(doc(ownerDb(), 'users', OWNER_UID), { fullName: 'Alice B.' }));
     });
 
-    it('TM11-B: owner can update fcmToken', async () => {
+    it('TM11-B: owner cannot update fcmToken on root doc (moved to private/preferences)', async () => {
         const { updateDoc: upd } = await import('firebase/firestore');
-        await assertSucceeds(upd(doc(ownerDb(), 'users', OWNER_UID), { fcmToken: 'newtoken' }));
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { fcmToken: 'newtoken' }));
     });
 
     it('TM11-C: owner cannot update crowns (not in allowlist)', async () => {
@@ -1132,5 +1132,89 @@ describe('adminBootstrap — client writes blocked (TM-14)', () => {
 
     it('TM14-C: admin can read adminBootstrap/singleton', async () => {
         await assertSucceeds(getDoc(doc(adminDb(), 'adminBootstrap', 'singleton')));
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TM-04 — Private user data separated from public user document
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('TM-04 — private user data isolation', () => {
+    beforeEach(async () => {
+        await seed('users', OWNER_UID, {
+            fullName: 'Owner',
+            crowns: 0,
+            title: 'Newcomer',
+            moderationStatus: 'active',
+            reportCount: 0,
+        });
+    });
+
+    it('TM04-A: owner cannot write fcmToken to root users doc', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { fcmToken: 'tok123' }));
+    });
+
+    it('TM04-B: owner cannot write blockedUsers to root users doc', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { blockedUsers: [] }));
+    });
+
+    it('TM04-C: owner cannot write notificationsEnabled to root users doc', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { notificationsEnabled: true }));
+    });
+
+    it('TM04-D: owner cannot write lang to root users doc', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { lang: 'en' }));
+    });
+
+    it('TM04-E: owner cannot write lastGeohash to root users doc', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { lastGeohash: 'dr5ru' }));
+    });
+
+    it('TM04-F: owner can write and read private/preferences', async () => {
+        await assertSucceeds(
+            setDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'preferences'),
+                { notificationRadius: 2, notificationsEnabled: true })
+        );
+        await assertSucceeds(getDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'preferences')));
+    });
+
+    it('TM04-G: other user cannot read private/preferences', async () => {
+        await assertFails(getDoc(doc(otherDb(), 'users', OWNER_UID, 'private', 'preferences')));
+    });
+
+    it('TM04-H: unauthenticated cannot read private/preferences', async () => {
+        await assertFails(getDoc(doc(anonDb(), 'users', OWNER_UID, 'private', 'preferences')));
+    });
+
+    it('TM04-I: owner can write and read private/social', async () => {
+        await assertSucceeds(
+            setDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'social'), { blockedUsers: [] })
+        );
+        await assertSucceeds(getDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'social')));
+    });
+
+    it('TM04-J: other user cannot read private/social', async () => {
+        await assertFails(getDoc(doc(otherDb(), 'users', OWNER_UID, 'private', 'social')));
+    });
+
+    it('TM04-K: owner can write and read userLocations/{uid}', async () => {
+        await assertSucceeds(
+            setDoc(doc(ownerDb(), 'userLocations', OWNER_UID), { lastGeohash: 'dr5ru', lastGeohashUpdatedAt: Timestamp.now() })
+        );
+        await assertSucceeds(getDoc(doc(ownerDb(), 'userLocations', OWNER_UID)));
+    });
+
+    it('TM04-L: user cannot write to another user\'s userLocations doc', async () => {
+        await assertFails(
+            setDoc(doc(otherDb(), 'userLocations', OWNER_UID), { lastGeohash: 'dr5ru' })
+        );
+    });
+
+    it('TM04-M: unauthenticated cannot read userLocations', async () => {
+        await assertFails(getDoc(doc(anonDb(), 'userLocations', OWNER_UID)));
     });
 });

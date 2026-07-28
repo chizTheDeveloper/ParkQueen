@@ -257,10 +257,10 @@ exports.processScheduledClaims = onSchedule(
       const finderName = spot.finderName || "Someone";
 
       // FCM push if token available
-      const userSnap = await db.doc(`users/${spot.interestedUserId}`).get();
-      const userData = userSnap.exists ? userSnap.data() : {};
-      const fcmToken = userData.fcmToken || null;
-      const message = localizeNotification('reminder', userData.lang, { name: finderName });
+      const prefsSnap = await db.doc(`users/${spot.interestedUserId}/private/preferences`).get();
+      const prefs = prefsSnap.exists ? prefsSnap.data() : {};
+      const fcmToken = prefs.fcmToken || null;
+      const message = localizeNotification('reminder', prefs.lang, { name: finderName });
       if (fcmToken) {
         try {
           await getMessaging().send({
@@ -423,38 +423,45 @@ exports.notifyNearbyUsers = onDocumentCreated(
     const prefix = spotGeohash.substring(0, 4);
 
     try {
-      const neighborsSnap = await db.collection("users")
+      const neighborsSnap = await db.collection("userLocations")
           .where("lastGeohash", ">=", prefix)
           .where("lastGeohash", "<=", prefix + "\uf8ff")
           .get();
 
       const messages = [];
-      neighborsSnap.forEach(userDoc => {
-          const userData = userDoc.data();
-          if (userDoc.id === spotData.finderId) return;
-          if (!userData.fcmToken) return;
-          if (userData.notificationsEnabled === false) return;
-
+      const geofire = require("geofire-common");
+      const prefsPromises = [];
+      neighborsSnap.forEach(locDoc => {
+          const locData = locDoc.data();
+          const userId = locDoc.id;
+          if (userId === spotData.finderId) return;
+          if (!locData.lastGeohash) return;
           // Skip users with stale location — prevents cross-borough false positives
-          if (!userData.lastGeohash) return;
-          const geohashAge = userData.lastGeohashUpdatedAt ? Date.now() - userData.lastGeohashUpdatedAt.toMillis() : Infinity;
+          const geohashAge = locData.lastGeohashUpdatedAt ? Date.now() - locData.lastGeohashUpdatedAt.toMillis() : Infinity;
           if (geohashAge > 24 * 60 * 60 * 1000) return;
-          const geofire = require("geofire-common");
-          const [userLat, userLng] = geofire.geohashToLocation(userData.lastGeohash);
+          const [userLat, userLng] = geofire.geohashToLocation(locData.lastGeohash);
           const distMiles = haversineDistMiles(userLat, userLng, spotData.lat, spotData.lng);
-          const userRadius = userData.notificationRadius || 1;
-          if (distMiles > userRadius) return;
-
-          const distLabel = distMiles < 0.1 ? 'right next to you' : '~' + distMiles.toFixed(1) + ' mi away';
-          messages.push({
-              token: userData.fcmToken,
-              notification: {
+          prefsPromises.push(
+              db.doc(`users/${userId}/private/preferences`).get().then(prefsSnap => {
+                  if (!prefsSnap.exists) return;
+                  const prefs = prefsSnap.data();
+                  if (!prefs.fcmToken) return;
+                  if (prefs.notificationsEnabled === false) return;
+                  const userRadius = prefs.notificationRadius || 1;
+                  if (distMiles > userRadius) return;
+                  const distLabel = distMiles < 0.1 ? 'right next to you' : '~' + distMiles.toFixed(1) + ' mi away';
+                  messages.push({
+                      token: prefs.fcmToken,
+                      notification: {
                   title: "👑 New Spot Near You!",
-                  body: "Someone just left a spot " + distLabel + "."
-              },
-              data: { spotId: event.params.spotId, lat: String(spotData.lat), lng: String(spotData.lng), finderId: String(spotData.finderId || '') }
-          });
+                          body: "Someone just left a spot " + distLabel + "."
+                      },
+                      data: { spotId: event.params.spotId, lat: String(spotData.lat), lng: String(spotData.lng), finderId: String(spotData.finderId || '') }
+                  });
+              })
+          );
       });
+      await Promise.all(prefsPromises);
 
       if (messages.length > 0) {
           const response = await getMessaging().sendEach(messages);
@@ -1314,6 +1321,9 @@ exports.deleteAccount = onCall({ region: 'us-central1' }, async (request) => {
     }
 
     // ── Cleanup steps — all required; Auth is not deleted until all pass ──────
+
+    // Location cache — top-level collection, not covered by userDoc recursiveDelete
+    await step('userLocations', () => db.doc(`userLocations/${uid}`).delete());
 
     // User document tree — recursiveDelete covers private/* and processedTrustEvents/*
     await step('userDoc', () => db.recursiveDelete(db.doc(`users/${uid}`)));

@@ -79,10 +79,14 @@ export default function App() {
   useEffect(() => {
     let userProfileUnsubscribe = () => {};
     let privateAccountUnsubscribe = () => {};
+    let privatePreferencesUnsubscribe = () => {};
+    let privateSocialUnsubscribe = () => {};
 
     const authStateUnsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       userProfileUnsubscribe();
       privateAccountUnsubscribe();
+      privatePreferencesUnsubscribe();
+      privateSocialUnsubscribe();
       privateEmailRef.current = undefined;
       setLoading(true);
 
@@ -108,7 +112,7 @@ export default function App() {
                     if (permission === 'granted') {
                         getToken(messaging).then(currentToken => {
                             if (currentToken) {
-                                updateDoc(userDocRef, { fcmToken: currentToken }).catch(e => console.warn('FCM save error', e));
+                                updateDoc(doc(db, 'users', firebaseUser.uid, 'private', 'preferences'), { fcmToken: currentToken }).catch(e => console.warn('FCM save error', e));
                             }
                         }).catch(e => console.warn('FCM getToken error', e));
                     }
@@ -150,6 +154,26 @@ export default function App() {
           const email = snap.exists() ? snap.data().email : undefined;
           privateEmailRef.current = email;
           setUser(prev => prev ? { ...prev, email } : prev);
+        });
+
+        // Listen for private preferences (notif settings, location pref) — owner-only
+        const privatePrefsRef = doc(db, 'users', firebaseUser.uid, 'private', 'preferences');
+        privatePreferencesUnsubscribe = onSnapshot(privatePrefsRef, (snap) => {
+          if (!snap.exists()) return;
+          const prefs = snap.data();
+          setUser(prev => prev ? {
+            ...prev,
+            notificationsEnabled: prefs.notificationsEnabled,
+            notificationRadius: prefs.notificationRadius,
+            sharePreciseLocation: prefs.sharePreciseLocation,
+          } : prev);
+        });
+
+        // Listen for private social (blockedUsers) — owner-only
+        const privateSocialRef = doc(db, 'users', firebaseUser.uid, 'private', 'social');
+        privateSocialUnsubscribe = onSnapshot(privateSocialRef, (snap) => {
+          if (!snap.exists()) return;
+          setUser(prev => prev ? { ...prev, blockedUsers: snap.data().blockedUsers || [] } : prev);
         });
 
         // Check for admin claims and route accordingly
@@ -200,6 +224,8 @@ export default function App() {
       authStateUnsubscribe();
       userProfileUnsubscribe();
       privateAccountUnsubscribe();
+      privatePreferencesUnsubscribe();
+      privateSocialUnsubscribe();
     };
   }, []);
 

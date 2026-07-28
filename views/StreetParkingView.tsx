@@ -617,7 +617,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
         if (!safeUntil || !enabled || !auth.currentUser || !streetName) return;
         const uid = auth.currentUser.uid;
         try {
-            const userSnap = await getDoc(doc(db, 'users', uid));
+            const userSnap = await getDoc(doc(db, 'users', uid, 'private', 'preferences'));
             const fcmToken = userSnap.data()?.fcmToken;
             if (!fcmToken) return;
             const reminderMinutesBefore = 60;
@@ -838,7 +838,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
                         const newPrefix = newGeohash.substring(0, 5);
                         const currentPrefix = userRef.current?.lastGeohash?.substring(0, 5);
                         if (userRef.current && db && newPrefix !== currentPrefix) {
-                            updateDoc(doc(db, 'users', userRef.current.id), { lastGeohash: newGeohash, lastGeohashUpdatedAt: serverTimestamp() }).catch(e => console.warn('Failed to update lastGeohash', e));
+                            updateDoc(doc(db, 'userLocations', userRef.current.id), { lastGeohash: newGeohash, lastGeohashUpdatedAt: serverTimestamp() }).catch(e => console.warn('Failed to update lastGeohash', e));
                         }
                     } catch (err) {
                         console.error("Geohash generation error:", err);

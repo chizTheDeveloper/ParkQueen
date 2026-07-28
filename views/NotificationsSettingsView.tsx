@@ -33,7 +33,7 @@ export const NotificationsSettingsView: React.FC<NotificationsSettingsViewProps>
         setSaving(true);
         setError('');
         try {
-            await updateDoc(doc(db, 'users', user.id), { [field]: value });
+            await updateDoc(doc(db, 'users', user.id, 'private', 'preferences'), { [field]: value });
         } catch {
             setError(t('settings.pref_save_error'));
             // revert local state
