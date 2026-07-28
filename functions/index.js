@@ -1869,7 +1869,7 @@ async function _tryCreateFromSweepNYC(lat, lng) {
 
     // ── SweepNYC API ─────────────────────────────────────────────────────────────
     const sweepUrl = `${SWEEPNYC_BASE}/highlight/sweepinfo?lat=${lat}&lon=${lng}&t=${Date.now()}&radius=0.1`;
-    console.log('[SweepNYC] requesting lat=' + lat + ' lng=' + lng);
+    console.log('[SweepNYC] requesting'); // TM-17: coordinates omitted (user location)
     let apiData;
     try {
       const res = await fetch(sweepUrl);
