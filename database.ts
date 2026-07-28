@@ -32,12 +32,11 @@ export const saveUserProfile = async (profile: UserProfile) => {
       createdAt: serverTimestamp(),
       crowns: 0,
       title: 'Newcomer',
-      moderationStatus: 'active',
-      reportCount: 0,
     });
     await Promise.all([
       setDoc(doc(db, 'users', firebaseUser.uid, 'private', 'social'), { blockedUsers: [] }),
       setDoc(doc(db, 'users', firebaseUser.uid, 'private', 'preferences'), { notificationRadius: 1 }),
+      setDoc(doc(db, 'users', firebaseUser.uid, 'private', 'account'), { moderationStatus: 'active', reportCount: 0 }),
     ]);
   } else {
     // Existing doc — update only the fields this call owns; never reset crowns, title, etc.

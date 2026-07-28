@@ -46,8 +46,12 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if signedIn() || isAdmin();
       allow create: if signedIn() && request.auth.uid == userId
-        && !request.resource.data.keys().hasAny(
-             ['phone', 'email', 'dob', 'gender', 'homeArea', 'driverType', 'ageRange']);
+        && !request.resource.data.keys().hasAny([
+             'phone', 'email', 'dob', 'gender', 'homeArea', 'driverType', 'ageRange',
+             'moderationStatus', 'reportCount', 'emailVerified', 'claimCount',
+             'fcmToken', 'notificationsEnabled', 'notificationRadius',
+             'sharePreciseLocation', 'lang', 'blockedUsers',
+             'lastGeohash', 'lastGeohashUpdatedAt', 'lastParkedLocation']);
       allow update: if isAdmin()
         || (signedIn() && request.auth.uid == userId
             && request.resource.data.diff(resource.data).affectedKeys()
@@ -64,15 +68,72 @@ service cloud.firestore {
         allow read, write: if false;
       }
 
-      // Private demographic profile — owner-only; admin read for moderation
-      match /private/{docId} {
+      // private/account — server-written only (moderationStatus, reportCount, emailVerified)
+      match /private/account {
+        allow read: if signedIn() && request.auth.uid == userId;
+        allow read: if isAdmin();
+        allow write: if false;
+      }
+
+      // private/preferences — owner read/write; strict field schema
+      match /private/preferences {
+        allow read: if signedIn() && request.auth.uid == userId;
+        allow write: if signedIn() && request.auth.uid == userId
+          && request.resource.data.keys().hasOnly([
+               'notificationRadius', 'notificationsEnabled', 'sharePreciseLocation',
+               'lang', 'fcmToken'])
+          && (!('notificationRadius' in request.resource.data)
+               || (request.resource.data.notificationRadius is number
+                   && request.resource.data.notificationRadius >= 0.1
+                   && request.resource.data.notificationRadius <= 50))
+          && (!('notificationsEnabled' in request.resource.data)
+               || request.resource.data.notificationsEnabled is bool)
+          && (!('sharePreciseLocation' in request.resource.data)
+               || request.resource.data.sharePreciseLocation is bool)
+          && (!('lang' in request.resource.data)
+               || request.resource.data.lang in ['en', 'es'])
+          && (!('fcmToken' in request.resource.data)
+               || (request.resource.data.fcmToken is string
+                   && request.resource.data.fcmToken.size() <= 4096));
+      }
+
+      // private/social — owner read/write; bounded blockedUsers list
+      match /private/social {
+        allow read: if signedIn() && request.auth.uid == userId;
+        allow write: if signedIn() && request.auth.uid == userId
+          && request.resource.data.keys().hasOnly(['blockedUsers'])
+          && request.resource.data.blockedUsers is list
+          && request.resource.data.blockedUsers.size() <= 500;
+      }
+
+      // private/profile — owner-only demographic data (dob, gender, homeArea, etc.)
+      match /private/profile {
         allow read, write: if signedIn() && request.auth.uid == userId;
         allow read: if isAdmin();
       }
     }
 
     match /userLocations/{userId} {
-      allow read, write: if signedIn() && request.auth.uid == userId;
+      allow read: if signedIn() && request.auth.uid == userId;
+      allow write: if signedIn() && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly(['lastGeohash', 'lastGeohashUpdatedAt'])
+        && request.resource.data.lastGeohash is string
+        && request.resource.data.lastGeohash.size() >= 1
+        && request.resource.data.lastGeohash.size() <= 12
+        && request.resource.data.lastGeohashUpdatedAt is timestamp
+        && request.resource.data.lastGeohashUpdatedAt >= request.time - duration.value(5, 'm')
+        && request.resource.data.lastGeohashUpdatedAt <= request.time + duration.value(1, 'm');
+    }
+
+    // Per-device FCM token storage — owner read/write; prevents cross-device token pollution
+    match /users/{userId}/devices/{deviceId} {
+      allow read: if signedIn() && request.auth.uid == userId;
+      allow write: if signedIn() && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly(['fcmToken', 'registeredAt'])
+        && request.resource.data.fcmToken is string
+        && request.resource.data.fcmToken.size() <= 4096
+        && request.resource.data.registeredAt is timestamp;
+      allow delete: if signedIn() && request.auth.uid == userId;
     }
 
     match /spots/{spotId} {

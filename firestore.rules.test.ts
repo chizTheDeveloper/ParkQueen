@@ -820,13 +820,12 @@ describe('users/{uid} public doc — private field denylist', () => {
 
     // 49
     it('PD9: owner can create a clean user doc without private fields', async () => {
-        // Use a unique UID that has no pre-existing document
+        // Only public fields — private fields must go to subcollections
         const newUid = 'pd9-clean-create-uid-' + Date.now();
         await assertSucceeds(
             setDoc(
                 doc(testEnv.authenticatedContext(newUid).firestore(), 'users', newUid),
-                { fullName: 'New User', username: 'newuser', crowns: 0, title: 'Newcomer',
-                  moderationStatus: 'active', reportCount: 0, blockedUsers: [], notificationRadius: 1 }
+                { fullName: 'New User', username: 'newuser', crowns: 0, title: 'Newcomer' }
             )
         );
     });
@@ -1210,11 +1209,75 @@ describe('TM-04 — private user data isolation', () => {
 
     it('TM04-L: user cannot write to another user\'s userLocations doc', async () => {
         await assertFails(
-            setDoc(doc(otherDb(), 'userLocations', OWNER_UID), { lastGeohash: 'dr5ru' })
+            setDoc(doc(otherDb(), 'userLocations', OWNER_UID), { lastGeohash: 'dr5ru', lastGeohashUpdatedAt: Timestamp.now() })
         );
     });
 
     it('TM04-M: unauthenticated cannot read userLocations', async () => {
         await assertFails(getDoc(doc(anonDb(), 'userLocations', OWNER_UID)));
+    });
+
+    it('TM04-N: owner cannot create root doc containing moderationStatus', async () => {
+        const { setDoc: sd } = await import('firebase/firestore');
+        await assertFails(sd(doc(ownerDb(), 'users', OWNER_UID + '_new'), {
+            fullName: 'Test', crowns: 0, title: 'Newcomer', moderationStatus: 'active',
+        }));
+    });
+
+    it('TM04-O: owner cannot write reportCount to root users doc', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        // Use a value different from the seed (0) so affectedKeys() is non-empty
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { reportCount: 5 }));
+    });
+
+    it('TM04-P: owner cannot write to private/account (server-only)', async () => {
+        const { setDoc: sd } = await import('firebase/firestore');
+        await assertFails(sd(doc(ownerDb(), 'users', OWNER_UID, 'private', 'account'), { moderationStatus: 'active' }));
+    });
+
+    it('TM04-Q: private/preferences rejects invalid lang value', async () => {
+        await assertFails(
+            setDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'preferences'), { lang: 'fr' })
+        );
+    });
+
+    it('TM04-R: private/preferences rejects notificationRadius out of bounds', async () => {
+        await assertFails(
+            setDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'preferences'), { notificationRadius: 200 })
+        );
+    });
+
+    it('TM04-S: private/preferences rejects extra unknown fields', async () => {
+        await assertFails(
+            setDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'preferences'), { notificationRadius: 1, suspiciousField: 'x' })
+        );
+    });
+
+    it('TM04-T: private/social rejects extra fields beyond blockedUsers', async () => {
+        await assertFails(
+            setDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'social'), { blockedUsers: [], extraField: true })
+        );
+    });
+
+    it('TM04-U: userLocations rejects extra fields beyond schema', async () => {
+        await assertFails(
+            setDoc(doc(ownerDb(), 'userLocations', OWNER_UID), { lastGeohash: 'dr5ru', lastGeohashUpdatedAt: Timestamp.now(), extraField: 'x' })
+        );
+    });
+
+    it('TM04-V: owner can register a device token', async () => {
+        await assertSucceeds(
+            setDoc(doc(ownerDb(), 'users', OWNER_UID, 'devices', 'device1'), {
+                fcmToken: 'tok_abc', registeredAt: Timestamp.now(),
+            })
+        );
+    });
+
+    it('TM04-W: other user cannot write to owner\'s device documents', async () => {
+        await assertFails(
+            setDoc(doc(otherDb(), 'users', OWNER_UID, 'devices', 'device1'), {
+                fcmToken: 'tok_abc', registeredAt: Timestamp.now(),
+            })
+        );
     });
 });
