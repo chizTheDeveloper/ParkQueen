@@ -46,12 +46,19 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if signedIn() || isAdmin();
       allow create: if signedIn() && request.auth.uid == userId
-        && !request.resource.data.keys().hasAny([
-             'phone', 'email', 'dob', 'gender', 'homeArea', 'driverType', 'ageRange',
-             'moderationStatus', 'reportCount', 'emailVerified', 'claimCount',
-             'fcmToken', 'notificationsEnabled', 'notificationRadius',
-             'sharePreciseLocation', 'lang', 'blockedUsers',
-             'lastGeohash', 'lastGeohashUpdatedAt', 'lastParkedLocation']);
+        && request.resource.data.keys().hasOnly([
+             'id', 'fullName', 'username', 'createdAt', 'crowns', 'title',
+             'vehicleType', 'vehicleBrand', 'vehicleColor',
+             'avatarUrl', 'avatarManifestId', 'avatarAgeGroup', 'avatarUpdatedAt'])
+        && (!('id' in request.resource.data) || request.resource.data.id == userId)
+        && (!('crowns' in request.resource.data) || request.resource.data.crowns == 0)
+        && (!('fullName' in request.resource.data)
+             || (request.resource.data.fullName is string
+                 && request.resource.data.fullName.size() <= 100))
+        && (!('username' in request.resource.data)
+             || (request.resource.data.username is string
+                 && request.resource.data.username.size() >= 2
+                 && request.resource.data.username.size() <= 30));
       allow update: if isAdmin()
         || (signedIn() && request.auth.uid == userId
             && request.resource.data.diff(resource.data).affectedKeys()
@@ -123,17 +130,6 @@ service cloud.firestore {
         && request.resource.data.lastGeohashUpdatedAt is timestamp
         && request.resource.data.lastGeohashUpdatedAt >= request.time - duration.value(5, 'm')
         && request.resource.data.lastGeohashUpdatedAt <= request.time + duration.value(1, 'm');
-    }
-
-    // Per-device FCM token storage — owner read/write; prevents cross-device token pollution
-    match /users/{userId}/devices/{deviceId} {
-      allow read: if signedIn() && request.auth.uid == userId;
-      allow write: if signedIn() && request.auth.uid == userId
-        && request.resource.data.keys().hasOnly(['fcmToken', 'registeredAt'])
-        && request.resource.data.fcmToken is string
-        && request.resource.data.fcmToken.size() <= 4096
-        && request.resource.data.registeredAt is timestamp;
-      allow delete: if signedIn() && request.auth.uid == userId;
     }
 
     match /spots/{spotId} {

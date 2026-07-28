@@ -1265,19 +1265,4 @@ describe('TM-04 — private user data isolation', () => {
         );
     });
 
-    it('TM04-V: owner can register a device token', async () => {
-        await assertSucceeds(
-            setDoc(doc(ownerDb(), 'users', OWNER_UID, 'devices', 'device1'), {
-                fcmToken: 'tok_abc', registeredAt: Timestamp.now(),
-            })
-        );
-    });
-
-    it('TM04-W: other user cannot write to owner\'s device documents', async () => {
-        await assertFails(
-            setDoc(doc(otherDb(), 'users', OWNER_UID, 'devices', 'device1'), {
-                fcmToken: 'tok_abc', registeredAt: Timestamp.now(),
-            })
-        );
-    });
 });
