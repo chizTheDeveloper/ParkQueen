@@ -1,6 +1,6 @@
 # ParQueen Dependency and SDK Inventory
 
-Assessment date: 2026-07-24  
+Assessment date: 2026-07-24 (updated 2026-07-28)  
 Node: 24.18.0 | npm: 11.16.0 | Firebase CLI: installed  
 Vulnerability baseline: after `npm audit fix` (no `--force`, no `--legacy-peer-deps`)
 
@@ -166,3 +166,30 @@ None are user-facing or executed at application runtime.
 4. **Remove dormant `leaflet`** — replaced by Mapbox, confirmed unused. Reduces audit surface.
 5. **Remove `react-native-webview`** — no usage in web app; dormant native dependency.
 6. **Consider removing Expo entirely from root** — the shipped product is a Vite web app. Expo tooling in root dependencies inflates the vulnerability surface and complicates `npm audit` signal. If native packaging is pursued, use a separate workspace or project structure.
+
+---
+
+## Functions package audit (2026-07-28)
+
+`functions/` has its own `package.json` with a separate dependency tree.
+
+### Baseline
+
+| Severity | Count | Root causes |
+|---|---|---|
+| Critical | 0 | — |
+| High | 24 | `jest` toolchain (16), `gaxios`/`gcp-metadata`/`google-gax` (6), `brace-expansion`/`glob`/`minimatch`/`rimraf` (transitive) |
+| Moderate | 8 | Transitive |
+| Total | 32 | |
+
+### Reachability
+
+**Jest toolchain (HIGH, 16 packages):** `jest`, `firebase-functions-test`, `@jest/core`, `@jest/transform`, `babel-jest`, `babel-plugin-istanbul`, `jest-circus`, `jest-cli`, `jest-config`, `jest-resolve-dependencies`, `jest-runner`, `jest-runtime`, `jest-snapshot`, `@jest/reporters`, `@jest/expect`, `@jest/globals`. All are `devDependencies` in `functions/package.json`. They are excluded from Cloud Functions deployment — only `dependencies` are uploaded. **No production runtime exposure.**
+
+**`gaxios` / `gcp-metadata` / `google-gax` (HIGH):** These are transitive runtime dependencies of `firebase-admin` and the Google Cloud Vision API client. They appear in `HIGH` due to transitive `rimraf@2` → `glob` → `minimatch` → `brace-expansion` ReDoS chain. The `rimraf` usage within these libraries is isolated to internal file-system operations during library initialisation on the Cloud Functions cold start — it is not on any attacker-reachable code path (no user-supplied glob pattern reaches these packages). **Exploitability: theoretical/none** in the Cloud Functions execution model.
+
+**Fix:** All 32 functions vulnerabilities resolve with an `npm audit fix` that bumps `uuid` and upgrades the `firebase-admin` / `google-gax` transitive graph. Currently deferred because: (a) no attacker-reachable path exists, and (b) `firebase-admin` major version bump requires validation of Admin SDK API surface used across `functions/index.js`.
+
+### Decision
+
+Accept current functions audit posture. Revisit when `firebase-admin@14.x` stabilises or when any finding is reclassified as exploitable via a Cloud Functions invocation path.
