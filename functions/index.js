@@ -15,8 +15,11 @@ initializeApp();
 const db = getFirestore();
 const { geohashForLocation } = require('geofire-common');
 const sendgridApiKey = defineSecret("SENDGRID_API_KEY");
+// Operator action: firebase functions:secrets:set EMAIL_RATE_LIMIT_PEPPER (random 32-byte hex)
+const emailRateLimitPepper = defineSecret("EMAIL_RATE_LIMIT_PEPPER");
 const { osmNameToDOT, streetNameToLikePattern, dotSideToCardinal, BOROUGH_CODE_TO_NAME, nycOdSegmentDocId, selectBlockFace } = require('./nycOpenDataNormalizer');
 const { redactForLog } = require('./redactForLog');
+const { checkRateLimit } = require('./rateLimiter');
 
 // Crown title thresholds (must match client-side utils/crowns.ts)
 const TITLE_THRESHOLDS = [
@@ -93,32 +96,16 @@ async function applyTrustDelta(uid, statField, eventId, source = 'user') {
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ─── Per-user rate limiter (TM-13) ───────────────────────────────────────────
-// Fixed-window limiter: divides time into non-overlapping windows of windowSec each.
-// Boundary-burst risk: a caller can make 2× limit requests in 1 second by straddling
-// a window boundary. Acceptable for current threat model; upgrade to token-bucket or
-// sliding-window (e.g. Redis INCR + EXPIRE) if stricter enforcement is needed.
-// Doc IDs: rateLimits/{operation}_{windowKey}_{uid}  (server-only, rules deny all client access)
-// Operator action required: enable Firestore TTL policy on rateLimits.expiresAt
-// to prevent unbounded collection growth.
-async function checkRateLimit(uid, operation, { limit, windowSec }) {
-    const windowKey = Math.floor(Date.now() / (windowSec * 1000));
-    const ref = db.collection('rateLimits').doc(`${operation}_${windowKey}_${uid}`);
-    await db.runTransaction(async (tx) => {
-        const snap = await tx.get(ref);
-        const count = snap.exists ? (snap.data().count || 0) : 0;
-        if (count >= limit) {
-            throw new HttpsError('resource-exhausted', 'Too many requests. Try again later.');
-        }
-        tx.set(ref, {
-            count: count + 1,
-            uid,
-            operation,
-            expiresAt: Timestamp.fromMillis(Date.now() + windowSec * 2000),
-        }, { merge: true });
-    });
-}
-// ─────────────────────────────────────────────────────────────────────────────
+// Initialize private/account subcollection when a new user doc is created.
+// Rules set allow write: if false on private/account, so only this server trigger can create it.
+exports.initUserPrivateAccount = onDocumentCreated(
+  { document: 'users/{userId}', region: 'us-central1' },
+  async (event) => {
+    const { userId } = event.params;
+    await db.doc(`users/${userId}/private/account`)
+      .set({ moderationStatus: 'active', reportCount: 0 }, { merge: true });
+  }
+);
 
 // 1) Delete expired spots every hour
 exports.cleanupExpiredSpotsHourly = onSchedule(
@@ -450,52 +437,97 @@ exports.notifyNearbyUsers = onDocumentCreated(
     // 4-char prefix ≈ 20km coarse filter, then precise distance check
     const prefix = spotGeohash.substring(0, 4);
 
+    const MAX_CANDIDATES = 200;
     try {
       const neighborsSnap = await db.collection("userLocations")
           .where("lastGeohash", ">=", prefix)
           .where("lastGeohash", "<=", prefix + "\uf8ff")
+          .limit(MAX_CANDIDATES)
           .get();
 
-      const messages = [];
+      if (neighborsSnap.empty) return;
+
       const geofire = require("geofire-common");
-      const prefsPromises = [];
+
+      // Build candidate list: distance-filtered, excluding the finder, skipping stale locations
+      const candidates = [];
       neighborsSnap.forEach(locDoc => {
           const locData = locDoc.data();
           const userId = locDoc.id;
           if (userId === spotData.finderId) return;
           if (!locData.lastGeohash) return;
-          // Skip users with stale location — prevents cross-borough false positives
-          const geohashAge = locData.lastGeohashUpdatedAt ? Date.now() - locData.lastGeohashUpdatedAt.toMillis() : Infinity;
-          if (geohashAge > 24 * 60 * 60 * 1000) return;
+          const ageMs = locData.lastGeohashUpdatedAt
+              ? Date.now() - locData.lastGeohashUpdatedAt.toMillis()
+              : Infinity;
+          if (ageMs > 24 * 60 * 60 * 1000) return;
           const [userLat, userLng] = geofire.geohashToLocation(locData.lastGeohash);
           const distMiles = haversineDistMiles(userLat, userLng, spotData.lat, spotData.lng);
-          prefsPromises.push(
-              db.doc(`users/${userId}/private/preferences`).get().then(prefsSnap => {
-                  if (!prefsSnap.exists) return;
-                  const prefs = prefsSnap.data();
-                  if (!prefs.fcmToken) return;
-                  if (prefs.notificationsEnabled === false) return;
-                  const userRadius = prefs.notificationRadius || 1;
-                  if (distMiles > userRadius) return;
-                  const distLabel = distMiles < 0.1 ? 'right next to you' : '~' + distMiles.toFixed(1) + ' mi away';
-                  messages.push({
-                      token: prefs.fcmToken,
-                      notification: {
-                          title: "👑 New Spot Near You!",
-                          body: "Someone just left a spot " + distLabel + "."
-                      },
-                      // TM-17: no exact coordinates or finder identity in FCM data payload;
-                      // client fetches full spot details from Firestore after receiving the notification.
-                      data: { spotId: event.params.spotId }
-                  });
-              })
-          );
+          candidates.push({ userId, distMiles });
       });
-      await Promise.all(prefsPromises);
 
-      if (messages.length > 0) {
-          const response = await getMessaging().sendEach(messages);
-          console.log("Geofence push: " + response.successCount + " sent, " + response.failureCount + " failed.");
+      if (candidates.length === 0) return;
+
+      // Fetch all preferences concurrently — Admin SDK has no getAll() for subcollection
+      // paths, so concurrent individual .get() calls are the correct batching approach.
+      const prefsResults = await Promise.all(
+          candidates.map(c =>
+              db.doc(`users/${c.userId}/private/preferences`).get()
+                .then(snap => ({ userId: c.userId, distMiles: c.distMiles, prefs: snap.exists ? snap.data() : null }))
+          )
+      );
+
+      // Build FCM message list — apply notification preference filters
+      const messages = [];
+      for (const { distMiles, prefs } of prefsResults) {
+          if (!prefs || !prefs.fcmToken) continue;
+          if (prefs.notificationsEnabled === false) continue;
+          const userRadius = prefs.notificationRadius || 1;
+          if (distMiles > userRadius) continue;
+          const distLabel = distMiles < 0.1 ? 'right next to you' : '~' + distMiles.toFixed(1) + ' mi away';
+          messages.push({
+              token: prefs.fcmToken,
+              notification: {
+                  title: "👑 New Spot Near You!",
+                  body: "Someone just left a spot " + distLabel + "."
+              },
+              // TM-17: no exact coordinates or finder identity in FCM data payload;
+              // client fetches spot details from Firestore after receiving the notification.
+              data: { spotId: event.params.spotId }
+          });
+      }
+
+      if (messages.length === 0) return;
+
+      // Send in 500-message chunks (FCM sendEach limit); collect stale tokens for cleanup
+      const FCM_BATCH = 500;
+      let totalSent = 0, totalFailed = 0;
+      const staleTokens = [];
+      for (let i = 0; i < messages.length; i += FCM_BATCH) {
+          const chunk = messages.slice(i, i + FCM_BATCH);
+          const response = await getMessaging().sendEach(chunk);
+          totalSent += response.successCount;
+          totalFailed += response.failureCount;
+          response.responses.forEach((r, idx) => {
+              if (!r.success) {
+                  const code = r.error?.code || '';
+                  if (code === 'messaging/registration-token-not-registered' ||
+                      code === 'messaging/invalid-registration-token') {
+                      staleTokens.push(chunk[idx].token);
+                  }
+              }
+          });
+      }
+      console.log(`Geofence push: ${totalSent} sent, ${totalFailed} failed, ${staleTokens.length} stale tokens`);
+
+      // Best-effort stale token cleanup
+      if (staleTokens.length > 0) {
+          const tokenSet = new Set(staleTokens);
+          await Promise.all(
+              prefsResults
+                  .filter(r => r.prefs && tokenSet.has(r.prefs.fcmToken))
+                  .map(r => db.doc(`users/${r.userId}/private/preferences`)
+                      .update({ fcmToken: FieldValue.delete() }).catch(() => {}))
+          );
       }
     } catch (error) {
       console.error("Error in notifyNearbyUsers:", error);
@@ -505,7 +537,7 @@ exports.notifyNearbyUsers = onDocumentCreated(
 
 // 4) Generate and send email OTP
 exports.generateEmailOTP = onCall(
-  { region: "us-central1", secrets: [sendgridApiKey] },
+  { region: "us-central1", secrets: [sendgridApiKey, emailRateLimitPepper] },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Sign in first.");
     const email = request.data?.email;
@@ -513,9 +545,8 @@ exports.generateEmailOTP = onCall(
 
     const uid = request.auth.uid;
     await checkRateLimit(uid, 'generateEmailOTP', { limit: 10, windowSec: 3600 });
-    // Also rate-limit by a one-way hash of the normalised target address to prevent a
-    // single account from flooding one inbox (account-farm defence).
-    const emailHash = require('crypto').createHash('sha256')
+    // HMAC with server-only pepper prevents rainbow-table attacks on per-inbox rate limit keys.
+    const emailHash = require('crypto').createHmac('sha256', emailRateLimitPepper.value())
         .update(email.trim().toLowerCase()).digest('hex');
     await checkRateLimit(emailHash, 'generateEmailOTP_email', { limit: 10, windowSec: 3600 });
     const docRef = db.collection("emailVerificationCodes").doc(uid);

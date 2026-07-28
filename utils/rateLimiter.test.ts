@@ -5,10 +5,9 @@
  */
 import { describe, it, expect } from 'vitest';
 
-// ── Inline the window-key formula so tests stay in sync with the implementation ──
-function windowKey(nowMs: number, windowSec: number): number {
-    return Math.floor(nowMs / (windowSec * 1000));
-}
+// Import from production module — validates real code, not a formula copy.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { windowKey } = require('../functions/rateLimiter') as { windowKey: (nowMs: number, windowSec: number) => number };
 
 describe('TM-13 — fixed-window rate limiter', () => {
     describe('window-key derivation', () => {
