@@ -446,3 +446,134 @@ Eight audit sections (§2–§9) completed on `audit/app-store-readiness-2026`. 
 - TM-19: Credential rotation verification via provider metadata
 - Production data migration: `utils/migration/privatizeContactFields.ts` in apply mode post-deployment
 - Legal sign-off on `adminAuditLog` and `moderationLog` retention categories
+
+## Phase H — Avatar pipeline quarantine, retry hardening, and log redaction (2026-07-29)
+
+Complete rewrite of the avatar moderation pipeline with quarantine path design, generation-scoped idempotency, real bounded retry, Sharp 0.35.3 defensive processing, full logging audit, and 25 new moderation integration tests. No deployment performed.
+
+### Commits
+
+| Commit | Message |
+|---|---|
+| (pending rebuild) | `security(avatar): quarantine upload path, generation-scoped idempotency, bounded retry` |
+| (pending rebuild) | `security(avatar): upgrade Sharp to 0.35.3, defensive pixel/dimension/channel limits` |
+| (pending rebuild) | `security(logging): harden sanitizeError allowlist; fix 3 raw err.message leaks` |
+| (pending rebuild) | `test(avatar): add 25 moderation integration tests (MOD-01–MOD-25)` |
+| (pending rebuild) | `test(storage): rewrite storage rules tests for quarantine architecture (ST-01–ST-22)` |
+
+### Work completed
+
+**Quarantine path architecture (`functions/index.js`, `storage.rules`, `views/ProfileView.tsx`):**
+- Three-path separation prevents recursive trigger firing:
+  - `avatarUploads/{uid}/{uploadId}/original` — client writes only (trigger source)
+  - `avatarCandidates/{uid}/{uploadId}.webp` — server-only intermediate (no trigger)
+  - `avatars/{uid}` — server-published after approval (no trigger)
+- Trigger guard: `filePath.startsWith("avatarUploads/")` + `parts.length === 4 && parts[3] === "original"` — filters all non-originals before any work
+- `ProfileView.tsx`: client uploads to `avatarUploads/${user.id}/${uploadId}/original` via `crypto.randomUUID()`; removed `getDownloadURL`/`updateDoc` client calls — server sets `avatarUrl` on approval
+- Moderation listener in ProfileView filters stale docs with `data.uploadId !== uploadId`; recognizes `processing` and `retry_pending` as non-terminal states
+- `deleteAccount` extended to cover all three prefixes: `avatarUploads/`, `avatarCandidates/`, `avatars/`
+
+**Generation-scoped idempotency (`functions/index.js`):**
+- Firestore transaction on `avatarModeration/{uid}` at the start of every invocation
+- Claims processing slot atomically using both `uploadId` and `sourceGeneration` (`event.data.generation`)
+- Same `uploadId` + terminal status → duplicate delivery skip (return without throw)
+- Same `uploadId` + `maxRetries` exceeded → permanent failure, return without throw
+- Different `uploadId` → newer upload supersedes; stale event returns immediately
+- Full Firestore schema: `uid`, `uploadId`, `sourcePath`, `sourceGeneration`, `status`, `retryCount`, `processedPath`, `failureReason`, `createdAt`, `updatedAt`
+
+**Real bounded retry (Option B: event re-delivery + Firestore state):**
+- Transient errors (download, Sharp processing, Vision API, candidate upload) → `throw` — Cloud Functions v2 re-delivers the event
+- Permanent errors (invalid magic bytes, dimension exceeded, pixel limit, content policy) → `return` without throw — no retry scheduled
+- `retryCount` in Firestore incremented on each transient throw; `AVATAR_MAX_RETRIES = 3` enforces the ceiling
+- At `maxRetries`, the function transitions to permanent failure and returns (no throw) — bounded, not unbounded
+- Staleness check at approval: second Firestore transaction before writing `users/{uid}.avatarUrl`; if `mod.uploadId !== uploadId`, a newer upload took the slot during Vision check — candidate deleted, "approval skipped (superseded)" logged
+
+**Sharp 0.35.3 / libvips 8.18.3 (`functions/package.json`):**
+- Upgraded from `^0.33.0` to `^0.35.0`; installed at `0.35.3` with libvips `8.18.3`
+- Defensive construction: `sharp(rawBytes, { failOn: "warning", limitInputPixels: 16_777_216, limitInputChannels: 4, sequentialRead: true })`
+- Constants: `AVATAR_MAX_PIXELS = 16_777_216` (4096×4096), `AVATAR_MAX_DIMENSION = 4096`
+- Rejections before Sharp: zero/excess dimensions, pixel count, unsupported channel count, animated/multipage
+- EXIF/GPS stripped via re-encoding to WebP without `.withMetadata()` — verified by MOD-08
+- Permanent errors set `_perm: true` flag so the catch block returns instead of throws
+- No libvips CVEs in 0.35.3 — the 4 CVEs from 0.33.5 (CVE-2026-33327/33328/35590/35591) are resolved
+
+**sanitizeError allowlist hardening (`functions/redactForLog.js`):**
+- `SAFE_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,63}$/` — unknown names fall back to `'Error'`
+- `SAFE_CODE_RE = /^[A-Za-z0-9_\-/]{0,64}$/` — unknown codes fall back to `''`
+- Returns bounded string `name/code` or `name`; never `.message`, `.stack`, or arbitrary properties
+
+**Logging audit — TM-17 CLOSED (full surface scanned `functions/index.js`):**
+- All 72 `console.log/warn/error` calls audited in this pass
+- Previously unscanned: `[NYCOpenData]` section had 3 raw `err && err.message` calls
+  - Line 2381 (cross-street fetch): `err && err.message` → `sanitizeError(err)`
+  - Line 2395 (Nominatim reverse geocode): `err && err.message` → `sanitizeError(err)` — CRITICAL: Nominatim URL contains `lat=`/`lon=` query params; fetch failure exposes exact coordinates in `err.message`
+  - Line 2433 (NYC Open Data paged fetch): `err && err.message` → `sanitizeError(err)`
+- Non-log `err.message` at line 1511 (`deleteAccount` step recorder): Firestore write, not log; regex-redacted for email/phone + truncated to 200 chars; acceptable
+- All other log calls: use `sanitizeError`, mask UIDs (`slice(0,4)+'***'`), log public API field names/counts/street names, or log HTTP status codes — no user PII
+- TM-17 CLOSED: full logging surface verified; no raw error messages, paths, coordinates, UIDs, or sensitive data in any log path
+
+**Storage Rules — quarantine architecture (`storage.rules`, `storage.rules.test.ts`):**
+- Rewritten for three-path quarantine:
+  - `avatarUploads/{uid}/{uploadId}/{fileName}`: owner write (`isOwner(uid) && isValidAvatarUpload()`); `read, delete: if false`
+  - `avatarCandidates/{allPaths=**}`: `read, write: if false` (server-only)
+  - `avatars/{uid}` + `avatars/{uid}/{allPaths=**}`: `read: if isOwner(uid)`; `write, delete: if false`
+  - Catch-all: `/{allPaths=**} read, write: if false`
+- `isValidAvatarUpload()`: `size < 5 MB && contentType in ['image/jpeg', 'image/png', 'image/webp']`
+- ST-01–ST-22: 22 storage tests covering all three path families, MIME allowlist, size limit, read/delete denial, and catch-all
+
+**Moderation integration tests (`functions/moderateAvatarUpload.integration.test.js`):**
+- 25 tests (MOD-01–MOD-25) using Sharp-generated 4×4 pixel images (JPEG/PNG/WebP)
+- `_hooks.visionSafeSearch` test seam for deterministic Vision injection
+- Covers: approved (JPEG/PNG/WebP), SVG/HTML/corrupt rejection, dimension/pixel limits, EXIF stripping, adult/racy content, null annotation, Vision throw, max retries, retry-then-approve, duplicate delivery, newer upload supersedes, staleness mid-flight, no recursion on candidate/avatars paths, avatarUrl absent before/set after approval, non-original filename ignored, terminal rejection, full schema check
+- Total functions integration tests: **69** (44 existing + 25 new moderation)
+
+### npm audit assessment
+
+**Root package (67 vulnerabilities: 1 critical, 42 high, 23 moderate, 1 low):**
+All vulnerabilities are in the Expo / React Native build toolchain (`expo`, `react-native`, `xcode`, `node-tar`). None loaded at browser runtime or shipped to the web hosting bundle. Single critical (`node-tar` via `xcode`) requires `expo@57` (breaking); unexploitable in web context.
+
+**Functions package (32 vulnerabilities: 8 moderate, 24 high):**
+- Upgraded `sharp` from `0.33.5` to `0.35.3` — 4 libvips CVEs resolved; no sharp/libvips CVEs remain
+- Remaining 32 are in `@google-cloud/*` packages — require breaking upgrades (`--force`). No safe auto-fix path.
+- Attack surface: Cloud Function processes only files that passed Firebase Auth + Storage Rules (authenticated, size-capped at 5 MB, MIME-allowlisted, magic-byte-validated). Sharp processes only after those guards. Worst case for any `@google-cloud` CVE is a sandboxed Function crash — no persistent state or credential exposure.
+
+**Secret scan (dist/):**
+- Firebase web API key (TM-18: accepted, public by design) present in bundle — no new findings.
+- No FCM server keys, OpenAI keys, GitHub PATs, or App Check debug tokens found.
+
+### Quality gates (post Phase H)
+
+| Gate | Result |
+|---|---|
+| `npx tsc --noEmit` | PASS — 0 errors |
+| `npm test` | PASS — 771 tests (28 files) |
+| `npm run test:rules` | PASS — 156 Firestore tests |
+| `npm run test:storage:rules` | PASS — 22 Storage tests |
+| `npm run test:functions` | PASS — 69 integration tests (44 + 25 moderation), 0 skips |
+| `npm run build` | PASS |
+| `node --check functions/index.js` | PASS |
+| `git diff --check` | PASS (LF→CRLF line-ending warnings only, non-error) |
+| `npm ls sharp` (functions/) | `sharp@0.35.3` |
+| Secret scan (dist/) | PASS — Firebase web key TM-18 accepted; no other secrets |
+
+### Updated threat model triage
+
+| Open CRITICAL | 0 |
+|---|---|
+| Open HIGH | 2 (TM-12 App Check enrollment, TM-13 per-function rate limits) |
+| Open MEDIUM | 0 |
+| Open LOW | 0 |
+| Closed this pass | TM-17 CLOSED (full logging surface audited; all raw err.message replaced with sanitizeError; Nominatim lat/lng coordinate leak patched) |
+| Partially addressed | TM-04 (public user doc — vehicle privacy UNRESOLVED) |
+| Partially addressed | TM-06 (Storage Rules exist in repo; deployment pending) |
+| Blocked/external | TM-12 (provider console decision), TM-19 (credential rotation), TM-20 (native packaging) |
+
+### Remaining manual actions
+
+- Deploy Storage Rules (`storage.rules`) in a separately approved rollout
+- TM-12: App Check enrollment decision (reCAPTCHA v3 / DeviceCheck / Play Integrity)
+- TM-13: Per-function rate limits — Firestore-based counters or Cloud Run config
+- TM-04 / vehicle privacy: Product decision on Option A vs Option B before GA
+- TM-19: Credential rotation verification via provider metadata
+- Production data migration: `utils/migration/privatizeContactFields.ts` in apply mode post-deployment
+- Legal sign-off on `adminAuditLog` and `moderationLog` retention categories

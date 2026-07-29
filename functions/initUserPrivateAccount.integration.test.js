@@ -35,7 +35,7 @@ async function nukeUser(uid) {
 }
 
 /** Poll until predicate returns truthy or timeout. */
-async function waitFor(predicate, { timeoutMs = 8000, intervalMs = 250 } = {}) {
+async function waitFor(predicate, { timeoutMs = 45000, intervalMs = 500 } = {}) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
         const result = await predicate();

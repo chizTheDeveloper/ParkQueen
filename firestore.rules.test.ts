@@ -1288,14 +1288,18 @@ describe('§4 — users/{uid} vehicle and avatar allowlists', () => {
         await assertSucceeds(upd(doc(ownerDb(), 'users', OWNER_UID), { vehicleType: 'sedan' }));
     });
 
-    // product decision: vehicleBrand is public — spot finders expose their car for claimer recognition
-    it('SC-2: owner can update vehicleBrand (intentionally public — vehicle identification)', async () => {
+    // UNRESOLVED PRODUCT DECISION (see Phase H audit): vehicleBrand is currently public.
+    // Option A: keep as public — finders expose their car for claimer recognition.
+    // Option B: keep private; copy a minimal vehicle description only to the active Ping during handoff.
+    // Current exposure: vehicleBrand and vehicleColor are readable by any signed-in user via users/{uid}.
+    // Recommendation: move to Option B (copy-on-handoff) before GA. Pending Product approval.
+    it('SC-2: owner can update vehicleBrand (currently public — product decision UNRESOLVED)', async () => {
         const { updateDoc: upd } = await import('firebase/firestore');
         await assertSucceeds(upd(doc(ownerDb(), 'users', OWNER_UID), { vehicleBrand: 'Honda' }));
     });
 
-    // product decision: vehicleColor is public — same rationale as vehicleBrand
-    it('SC-3: owner can update vehicleColor (intentionally public — vehicle identification)', async () => {
+    // Same unresolved decision as SC-2 above — vehicleColor is currently public.
+    it('SC-3: owner can update vehicleColor (currently public — product decision UNRESOLVED)', async () => {
         const { updateDoc: upd } = await import('firebase/firestore');
         await assertSucceeds(upd(doc(ownerDb(), 'users', OWNER_UID), { vehicleColor: 'silver' }));
     });
