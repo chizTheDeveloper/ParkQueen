@@ -37,7 +37,7 @@ const sharp = require('./node_modules/sharp');
 // ── Minimal valid image buffers (generated once; avoids hardcoded byte arrays) ─
 
 const _RED = { r: 200, g: 80, b: 80 };
-let JPEG_1x1, PNG_1x1, WEBP_1x1;
+let JPEG_1x1, PNG_1x1, WEBP_1x1, EXIF_JPEG;
 
 async function ensureTestImages() {
     if (JPEG_1x1) return;
@@ -47,6 +47,10 @@ async function ensureTestImages() {
         .png().toBuffer();
     WEBP_1x1 = await sharp({ create: { width: 4, height: 4, channels: 3, background: _RED } })
         .webp({ quality: 80 }).toBuffer();
+    // JPEG with EXIF orientation metadata — verifies the pipeline strips all EXIF.
+    EXIF_JPEG = await sharp({ create: { width: 32, height: 32, channels: 3, background: _RED } })
+        .withMetadata({ orientation: 6 })
+        .jpeg({ quality: 80 }).toBuffer();
 }
 
 // SVG bytes (for magic-byte rejection test)
@@ -113,9 +117,17 @@ async function getMod(uid) {
 async function nuke(uid) {
     await db.doc(`avatarModeration/${uid}`).delete().catch(() => {});
     await db.doc(`users/${uid}`).delete().catch(() => {});
+    await db.doc(`users/${uid}/private/avatar`).delete().catch(() => {});
     await bucket.deleteFiles({ prefix: `avatarUploads/${uid}/` }).catch(() => {});
     await bucket.deleteFiles({ prefix: `avatarCandidates/${uid}/` }).catch(() => {});
     await bucket.deleteFiles({ prefix: `avatars/${uid}` }).catch(() => {});
+}
+
+async function setPending(uid, uploadId) {
+    await db.doc(`users/${uid}/private/avatar`).set({
+        pendingUploadId: uploadId,
+        requestedAt: Timestamp.now(),
+    });
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -235,25 +247,33 @@ describe('§MOD — moderateAvatarUpload integration tests', () => {
         expect(4096 * 4096).toEqual(16_777_216);
     });
 
-    // MOD-09: EXIF GPS stripped — published WebP has no metadata
-    it('MOD-09: published WebP has no EXIF metadata (GPS stripped by Sharp re-encode)', async () => {
+    // MOD-09: EXIF/GPS stripped — uses a real JPEG fixture with orientation EXIF
+    it('MOD-09: published WebP has no EXIF/XMP/IPTC metadata (GPS stripped by Sharp re-encode)', async () => {
         const uid = freshUid(); const upId = freshUploadId();
         await nuke(uid);
         await db.doc(`users/${uid}`).set({ id: uid });
-        await uploadOriginal(uid, upId, JPEG_1x1, 'image/jpeg');
+
+        // EXIF_JPEG has orientation=6 in its EXIF — must be absent after publication.
+        const srcMeta = await sharp(EXIF_JPEG).metadata();
+        expect(srcMeta.exif).toBeDefined(); // confirm the fixture actually has EXIF
+
+        await uploadOriginal(uid, upId, EXIF_JPEG, 'image/jpeg');
         hooks.visionSafeSearch = safeMock();
         await runFn(await buildEvent(uid, upId));
         const mod = await getMod(uid);
         expect(mod?.status).toBe('approved');
 
-        // Download published WebP and verify no EXIF with sharp
-        const sharp = require('./node_modules/sharp');
         const [pubBytes] = await bucket.file(`avatars/${uid}`).download();
-        const meta = await sharp(pubBytes).metadata();
-        expect(meta.exif).toBeUndefined();
-        expect(meta.icc).toBeUndefined();
-        expect(meta.xmp).toBeUndefined();
-        expect(meta.format).toBe('webp');
+        const pubMeta = await sharp(pubBytes).metadata();
+        expect(pubMeta.format).toBe('webp');
+        expect(pubMeta.width).toBeLessThanOrEqual(512);
+        expect(pubMeta.height).toBeLessThanOrEqual(512);
+        // All EXIF/XMP/IPTC/ICC must be absent — re-encoding to WebP without
+        // .withMetadata() strips every metadata field including GPS coordinates.
+        expect(pubMeta.exif).toBeUndefined();
+        expect(pubMeta.xmp).toBeUndefined();
+        expect(pubMeta.iptc).toBeUndefined();
+        expect(pubMeta.icc).toBeUndefined();
 
         await nuke(uid);
     });
@@ -560,6 +580,104 @@ describe('§MOD — moderateAvatarUpload integration tests', () => {
         expect(mod?.sourcePath).toContain('avatarUploads');
         expect(mod?.createdAt).toBeTruthy();
         expect(mod?.updatedAt).toBeTruthy();
+        await nuke(uid);
+    });
+
+    // ── §MOD retry:true and pendingUploadId race tests ────────────────────────
+
+    // MOD-26: retry:true static assertion
+    it('MOD-26: moderateAvatarUpload trigger is configured with retry:true (static source check)', () => {
+        const fs   = require('fs');
+        const path = require('path');
+        const src  = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+        // retry:true must appear in the trigger options so CF re-delivers on throw.
+        expect(src).toMatch(/retry\s*:\s*true/);
+    });
+
+    // MOD-27: pendingUploadId B set before A's event → A is skipped pre-processing
+    it('MOD-27: A event skipped when pendingUploadId was updated to B before A event fires', async () => {
+        const uid = freshUid(); const upIdA = freshUploadId(); const upIdB = freshUploadId();
+        await nuke(uid);
+        await db.doc(`users/${uid}`).set({ id: uid });
+        await uploadOriginal(uid, upIdA, JPEG_1x1, 'image/jpeg');
+        // Client registered B as the latest intended upload before A's event arrived.
+        await setPending(uid, upIdB);
+        let visionCalled = false;
+        hooks.visionSafeSearch = async () => { visionCalled = true; return { adult: 'VERY_UNLIKELY', racy: 'VERY_UNLIKELY' }; };
+        await runFn(await buildEvent(uid, upIdA));
+        // A was skipped — Vision must not have been called, no moderation doc for A.
+        expect(visionCalled).toBe(false);
+        expect(await getMod(uid)).toBeNull();
+        const userSnap = await db.doc(`users/${uid}`).get();
+        expect(userSnap.data()?.avatarUrl).toBeFalsy();
+        await nuke(uid);
+    });
+
+    // MOD-28: B eventually publishes after A was skipped; pendingUploadId cleared
+    it('MOD-28: B publishes after A skipped; pendingUploadId cleared on success', async () => {
+        const uid = freshUid(); const upIdA = freshUploadId(); const upIdB = freshUploadId();
+        await nuke(uid);
+        await db.doc(`users/${uid}`).set({ id: uid });
+        await uploadOriginal(uid, upIdA, JPEG_1x1, 'image/jpeg');
+        await uploadOriginal(uid, upIdB, JPEG_1x1, 'image/jpeg');
+        await setPending(uid, upIdB);
+        hooks.visionSafeSearch = safeMock();
+        // A's event arrives first and is skipped.
+        await runFn(await buildEvent(uid, upIdA));
+        expect(await getMod(uid)).toBeNull();
+        // B's event arrives and is approved.
+        await runFn(await buildEvent(uid, upIdB));
+        const mod = await getMod(uid);
+        expect(mod?.status).toBe('approved');
+        expect(mod?.uploadId).toBe(upIdB);
+        const userSnap = await db.doc(`users/${uid}`).get();
+        expect(userSnap.data()?.avatarUrl).toBeTruthy();
+        // pendingUploadId must be cleared after approval.
+        const pendingSnap = await db.doc(`users/${uid}/private/avatar`).get();
+        expect(pendingSnap.exists).toBe(false);
+        await nuke(uid);
+    });
+
+    // MOD-29: stale A retries after B approved cause no harm
+    it('MOD-29: stale A retry after B approved does not change published avatarUrl', async () => {
+        const uid = freshUid(); const upIdA = freshUploadId(); const upIdB = freshUploadId();
+        await nuke(uid);
+        await db.doc(`users/${uid}`).set({ id: uid });
+        await uploadOriginal(uid, upIdA, JPEG_1x1, 'image/jpeg');
+        await uploadOriginal(uid, upIdB, JPEG_1x1, 'image/jpeg');
+        // B approved first.
+        await setPending(uid, upIdB);
+        hooks.visionSafeSearch = safeMock();
+        await runFn(await buildEvent(uid, upIdB));
+        expect((await getMod(uid))?.status).toBe('approved');
+        const avatarBefore = (await db.doc(`users/${uid}`).get()).data()?.avatarUrl;
+        // A's stale retry: moderation doc has uploadId=B → superseded; no Vision call.
+        let visionCalled = false;
+        hooks.visionSafeSearch = async () => { visionCalled = true; return safeMock()(); };
+        await runFn(await buildEvent(uid, upIdA));
+        expect(visionCalled).toBe(false);
+        const avatarAfter = (await db.doc(`users/${uid}`).get()).data()?.avatarUrl;
+        expect(avatarAfter).toBe(avatarBefore);
+        await nuke(uid);
+    });
+
+    // MOD-30: partial client failure (write pendingUploadId, upload aborted) — resume safe
+    it('MOD-30: client can safely resume with new uploadId after aborted upload', async () => {
+        const uid = freshUid(); const upIdAborted = freshUploadId(); const upIdResume = freshUploadId();
+        await nuke(uid);
+        await db.doc(`users/${uid}`).set({ id: uid });
+        // First attempt: pendingUploadId written but file never uploaded (simulates network abort).
+        await setPending(uid, upIdAborted);
+        // Client retries: overwrites pendingUploadId and uploads a real file.
+        await uploadOriginal(uid, upIdResume, JPEG_1x1, 'image/jpeg');
+        await setPending(uid, upIdResume);
+        hooks.visionSafeSearch = safeMock();
+        await runFn(await buildEvent(uid, upIdResume));
+        const mod = await getMod(uid);
+        expect(mod?.status).toBe('approved');
+        expect(mod?.uploadId).toBe(upIdResume);
+        const userSnap = await db.doc(`users/${uid}`).get();
+        expect(userSnap.data()?.avatarUrl).toBeTruthy();
         await nuke(uid);
     });
 });

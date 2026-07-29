@@ -1507,3 +1507,79 @@ describe('§9 — Two-user workflow: finder ↔ claimer lifecycle', () => {
         await assertFails(getDoc(doc(anonDb(),  'spotNotifications', WF_NOTIF_ID)));
     });
 });
+
+// ── PA: users/{uid}/private/avatar — pendingUploadId race guard ───────────────
+//
+// Client writes pendingUploadId here before each Storage upload. Server (Admin SDK,
+// bypasses rules) reads it in the moderation transaction and clears it on approval.
+// Rules: owner read/write with strict schema; client delete denied (server-only clear).
+
+describe('PA-01–PA-09: users/{uid}/private/avatar rules', () => {
+    const VALID_PAYLOAD = () => ({
+        pendingUploadId: 'upload-abc-123',
+        requestedAt: Timestamp.now(),
+    });
+
+    it('PA-01: owner can write a valid pendingUploadId record', async () => {
+        await assertSucceeds(
+            setDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'avatar'), VALID_PAYLOAD()),
+        );
+    });
+
+    it('PA-02: owner can read their own private/avatar doc', async () => {
+        await assertSucceeds(
+            getDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'avatar')),
+        );
+    });
+
+    it('PA-03: non-owner cannot write to another user\'s private/avatar', async () => {
+        await assertFails(
+            setDoc(doc(otherDb(), 'users', OWNER_UID, 'private', 'avatar'), VALID_PAYLOAD()),
+        );
+    });
+
+    it('PA-04: unauthenticated cannot write to private/avatar', async () => {
+        await assertFails(
+            setDoc(doc(anonDb(), 'users', OWNER_UID, 'private', 'avatar'), VALID_PAYLOAD()),
+        );
+    });
+
+    it('PA-05: non-owner cannot read another user\'s private/avatar', async () => {
+        await assertFails(
+            getDoc(doc(otherDb(), 'users', OWNER_UID, 'private', 'avatar')),
+        );
+    });
+
+    it('PA-06: unauthenticated cannot read private/avatar', async () => {
+        await assertFails(
+            getDoc(doc(anonDb(), 'users', OWNER_UID, 'private', 'avatar')),
+        );
+    });
+
+    it('PA-07: write rejected when extra unknown field is present', async () => {
+        await assertFails(
+            setDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'avatar'), {
+                ...VALID_PAYLOAD(),
+                extraField: 'bad',
+            }),
+        );
+    });
+
+    it('PA-08: write rejected when pendingUploadId exceeds 64 characters', async () => {
+        await assertFails(
+            setDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'avatar'), {
+                pendingUploadId: 'x'.repeat(65),
+                requestedAt: Timestamp.now(),
+            }),
+        );
+    });
+
+    it('PA-09: write rejected when pendingUploadId is empty string', async () => {
+        await assertFails(
+            setDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'avatar'), {
+                pendingUploadId: '',
+                requestedAt: Timestamp.now(),
+            }),
+        );
+    });
+});
