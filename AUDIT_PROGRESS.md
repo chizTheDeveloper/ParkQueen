@@ -356,3 +356,93 @@ This caused the CI job to exit within 2 seconds at the "Install dependencies" st
 ### Standing instruction
 
 Any future change to `package.json` or `package-lock.json` must be validated by running `npx -p npm@10 -- npm ci` (or equivalent) before committing. A lockfile generated exclusively by npm 11 will silently omit cross-platform optional packages and break GitHub Actions CI.
+
+## Phase G — Final hardening pass (2026-07-28)
+
+Eight audit sections (§2–§9) completed on `audit/app-store-readiness-2026`. No deployment performed.
+
+### Commits
+
+| Commit | Message |
+|---|---|
+| `3dd6d22` | `test(§2): extract fanout helpers and add 24 notification fanout tests` |
+| `33cad87` | `test(§3): add 8 emulator-backed initUserPrivateAccount trigger tests` |
+| `dcd6bab` | `test(§4): add 8 missing user schema allowlist tests` |
+| `d5e01b9` | `test(§5): add 24 rate limiter tests (4 Rules + 20 Firestore emulator)` |
+| `e8928db` | `test(§6): add App Check prod bundle assertion tests (TM-12)` |
+| `5beb7ba` | `fix(§7): add redactForLog call site and extend log redaction tests` |
+| `738065f` | `test(§8): document avatar access policy — SVG acceptance and MIME boundary tests` |
+| `a23c538` | `test(rules): add two-user lifecycle workflow tests (WF-01-WF-12)` |
+
+### Work completed
+
+**§2 — Notification fanout hardening:**
+- Extracted `haversineDistMiles`, `filterCandidates`, `buildMessages`, `collectStaleTokens`, `STALE_MS`, `MAX_CANDIDATES`, `FCM_BATCH` into `functions/notifyFanout.js`
+- Fixed silent fanout abort on malformed geohash: try/catch in `filterCandidates` skips bad candidates and continues
+- 24 unit tests in `utils/notifyFanout.test.ts` covering all helpers including privacy properties (no coordinates or finderId in FCM payloads — TM-17) and constants
+- Vision API error logging changed from raw Error object to `redactForLog({ name, message, status })` — prevents response body leakage
+
+**§3 — initUserPrivateAccount trigger:**
+- 8 emulator-backed integration tests in `functions/initUserPrivateAccount.integration.test.js`
+- Covers: OB-1 doc creation, OB-2 moderationStatus, OB-3 reportCount, OB-4 no leaked fields, OB-5 merge:true, OB-6 two-user isolation, OB-7 subcollection path, OB-8 delete-and-recreate
+
+**§4 — User schema allowlist tests:**
+- 8 tests (SC-1 through SC-8) for `users/{uid}` create/update allowlist enforcement
+- Vehicle fields (vehicleBrand, vehicleColor) documented as intentionally public — finder vehicle identification; avatarUrl and avatarManifestId in update allowlist; id and createdAt confirmed immutable
+
+**§5 — Rate limiter tests:**
+- 4 Rules tests (RL-R1 through RL-R4): `rateLimits` collection client-access fully denied for both auth and anon users
+- 20 Firestore emulator integration tests (RL-1 through RL-20): limit enforcement, TTL, doc ID format, isolation per user/operation/window, HMAC email hash isolation, concurrent request race (exactly LIMIT succeed)
+- `vite.functions.config.ts` updated to include all 3 integration test files
+
+**§6 — App Check bundle assertions:**
+- 6 tests in `utils/appCheckBundleAssertion.test.ts`
+- AC-1–4: dist/ scan confirming no debug token strings (skip when no dist/; all 4 pass after build)
+- AC-5: source-level check that DEV guard precedes FIREBASE_APPCHECK_DEBUG_TOKEN in firebaseConfig.ts
+- AC-6: confirms initializeAppCheck never called (TM-12 remains open — provider decision required)
+
+**§7 — redactForLog hardening:**
+- Extended `utils/redactForLog.test.ts` from 6 to 16 tests
+- 8 tests for TypeScript `utils/redactForLog.ts` version (same SENSITIVE regex, no null guard since TypeScript enforces at compile time)
+- 2 static call-site assertion tests: import present and at least one call site in functions/index.js
+- Fixed dead import: added meaningful call site for Vision API error at `moderateAvatarUpload`
+
+**§8 — Storage Rules MIME policy:**
+- 3 new tests (ST-14 SVG intentional, ST-15 WebP accepted, ST-16 octet-stream rejected)
+- EXIF gap documented: GPS coordinates in EXIF not stripped by Firebase Storage or Vision SafeSearch; server-side stripping (Sharp) deferred to future release
+- SVG acceptance documented: `image/svg+xml` matches `image/.*`; SVGs via `<img>` don't execute scripts; Parsona avatars use Firestore manifests, not Storage
+
+**§9 — Two-user lifecycle workflow tests:**
+- 12 tests (WF-01 through WF-12) in a narrative describe block appended to `firestore.rules.test.ts`
+- Covers: profile cross-reads (WF-01–04), private/account subcollection isolation in both directions and anon, available Ping create by OWNER (WF-05), OTHER can read available Ping (WF-06), THIRD cannot update Ping (WF-07), OTHER can claim Ping via interestedUserId (WF-08), chat participant read isolation in both directions (WF-09–11), notification read restricted to targetUserId (WF-12)
+
+### Quality gates (post Phase G)
+
+| Gate | Result |
+|---|---|
+| `npm ci` | PASS — clean install |
+| `npx tsc --noEmit` | PASS — 0 errors |
+| `npm test` | PASS — 28 files, 769 tests |
+| `npm run test:rules` | PASS — 1 file, 156 tests |
+| `npm run build` | PASS — built in 12.77 s |
+| App Check bundle scan (post-build) | PASS — 6/6 (dist exists) |
+
+### Updated threat model triage
+
+| Open CRITICAL | 0 |
+|---|---|
+| Open HIGH | 2 (TM-12 App Check enrollment, TM-13 per-function rate limits) |
+| Open MEDIUM | 0 |
+| Open LOW | 0 |
+| Partially addressed | TM-04 (public user doc), TM-06 (Storage Rules deployment) |
+| Blocked/external | TM-12 (provider console decision), TM-19 (credential rotation), TM-20 (native packaging) |
+
+### Remaining manual actions (unchanged from Phase F)
+
+- Pin `actions/setup-node@v4` and `actions/setup-java@v4` to SHAs (commands in workflow files)
+- Deploy Storage Rules (`storage.rules`) in a separately approved rollout
+- TM-12: App Check enrollment decision (reCAPTCHA v3 / DeviceCheck / Play Integrity)
+- TM-13: Per-function rate limits — Firestore-based counters or Cloud Run config
+- TM-19: Credential rotation verification via provider metadata
+- Production data migration: `utils/migration/privatizeContactFields.ts` in apply mode post-deployment
+- Legal sign-off on `adminAuditLog` and `moderationLog` retention categories
