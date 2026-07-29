@@ -112,3 +112,25 @@ This is a preliminary source-derived list; `PRIVACY_DATA_INVENTORY.md` is author
 - Firebase App Check enforcement, Auth quotas/abuse controls, IAM, retention/log settings, deletion extensions/jobs, APNs/FCM configuration.
 - Mapbox mobile SDK/token scope and URL/application restrictions for the chosen native architecture.
 - Gemini, SendGrid, and Socrata quotas, retention, data-processing terms, and operational owners.
+
+## Avatar download-token rotation — pre-deployment smoke test
+
+This is a controlled 6-step procedure. Run it in a staging environment, never production, before first deployment of the avatar pipeline. Requires two test accounts (A = avatar owner, B = reviewer).
+
+**Step 1 — Record current state.**
+Sign in as A. Open Firebase console → Firestore → `users/{uid_A}`. Copy `avatarUrl`. Extract the token value from the `?alt=media&token=` query parameter. Fetch the URL in a browser tab; confirm HTTP 200 and the image loads. Record as `URL_OLD / TOKEN_OLD`.
+
+**Step 2 — Upload a replacement.**
+As A, upload a new avatar image through the app UI. Confirm the client writes `pendingUploadId` to `users/{uid_A}/private/avatar` before the upload begins (verify in Firestore). Wait for `moderateAvatarUpload` to complete (check `avatarModeration/{uid_A}.status == 'approved'`).
+
+**Step 3 — Verify new token works.**
+Read `users/{uid_A}.avatarUrl` again. Confirm it differs from `URL_OLD` (the `token=` parameter must be a different UUID). Fetch `URL_NEW` in a browser; confirm HTTP 200.
+
+**Step 4 — Verify old token is revoked.**
+Fetch `URL_OLD` in a private/incognito window. Confirm HTTP 403 (PERMISSION_DENIED). The file at `avatars/{uid_A}` still exists — only the token in the metadata has changed. A different token on the same path confirms the old token is invalidated by overwrite, not file deletion.
+
+**Step 5 — Verify rejected upload preserves old URL.**
+As A, upload a second replacement image. Before Vision SafeSearch runs, the cloud function should not update `avatarUrl`. If you can inject a rejection (e.g., by using the `_hooks.visionSafeSearch` seam in a test environment), confirm `avatarModeration/{uid_A}.status == 'rejected'` and that `users/{uid_A}.avatarUrl` still equals `URL_NEW` (unchanged from Step 3). Fetch `URL_NEW`; confirm still HTTP 200.
+
+**Step 6 — Verify deletion invalidates the URL.**
+Delete the `deleteAccount` callable for A (or manually delete the Storage object at `avatars/{uid_A}` via Admin SDK in staging). Fetch `URL_NEW`; confirm HTTP 403 or 404. This confirms that account deletion (which clears `avatars/{uid}`) revokes the URL as a side effect of removing the file.

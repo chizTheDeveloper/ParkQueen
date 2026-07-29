@@ -493,7 +493,7 @@ Complete rewrite of the avatar moderation pipeline with quarantine path design, 
 - Defensive construction: `sharp(rawBytes, { failOn: "warning", limitInputPixels: 16_777_216, limitInputChannels: 4, sequentialRead: true })`
 - Constants: `AVATAR_MAX_PIXELS = 16_777_216` (4096×4096), `AVATAR_MAX_DIMENSION = 4096`
 - Rejections before Sharp: zero/excess dimensions, pixel count, unsupported channel count, animated/multipage
-- EXIF/GPS stripped via re-encoding to WebP without `.withMetadata()` — verified by MOD-08
+- EXIF stripped via re-encoding to WebP without `.withMetadata()` — verified by MOD-09 (orientation EXIF fixture); GPS coordinates are stripped by EXIF absence but no GPS lat/lng fixture is verified separately
 - Permanent errors set `_perm: true` flag so the catch block returns instead of throws
 - No libvips CVEs in 0.35.3 — the 4 CVEs from 0.33.5 (CVE-2026-33327/33328/35590/35591) are resolved
 
