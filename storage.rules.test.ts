@@ -297,3 +297,20 @@ describe('AV-01 – AV-06: upload abuse controls', () => {
         );
     });
 });
+
+// ── AV-07: Static Rules text assertion ────────────────────────────────────────
+// AV-02 is skipped because the emulator cannot distinguish create vs update.
+// This non-emulator test verifies the rule text itself is correct so that
+// production Firebase Storage will enforce the update prohibition.
+
+describe('AV-07: storage.rules static text assertion — update prohibition present', () => {
+    it('AV-07: storage.rules enforces allow update:if false on the avatarUploads/original path', () => {
+        const rules = readFileSync('storage.rules', 'utf8');
+        // The avatarUploads match block must contain the explicit update denial.
+        // Production Firebase Storage (unlike the emulator) distinguishes create from update.
+        expect(rules).toContain('allow update, delete, read: if false');
+        // The block must be inside an avatarUploads match.
+        const uploadsBlock = rules.split('match /avatarCandidates')[0];
+        expect(uploadsBlock).toContain('allow update, delete, read: if false');
+    });
+});

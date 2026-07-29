@@ -832,39 +832,68 @@ exports.moderateAvatarUpload = onObjectFinalized(
 
 // ── Orphan cleanup helper ─────────────────────────────────────────────────────
 // Deletes avatarUploads/ and avatarCandidates/ objects that are older than
-// cutoffMs (default 24 h) AND whose moderation doc is terminal or absent.
+// cutoffMs (default: 24 h ago) AND whose moderation doc is terminal or absent.
 // Active objects (processing, retry_pending) are never touched.
+// avatars/ (published) is never iterated.
 //
-// NOT exported as a Cloud Function — to activate for production:
-//   exports.cleanAvatarOrphans = onSchedule(
-//     { region: "us-central1", schedule: "every 24 hours" },
-//     () => _cleanOrphanedAvatarObjects(getStorage().bucket(), db)
-//   );
+// Bounded: at most maxObjects (default 1000) objects examined per invocation.
+// Pagination via maxResults + pageToken avoids loading all objects into memory.
+// Idempotent: failed deletes are logged via sanitizeError and do not abort cleanup.
 const ORPHAN_CLEANUP_THRESHOLD_MS = 24 * 60 * 60 * 1000;
-const ORPHAN_TERMINAL_STATUSES = new Set(["approved", "rejected", "failed"]);
+const ORPHAN_MAX_OBJECTS_PER_RUN  = 1000;
+const ORPHAN_TERMINAL_STATUSES    = new Set(["approved", "rejected", "failed"]);
 
-async function _cleanOrphanedAvatarObjects(storageBucket, firestoreDb, cutoffMs) {
-  const stale = cutoffMs ?? (Date.now() - ORPHAN_CLEANUP_THRESHOLD_MS);
-  const [[uploadFiles], [candidateFiles]] = await Promise.all([
-    storageBucket.getFiles({ prefix: "avatarUploads/" }),
-    storageBucket.getFiles({ prefix: "avatarCandidates/" }),
-  ]);
-  const deletions = [];
-  for (const file of [...uploadFiles, ...candidateFiles]) {
-    const created = new Date(file.metadata?.timeCreated ?? 0).getTime();
-    if (created > stale) continue;
-    const uid = file.name.split("/")[1];
-    if (!uid) { deletions.push(file.delete().catch(() => {})); continue; }
-    const snap = await firestoreDb.doc(`avatarModeration/${uid}`).get();
-    const status = snap.exists ? snap.data()?.status : null;
-    if (!status || ORPHAN_TERMINAL_STATUSES.has(status)) {
-      deletions.push(file.delete().catch(() => {}));
-    }
+async function _cleanOrphanedAvatarObjects(storageBucket, firestoreDb, cutoffMs, maxObjects) {
+  const stale  = cutoffMs  ?? (Date.now() - ORPHAN_CLEANUP_THRESHOLD_MS);
+  const limit  = maxObjects ?? ORPHAN_MAX_OBJECTS_PER_RUN;
+  let checked  = 0;
+  let deleted  = 0;
+
+  for (const prefix of ["avatarUploads/", "avatarCandidates/"]) {
+    let pageToken;
+    do {
+      const remaining = limit - checked;
+      if (remaining <= 0) break;
+      const [files, nextQuery] = await storageBucket.getFiles({
+        prefix,
+        maxResults: Math.min(remaining, 500),
+        pageToken,
+      });
+      for (const file of files) {
+        if (checked >= limit) break;
+        checked++;
+        const created = new Date(file.metadata?.timeCreated ?? 0).getTime();
+        if (created > stale) continue;
+        const uid = file.name.split("/")[1];
+        if (!uid) {
+          await file.delete().catch(err =>
+            console.warn("Avatar orphan delete failed:", sanitizeError(err)));
+          deleted++;
+          continue;
+        }
+        const snap = await firestoreDb.doc(`avatarModeration/${uid}`).get();
+        const status = snap.exists ? snap.data()?.status : null;
+        if (!status || ORPHAN_TERMINAL_STATUSES.has(status)) {
+          await file.delete().catch(err =>
+            console.warn("Avatar orphan delete failed:", sanitizeError(err)));
+          deleted++;
+        }
+      }
+      pageToken = nextQuery?.pageToken;
+      if (checked >= limit) break;
+    } while (pageToken);
+    if (checked >= limit) break;
   }
-  await Promise.all(deletions);
-  console.log(`Avatar orphan cleanup: ${uploadFiles.length + candidateFiles.length} checked, ${deletions.length} queued for deletion`);
+
+  console.log(`Avatar orphan cleanup: ${checked} checked, ${deleted} deleted`);
+  return { checked, deleted };
 }
 exports._cleanOrphans = _cleanOrphanedAvatarObjects;
+
+exports.cleanAvatarOrphans = onSchedule(
+  { region: "us-central1", schedule: "every 24 hours", memory: "256MiB" },
+  () => _cleanOrphanedAvatarObjects(getStorage().bucket(), db)
+);
 
 // 7) Validate and claim a username
 // --- Shared Moderation System ---

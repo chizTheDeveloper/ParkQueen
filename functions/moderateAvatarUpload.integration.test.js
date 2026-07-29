@@ -862,4 +862,137 @@ describe('§MOD — moderateAvatarUpload integration tests', () => {
         expect(url).not.toContain('x-goog-signature');
         await nuke(uid);
     });
+
+    // ── §MOD orphan cleanup — pagination, cap, edge cases ─────────────────────
+
+    // MOD-39: per-run cap — maxObjects=1 stops after 1 object even when more exist
+    it('MOD-39: per-run cap (maxObjects=1) deletes at most 1 object per call', async () => {
+        const uid1 = freshUid(); const uid2 = freshUid();
+        const upId1 = freshUploadId(); const upId2 = freshUploadId();
+        await Promise.all([nuke(uid1), nuke(uid2)]);
+
+        for (const [uid, upId] of [[uid1, upId1], [uid2, upId2]]) {
+            await db.doc(`avatarModeration/${uid}`).set({
+                uid, uploadId: upId, status: 'rejected', failureReason: 'content_policy',
+                retryCount: 0, processedPath: null,
+                sourcePath: `avatarUploads/${uid}/${upId}/original`, sourceGeneration: '1',
+                createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+            });
+            await uploadOriginal(uid, upId, JPEG_1x1, 'image/jpeg');
+        }
+
+        const result = await fnModule._cleanOrphans(bucket, db, Infinity, 1);
+        expect(result.checked).toBe(1);
+        expect(result.deleted).toBe(1);
+
+        const [e1] = await bucket.file(`avatarUploads/${uid1}/${upId1}/original`).exists();
+        const [e2] = await bucket.file(`avatarUploads/${uid2}/${upId2}/original`).exists();
+        // Exactly one file remains.
+        expect(e1 || e2).toBe(true);
+        expect(e1 && e2).toBe(false);
+
+        await Promise.all([nuke(uid1), nuke(uid2)]);
+    });
+
+    // MOD-40: two sequential capped runs exhaust a set the first run couldn't finish
+    it('MOD-40: second capped run cleans what the first run left behind', async () => {
+        const uid1 = freshUid(); const uid2 = freshUid();
+        const upId1 = freshUploadId(); const upId2 = freshUploadId();
+        await Promise.all([nuke(uid1), nuke(uid2)]);
+
+        for (const [uid, upId] of [[uid1, upId1], [uid2, upId2]]) {
+            await db.doc(`avatarModeration/${uid}`).set({
+                uid, uploadId: upId, status: 'failed', failureReason: 'max_retries_exhausted',
+                retryCount: 3, processedPath: null,
+                sourcePath: `avatarUploads/${uid}/${upId}/original`, sourceGeneration: '1',
+                createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+            });
+            await uploadOriginal(uid, upId, JPEG_1x1, 'image/jpeg');
+        }
+
+        await fnModule._cleanOrphans(bucket, db, Infinity, 1); // first run: cap at 1
+        await fnModule._cleanOrphans(bucket, db, Infinity, 1); // second run: clears remainder
+
+        const [e1] = await bucket.file(`avatarUploads/${uid1}/${upId1}/original`).exists();
+        const [e2] = await bucket.file(`avatarUploads/${uid2}/${upId2}/original`).exists();
+        expect(e1).toBe(false);
+        expect(e2).toBe(false);
+
+        await Promise.all([nuke(uid1), nuke(uid2)]);
+    });
+
+    // MOD-41: object with no avatarModeration doc (absent status) is treated as orphan
+    it('MOD-41: stale object with no avatarModeration doc is deleted', async () => {
+        const uid = freshUid(); const upId = freshUploadId();
+        await nuke(uid);
+        // Upload file with NO moderation doc — simulates a lost-event orphan.
+        await uploadOriginal(uid, upId, JPEG_1x1, 'image/jpeg');
+
+        await fnModule._cleanOrphans(bucket, db, Infinity);
+
+        const [exists] = await bucket.file(`avatarUploads/${uid}/${upId}/original`).exists();
+        expect(exists).toBe(false);
+        await nuke(uid);
+    });
+
+    // MOD-42: fresh object (uploaded within cutoff window) is never deleted
+    it('MOD-42: object created within the 24-hour cutoff window is preserved', async () => {
+        const uid = freshUid(); const upId = freshUploadId();
+        await nuke(uid);
+        await db.doc(`avatarModeration/${uid}`).set({
+            uid, uploadId: upId, status: 'rejected', failureReason: 'content_policy',
+            retryCount: 0, processedPath: null,
+            sourcePath: `avatarUploads/${uid}/${upId}/original`, sourceGeneration: '1',
+            createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+        });
+        await uploadOriginal(uid, upId, JPEG_1x1, 'image/jpeg');
+
+        // No cutoffMs → default 24-hour threshold; file was just created so it's fresh.
+        await fnModule._cleanOrphans(bucket, db);
+
+        const [exists] = await bucket.file(`avatarUploads/${uid}/${upId}/original`).exists();
+        expect(exists).toBe(true);
+        await nuke(uid);
+    });
+
+    // MOD-43: cleanAvatarOrphans is exported as a named scheduled Cloud Function
+    it('MOD-43: cleanAvatarOrphans is exported as a scheduled function (static assertion)', () => {
+        expect(fnModule).toHaveProperty('cleanAvatarOrphans');
+        expect(typeof fnModule.cleanAvatarOrphans).toBe('function');
+    });
+
+    // MOD-44: _cleanOrphans returns { checked, deleted } with accurate counts
+    it('MOD-44: _cleanOrphans returns { checked, deleted } object with correct counts', async () => {
+        const uid = freshUid(); const upId = freshUploadId();
+        await nuke(uid);
+        await db.doc(`avatarModeration/${uid}`).set({
+            uid, uploadId: upId, status: 'approved', failureReason: null,
+            retryCount: 0, processedPath: `avatarCandidates/${uid}/${upId}.webp`,
+            sourcePath: `avatarUploads/${uid}/${upId}/original`, sourceGeneration: '1',
+            createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+        });
+        await uploadOriginal(uid, upId, JPEG_1x1, 'image/jpeg');
+
+        const result = await fnModule._cleanOrphans(bucket, db, Infinity);
+        expect(result).toMatchObject({ checked: expect.any(Number), deleted: expect.any(Number) });
+        expect(result.checked).toBeGreaterThanOrEqual(1);
+        expect(result.deleted).toBeGreaterThanOrEqual(1);
+        await nuke(uid);
+    });
+
+    // MOD-45: published avatars/ path is never touched by cleanup
+    it('MOD-45: _cleanOrphans never deletes objects under avatars/ (published path)', async () => {
+        const uid = freshUid();
+        await nuke(uid);
+        // Seed a published avatar directly — no moderation doc, which would normally trigger deletion.
+        await bucket.file(`avatars/${uid}`).save(JPEG_1x1, {
+            metadata: { contentType: 'image/jpeg' }, resumable: false,
+        });
+
+        await fnModule._cleanOrphans(bucket, db, Infinity);
+
+        const [exists] = await bucket.file(`avatars/${uid}`).exists();
+        expect(exists).toBe(true);
+        await nuke(uid);
+    });
 });
