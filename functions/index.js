@@ -20,6 +20,7 @@ const emailRateLimitPepper = defineSecret("EMAIL_RATE_LIMIT_PEPPER");
 const { osmNameToDOT, streetNameToLikePattern, dotSideToCardinal, BOROUGH_CODE_TO_NAME, nycOdSegmentDocId, selectBlockFace } = require('./nycOpenDataNormalizer');
 const { redactForLog } = require('./redactForLog');
 const { checkRateLimit } = require('./rateLimiter');
+const { haversineDistMiles, filterCandidates, buildMessages, collectStaleTokens, MAX_CANDIDATES, FCM_BATCH } = require('./notifyFanout');
 
 // Crown title thresholds (must match client-side utils/crowns.ts)
 const TITLE_THRESHOLDS = [
@@ -413,16 +414,6 @@ exports.incrementTotalSpotsPinged = onDocumentCreated(
   }
 );
 
-// Haversine distance in miles
-function haversineDistMiles(lat1, lon1, lat2, lon2) {
-  const R = 3958.8;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
 // 3) Geofenced Notifications for Nearby Users
 exports.notifyNearbyUsers = onDocumentCreated(
   {
@@ -437,7 +428,6 @@ exports.notifyNearbyUsers = onDocumentCreated(
     // 4-char prefix ≈ 20km coarse filter, then precise distance check
     const prefix = spotGeohash.substring(0, 4);
 
-    const MAX_CANDIDATES = 200;
     try {
       const neighborsSnap = await db.collection("userLocations")
           .where("lastGeohash", ">=", prefix)
@@ -448,22 +438,7 @@ exports.notifyNearbyUsers = onDocumentCreated(
       if (neighborsSnap.empty) return;
 
       const geofire = require("geofire-common");
-
-      // Build candidate list: distance-filtered, excluding the finder, skipping stale locations
-      const candidates = [];
-      neighborsSnap.forEach(locDoc => {
-          const locData = locDoc.data();
-          const userId = locDoc.id;
-          if (userId === spotData.finderId) return;
-          if (!locData.lastGeohash) return;
-          const ageMs = locData.lastGeohashUpdatedAt
-              ? Date.now() - locData.lastGeohashUpdatedAt.toMillis()
-              : Infinity;
-          if (ageMs > 24 * 60 * 60 * 1000) return;
-          const [userLat, userLng] = geofire.geohashToLocation(locData.lastGeohash);
-          const distMiles = haversineDistMiles(userLat, userLng, spotData.lat, spotData.lng);
-          candidates.push({ userId, distMiles });
-      });
+      const candidates = filterCandidates(neighborsSnap, spotData, geofire, Date.now());
 
       if (candidates.length === 0) return;
 
@@ -476,30 +451,10 @@ exports.notifyNearbyUsers = onDocumentCreated(
           )
       );
 
-      // Build FCM message list — apply notification preference filters
-      const messages = [];
-      for (const { distMiles, prefs } of prefsResults) {
-          if (!prefs || !prefs.fcmToken) continue;
-          if (prefs.notificationsEnabled === false) continue;
-          const userRadius = prefs.notificationRadius || 1;
-          if (distMiles > userRadius) continue;
-          const distLabel = distMiles < 0.1 ? 'right next to you' : '~' + distMiles.toFixed(1) + ' mi away';
-          messages.push({
-              token: prefs.fcmToken,
-              notification: {
-                  title: "👑 New Spot Near You!",
-                  body: "Someone just left a spot " + distLabel + "."
-              },
-              // TM-17: no exact coordinates or finder identity in FCM data payload;
-              // client fetches spot details from Firestore after receiving the notification.
-              data: { spotId: event.params.spotId }
-          });
-      }
+      const messages = buildMessages(prefsResults, event.params.spotId);
 
       if (messages.length === 0) return;
 
-      // Send in 500-message chunks (FCM sendEach limit); collect stale tokens for cleanup
-      const FCM_BATCH = 500;
       let totalSent = 0, totalFailed = 0;
       const staleTokens = [];
       for (let i = 0; i < messages.length; i += FCM_BATCH) {
@@ -507,15 +462,7 @@ exports.notifyNearbyUsers = onDocumentCreated(
           const response = await getMessaging().sendEach(chunk);
           totalSent += response.successCount;
           totalFailed += response.failureCount;
-          response.responses.forEach((r, idx) => {
-              if (!r.success) {
-                  const code = r.error?.code || '';
-                  if (code === 'messaging/registration-token-not-registered' ||
-                      code === 'messaging/invalid-registration-token') {
-                      staleTokens.push(chunk[idx].token);
-                  }
-              }
-          });
+          staleTokens.push(...collectStaleTokens(chunk, response.responses));
       }
       console.log(`Geofence push: ${totalSent} sent, ${totalFailed} failed, ${staleTokens.length} stale tokens`);
 
@@ -530,7 +477,7 @@ exports.notifyNearbyUsers = onDocumentCreated(
           );
       }
     } catch (error) {
-      console.error("Error in notifyNearbyUsers:", error);
+      console.error("Error in notifyNearbyUsers:", error.message);
     }
   }
 );
