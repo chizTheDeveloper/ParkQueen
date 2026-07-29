@@ -25,4 +25,25 @@ function redactForLog(obj, deep = false) {
     return out;
 }
 
-module.exports = { redactForLog };
+// Allowlist patterns for error name and code — rejects arbitrary strings
+// that could contain user data, stack paths, or API response fragments.
+const SAFE_NAME_RE = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
+const SAFE_CODE_RE = /^[A-Za-z0-9_\-/]{0,64}$/;
+
+/**
+ * Safe error summary for console.error — never logs message, stack, or request body.
+ * Returns only the allowlisted error class name and Firebase/HTTP error code.
+ * Unexpected name/code values fall back to generic tokens.
+ * Usage: console.error('op failed:', sanitizeError(err))
+ */
+function sanitizeError(err) {
+    if (!err) return 'unknown';
+    const rawName = typeof err.name === 'string' ? err.name : '';
+    const rawCode = typeof err.code === 'string' ? err.code
+        : typeof err.status === 'number' ? String(err.status) : '';
+    const name = SAFE_NAME_RE.test(rawName) ? rawName : 'Error';
+    const code = SAFE_CODE_RE.test(rawCode) ? rawCode : '';
+    return code ? `${name}/${code}` : name;
+}
+
+module.exports = { redactForLog, sanitizeError };

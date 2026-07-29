@@ -133,8 +133,39 @@ describe('§7 — redactForLog call-site audit', () => {
         expect(fnSrc).toMatch(/require.*redactForLog/);
     });
 
-    it('redactForLog is called at least once (not just imported)', () => {
-        const callCount = (fnSrc.match(/redactForLog\s*\(/g) || []).length;
-        expect(callCount, 'redactForLog must have at least one call site').toBeGreaterThanOrEqual(1);
+    it('sanitizeError or redactForLog is called at least once (not just imported)', () => {
+        const callCount = (fnSrc.match(/(?:sanitizeError|redactForLog)\s*\(/g) || []).length;
+        expect(callCount, 'a log sanitizer must have at least one call site').toBeGreaterThanOrEqual(1);
+    });
+});
+
+// ─── §7: log-redaction regression (TM-17) ────────────────────────────────────
+// Scans functions/index.js for console.error calls that pass raw error objects
+// or .message/.stack properties instead of sanitizeError(). A violation here
+// means structured log redaction was bypassed and error context (which may
+// contain user data, stack paths, or API response bodies) reaches Cloud Logging.
+
+describe('§7 — TM-17 log-redaction regression: no raw error in console.error', () => {
+    const lines = readFileSync(path.resolve('./functions/index.js'), 'utf-8').split('\n');
+
+    it('no console.error passes raw .message or .stack without sanitizeError', () => {
+        const violations: string[] = [];
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (!line.includes('console.error(')) continue;
+            // Allow lines that go through an approved sanitizer
+            if (/sanitizeError|redactForLog/.test(line)) continue;
+            // Flag raw error property access
+            if (/\b\w+\.(message|stack)\b/.test(line)) {
+                violations.push(`line ${i + 1}: ${line.trim()}`);
+            }
+        }
+        expect(violations, violations.join('\n')).toHaveLength(0);
+    });
+
+    it('sanitizeError is exported from functions/redactForLog.js', () => {
+        const rfl = readFileSync(path.resolve('./functions/redactForLog.js'), 'utf-8');
+        expect(rfl).toMatch(/sanitizeError/);
+        expect(rfl).toMatch(/module\.exports.*sanitizeError/);
     });
 });
