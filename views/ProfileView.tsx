@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useFocusOnMount } from '../hooks/useFocusOnMount';
 import { getStorage, ref, uploadBytes } from 'firebase/storage';
-import { doc, onSnapshot, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp, onSnapshot, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { ChevronLeft, ChevronRight, Edit, Clock, Info, Settings, Crown, MapPin, Handshake, ParkingSquare } from 'lucide-react';
 import { VehicleIcon } from '../utils/vehicleIcon';
@@ -122,6 +122,12 @@ export const ProfileView = ({ user, onBack, setView }) => {
         : Date.now().toString(36) + Math.random().toString(36).slice(2);
       const storageRef = ref(storage, `avatarUploads/${user.id}/${uploadId}/original`);
       try {
+        // Register pendingUploadId before uploading so the server can detect
+        // a pre-event newer-upload race even before this event arrives.
+        await setDoc(doc(db, 'users', user.id, 'private', 'avatar'), {
+          pendingUploadId: uploadId,
+          requestedAt: serverTimestamp(),
+        });
         await uploadBytes(storageRef, file);
         setUploadStatus(t('profile.reviewing_photo'));
 

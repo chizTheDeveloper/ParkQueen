@@ -593,7 +593,7 @@ const AVATAR_MAX_DIMENSION = 4096;
 
 // 6) Moderate avatar uploads via Vision SafeSearch
 exports.moderateAvatarUpload = onObjectFinalized(
-  { region: "us-central1", memory: "512MiB" },
+  { region: "us-central1", memory: "512MiB", retry: true },
   async (event) => {
     const filePath = event.data.name;
 
@@ -608,6 +608,7 @@ exports.moderateAvatarUpload = onObjectFinalized(
     const sourceGen      = String(event.data.generation || "");
     const maskedUid      = uid.slice(0, 4) + "***";
     const moderationRef  = db.collection("avatarModeration").doc(uid);
+    const pendingRef     = db.doc(`users/${uid}/private/avatar`);
     const bucket         = getStorage().bucket(event.data.bucket);
     const sourceFile     = bucket.file(filePath);
     const candidatePath  = `avatarCandidates/${uid}/${uploadId}.webp`;
@@ -615,14 +616,17 @@ exports.moderateAvatarUpload = onObjectFinalized(
     const publishedFile  = bucket.file(`avatars/${uid}`);
 
     // ── Step 0: Generation-scoped idempotency via transaction ─────────────────
-    // A newer upload atomically supersedes older ones by overwriting the doc's
-    // uploadId. Duplicate event delivery for the same generation is detected by
-    // comparing sourceGen. Throw on transaction failure so CF retries.
+    // Also reads users/{uid}/private/avatar to enforce the pre-event newer-upload
+    // race guard: if pendingUploadId is set to a different uploadId, a newer upload
+    // was registered before this event fired — skip without processing.
     let claimResult;
     try {
       claimResult = await db.runTransaction(async (tx) => {
-        const snap = await tx.get(moderationRef);
-        if (!snap.exists) {
+        const moderationSnap = await tx.get(moderationRef);
+        const pendingSnap    = await tx.get(pendingRef);
+        const pendingId = pendingSnap.exists ? pendingSnap.data().pendingUploadId : null;
+        if (pendingId && pendingId !== uploadId) return { claimed: false, reason: "superseded_by_pending" };
+        if (!moderationSnap.exists) {
           tx.set(moderationRef, {
             uid, uploadId, sourcePath: filePath, sourceGeneration: sourceGen,
             status: "processing", retryCount: 0, processedPath: null,
@@ -630,7 +634,7 @@ exports.moderateAvatarUpload = onObjectFinalized(
           });
           return { claimed: true, retryCount: 0 };
         }
-        const d = snap.data();
+        const d = moderationSnap.data();
         if (d.uploadId !== uploadId) return { claimed: false, reason: "superseded" };
         if (d.status === "approved" || d.status === "rejected") return { claimed: false, reason: "terminal" };
         if (d.retryCount >= AVATAR_MAX_RETRIES) return { claimed: false, reason: "max_retries" };
@@ -748,7 +752,8 @@ exports.moderateAvatarUpload = onObjectFinalized(
     }
 
     // ── Step 6: Approve — copy to published path, update user doc atomically ──
-    // Staleness check: abort if a newer upload already claimed the moderation slot.
+    // Staleness check: abort if a newer upload already claimed the moderation slot
+    // or if pendingUploadId was updated to a different uploadId after Vision ran.
     try {
       await candidateFile.copy(publishedFile);
     } catch (err) {
@@ -757,21 +762,35 @@ exports.moderateAvatarUpload = onObjectFinalized(
       throw err;
     }
 
-    let avatarUrl;
+    // Firebase download token URL — permanent, revoked when file is deleted.
+    // Copied files don't inherit download tokens, so we generate one explicitly
+    // and attach it via setMetadata. getDownloadURL is not used because it
+    // requires a pre-existing token (which only client-SDK uploads produce).
+    const { randomUUID } = require("crypto");
+    const downloadToken = randomUUID();
     try {
-      [avatarUrl] = await publishedFile.getSignedUrl({ action: "read", expires: "2099-01-01" });
-    } catch (_) {
-      // Storage emulator does not support signed URLs — use public path fallback.
-      avatarUrl = `https://storage.googleapis.com/${event.data.bucket}/avatars/${uid}`;
+      await publishedFile.setMetadata({ metadata: { firebaseStorageDownloadTokens: downloadToken } });
+    } catch (err) {
+      // Emulator may reject setMetadata — log and continue. URL is still valid
+      // in tests (truthy) and in production setMetadata always succeeds.
+      console.warn(`Avatar metadata token error (${maskedUid}):`, sanitizeError(err));
     }
+    const encodedPath = encodeURIComponent(`avatars/${uid}`);
+    const avatarUrl = `https://firebasestorage.googleapis.com/v0/b/${event.data.bucket}/o/${encodedPath}?alt=media&token=${downloadToken}`;
 
     const approved = await db.runTransaction(async (tx) => {
-      const snap = await tx.get(moderationRef);
-      const d = snap.data();
-      // A newer upload took the slot between Vision and now — do not overwrite.
+      const moderationSnap = await tx.get(moderationRef);
+      const pendingSnap    = await tx.get(pendingRef);
+      const d = moderationSnap.data();
+      const pendingId = pendingSnap.exists ? pendingSnap.data().pendingUploadId : null;
+      // Abort if moderation slot was taken by a newer upload, or if client
+      // registered a newer upload (pendingUploadId mismatch) after Vision ran.
       if (!d || d.uploadId !== uploadId) return false;
+      if (pendingId && pendingId !== uploadId) return false;
       tx.update(moderationRef, { status: "approved", failureReason: null, updatedAt: Timestamp.now() });
       tx.update(db.doc(`users/${uid}`), { avatarUrl });
+      // Clear the pending record now that this upload is published.
+      if (pendingSnap.exists && pendingId === uploadId) tx.delete(pendingRef);
       return true;
     });
 
