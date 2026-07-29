@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useFocusOnMount } from '../hooks/useFocusOnMount';
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { doc, updateDoc, onSnapshot, collection, query, where, getDocs } from 'firebase/firestore';
+import { getStorage, ref, uploadBytes } from 'firebase/storage';
+import { doc, onSnapshot, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
 import { ChevronLeft, ChevronRight, Edit, Clock, Info, Settings, Crown, MapPin, Handshake, ParkingSquare } from 'lucide-react';
 import { VehicleIcon } from '../utils/vehicleIcon';
@@ -115,7 +115,12 @@ export const ProfileView = ({ user, onBack, setView }) => {
       setUploadError(false);
       setUploadStatus(t('profile.uploading'));
       const storage = getStorage();
-      const storageRef = ref(storage, `avatars/${user.id}`);
+      // Each upload gets a unique ID so the client can detect its own moderation result.
+      // The server writes avatarUrl to users/{uid} after approval — no client updateDoc needed.
+      const uploadId = crypto.randomUUID
+        ? crypto.randomUUID()
+        : Date.now().toString(36) + Math.random().toString(36).slice(2);
+      const storageRef = ref(storage, `avatarUploads/${user.id}/${uploadId}/original`);
       try {
         await uploadBytes(storageRef, file);
         setUploadStatus(t('profile.reviewing_photo'));
@@ -126,18 +131,20 @@ export const ProfileView = ({ user, onBack, setView }) => {
           setUploadError(true);
           setUploadStatus(t('profile.photo_timed_out'));
           setIsUploading(false);
-        }, 20000);
+        }, 60000);
 
-        const unsub = onSnapshot(moderationRef, async (snap) => {
+        const unsub = onSnapshot(moderationRef, (snap) => {
           const data = snap.data();
-          if (!data || data.status === 'checking') return;
+          // Ignore stale docs from a previous upload or pre-terminal statuses.
+          if (!data || data.uploadId !== uploadId) return;
+          if (data.status === 'processing' || data.status === 'retry_pending') return;
 
           clearTimeout(timeout);
           unsub();
 
           if (data.status === 'approved') {
-            const avatarUrl = await getDownloadURL(storageRef);
-            await updateDoc(doc(db, 'users', user.id), { avatarUrl });
+            // avatarUrl is set on users/{uid} by the server — picked up by the
+            // existing user-doc listener in App.tsx without a client updateDoc call.
             setUploadError(false);
             setUploadStatus('');
           } else {
@@ -147,8 +154,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
           }
           setIsUploading(false);
         });
-      } catch (error) {
-        console.error('Error uploading file:', error);
+      } catch (_err) {
         setUploadError(true);
         setUploadStatus(t('profile.upload_failed'));
         setIsUploading(false);

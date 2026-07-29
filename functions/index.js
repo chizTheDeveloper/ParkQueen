@@ -18,7 +18,7 @@ const sendgridApiKey = defineSecret("SENDGRID_API_KEY");
 // Operator action: firebase functions:secrets:set EMAIL_RATE_LIMIT_PEPPER (random 32-byte hex)
 const emailRateLimitPepper = defineSecret("EMAIL_RATE_LIMIT_PEPPER");
 const { osmNameToDOT, streetNameToLikePattern, dotSideToCardinal, BOROUGH_CODE_TO_NAME, nycOdSegmentDocId, selectBlockFace } = require('./nycOpenDataNormalizer');
-const { redactForLog } = require('./redactForLog');
+const { redactForLog, sanitizeError } = require('./redactForLog');
 const { checkRateLimit } = require('./rateLimiter');
 const { haversineDistMiles, filterCandidates, buildMessages, collectStaleTokens, MAX_CANDIDATES, FCM_BATCH } = require('./notifyFanout');
 
@@ -286,7 +286,7 @@ exports.processScheduledClaims = onSchedule(
             apns: { payload: { aps: { sound: "default", badge: 1 } } },
           });
         } catch (e) {
-          console.error("FCM reminder failed for", (spot.interestedUserId || '').slice(0, 4) + '***', e.message); // TM-17: mask UID
+          console.error("FCM reminder failed for", (spot.interestedUserId || '').slice(0, 4) + '***', sanitizeError(e));
         }
       }
 
@@ -363,7 +363,7 @@ exports.processScheduledClaims = onSchedule(
           };
         });
       } catch (e) {
-        console.error("Auto-release transaction failed for spot", d.id, e.message);
+        console.error("Auto-release transaction failed for spot", d.id.slice(0, 8) + '***', sanitizeError(e));
       }
 
       if (!releasedInfo) continue;
@@ -477,7 +477,7 @@ exports.notifyNearbyUsers = onDocumentCreated(
           );
       }
     } catch (error) {
-      console.error("Error in notifyNearbyUsers:", error.message);
+      console.error("Error in notifyNearbyUsers:", sanitizeError(error));
     }
   }
 );
@@ -560,40 +560,227 @@ exports.verifyEmailOTP = onCall(
   }
 );
 
+// ── Test seam ─────────────────────────────────────────────────────────────────
+// Integration tests set _hooks.visionSafeSearch to control Vision responses
+// deterministically without calling the real Vision API.
+const _hooks = {
+  visionSafeSearch: null, // null → use real Vision; (gcsUri) => Promise<annotation|null>
+};
+exports._hooks = _hooks;
+
+// ── Avatar moderation helpers ──────────────────────────────────────────────────
+// JPEG: FF D8 FF  |  PNG: 89 50 4E 47 0D 0A 1A 0A  |  WebP: RIFF????WEBP
+function _isAllowedImageHeader(buf) {
+  if (!buf || buf.length < 12) return false;
+  if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return true;
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47 &&
+      buf[4] === 0x0D && buf[5] === 0x0A && buf[6] === 0x1A && buf[7] === 0x0A) return true;
+  if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+      buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) return true;
+  return false;
+}
+
+const AVATAR_MAX_RETRIES = 3;
+// 4096 × 4096 — well above 512 × 512 output; 64× below Sharp's 268 M default.
+const AVATAR_MAX_PIXELS    = 16_777_216;
+const AVATAR_MAX_DIMENSION = 4096;
+
+// Quarantine path design — prevents trigger recursion and pre-approval exposure:
+//   Upload (client-writable, owner-private):  avatarUploads/{uid}/{uploadId}/original
+//   Candidate (server-only, not public):      avatarCandidates/{uid}/{uploadId}.webp
+//   Published (server-written, owner-read):   avatars/{uid}
+//   Moderation state (client-readable):       avatarModeration/{uid}
+
 // 6) Moderate avatar uploads via Vision SafeSearch
 exports.moderateAvatarUpload = onObjectFinalized(
   { region: "us-central1", memory: "512MiB" },
   async (event) => {
     const filePath = event.data.name;
-    if (!filePath.startsWith("avatars/")) return;
 
-    const uid = filePath.split("/")[1];
-    const moderationRef = db.collection("avatarModeration").doc(uid);
-    await moderationRef.set({ status: "checking", updatedAt: Timestamp.now() });
+    // Only process files at exactly avatarUploads/{uid}/{uploadId}/original.
+    // avatarCandidates/ and avatars/ writes by the server never re-trigger here.
+    if (!filePath.startsWith("avatarUploads/")) return;
+    const parts = filePath.split("/");
+    if (parts.length !== 4 || parts[3] !== "original") return;
 
+    const uid            = parts[1];
+    const uploadId       = parts[2];
+    const sourceGen      = String(event.data.generation || "");
+    const maskedUid      = uid.slice(0, 4) + "***";
+    const moderationRef  = db.collection("avatarModeration").doc(uid);
+    const bucket         = getStorage().bucket(event.data.bucket);
+    const sourceFile     = bucket.file(filePath);
+    const candidatePath  = `avatarCandidates/${uid}/${uploadId}.webp`;
+    const candidateFile  = bucket.file(candidatePath);
+    const publishedFile  = bucket.file(`avatars/${uid}`);
+
+    // ── Step 0: Generation-scoped idempotency via transaction ─────────────────
+    // A newer upload atomically supersedes older ones by overwriting the doc's
+    // uploadId. Duplicate event delivery for the same generation is detected by
+    // comparing sourceGen. Throw on transaction failure so CF retries.
+    let claimResult;
     try {
-      const vision = require("@google-cloud/vision");
-      const client = new vision.ImageAnnotatorClient();
-      const bucket = getStorage().bucket(event.data.bucket);
-      const file = bucket.file(filePath);
+      claimResult = await db.runTransaction(async (tx) => {
+        const snap = await tx.get(moderationRef);
+        if (!snap.exists) {
+          tx.set(moderationRef, {
+            uid, uploadId, sourcePath: filePath, sourceGeneration: sourceGen,
+            status: "processing", retryCount: 0, processedPath: null,
+            failureReason: null, createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+          });
+          return { claimed: true, retryCount: 0 };
+        }
+        const d = snap.data();
+        if (d.uploadId !== uploadId) return { claimed: false, reason: "superseded" };
+        if (d.status === "approved" || d.status === "rejected") return { claimed: false, reason: "terminal" };
+        if (d.retryCount >= AVATAR_MAX_RETRIES) return { claimed: false, reason: "max_retries" };
+        tx.update(moderationRef, { status: "processing", updatedAt: Timestamp.now() });
+        return { claimed: true, retryCount: d.retryCount };
+      });
+    } catch (err) {
+      console.error(`Avatar transaction error (${maskedUid}):`, sanitizeError(err));
+      throw err; // transient — let CF retry
+    }
 
-      const [result] = await client.safeSearchDetection(`gs://${event.data.bucket}/${filePath}`);
-      const safe = result.safeSearchAnnotation;
-      const flagged = ["LIKELY", "VERY_LIKELY"];
-      const rejected = flagged.includes(safe.adult) || flagged.includes(safe.racy);
+    if (!claimResult.claimed) {
+      console.log(`Avatar moderation skipped (${claimResult.reason}) for ${maskedUid}`);
+      return;
+    }
+    const retryCount = claimResult.retryCount;
 
-      if (rejected) {
-        await file.delete().catch(() => {});
-        await moderationRef.set({ status: "rejected", reason: "Content policy violation", updatedAt: Timestamp.now() });
-        console.log(`Avatar rejected for user ${uid.slice(0,4)}***: adult=${safe.adult}, racy=${safe.racy}`);
-      } else {
-        await moderationRef.set({ status: "approved", updatedAt: Timestamp.now() });
-        console.log(`Avatar approved for user ${uid.slice(0,4)}***`);
+    // ── Step 1: Download original from quarantine path ────────────────────────
+    let rawBytes;
+    try {
+      [rawBytes] = await sourceFile.download();
+    } catch (err) {
+      await moderationRef.update({ status: "retry_pending", failureReason: "download_error", retryCount: retryCount + 1, updatedAt: Timestamp.now() });
+      console.error(`Avatar download error (${maskedUid}):`, sanitizeError(err));
+      throw err; // transient — let CF retry
+    }
+
+    // ── Step 2: Magic-byte check — permanent rejection, no retry ─────────────
+    if (!_isAllowedImageHeader(rawBytes)) {
+      await Promise.all([
+        sourceFile.delete().catch(() => {}),
+        moderationRef.update({ status: "rejected", failureReason: "invalid_format", updatedAt: Timestamp.now() }),
+      ]);
+      console.log(`Avatar rejected (invalid_format) for ${maskedUid}`);
+      return;
+    }
+
+    // ── Step 3: Process with Sharp — EXIF strip, resize 512×512, WebP ────────
+    // Defensive construction: fail on warnings, explicit pixel/channel caps.
+    // Re-encoding to WebP without .withMetadata() strips all EXIF/GPS/IPTC/XMP.
+    let processedBuffer;
+    try {
+      const sharp = require("sharp");
+      const sharpOpts = { failOn: "warning", limitInputPixels: AVATAR_MAX_PIXELS, limitInputChannels: 4, sequentialRead: true };
+      const meta = await sharp(rawBytes, sharpOpts).metadata();
+      if (!meta.width || meta.width <= 0 || !meta.height || meta.height <= 0)
+        throw Object.assign(new Error("zero dimensions"), { _perm: true, _reason: "zero_dimensions" });
+      if (meta.width > AVATAR_MAX_DIMENSION || meta.height > AVATAR_MAX_DIMENSION)
+        throw Object.assign(new Error("dimension limit"), { _perm: true, _reason: "dimensions_exceeded" });
+      if ((meta.width * meta.height) > AVATAR_MAX_PIXELS)
+        throw Object.assign(new Error("pixel limit"), { _perm: true, _reason: "pixel_count_exceeded" });
+      if (meta.pages && meta.pages > 1)
+        throw Object.assign(new Error("animated"), { _perm: true, _reason: "animated_rejected" });
+      processedBuffer = await sharp(rawBytes, sharpOpts)
+        .resize({ width: 512, height: 512, fit: "inside", withoutEnlargement: true })
+        .webp({ quality: 80 })
+        .toBuffer();
+    } catch (err) {
+      if (err._perm) {
+        await Promise.all([
+          sourceFile.delete().catch(() => {}),
+          moderationRef.update({ status: "rejected", failureReason: err._reason || "invalid_image", updatedAt: Timestamp.now() }),
+        ]);
+        console.log(`Avatar rejected (${err._reason || "invalid_image"}) for ${maskedUid}`);
+        return;
       }
-    } catch (error) {
-      // Vision API errors can include response body / image-content in their message field — redact before logging.
-      console.error("Vision API error:", redactForLog({ name: error?.name, message: error?.message, status: error?.status }));
-      await moderationRef.set({ status: "approved", updatedAt: Timestamp.now() });
+      await moderationRef.update({ status: "retry_pending", failureReason: "processing_error", retryCount: retryCount + 1, updatedAt: Timestamp.now() });
+      console.error(`Avatar processing error (${maskedUid}):`, sanitizeError(err));
+      throw err; // transient — let CF retry
+    }
+
+    // ── Step 4: Save to candidate path (never the trigger prefix) ────────────
+    try {
+      await candidateFile.save(processedBuffer, { metadata: { contentType: "image/webp" }, resumable: false });
+      await moderationRef.update({ processedPath: candidatePath, updatedAt: Timestamp.now() });
+    } catch (err) {
+      await moderationRef.update({ status: "retry_pending", failureReason: "upload_error", retryCount: retryCount + 1, updatedAt: Timestamp.now() });
+      console.error(`Avatar candidate upload error (${maskedUid}):`, sanitizeError(err));
+      throw err; // transient
+    }
+
+    // ── Step 5: Vision SafeSearch on candidate — FAIL CLOSED ─────────────────
+    let safeSnap;
+    try {
+      safeSnap = await (_hooks.visionSafeSearch
+        ? _hooks.visionSafeSearch(`gs://${event.data.bucket}/${candidatePath}`)
+        : (async () => {
+            const vision = require("@google-cloud/vision");
+            const client = new vision.ImageAnnotatorClient();
+            const [result] = await client.safeSearchDetection(`gs://${event.data.bucket}/${candidatePath}`);
+            return result?.safeSearchAnnotation ?? null;
+          })());
+    } catch (err) {
+      await moderationRef.update({ status: "retry_pending", failureReason: "vision_error", retryCount: retryCount + 1, updatedAt: Timestamp.now() });
+      console.error(`Avatar Vision error (${maskedUid}):`, sanitizeError(err));
+      throw err; // transient — let CF retry
+    }
+
+    if (!safeSnap) {
+      // Missing annotation fails closed — retry to give Vision another chance.
+      await moderationRef.update({ status: "retry_pending", failureReason: "missing_annotation", retryCount: retryCount + 1, updatedAt: Timestamp.now() });
+      console.error(`Avatar Vision annotation missing (${maskedUid})`);
+      throw new Error("Missing Vision SafeSearch annotation");
+    }
+
+    const flagged = ["LIKELY", "VERY_LIKELY"];
+    if (flagged.includes(safeSnap.adult) || flagged.includes(safeSnap.racy)) {
+      await Promise.all([
+        sourceFile.delete().catch(() => {}),
+        candidateFile.delete().catch(() => {}),
+        moderationRef.update({ status: "rejected", failureReason: "content_policy", updatedAt: Timestamp.now() }),
+      ]);
+      console.log(`Avatar rejected (content_policy) for ${maskedUid}`);
+      return;
+    }
+
+    // ── Step 6: Approve — copy to published path, update user doc atomically ──
+    // Staleness check: abort if a newer upload already claimed the moderation slot.
+    try {
+      await candidateFile.copy(publishedFile);
+    } catch (err) {
+      await moderationRef.update({ status: "retry_pending", failureReason: "publish_error", retryCount: retryCount + 1, updatedAt: Timestamp.now() });
+      console.error(`Avatar publish copy error (${maskedUid}):`, sanitizeError(err));
+      throw err;
+    }
+
+    let avatarUrl;
+    try {
+      [avatarUrl] = await publishedFile.getSignedUrl({ action: "read", expires: "2099-01-01" });
+    } catch (_) {
+      // Storage emulator does not support signed URLs — use public path fallback.
+      avatarUrl = `https://storage.googleapis.com/${event.data.bucket}/avatars/${uid}`;
+    }
+
+    const approved = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(moderationRef);
+      const d = snap.data();
+      // A newer upload took the slot between Vision and now — do not overwrite.
+      if (!d || d.uploadId !== uploadId) return false;
+      tx.update(moderationRef, { status: "approved", failureReason: null, updatedAt: Timestamp.now() });
+      tx.update(db.doc(`users/${uid}`), { avatarUrl });
+      return true;
+    });
+
+    if (approved) {
+      await Promise.all([sourceFile.delete().catch(() => {}), candidateFile.delete().catch(() => {})]);
+      console.log(`Avatar approved for ${maskedUid}`);
+    } else {
+      await candidateFile.delete().catch(() => {});
+      console.log(`Avatar approval skipped (superseded) for ${maskedUid}`);
     }
   }
 );
@@ -801,7 +988,7 @@ exports.claimUsername = onCall(
       });
     } catch (e) {
       if (e.code) throw e;
-      console.error("Username claim error:", e.message);
+      console.error("Username claim error:", sanitizeError(e));
       throw new HttpsError("internal", "Failed to claim username.");
     }
 
@@ -1433,15 +1620,10 @@ exports.deleteAccount = onCall({ region: 'us-central1' }, async (request) => {
         )
     );
 
-    // Storage avatars — absence is success (idempotent)
-    await step('storage', async () => {
-        // Client uploads to avatars/{uid} (no subdirectory). Use prefix without
-        // trailing slash so getFiles matches both avatars/{uid} and avatars/{uid}/sub.
-        const [files] = await getStorage().bucket().getFiles({ prefix: `avatars/${uid}` });
-        if (files.length > 0) {
-            await getStorage().bucket().deleteFiles({ prefix: `avatars/${uid}` });
-        }
-    });
+    // Storage — clean up all three path families; absence is success (idempotent).
+    await step('storageUploads',   () => getStorage().bucket().deleteFiles({ prefix: `avatarUploads/${uid}/`   }).catch(() => {}));
+    await step('storageCandidates',() => getStorage().bucket().deleteFiles({ prefix: `avatarCandidates/${uid}/` }).catch(() => {}));
+    await step('storagePublished', () => getStorage().bucket().deleteFiles({ prefix: `avatars/${uid}`           }).catch(() => {}));
 
     // ── Auth deletion — only reached after every required step passes ─────────
     try {
@@ -1522,7 +1704,7 @@ exports.scheduleCleaningReminders = onSchedule(
           apns: { payload: { aps: { sound: 'default', badge: 1 } } },
         });
       } catch (e) {
-        console.error('FCM send failed for session', d.id, e.message);
+        console.error('FCM send failed for session', d.id.slice(0, 8) + '***', sanitizeError(e));
       }
       await d.ref.update({ reminderSent: true });
     }));
@@ -1870,7 +2052,7 @@ async function _tryCreateFromSweepNYC(lat, lng) {
       }
       apiData = await res.json();
     } catch (err) {
-      console.warn('[SweepNYC] fetch error:', err && err.message);
+      console.warn('[SweepNYC] fetch error:', sanitizeError(err));
       return { success: false, reason: 'no_sweepnyc_data' };
     }
 
@@ -1974,8 +2156,8 @@ async function _tryCreateFromSweepNYC(lat, lng) {
         }
       }
     } catch (signErr) {
-      console.error('[SweepNYC] signs loop error:', signErr && signErr.message);
-      return { success: false, reason: 'parse_failed', _diag: { stage: 'signs_loop', error: String(signErr) } };
+      console.error('[SweepNYC] signs loop error:', sanitizeError(signErr));
+      return { success: false, reason: 'parse_failed', _diag: { stage: 'signs_loop', error: sanitizeError(signErr) } };
     }
     console.log('[SweepNYC] parsed', parsed.length, '/', signsRaw.length, 'signs');
     Promise.all(failurePromises).catch(() => {});
@@ -2008,8 +2190,8 @@ async function _tryCreateFromSweepNYC(lat, lng) {
         console.warn('[SweepNYC] OSM geometry not found for "' + streetNameForGeo + '" — using coordinate fallback, status=needs_review');
       }
     } catch (geoErr) {
-      console.error('[SweepNYC] geometry error:', geoErr && geoErr.message);
-      return { success: false, reason: 'geometry_failed', _diag: { stage: 'geometry', error: String(geoErr), streetNameForGeo } };
+      console.error('[SweepNYC] geometry error:', sanitizeError(geoErr));
+      return { success: false, reason: 'geometry_failed', _diag: { stage: 'geometry', error: sanitizeError(geoErr) } };
     }
 
     const centerLat = (fromLat + toLat) / 2;
@@ -2018,7 +2200,7 @@ async function _tryCreateFromSweepNYC(lat, lng) {
     try {
       geohash = geohashForLocation([centerLat, centerLng], 9);
     } catch (hashErr) {
-      console.error('[SweepNYC] geohash error:', hashErr && hashErr.message);
+      console.error('[SweepNYC] geohash error:', sanitizeError(hashErr));
       return { success: false, reason: 'geometry_failed', _diag: { stage: 'geohash', centerLat, centerLng } };
     }
 
@@ -2087,8 +2269,8 @@ async function _tryCreateFromSweepNYC(lat, lng) {
         updatedAt: now,
       });
     } catch (writeErr) {
-      console.error('[SweepNYC] Firestore write error:', writeErr && writeErr.message);
-      return { success: false, reason: 'firestore_write_failed', _diag: { stage: 'write', error: String(writeErr) } };
+      console.error('[SweepNYC] Firestore write error:', sanitizeError(writeErr));
+      return { success: false, reason: 'firestore_write_failed', _diag: { stage: 'write', error: sanitizeError(writeErr) } };
     }
 
     const finalStreetName = streetCtx.street || first.street;
@@ -2110,7 +2292,7 @@ async function _tryCreateFromSweepNYC(lat, lng) {
       },
     };
     } catch (topErr) {
-      console.error('[SweepNYC] top-level unhandled error:', (topErr && topErr.stack) || topErr);
+      console.error('[SweepNYC] top-level unhandled error:', sanitizeError(topErr));
       return {
         success: false,
         reason: 'unknown_error',
@@ -2147,8 +2329,8 @@ exports.createSegmentFromSweepNYC = onCall(
       console.log('[SweepNYC→NYCOpenData] falling back, sweepReason:', sweepResult.reason);
       return await _fallbackToNYCOpenData(lat, lng);
     } catch (err) {
-      console.error('[createSegmentFromSweepNYC] top-level error:', err && err.message);
-      return { success: false, reason: 'unknown_error', _diag: { errorMessage: err && err.message } };
+      console.error('[createSegmentFromSweepNYC] top-level error:', sanitizeError(err));
+      return { success: false, reason: 'unknown_error', _diag: { error: sanitizeError(err) } };
     }
   }
 );
@@ -2196,7 +2378,7 @@ async function _fetchCrossStreets(lat, lng, mainStreetOsmName) {
     console.log('[NYCOpenData] cross streets detected:', result);
     return result;
   } catch (err) {
-    console.warn('[NYCOpenData] cross-street fetch error:', err && err.message);
+    console.warn('[NYCOpenData] cross-street fetch error:', sanitizeError(err));
     return [];
   }
 }
@@ -2210,7 +2392,7 @@ async function _reverseGeocodeStreet(lat, lng) {
     const data = await res.json();
     return (data && data.address && data.address.road) || null;
   } catch (err) {
-    console.warn('[NYCOpenData] reverse geocode error:', err && err.message);
+    console.warn('[NYCOpenData] reverse geocode error:', sanitizeError(err));
     return null;
   }
 }
@@ -2248,7 +2430,7 @@ async function _queryNYCOpenData(likePattern, borough) {
       rows.push(...batch);
       if (batch.length < PAGE) break;
     } catch (err) {
-      console.warn('[NYCOpenData] fetch error page', page, ':', err && err.message);
+      console.warn('[NYCOpenData] fetch error page', page, ':', sanitizeError(err));
       break;
     }
   }
@@ -2360,7 +2542,7 @@ async function _fallbackToNYCOpenData(lat, lng) {
         geometrySource = 'fallback';
       }
     } catch (geoErr) {
-      console.error('[NYCOpenData] geometry error:', geoErr && geoErr.message);
+      console.error('[NYCOpenData] geometry error:', sanitizeError(geoErr));
       const HALF = 0.0005;
       fromLat = lat - HALF; fromLng = lng; toLat = lat + HALF; toLng = lng; bearing = 0;
       geometrySource = 'fallback';
@@ -2458,9 +2640,9 @@ async function _fallbackToNYCOpenData(lat, lng) {
       },
     };
   } catch (err) {
-    console.error('[NYCOpenData] fallback error:', err && err.message);
+    console.error('[NYCOpenData] fallback error:', sanitizeError(err));
     return { success: false, reason: 'unknown_error',
-      _diag: { stage: 'nyc_od_top', errorMessage: err && err.message } };
+      _diag: { stage: 'nyc_od_top', error: sanitizeError(err) } };
   }
 }
 
