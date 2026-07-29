@@ -580,6 +580,19 @@ function _isAllowedImageHeader(buf) {
   return false;
 }
 
+// ── Retry model — two independent layers ──────────────────────────────────────
+// Layer 1 — Eventarc Standard delivery (platform):
+//   At-least-once delivery with exponential back-off. Default retention is
+//   approximately 24 hours; no assumed five-attempt ceiling from the platform.
+//   `retry: true` on the trigger activates re-delivery on uncaught throws;
+//   without it, thrown errors are silently discarded and no retry occurs.
+//
+// Layer 2 — Application retry ceiling (ParQueen):
+//   AVATAR_MAX_RETRIES = 3, tracked in avatarModeration/{uid}.retryCount.
+//   On the third exhausted attempt the event is acknowledged (no throw),
+//   the moderation doc status is set to "failed", and both source and
+//   candidate objects are deleted. Permanent failures (invalid format,
+//   content policy) are acknowledged immediately regardless of retryCount.
 const AVATAR_MAX_RETRIES = 3;
 // 4096 × 4096 — well above 512 × 512 output; 64× below Sharp's 268 M default.
 const AVATAR_MAX_PIXELS    = 16_777_216;
@@ -647,7 +660,19 @@ exports.moderateAvatarUpload = onObjectFinalized(
     }
 
     if (!claimResult.claimed) {
-      console.log(`Avatar moderation skipped (${claimResult.reason}) for ${maskedUid}`);
+      const reason = claimResult.reason;
+      console.log(`Avatar moderation skipped (${reason}) for ${maskedUid}`);
+      if (reason === "superseded" || reason === "superseded_by_pending") {
+        // Source has no active processor — delete immediately to prevent orphan accumulation.
+        await sourceFile.delete().catch(() => {});
+      } else if (reason === "max_retries") {
+        // Terminal failure: record it and remove all objects for this upload.
+        await Promise.all([
+          moderationRef.update({ status: "failed", failureReason: "max_retries_exhausted", updatedAt: Timestamp.now() }).catch(() => {}),
+          sourceFile.delete().catch(() => {}),
+          candidateFile.delete().catch(() => {}),
+        ]);
+      }
       return;
     }
     const retryCount = claimResult.retryCount;
@@ -798,11 +823,48 @@ exports.moderateAvatarUpload = onObjectFinalized(
       await Promise.all([sourceFile.delete().catch(() => {}), candidateFile.delete().catch(() => {})]);
       console.log(`Avatar approved for ${maskedUid}`);
     } else {
-      await candidateFile.delete().catch(() => {});
+      // Superseded mid-flight — remove both objects to prevent orphan accumulation.
+      await Promise.all([sourceFile.delete().catch(() => {}), candidateFile.delete().catch(() => {})]);
       console.log(`Avatar approval skipped (superseded) for ${maskedUid}`);
     }
   }
 );
+
+// ── Orphan cleanup helper ─────────────────────────────────────────────────────
+// Deletes avatarUploads/ and avatarCandidates/ objects that are older than
+// cutoffMs (default 24 h) AND whose moderation doc is terminal or absent.
+// Active objects (processing, retry_pending) are never touched.
+//
+// NOT exported as a Cloud Function — to activate for production:
+//   exports.cleanAvatarOrphans = onSchedule(
+//     { region: "us-central1", schedule: "every 24 hours" },
+//     () => _cleanOrphanedAvatarObjects(getStorage().bucket(), db)
+//   );
+const ORPHAN_CLEANUP_THRESHOLD_MS = 24 * 60 * 60 * 1000;
+const ORPHAN_TERMINAL_STATUSES = new Set(["approved", "rejected", "failed"]);
+
+async function _cleanOrphanedAvatarObjects(storageBucket, firestoreDb, cutoffMs) {
+  const stale = cutoffMs ?? (Date.now() - ORPHAN_CLEANUP_THRESHOLD_MS);
+  const [[uploadFiles], [candidateFiles]] = await Promise.all([
+    storageBucket.getFiles({ prefix: "avatarUploads/" }),
+    storageBucket.getFiles({ prefix: "avatarCandidates/" }),
+  ]);
+  const deletions = [];
+  for (const file of [...uploadFiles, ...candidateFiles]) {
+    const created = new Date(file.metadata?.timeCreated ?? 0).getTime();
+    if (created > stale) continue;
+    const uid = file.name.split("/")[1];
+    if (!uid) { deletions.push(file.delete().catch(() => {})); continue; }
+    const snap = await firestoreDb.doc(`avatarModeration/${uid}`).get();
+    const status = snap.exists ? snap.data()?.status : null;
+    if (!status || ORPHAN_TERMINAL_STATUSES.has(status)) {
+      deletions.push(file.delete().catch(() => {}));
+    }
+  }
+  await Promise.all(deletions);
+  console.log(`Avatar orphan cleanup: ${uploadFiles.length + candidateFiles.length} checked, ${deletions.length} queued for deletion`);
+}
+exports._cleanOrphans = _cleanOrphanedAvatarObjects;
 
 // 7) Validate and claim a username
 // --- Shared Moderation System ---
