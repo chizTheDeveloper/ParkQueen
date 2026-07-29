@@ -1365,3 +1365,141 @@ describe('§5 — rateLimits collection Rules', () => {
         await assertFails(setDoc(doc(anonDb(), 'rateLimits', RL_DOC), { count: 99 }));
     });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// §9 — Two-user workflow: OWNER (finder) ↔ OTHER (claimer) lifecycle
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('§9 — Two-user workflow: finder ↔ claimer lifecycle', () => {
+    const WF_SPOT_ID  = 'wf-spot-001';
+    const WF_CHAT_ID  = `${OWNER_UID}_${OTHER_UID}_wf`;
+    const WF_NOTIF_ID = 'wf-notif-001';
+
+    const wfAvailableSpot = {
+        finderId:   OWNER_UID,
+        finderName: 'Workflow Alice',
+        address:    '1 Workflow St',
+        lat:        40.71,
+        lng:        -74.01,
+        type:       'free',
+        status:     'available',
+        geohash:    'dr5rv',
+        pingMode:   'now',
+        reportedAt: Timestamp.now(),
+        expiresAt:  FUTURE,
+    };
+
+    const wfChat = {
+        id:                   WF_CHAT_ID,
+        participants:         [OWNER_UID, OTHER_UID],
+        participantNames:     { [OWNER_UID]: 'Alice', [OTHER_UID]: 'Bob' },
+        relatedSpotTitle:     '1 Workflow St',
+        lastMessage:          'Heading out',
+        lastMessageTimestamp: Timestamp.now(),
+        lastSenderId:         OWNER_UID,
+    };
+
+    beforeEach(async () => {
+        await seed('users', OWNER_UID, { fullName: 'Alice', username: 'alice' });
+        await seed('users', OTHER_UID, { fullName: 'Bob',   username: 'bob'   });
+        await testEnv.withSecurityRulesDisabled(async ctx => {
+            await setDoc(
+                doc(ctx.firestore(), 'users', OWNER_UID, 'private', 'account'),
+                { moderationStatus: 'active', reportCount: 0 },
+            );
+        });
+        await seed('spots',             WF_SPOT_ID,  wfAvailableSpot);
+        await seed('chats',             WF_CHAT_ID,  wfChat);
+        await seed('spotNotifications', WF_NOTIF_ID, {
+            spotId:       WF_SPOT_ID,
+            senderId:     OWNER_UID,
+            targetUserId: OTHER_UID,
+            type:         'delayed',
+            message:      'Heading out now',
+            createdAt:    Timestamp.now(),
+        });
+    });
+
+    // ── Profile cross-reads ────────────────────────────────────────────────────
+
+    it('WF-01: OTHER can read OWNER\'s public profile', async () => {
+        await assertSucceeds(getDoc(doc(otherDb(), 'users', OWNER_UID)));
+    });
+
+    it('WF-02: OTHER cannot read OWNER\'s private/account subcollection', async () => {
+        await assertFails(getDoc(doc(otherDb(), 'users', OWNER_UID, 'private', 'account')));
+    });
+
+    it('WF-03: OWNER cannot read OTHER\'s private/account subcollection', async () => {
+        await assertFails(getDoc(doc(ownerDb(), 'users', OTHER_UID, 'private', 'account')));
+    });
+
+    it('WF-04: unauthenticated cannot read any private/account subcollection', async () => {
+        await assertFails(getDoc(doc(anonDb(), 'users', OWNER_UID, 'private', 'account')));
+    });
+
+    // ── Ping lifecycle ─────────────────────────────────────────────────────────
+
+    it('WF-05: OWNER can create a valid available Ping', async () => {
+        await assertSucceeds(
+            setDoc(doc(ownerDb(), 'spots', 'wf-spot-new'), {
+                finderId:   OWNER_UID,
+                finderName: 'Workflow Alice',
+                address:    '2 Workflow St',
+                lat:        40.72,
+                lng:        -74.02,
+                type:       'free',
+                status:     'available',
+                geohash:    'dr5rv',
+                pingMode:   'now',
+                reportedAt: Timestamp.now(),
+                expiresAt:  FUTURE,
+            }),
+        );
+    });
+
+    it('WF-06: OTHER (authenticated) can read the available Ping', async () => {
+        await assertSucceeds(getDoc(doc(otherDb(), 'spots', WF_SPOT_ID)));
+    });
+
+    it('WF-07: THIRD cannot update OWNER\'s Ping', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(
+            upd(doc(thirdDb(), 'spots', WF_SPOT_ID), {
+                status:    'claimed',
+                claimedBy: THIRD_UID,
+            }),
+        );
+    });
+
+    it('WF-08: OTHER can claim OWNER\'s available Ping (express interest)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertSucceeds(
+            upd(doc(otherDb(), 'spots', WF_SPOT_ID), {
+                status:           'interested',
+                interestedUserId: OTHER_UID,
+            }),
+        );
+    });
+
+    // ── Chat isolation ─────────────────────────────────────────────────────────
+
+    it('WF-09: OWNER can read the OWNER↔OTHER chat', async () => {
+        await assertSucceeds(getDoc(doc(ownerDb(), 'chats', WF_CHAT_ID)));
+    });
+
+    it('WF-10: OTHER can read the OWNER↔OTHER chat', async () => {
+        await assertSucceeds(getDoc(doc(otherDb(), 'chats', WF_CHAT_ID)));
+    });
+
+    it('WF-11: THIRD cannot read the OWNER↔OTHER chat', async () => {
+        await assertFails(getDoc(doc(thirdDb(), 'chats', WF_CHAT_ID)));
+    });
+
+    // ── Notification isolation ─────────────────────────────────────────────────
+
+    it('WF-12: notification targeted at OTHER is readable by OTHER only', async () => {
+        await assertSucceeds(getDoc(doc(otherDb(), 'spotNotifications', WF_NOTIF_ID)));
+        await assertFails(getDoc(doc(thirdDb(), 'spotNotifications', WF_NOTIF_ID)));
+        await assertFails(getDoc(doc(anonDb(),  'spotNotifications', WF_NOTIF_ID)));
+    });
+});
