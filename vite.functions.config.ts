@@ -7,6 +7,7 @@ export default defineConfig({
     include: [
       'functions/deleteAccount.integration.test.js',
       'functions/initUserPrivateAccount.integration.test.js',
+      'functions/rateLimiter.integration.test.js',
     ],
     testTimeout: 120000,
     hookTimeout: 120000,

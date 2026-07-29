@@ -1336,3 +1336,32 @@ describe('§4 — users/{uid} vehicle and avatar allowlists', () => {
         );
     });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// §5 — rateLimits collection: client access fully denied (server-only via Admin SDK)
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('§5 — rateLimits collection Rules', () => {
+    const RL_DOC = 'generateEmailOTP_0_test_uid';
+
+    beforeEach(async () => {
+        await testEnv.withSecurityRulesDisabled(async ctx => {
+            await setDoc(doc(ctx.firestore(), 'rateLimits', RL_DOC), { count: 1, uid: 'test_uid' });
+        });
+    });
+
+    it('RL-R1: authenticated user cannot read rateLimits docs', async () => {
+        await assertFails(getDoc(doc(ownerDb(), 'rateLimits', RL_DOC)));
+    });
+
+    it('RL-R2: authenticated user cannot write rateLimits docs', async () => {
+        await assertFails(setDoc(doc(ownerDb(), 'rateLimits', RL_DOC), { count: 99 }));
+    });
+
+    it('RL-R3: unauthenticated user cannot read rateLimits docs', async () => {
+        await assertFails(getDoc(doc(anonDb(), 'rateLimits', RL_DOC)));
+    });
+
+    it('RL-R4: unauthenticated user cannot write rateLimits docs', async () => {
+        await assertFails(setDoc(doc(anonDb(), 'rateLimits', RL_DOC), { count: 99 }));
+    });
+});
