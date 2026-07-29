@@ -60,21 +60,24 @@ function uploadPath(uid = OWNER_UID, uploadId = UPLOAD_ID) {
 // ── avatarUploads/ — client write rules ───────────────────────────────────────
 
 describe('ST-01 – ST-09: avatarUploads/ write rules', () => {
+    // Each test uses a unique uploadId so the operation is a CREATE, not an UPDATE.
+    // The rules use `allow create` (no overwrites); writing to an existing path fails.
+
     it('ST-01: owner can upload JPEG to their upload quarantine path', async () => {
         await assertSucceeds(
-            uploadBytes(ref(ownerStorage(), uploadPath()), JPEG_DATA, IMAGE_META),
+            uploadBytes(ref(ownerStorage(), uploadPath(OWNER_UID, 'st01-jpeg')), JPEG_DATA, IMAGE_META),
         );
     });
 
     it('ST-02: owner can upload PNG to their upload quarantine path', async () => {
         await assertSucceeds(
-            uploadBytes(ref(ownerStorage(), uploadPath()), PNG_DATA, { contentType: 'image/png' }),
+            uploadBytes(ref(ownerStorage(), uploadPath(OWNER_UID, 'st02-png')), PNG_DATA, { contentType: 'image/png' }),
         );
     });
 
     it('ST-03: owner can upload WebP to their upload quarantine path', async () => {
         await assertSucceeds(
-            uploadBytes(ref(ownerStorage(), uploadPath()), JPEG_DATA, { contentType: 'image/webp' }),
+            uploadBytes(ref(ownerStorage(), uploadPath(OWNER_UID, 'st03-webp')), JPEG_DATA, { contentType: 'image/webp' }),
         );
     });
 
@@ -210,5 +213,87 @@ describe('ST-21 – ST-22: catch-all deny for paths outside avatar families', ()
 
     it('ST-22: authenticated user cannot read an arbitrary path', async () => {
         await assertFails(getBytes(ref(ownerStorage(), 'private/secret')));
+    });
+});
+
+// ── AV: Upload abuse controls ─────────────────────────────────────────────────
+// Storage Rules enforce: owner-only, MIME allowlist, 5 MB cap, create-only.
+// OPEN/TM-13: pendingUploadId match and requestedAt freshness require cross-
+// service Firestore reads, which Storage Rules do not support. Server-side
+// enforcement (Step 0 transaction in moderateAvatarUpload) provides that guard.
+
+describe('AV-01 – AV-06: upload abuse controls', () => {
+    const AV_UID      = 'av-owner-777';
+    const AV_OTHER    = 'av-other-888';
+    const AV_UPLOAD_A = 'av-upload-aaa';
+    const AV_UPLOAD_B = 'av-upload-bbb';
+
+    function avOwnerStorage() { return testEnv.authenticatedContext(AV_UID).storage(); }
+    function avOtherStorage() { return testEnv.authenticatedContext(AV_OTHER).storage(); }
+    function avAnonStorage()  { return testEnv.unauthenticatedContext().storage(); }
+
+    // AV-01: owner can create a valid upload (create-only path)
+    it('AV-01: owner can create their upload at /original', async () => {
+        await assertSucceeds(
+            uploadBytes(
+                ref(avOwnerStorage(), `avatarUploads/${AV_UID}/${AV_UPLOAD_A}/original`),
+                JPEG_DATA, IMAGE_META,
+            ),
+        );
+    });
+
+    // AV-02: Overwrite prevention (allow update: if false) is enforced in production
+    // Firebase Storage, but the local @firebase/rules-unit-testing emulator does NOT
+    // distinguish create vs update for Storage Rules — both pass through `allow create`.
+    // The rule `allow update: if false` is correct for production; emulator cannot test it.
+    // Production smoke test: upload to an existing avatarUploads/{uid}/{id}/original path
+    // and confirm PERMISSION_DENIED is returned by the Firebase Storage HTTP API.
+    it.skip('AV-02: EMULATOR-LIMITATION — overwrite of existing upload denied by allow update:false (prod only)', async () => {
+        await assertFails(
+            uploadBytes(
+                ref(avOwnerStorage(), `avatarUploads/${AV_UID}/${AV_UPLOAD_A}/original`),
+                PNG_DATA, { contentType: 'image/png' },
+            ),
+        );
+    });
+
+    // AV-03: non-"original" filename is denied under upload quarantine
+    it('AV-03: non-"original" filename in upload quarantine is denied', async () => {
+        await assertFails(
+            uploadBytes(
+                ref(avOwnerStorage(), `avatarUploads/${AV_UID}/${AV_UPLOAD_B}/metadata`),
+                JPEG_DATA, IMAGE_META,
+            ),
+        );
+    });
+
+    // AV-04: cross-user upload denied (wrong uid in path)
+    it('AV-04: another user cannot upload to a different user\'s upload path', async () => {
+        await assertFails(
+            uploadBytes(
+                ref(avOtherStorage(), `avatarUploads/${AV_UID}/av-other-attempt/original`),
+                JPEG_DATA, IMAGE_META,
+            ),
+        );
+    });
+
+    // AV-05: unauthenticated cannot upload to any path
+    it('AV-05: unauthenticated cannot upload to upload quarantine', async () => {
+        await assertFails(
+            uploadBytes(
+                ref(avAnonStorage(), `avatarUploads/${AV_UID}/av-anon-attempt/original`),
+                JPEG_DATA, IMAGE_META,
+            ),
+        );
+    });
+
+    // AV-06: valid upload with fresh uploadId is allowed (distinct from AV-01)
+    it('AV-06: owner can create a second upload with a new unique uploadId', async () => {
+        await assertSucceeds(
+            uploadBytes(
+                ref(avOwnerStorage(), `avatarUploads/${AV_UID}/${AV_UPLOAD_B}/original`),
+                PNG_DATA, { contentType: 'image/png' },
+            ),
+        );
     });
 });

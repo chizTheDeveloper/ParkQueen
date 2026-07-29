@@ -680,4 +680,186 @@ describe('§MOD — moderateAvatarUpload integration tests', () => {
         expect(userSnap.data()?.avatarUrl).toBeTruthy();
         await nuke(uid);
     });
+
+    // ── §MOD cleanup and token-rotation tests ─────────────────────────────────
+
+    // MOD-31: third-attempt boundary — status set to "failed", source deleted, no throw
+    it('MOD-31: third exhausted retry sets status="failed", deletes source, does not throw', async () => {
+        const uid = freshUid(); const upId = freshUploadId();
+        await nuke(uid);
+        // Seed doc at AVATAR_MAX_RETRIES so the next invocation hits the ceiling.
+        await db.doc(`avatarModeration/${uid}`).set({
+            uid, uploadId: upId, sourcePath: `avatarUploads/${uid}/${upId}/original`,
+            sourceGeneration: '1', status: 'retry_pending', retryCount: 3,
+            processedPath: null, failureReason: 'vision_error',
+            createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+        });
+        await uploadOriginal(uid, upId, JPEG_1x1, 'image/jpeg');
+        let threw = false;
+        try { await runFn(await buildEvent(uid, upId)); } catch (_) { threw = true; }
+        expect(threw).toBe(false); // acknowledged — no throw
+        const mod = await getMod(uid);
+        expect(mod?.status).toBe('failed');
+        expect(mod?.failureReason).toBe('max_retries_exhausted');
+        const [srcExists] = await bucket.file(`avatarUploads/${uid}/${upId}/original`).exists();
+        expect(srcExists).toBe(false); // source cleaned up
+        await nuke(uid);
+    });
+
+    // MOD-32: superseded_by_pending exit deletes source (no orphan left)
+    it('MOD-32: source file is deleted when event is skipped due to superseded_by_pending', async () => {
+        const uid = freshUid(); const upIdA = freshUploadId(); const upIdB = freshUploadId();
+        await nuke(uid);
+        await db.doc(`users/${uid}`).set({ id: uid });
+        await uploadOriginal(uid, upIdA, JPEG_1x1, 'image/jpeg');
+        // Register B as the current intended upload before A's event fires.
+        await setPending(uid, upIdB);
+        hooks.visionSafeSearch = safeMock();
+        await runFn(await buildEvent(uid, upIdA));
+        expect(await getMod(uid)).toBeNull(); // A was skipped entirely
+        const [srcAExists] = await bucket.file(`avatarUploads/${uid}/${upIdA}/original`).exists();
+        expect(srcAExists).toBe(false); // source A cleaned up on skip
+        await nuke(uid);
+    });
+
+    // MOD-33: approval-skipped (superseded mid-flight) deletes source AND candidate
+    it('MOD-33: source and candidate both deleted when approval is superseded mid-flight', async () => {
+        const uid = freshUid(); const upId1 = freshUploadId(); const upId2 = freshUploadId();
+        await nuke(uid);
+        await db.doc(`users/${uid}`).set({ id: uid });
+        await uploadOriginal(uid, upId1, JPEG_1x1, 'image/jpeg');
+        await uploadOriginal(uid, upId2, JPEG_1x1, 'image/jpeg');
+        hooks.visionSafeSearch = async () => {
+            // Inject a newer upload mid-flight by overwriting the moderation slot.
+            await db.doc(`avatarModeration/${uid}`).set({
+                uid, uploadId: upId2, sourcePath: `avatarUploads/${uid}/${upId2}/original`,
+                sourceGeneration: '2', status: 'processing', retryCount: 0,
+                processedPath: null, failureReason: null,
+                createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+            });
+            return { adult: 'VERY_UNLIKELY', racy: 'VERY_UNLIKELY' };
+        };
+        await runFn(await buildEvent(uid, upId1));
+        // Upload-1's approval was aborted; both its objects must be deleted.
+        const [src1Exists] = await bucket.file(`avatarUploads/${uid}/${upId1}/original`).exists();
+        const [cand1Exists] = await bucket.file(`avatarCandidates/${uid}/${upId1}.webp`).exists();
+        expect(src1Exists).toBe(false);
+        expect(cand1Exists).toBe(false);
+        await nuke(uid);
+    });
+
+    // MOD-34: orphan cleanup deletes stale objects with terminal moderation status
+    it('MOD-34: orphan cleanup removes stale source and candidate for a rejected upload', async () => {
+        const uid = freshUid(); const upId = freshUploadId();
+        await nuke(uid);
+        // Seed terminal moderation doc and orphaned storage objects.
+        await db.doc(`avatarModeration/${uid}`).set({
+            uid, uploadId: upId, status: 'rejected', failureReason: 'content_policy',
+            retryCount: 0, processedPath: null, sourcePath: `avatarUploads/${uid}/${upId}/original`,
+            sourceGeneration: '1', createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+        });
+        await uploadOriginal(uid, upId, JPEG_1x1, 'image/jpeg');
+        await bucket.file(`avatarCandidates/${uid}/${upId}.webp`).save(JPEG_1x1, { metadata: { contentType: 'image/webp' }, resumable: false });
+
+        const cleanFn = fnModule._cleanOrphans;
+        // Pass Infinity cutoff so all objects are treated as stale.
+        await cleanFn(bucket, db, Infinity);
+
+        const [srcExists] = await bucket.file(`avatarUploads/${uid}/${upId}/original`).exists();
+        const [candExists] = await bucket.file(`avatarCandidates/${uid}/${upId}.webp`).exists();
+        expect(srcExists).toBe(false);
+        expect(candExists).toBe(false);
+        await nuke(uid);
+    });
+
+    // MOD-35: orphan cleanup does NOT delete objects for active (non-terminal) uploads
+    it('MOD-35: orphan cleanup skips objects whose moderation is still in progress', async () => {
+        const uid = freshUid(); const upId = freshUploadId();
+        await nuke(uid);
+        await db.doc(`avatarModeration/${uid}`).set({
+            uid, uploadId: upId, status: 'retry_pending', retryCount: 1,
+            failureReason: 'vision_error', processedPath: null,
+            sourcePath: `avatarUploads/${uid}/${upId}/original`, sourceGeneration: '1',
+            createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+        });
+        await uploadOriginal(uid, upId, JPEG_1x1, 'image/jpeg');
+
+        const cleanFn = fnModule._cleanOrphans;
+        await cleanFn(bucket, db, Infinity); // treat all as stale
+
+        // Object must still exist — moderation is not terminal.
+        const [srcExists] = await bucket.file(`avatarUploads/${uid}/${upId}/original`).exists();
+        expect(srcExists).toBe(true);
+        await nuke(uid);
+    });
+
+    // MOD-36: previous approved avatar is preserved during a rejected replacement
+    it('MOD-36: rejected replacement leaves the previous approved avatarUrl unchanged', async () => {
+        const uid = freshUid(); const upId1 = freshUploadId(); const upId2 = freshUploadId();
+        await nuke(uid);
+        await db.doc(`users/${uid}`).set({ id: uid });
+
+        // First upload: approved.
+        await uploadOriginal(uid, upId1, JPEG_1x1, 'image/jpeg');
+        hooks.visionSafeSearch = safeMock();
+        await runFn(await buildEvent(uid, upId1));
+        const urlBefore = (await db.doc(`users/${uid}`).get()).data()?.avatarUrl;
+        expect(urlBefore).toBeTruthy();
+
+        // Second upload: reset moderation slot then reject via content_policy.
+        await db.doc(`avatarModeration/${uid}`).delete();
+        await uploadOriginal(uid, upId2, JPEG_1x1, 'image/jpeg');
+        hooks.visionSafeSearch = safeMock('VERY_LIKELY', 'VERY_UNLIKELY');
+        await runFn(await buildEvent(uid, upId2));
+        expect((await getMod(uid))?.status).toBe('rejected');
+
+        const urlAfter = (await db.doc(`users/${uid}`).get()).data()?.avatarUrl;
+        expect(urlAfter).toBe(urlBefore); // previous avatar untouched
+        await nuke(uid);
+    });
+
+    // MOD-37: successful replacement uses a different download token (token rotation)
+    it('MOD-37: second approved upload produces a different avatarUrl token than the first', async () => {
+        const uid = freshUid(); const upId1 = freshUploadId(); const upId2 = freshUploadId();
+        await nuke(uid);
+        await db.doc(`users/${uid}`).set({ id: uid });
+
+        // First approval.
+        await uploadOriginal(uid, upId1, JPEG_1x1, 'image/jpeg');
+        hooks.visionSafeSearch = safeMock();
+        await runFn(await buildEvent(uid, upId1));
+        const url1 = (await db.doc(`users/${uid}`).get()).data()?.avatarUrl;
+        expect(url1).toMatch(/\?alt=media&token=[0-9a-f-]{36}/);
+
+        // Second approval — reset slot, upload again.
+        await db.doc(`avatarModeration/${uid}`).delete();
+        await uploadOriginal(uid, upId2, JPEG_1x1, 'image/jpeg');
+        hooks.visionSafeSearch = safeMock();
+        await runFn(await buildEvent(uid, upId2));
+        const url2 = (await db.doc(`users/${uid}`).get()).data()?.avatarUrl;
+        expect(url2).toMatch(/\?alt=media&token=[0-9a-f-]{36}/);
+
+        // Tokens must differ — randomUUID() produces a unique value each time.
+        expect(url2).not.toBe(url1);
+        await nuke(uid);
+    });
+
+    // MOD-38: avatarUrl format is a Firebase download token URL (not a signed URL)
+    it('MOD-38: avatarUrl is a Firebase download token URL, not a signed URL', async () => {
+        const uid = freshUid(); const upId = freshUploadId();
+        await nuke(uid);
+        await db.doc(`users/${uid}`).set({ id: uid });
+        await uploadOriginal(uid, upId, JPEG_1x1, 'image/jpeg');
+        hooks.visionSafeSearch = safeMock();
+        await runFn(await buildEvent(uid, upId));
+        const url = (await db.doc(`users/${uid}`).get()).data()?.avatarUrl;
+        // Must be a Firebase Storage URL with a download token, not a signed URL.
+        expect(url).toMatch(/^https:\/\/firebasestorage\.googleapis\.com\/v0\/b\//);
+        expect(url).toContain('?alt=media&token=');
+        // Signed URLs embed X-Goog-Signature or X-Amz-Signature — these must be absent.
+        expect(url).not.toContain('X-Goog-Signature');
+        expect(url).not.toContain('X-Amz-Signature');
+        expect(url).not.toContain('x-goog-signature');
+        await nuke(uid);
+    });
 });
