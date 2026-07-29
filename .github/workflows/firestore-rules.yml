@@ -43,7 +43,7 @@ jobs:
       #   gh api repos/actions/setup-node/git/ref/tags/v4 --jq .object.sha
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       # TM-16: SHA-pinned. Verify with:
