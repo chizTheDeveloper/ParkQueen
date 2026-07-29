@@ -1266,3 +1266,73 @@ describe('TM-04 — private user data isolation', () => {
     });
 
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// §4 — User schema: vehicle and avatar fields in create/update allowlists.
+//
+// vehicleBrand and vehicleColor are intentionally public: spot finders post
+// their vehicle so claimers know which car is pulling out. Product decision;
+// not a privacy gap. Documented here so future reviewers don't re-open it.
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('§4 — users/{uid} vehicle and avatar allowlists', () => {
+    const baseDoc = { fullName: 'Test', username: 'test_schema', crowns: 0, title: 'Newcomer' };
+
+    beforeEach(async () => {
+        await seed('users', OWNER_UID, baseDoc);
+    });
+
+    // ── update allowlist: vehicle fields ──────────────────────────────────────
+
+    it('SC-1: owner can update vehicleType (in update allowlist)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertSucceeds(upd(doc(ownerDb(), 'users', OWNER_UID), { vehicleType: 'sedan' }));
+    });
+
+    // product decision: vehicleBrand is public — spot finders expose their car for claimer recognition
+    it('SC-2: owner can update vehicleBrand (intentionally public — vehicle identification)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertSucceeds(upd(doc(ownerDb(), 'users', OWNER_UID), { vehicleBrand: 'Honda' }));
+    });
+
+    // product decision: vehicleColor is public — same rationale as vehicleBrand
+    it('SC-3: owner can update vehicleColor (intentionally public — vehicle identification)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertSucceeds(upd(doc(ownerDb(), 'users', OWNER_UID), { vehicleColor: 'silver' }));
+    });
+
+    // ── update allowlist: avatar fields ───────────────────────────────────────
+
+    it('SC-4: owner can update avatarUrl (in update allowlist)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertSucceeds(upd(doc(ownerDb(), 'users', OWNER_UID), { avatarUrl: 'https://example.com/a.jpg' }));
+    });
+
+    it('SC-5: owner can update avatarManifestId (in update allowlist)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertSucceeds(upd(doc(ownerDb(), 'users', OWNER_UID), { avatarManifestId: 'manifest_abc' }));
+    });
+
+    // ── update denylist: immutable fields ─────────────────────────────────────
+
+    it('SC-6: owner cannot update id (not in update allowlist — immutable)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { id: 'hijacked_uid' }));
+    });
+
+    it('SC-7: owner cannot update createdAt (not in update allowlist — immutable)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { createdAt: Timestamp.now() }));
+    });
+
+    // ── create allowlist: vehicle fields ──────────────────────────────────────
+
+    it('SC-8: owner can create user doc with vehicleBrand and vehicleColor', async () => {
+        const newUid = 'sc8-uid-' + Date.now();
+        await assertSucceeds(
+            setDoc(
+                doc(testEnv.authenticatedContext(newUid).firestore(), 'users', newUid),
+                { fullName: 'Car User', username: 'caruser', vehicleBrand: 'Toyota', vehicleColor: 'blue' }
+            )
+        );
+    });
+});
