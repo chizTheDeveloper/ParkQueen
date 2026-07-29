@@ -62,3 +62,79 @@ describe('TM-17 — redactForLog server helper', () => {
         expect(input.email).toBe('a@b.com');
     });
 });
+
+// ─── §7: utils/redactForLog.ts (TypeScript client version) ───────────────────
+// Tests the TypeScript implementation directly via ESM import.
+// The TS version has the same SENSITIVE regex but no null guard
+// (TypeScript enforces T extends object at compile time).
+import { redactForLog as redactTs } from './redactForLog';
+
+describe('§7 — utils/redactForLog.ts (TypeScript version)', () => {
+    it('redacts the same sensitive keys as the JS version', () => {
+        const r = redactTs({ email: 'a@b.com', fcmToken: 'tok', username: 'alice' });
+        expect(r.email).toBe('[REDACTED]');
+        expect(r.fcmToken).toBe('[REDACTED]');
+        expect(r.username).toBe('alice');
+    });
+
+    it('passes through non-sensitive scalars', () => {
+        expect(redactTs({ crowns: 5, status: 'active', username: 'bob' }))
+            .toEqual({ crowns: 5, status: 'active', username: 'bob' });
+    });
+
+    it('shallow mode does not redact nested objects', () => {
+        const r = redactTs({ meta: { email: 'a@b.com', crowns: 5 } });
+        expect(r.meta).toEqual({ email: 'a@b.com', crowns: 5 });
+    });
+
+    it('deep=true redacts nested sensitive keys', () => {
+        const r = redactTs({ meta: { email: 'a@b.com', crowns: 5 } }, true);
+        expect((r.meta as { email: string }).email).toBe('[REDACTED]');
+    });
+
+    it('does not mutate the input object', () => {
+        const input = { email: 'x@y.com', crowns: 3 };
+        redactTs(input);
+        expect(input.email).toBe('x@y.com');
+    });
+
+    it('redacts all SENSITIVE regex variants (mirrors JS version)', () => {
+        const obj = {
+            phone: '555', email: 'x', token: 't', fcm: 'f',
+            lat: 1, lng: 2, lon: 3, coordinate: [0, 0],
+            message: 'hi', body: 'b', text: 't', content: 'c',
+            prompt: 'p', response: 'r', reply: 'x', password: 'pw',
+            secret: 's', credential: 'c', apikey: 'k', api_key: 'k2',
+            auth: 'a', otp: '123456', code: '654321',
+        };
+        const r = redactTs(obj);
+        for (const key of Object.keys(obj)) {
+            expect(r[key as keyof typeof obj], `key '${key}' should be redacted`).toBe('[REDACTED]');
+        }
+    });
+
+    it('Vision API error pattern: message is redacted, status passes through', () => {
+        // Mirrors the call site added in functions/index.js for moderateAvatarUpload
+        const errorLike = { name: 'Error', message: 'RESOURCE_EXHAUSTED: quota exceeded', status: 429 };
+        const r = redactTs(errorLike);
+        expect(r.name).toBe('Error');
+        expect(r.message).toBe('[REDACTED]'); // message key is in SENSITIVE regex
+        expect(r.status).toBe(429);
+    });
+});
+
+// ─── §7: static call-site assertion ──────────────────────────────────────────
+import { readFileSync } from 'node:fs';
+
+describe('§7 — redactForLog call-site audit', () => {
+    const fnSrc = readFileSync(path.resolve('./functions/index.js'), 'utf-8');
+
+    it('redactForLog is imported in functions/index.js', () => {
+        expect(fnSrc).toMatch(/require.*redactForLog/);
+    });
+
+    it('redactForLog is called at least once (not just imported)', () => {
+        const callCount = (fnSrc.match(/redactForLog\s*\(/g) || []).length;
+        expect(callCount, 'redactForLog must have at least one call site').toBeGreaterThanOrEqual(1);
+    });
+});

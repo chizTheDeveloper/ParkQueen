@@ -591,7 +591,8 @@ exports.moderateAvatarUpload = onObjectFinalized(
         console.log(`Avatar approved for user ${uid.slice(0,4)}***`);
       }
     } catch (error) {
-      console.error("Vision API error:", error);
+      // Vision API errors can include response body / image-content in their message field — redact before logging.
+      console.error("Vision API error:", redactForLog({ name: error?.name, message: error?.message, status: error?.status }));
       await moderationRef.set({ status: "approved", updatedAt: Timestamp.now() });
     }
   }
@@ -800,7 +801,7 @@ exports.claimUsername = onCall(
       });
     } catch (e) {
       if (e.code) throw e;
-      console.error("Username claim error:", e);
+      console.error("Username claim error:", e.message);
       throw new HttpsError("internal", "Failed to claim username.");
     }
 
