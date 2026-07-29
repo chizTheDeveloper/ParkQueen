@@ -147,6 +147,51 @@ describe('Storage Rules — avatar delete', () => {
     });
 });
 
+// ── §8 — SVG acceptance policy ───────────────────────────────────────────────
+// image/svg+xml matches the 'image/.*' rule, so SVG uploads are accepted.
+// This is intentional: the Vision SafeSearch moderation step runs server-side,
+// and SVGs loaded via <img> or CSS background-image do not execute scripts in
+// modern browsers. Parsona avatars (SVG-based) are stored as Firestore manifest
+// data, not Storage objects, so they bypass this path entirely.
+// Known gap: EXIF metadata is NOT stripped from uploaded photos.
+// Photos taken on mobile may embed GPS coordinates in EXIF. The Vision API
+// SafeSearch does not read or strip EXIF. Mitigation: server-side EXIF stripping
+// (e.g., via Sharp) before storage should be added in a future release.
+
+describe('§8 — Storage Rules: SVG and MIME policy', () => {
+    it('ST-14: SVG (image/svg+xml) is accepted — documented intentional tradeoff', async () => {
+        // SVGs via <img> do not execute scripts; Parsona SVGs use Firestore manifests, not Storage.
+        await assertSucceeds(
+            uploadBytes(
+                ref(ownerStorage(), ownerPath()),
+                new Uint8Array(512),
+                { contentType: 'image/svg+xml' },
+            ),
+        );
+    });
+
+    it('ST-15: WebP is accepted (image/webp matches image/.*)', async () => {
+        await assertSucceeds(
+            uploadBytes(
+                ref(ownerStorage(), ownerPath()),
+                IMAGE_DATA,
+                { contentType: 'image/webp' },
+            ),
+        );
+    });
+
+    it('ST-16: application/octet-stream is rejected even if file is an image', async () => {
+        // Content-Type mismatch: bytes might be a JPEG but declared type is binary blob → rejected
+        await assertFails(
+            uploadBytes(
+                ref(ownerStorage(), ownerPath()),
+                IMAGE_DATA,
+                { contentType: 'application/octet-stream' },
+            ),
+        );
+    });
+});
+
 // ── Catch-all deny ─────────────────────────────────────────────────────────────
 
 describe('Storage Rules — catch-all deny', () => {
