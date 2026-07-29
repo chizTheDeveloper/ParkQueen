@@ -455,11 +455,11 @@ Complete rewrite of the avatar moderation pipeline with quarantine path design, 
 
 | Commit | Message |
 |---|---|
-| (pending rebuild) | `security(avatar): quarantine upload path, generation-scoped idempotency, bounded retry` |
-| (pending rebuild) | `security(avatar): upgrade Sharp to 0.35.3, defensive pixel/dimension/channel limits` |
-| (pending rebuild) | `security(logging): harden sanitizeError allowlist; fix 3 raw err.message leaks` |
-| (pending rebuild) | `test(avatar): add 25 moderation integration tests (MOD-01–MOD-25)` |
-| (pending rebuild) | `test(storage): rewrite storage rules tests for quarantine architecture (ST-01–ST-22)` |
+| `2a31603` | `security(avatar): quarantine upload path, generation-scoped idempotency, bounded retry` |
+| `6a8bb9c` | `security(avatar): upgrade Sharp to 0.35.3; defensive pixel/dimension/channel limits` |
+| `f347bec` | `security(logging): harden sanitizeError allowlist; close TM-17` |
+| `f50bd1e` | `test(avatar): 25 moderation integration tests; quarantine storage rules (ST-01–ST-22)` |
+| `6ca7ba3` | `docs: Phase H checkpoint — quarantine design, Sharp 0.35.3, TM-17 closed` |
 
 ### Work completed
 
