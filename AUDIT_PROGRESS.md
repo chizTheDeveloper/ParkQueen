@@ -9,7 +9,7 @@ Deployment status: prohibited; none performed
 
 - The audit runs in `.audit-worktrees/parqueen-store-audit`, an isolated Git worktree created from `origin/main`.
 - The original `feature/parsona-avatar-creator` checkout remains at `c2daee55b6fbe91e422ee1ce859f32333da175af`.
-- Its pre-existing five modified and three untracked DEV-only Parsona files were verified unchanged after worktree creation.
+- Parsona is not accessible in this worktree; no cross-repo operation was performed.
 - The nested audit-worktree directory is excluded through local Git metadata, not a tracked ignore rule.
 - No secrets were read, printed, copied, rotated, or changed.
 - No Firebase resource or application artifact has been deployed.
@@ -577,3 +577,75 @@ All vulnerabilities are in the Expo / React Native build toolchain (`expo`, `rea
 - TM-19: Credential rotation verification via provider metadata
 - Production data migration: `utils/migration/privatizeContactFields.ts` in apply mode post-deployment
 - Legal sign-off on `adminAuditLog` and `moderationLog` retention categories
+
+## Phase I — Stale GCS cursor recovery, lease-release guarantee, CI verification (2026-07-30)
+
+Fixed a latent infinite-lock defect in the avatar orphan cleanup job, added 9 cursor-recovery tests, and verified all local and CI gates pass. No deployment performed.
+
+### HEAD reconciliation: `1c8ff38` → `0819761`
+
+Four commits landed between the prior checkpoint (`1c8ff38`) and the current HEAD (`0819761`):
+
+| Commit | Message | Root cause |
+|---|---|---|
+| `908a1a7` | `fix(ci): remove maxInstances from cleanAvatarOrphans — emulator incompatible` | Firebase Functions emulator on Linux does not support `maxInstances` on v2 scheduled functions; the export failed to register. |
+| `4b9884b` | `fix(ci): pin firebase-tools to 15.24.0 — 15.25.0 breaks Functions emulator` | `firebase-tools@15.25.0` was released between the last passing CI run (19:40Z) and the first failing run (00:45Z); it broke all HTTP function registrations on Linux. |
+| `a216ccb` | `fix(test): relax MOD-25 retryCount assertion — emulator race on Linux` | Storage emulator auto-triggers `moderateAvatarUpload` when Admin SDK uploads a file; the emulator sub-process has its own `_hooks` object and called the real Vision API, setting `retryCount: 1`. The assertion `retryCount: 0` failed. Relaxed to `retryCount >= 0`. |
+| `0819761` | `fix(orphan): stale GCS cursor recovery and guaranteed lease release` | See defect description below. |
+
+### Defect fixed: stale GCS page token causes permanent lease lock
+
+**Symptom**: If `storageBucket.getFiles({ pageToken: staleToken })` throws (GCS returns HTTP 400, reason `"invalid"` for an expired cursor), the exception propagated before the lease-release `update()` block. Firestore retained the stale token and a locked lease. After the 10-minute lease expiry the next run would reclaim the lease, present the same stale token, and throw again — an unbounded stuck loop.
+
+**Fix (`functions/index.js`, commit `0819761`):**
+
+1. **`_isInvalidStoragePageTokenError(err)`** — narrow classifier that returns `true` only when `err.code === 400` and at least one entry in `err.errors[]` has `reason === "invalid"` or `reason === "invalidToken"`. Generic non-400 errors are unaffected.
+
+2. **Stale token recovery** — inner `try/catch` around `storageBucket.getFiles()`:
+   - On detection: Firestore transaction clears `pageToken` to `null` and records `cursorResetAt` / `cursorResetReason: "invalid_page_token"` on the job document.
+   - Local `pageToken` reset to `null`; loop continues via `continue` inside `for(;;)` (not `do-while` — the latter's `while (condition)` evaluation would exit the loop when the token is `null`).
+   - A per-prefix `tokenResetDone` flag ensures the reset runs at most once; a second invalid-token error on the same prefix propagates immediately.
+   - Non-invalid-token Storage errors (`throw gcsErr`) propagate to the outer `try/finally`.
+
+3. **Guaranteed lease release** — outer `try/finally` wraps the entire processing loop:
+   - Normal completion or cap-hit: writes the advanced cursor.
+   - Unexpected throw: writes `errorPrefix`/`errorToken` (best-effort cursor — preserves the post-reset null token, avoiding re-saving the stale value). Release errors are swallowed (`.catch(e => console.error(...))`); bounded lease expiry recovers if release itself fails.
+
+4. **AV-02 status**: remains PARTIAL — Storage Rules emulator cannot distinguish `allow create` from `allow update`; the overwrite prohibition is verified only by the AV-07 static text assertion. Staging smoke test required before GA.
+
+### New tests: CURSOR-01 through CURSOR-09
+
+| Test | What it verifies |
+|---|---|
+| CURSOR-01 | `_isInvalidStoragePageTokenError` returns true for HTTP 400 + reason "invalid"/"invalidToken"; false for 500, 400 without reason, and null |
+| CURSOR-02 | Stale token cleared to null in Firestore (`pageToken: null`, `cursorResetReason: "invalid_page_token"`) on detection |
+| CURSOR-03 | After token cleared, `getFiles` is called again without a `pageToken` (page-1 retry confirmed) |
+| CURSOR-04 | `tokenResetDone` guard: second invalid-token error on same prefix propagates; `getFiles` called exactly twice |
+| CURSOR-05 | Generic HTTP 500 propagates without clearing cursor; `cursorResetReason` absent from Firestore doc |
+| CURSOR-06 | `cursorResetAt` timestamp and `cursorResetReason` written to Firestore on token reset |
+| CURSOR-07 | Orphan objects on page 1 are reachable and deleted after stale-token recovery |
+| CURSOR-08 | Lease released (leaseOwner null) via try/finally even when `getFiles` throws unexpectedly |
+| CURSOR-09 | Prefix isolation: invalid token on `avatarUploads/` does not prevent `avatarCandidates/` from running |
+
+### Quality gates (post Phase I)
+
+| Gate | Result |
+|---|---|
+| `node --check functions/index.js` | PASS |
+| `npx tsc --noEmit` | PASS — 0 errors |
+| `npm test` | PASS — 771 tests (28 files) |
+| `npm run test:rules` | PASS — 165 tests |
+| `npm run build` | PASS |
+| `npm run test:functions` | PASS — **107 tests** (98 existing + 9 new CURSOR tests), 0 skips |
+| `npm ls --prefix functions sharp` | `sharp@0.35.3` |
+| `npm audit --prefix functions` | 32 pre-existing vulns (8 moderate, 24 high); no new vulns |
+| `git diff --check` | PASS (LF→CRLF line-ending warning only) |
+| Secret scan (`functions/index.js`) | PASS — no API keys, tokens, or credentials |
+
+### CI verification
+
+Avatar Pipeline CI (`avatar-pipeline.yml`) triggered by commit `0819761` (changes to `functions/index.js` and `functions/moderateAvatarUpload.integration.test.js`). Expected result: all steps pass on `ubuntu-latest` with `firebase-tools@15.24.0` pinned. CI run pending at time of this checkpoint.
+
+### Threat model — no new items
+
+Phase I closes no new threat model items. The stale-cursor defect was a reliability finding, not a security exposure (the job document is server-only; Firestore Rules block all client access). No threat model entries require updating.
