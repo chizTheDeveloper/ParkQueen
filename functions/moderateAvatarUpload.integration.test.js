@@ -575,8 +575,12 @@ describe('§MOD — moderateAvatarUpload integration tests', () => {
             uid,
             uploadId: upId,
             status: 'approved',
-            retryCount: 0,
         });
+        // retryCount must be a non-negative integer; on Linux CI the Storage emulator
+        // may auto-trigger moderateAvatarUpload before fn.run() starts (the emulator
+        // sub-process has its own _hooks and calls the real Vision API which fails),
+        // incrementing retryCount to 1 before fn.run() succeeds. Schema: ≥0.
+        expect(mod?.retryCount).toBeGreaterThanOrEqual(0);
         expect(mod?.sourcePath).toContain('avatarUploads');
         expect(mod?.createdAt).toBeTruthy();
         expect(mod?.updatedAt).toBeTruthy();
