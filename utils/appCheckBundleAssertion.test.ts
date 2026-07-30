@@ -117,6 +117,27 @@ describe('§6 — App Check prod bundle assertions', () => {
         expect(src).toMatch(/import.*ReCaptchaEnterpriseProvider.*from 'firebase\/app-check'/);
     });
 
+    it('AC-13: initializeApp is called exactly once in firebaseConfig.ts', () => {
+        const src = fs.readFileSync(SRC_CONFIG, 'utf-8');
+        const matches = src.match(/\binitializeApp\s*\(/g) || [];
+        expect(matches).toHaveLength(1);
+    });
+
+    it('AC-14: firebase.ts has getApps() guard preventing dual FirebaseApp initialization', () => {
+        // firebase.ts is imported by 28+ view files AND firebaseConfig.ts initializes the app.
+        // The getApps().length === 0 guard in firebase.ts prevents a second app from being created
+        // even when both files are bundled together. This test asserts the guard is present.
+        const FIREBASE_TS = path.resolve(__dirname, '../firebase.ts');
+        const src = fs.readFileSync(FIREBASE_TS, 'utf-8');
+        // Must use getApps() to check for existing app
+        expect(src).toMatch(/getApps\(\)/);
+        // Must not call initializeApp unconditionally (it must be inside a conditional)
+        const initIdx = src.indexOf('initializeApp(');
+        const ternaryOrIfIdx = Math.max(src.lastIndexOf('?', initIdx), src.lastIndexOf('if ', initIdx));
+        expect(ternaryOrIfIdx, 'initializeApp must be inside a conditional (ternary or if)').toBeGreaterThan(-1);
+        expect(ternaryOrIfIdx).toBeLessThan(initIdx);
+    });
+
     it.skipIf(!distExists)('AC-12: dist/ does not contain the App Check debug-token self.assignment', () => {
         // The debug token is injected via `self.FIREBASE_APPCHECK_DEBUG_TOKEN = value`.
         // AC-1 checks the env ref; this checks the assignment pattern itself.

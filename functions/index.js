@@ -568,6 +568,16 @@ const _hooks = {
 };
 exports._hooks = _hooks;
 
+// ── Callable test seams ───────────────────────────────────────────────────────
+// Set to a function to replace external API calls in integration tests.
+// null (default) → real provider; set in test beforeEach, clear in afterEach.
+const _callableHooks = {
+  sweepNYCResult: null,  // (lat, lng) => Promise<result> — replaces SweepNYC + fallback
+  geminiResponse: null,  // (features) => Promise<{text}> — replaces GoogleGenAI call
+};
+exports._callableHooks = _callableHooks;
+
+
 // ── Avatar moderation helpers ──────────────────────────────────────────────────
 // JPEG: FF D8 FF  |  PNG: 89 50 4E 47 0D 0A 1A 0A  |  WebP: RIFF????WEBP
 function _isAllowedImageHeader(buf) {
@@ -2619,6 +2629,9 @@ exports.createSegmentFromSweepNYC = onCall(
       throw new HttpsError('invalid-argument', 'Coordinates outside NYC bounds.');
 
     try {
+      if (_callableHooks.sweepNYCResult) {
+        return await _callableHooks.sweepNYCResult(lat, lng);
+      }
       const sweepResult = await _tryCreateFromSweepNYC(lat, lng);
       if (sweepResult.success) return sweepResult;
       if (!_SWEEPNYC_FALLBACK_REASONS.has(sweepResult.reason)) return sweepResult;
@@ -3257,11 +3270,15 @@ exports.generateListingDescription = onCall(
     }
     let response;
     try {
-      const ai = new GoogleGenAI({ apiKey: geminiApiKey.value() });
-      response = await ai.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: `Write a catchy, short marketing description (max 2 sentences) for a parking spot in NYC with these features: ${features.join(", ")}. Use a premium, trustworthy tone.`,
-      });
+      if (_callableHooks.geminiResponse) {
+        response = await _callableHooks.geminiResponse(features);
+      } else {
+        const ai = new GoogleGenAI({ apiKey: geminiApiKey.value() });
+        response = await ai.models.generateContent({
+          model: GEMINI_MODEL,
+          contents: `Write a catchy, short marketing description (max 2 sentences) for a parking spot in NYC with these features: ${features.join(", ")}. Use a premium, trustworthy tone.`,
+        });
+      }
     } catch (err) {
       classifyGeminiError("generateListingDescription", err);
     }

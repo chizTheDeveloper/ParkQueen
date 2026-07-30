@@ -9,6 +9,8 @@ export default defineConfig({
       'functions/initUserPrivateAccount.integration.test.js',
       'functions/rateLimiter.integration.test.js',
       'functions/moderateAvatarUpload.integration.test.js',
+      'functions/rateLimitCallable.integration.test.js',
+      'functions/bootstrapAdmin.integration.test.js',
     ],
     testTimeout: 120000,
     hookTimeout: 120000,
