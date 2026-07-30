@@ -111,7 +111,7 @@ jobs:
         run: npm ci
 
       - name: Install Firebase CLI
-        run: npm install -g firebase-tools
+        run: npm install -g firebase-tools@15.24.0
 
       # Run the full Functions integration suite on ubuntu-latest.
       # firebase emulators:exec starts all required emulators, runs vitest, then stops them.
