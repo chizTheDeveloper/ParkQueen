@@ -1382,6 +1382,9 @@ exports.bootstrapAdmin = onCall(
     if (!email.endsWith('@parqueen.app')) {
       throw new HttpsError('permission-denied', 'Requires a @parqueen.app account.');
     }
+    if (request.auth.token.email_verified !== true) {
+      throw new HttpsError('permission-denied', 'Email address must be verified.');
+    }
 
     // Atomic singleton check — transaction prevents two concurrent calls both passing
     const sentinelRef = db.doc('adminBootstrap/singleton');

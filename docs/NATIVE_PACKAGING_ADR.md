@@ -10,15 +10,15 @@ ParQueen currently ships as a Vite-built PWA deployed to Firebase Hosting. There
 
 ## Options
 
-### Option A — Capacitor (Recommended)
+### Option A — Capacitor (Preliminary Recommendation)
 
-Wrap the existing Vite React PWA in a Capacitor shell. The web layer is unchanged; Capacitor provides thin native bridges for permissions and system APIs.
+Wrap the existing Vite React PWA in a Capacitor shell. Capacitor provides thin native bridges for permissions and system APIs while preserving the web code layer.
 
 **Pros**
-- Zero web-layer rewrite. All existing React/Firebase code ships as-is.
+- Minimal web-layer rewrite for most features. Core React/Firebase code ships as-is inside a WebView; however, some integrations require platform-specific adaptation (see technical spike below).
 - Capacitor handles permission manifests, deep links, and secure storage plugins.
 - iOS and Android projects generated from a single CLI command; Capacitor updates are incremental.
-- Fast path to store submission (~2–4 weeks engineering + review cycles).
+- Faster path to store submission than Option B or C. **Preliminary estimate: 2–4 weeks engineering + review cycles. This estimate is not approved — it cannot be confirmed until the technical spike (below) is complete.**
 
 **Cons**
 - WebView-based performance. Not an issue for a location/social app; not a game.
@@ -88,6 +88,24 @@ Minimum required before App Store submission:
 7. Create `PrivacyInfo.xcprivacy` (iOS 17+ requirement)
 8. Run `npx cap sync && npx cap open ios` → Xcode archive → TestFlight
 9. Conduct a dedicated native security review of generated Xcode and Gradle projects before release
+
+## Required Technical Spike (before approving Option A estimate)
+
+The 2–4 week estimate for Capacitor is preliminary. The following integration points must be validated in a spike before the estimate can be approved or the option confirmed. Each item below can block or materially extend the timeline.
+
+| Area | Question to answer | Risk if unresolved |
+|---|---|---|
+| **Mapbox GL JS in WebView** | Does Mapbox GL JS render correctly in a WKWebView (iOS) and Android WebView? Is WebGL supported and performant? Does the Mapbox `geolocation` API work through Capacitor's geolocation bridge? | Map may not render; performance may be unacceptable on lower-end devices |
+| **Phone auth + reCAPTCHA** | Firebase phone auth uses reCAPTCHA invisible widget. Does `signInWithPhoneNumber` work in the Capacitor WebView, or does it require `RecaptchaVerifier` reconfiguration / `signInWithPhoneNumber` native bridge? | Auth flow may be blocked by WebView reCAPTCHA restrictions on iOS |
+| **Push notifications (FCM)** | Does the existing Firebase Messaging + service-worker FCM flow work in a WKWebView? Or is `@capacitor-community/fcm` + APNs certificate configuration required? | Push notifications silently fail; FCM token not registered |
+| **Camera / sign scanning** | `analyzeSign` uses camera for parking sign images. Does the browser `getUserMedia` Camera API work in WKWebView? Or does `@capacitor/camera` plugin replacement need to be wired into `StreetParkingView`? | Camera permission denied or not exposed; sign scanning broken |
+| **Background location** | Are any background location features planned? If so, `CLLocationManager` (iOS) and `FusedLocationProviderClient` (Android) require native bridges and explicit permission manifest entries | Background location not possible in WebView without native bridge |
+| **Deep links** | Universal Links (iOS) / App Links (Android) for Ping invite flows. Are these planned? Requires `.well-known/apple-app-site-association` and `assetlinks.json` deployed to Firebase Hosting, plus Capacitor app URL scheme config | Invite links open in browser instead of app |
+| **Secure storage** | Firebase Auth `browserLocalPersistence` uses `localStorage` in `firebase.ts`. `localStorage` is accessible to all JS in the WebView. Does the app require native secure keychain storage for auth tokens? | Auth tokens in WebView localStorage; lower security bar than native |
+| **App Check native providers** | `ReCaptchaEnterpriseProvider` is a web provider. iOS requires `AppAttestProvider`; Android requires `PlayIntegrityProvider`. The App Check init code (`firebaseConfig.ts`) needs to be adapted for the native context | App Check tokens fail on device; all protected callables return 403 if enforcement is enabled |
+| **Accessibility / safe area** | Do existing Tailwind layouts handle iOS safe-area insets (`env(safe-area-inset-*)`) correctly in the WebView? | UI clipped by notch or home indicator bar |
+
+**Spike deliverable:** A one-engineer, time-boxed (≤ 3 days) prototype that confirms or refutes the five highest-risk items (Mapbox WebView, phone auth, FCM, camera, App Check). Report back with a revised estimate and a list of any required plugin substitutions.
 
 ## Open Blockers
 

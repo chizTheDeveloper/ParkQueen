@@ -1,12 +1,12 @@
 /**
- * §6 — App Check prod bundle assertions (TM-12).
+ * §6 — App Check prod bundle and source assertions (TM-12).
+ *
+ * Status: SOURCE PREPARED — PROVIDER REGISTRATION AND ENFORCEMENT PENDING
  *
  * Vite strips the `if (import.meta.env.DEV)` guard in production builds.
- * These tests confirm the debug token setup never reaches the prod bundle.
- *
- * TM-12 remains OPEN: initializeAppCheck() is never called. Firebase App Check
- * enrollment requires a provider-side configuration decision (reCAPTCHA v3 /
- * DeviceCheck / Play Integrity). That decision must come from the product team.
+ * When VITE_FIREBASE_APPCHECK_SITE_KEY is absent (CI/local without key),
+ * the initializeAppCheck branch is also dead code and is tree-shaken from
+ * the prod bundle — the call never ships to production without a site key.
  *
  * Tests skip when dist/ does not exist (pre-build). Run `npm run build` first
  * or let §10 (full release gate) provide the built output.
@@ -17,6 +17,7 @@ import path from 'path';
 
 const DIST_DIR = path.resolve(__dirname, '../dist');
 const distExists = fs.existsSync(DIST_DIR);
+const SRC_CONFIG = path.resolve(__dirname, '../firebaseConfig.ts');
 
 /** Scan all .js and .html files under dir; return lines matching pattern. */
 function scanDist(pattern: RegExp): string[] {
@@ -45,27 +46,81 @@ describe('§6 — App Check prod bundle assertions', () => {
         expect(scanDist(/VITE_APPCHECK_DEBUG_TOKEN/)).toHaveLength(0);
     });
 
-    it.skipIf(!distExists)('AC-3: dist/ does not contain initializeAppCheck call', () => {
-        expect(scanDist(/initializeAppCheck/)).toHaveLength(0);
+    it.skipIf(!distExists)('AC-3: dist/ does not contain App Check site key or token values', () => {
+        // Static imports of initializeAppCheck/ReCaptchaEnterpriseProvider may survive
+        // Vite bundling even when the runtime branch is dead (Firebase packages are not
+        // fully tree-shakeable due to side effects). The security-relevant check is that
+        // no SITE KEY VALUES or DEBUG TOKEN VALUES are present in the bundle — not the
+        // function name. AC-1, AC-2, AC-4, and AC-12 cover the sensitive-value checks.
+        // This test asserts the site key variable reference is replaced at build time.
+        expect(scanDist(/VITE_FIREBASE_APPCHECK_SITE_KEY/)).toHaveLength(0);
     });
 
     it.skipIf(!distExists)('AC-4: dist/ does not contain known debug-bypass string', () => {
-        // Firebase App Check debug tokens begin with this prefix in test environments
         expect(scanDist(/appcheck-debug-/i)).toHaveLength(0);
     });
 
     it('AC-5: firebaseConfig.ts DEV guard wraps debug token setup (source-level check)', () => {
-        const src = fs.readFileSync(path.resolve(__dirname, '../firebaseConfig.ts'), 'utf-8');
-        // The debug token assignment must be inside a DEV guard, not at module scope
+        const src = fs.readFileSync(SRC_CONFIG, 'utf-8');
         const debugTokenIndex = src.indexOf('FIREBASE_APPCHECK_DEBUG_TOKEN');
         const devGuardIndex = src.lastIndexOf('import.meta.env.DEV', debugTokenIndex);
         expect(devGuardIndex).toBeGreaterThan(-1);
-        // DEV guard must precede the token assignment
         expect(devGuardIndex).toBeLessThan(debugTokenIndex);
     });
 
-    it('AC-6: initializeAppCheck is never called in firebaseConfig.ts (TM-12 open)', () => {
-        const src = fs.readFileSync(path.resolve(__dirname, '../firebaseConfig.ts'), 'utf-8');
-        expect(src).not.toMatch(/initializeAppCheck\s*\(/);
+    it('AC-6: initializeAppCheck is called in firebaseConfig.ts and guarded by site key (TM-12 source prepared)', () => {
+        const src = fs.readFileSync(SRC_CONFIG, 'utf-8');
+        // Source is prepared: initializeAppCheck IS called
+        expect(src).toMatch(/initializeAppCheck\s*\(/);
+        // The call must be gated on VITE_FIREBASE_APPCHECK_SITE_KEY
+        const callIndex = src.indexOf('initializeAppCheck(');
+        const siteKeyGuardIndex = src.lastIndexOf('VITE_FIREBASE_APPCHECK_SITE_KEY', callIndex);
+        expect(siteKeyGuardIndex, 'VITE_FIREBASE_APPCHECK_SITE_KEY guard must precede initializeAppCheck call').toBeGreaterThan(-1);
+        expect(siteKeyGuardIndex).toBeLessThan(callIndex);
+    });
+
+    it('AC-7: ReCaptchaEnterpriseProvider is used as the App Check provider', () => {
+        const src = fs.readFileSync(SRC_CONFIG, 'utf-8');
+        expect(src).toMatch(/ReCaptchaEnterpriseProvider/);
+        // The provider is constructed with the site key variable, not a literal
+        const providerCallIdx = src.indexOf('new ReCaptchaEnterpriseProvider(');
+        expect(providerCallIdx).toBeGreaterThan(-1);
+        const providerArg = src.slice(providerCallIdx, src.indexOf(')', providerCallIdx));
+        expect(providerArg).toMatch(/appCheckSiteKey/);
+        expect(providerArg).not.toMatch(/"[A-Za-z0-9_-]{20,}"/); // no hardcoded key literal
+    });
+
+    it('AC-8: initializeAppCheck uses the same app instance as auth and db exports', () => {
+        const src = fs.readFileSync(SRC_CONFIG, 'utf-8');
+        // All three must reference the same `app` variable, not getApp() or a fresh initializeApp()
+        expect(src).toMatch(/initializeAppCheck\(app,/);
+        expect(src).toMatch(/getAuth\(app\)/);
+        expect(src).toMatch(/getFirestore\(app\)/);
+    });
+
+    it('AC-9: token auto-refresh is enabled', () => {
+        const src = fs.readFileSync(SRC_CONFIG, 'utf-8');
+        expect(src).toMatch(/isTokenAutoRefreshEnabled:\s*true/);
+    });
+
+    it('AC-10: missing site key triggers a bounded DEV-only warning, not an error or silent fail', () => {
+        const src = fs.readFileSync(SRC_CONFIG, 'utf-8');
+        // else branch exists for missing key
+        expect(src).toMatch(/else if \(import\.meta\.env\.DEV\)/);
+        // warning is emitted, not an error throw
+        expect(src).toMatch(/console\.warn\(.*TM-12/);
+    });
+
+    it('AC-11: initializeAppCheck import is present in firebaseConfig.ts', () => {
+        const src = fs.readFileSync(SRC_CONFIG, 'utf-8');
+        expect(src).toMatch(/import.*initializeAppCheck.*from 'firebase\/app-check'/);
+        expect(src).toMatch(/import.*ReCaptchaEnterpriseProvider.*from 'firebase\/app-check'/);
+    });
+
+    it.skipIf(!distExists)('AC-12: dist/ does not contain the App Check debug-token self.assignment', () => {
+        // The debug token is injected via `self.FIREBASE_APPCHECK_DEBUG_TOKEN = value`.
+        // AC-1 checks the env ref; this checks the assignment pattern itself.
+        // Distinct from AC-1: catches any path that writes the global directly.
+        expect(scanDist(/FIREBASE_APPCHECK_DEBUG_TOKEN\s*=/)).toHaveLength(0);
     });
 });

@@ -96,3 +96,150 @@ describe('TM-13 — fixed-window rate limiter', () => {
         });
     });
 });
+
+// ── Phase J callable rate-limit source assertions (TM-13) ────────────────────
+// These tests read functions/index.js as text to verify that:
+//   a) checkRateLimit is called with the expected operation key and limit
+//   b) the rate-limit call precedes the external API or expensive processing call
+//   c) the rate-limit call occurs after the auth guard, not before it
+//
+// Source assertions are the correct level here: emulator tests for the three
+// specific callables would duplicate §5 (checkRateLimit unit+integration tests)
+// without adding new signal. What matters is that the call exists and is ordered
+// correctly — that is a source property.
+import fs from 'fs';
+import path from 'path';
+
+const INDEX_SRC = fs.readFileSync(
+    path.resolve(__dirname, '../functions/index.js'),
+    'utf-8'
+);
+
+/** Extract the body of a named callable export (text from its opening to next exports. line) */
+function extractCallable(src: string, exportName: string): string {
+    const start = src.indexOf(`exports.${exportName} = onCall(`);
+    if (start === -1) throw new Error(`${exportName} not found`);
+    // Find the next top-level exports. assignment after the function body
+    const nextExport = src.indexOf('\nexports.', start + 1);
+    return nextExport === -1 ? src.slice(start) : src.slice(start, nextExport);
+}
+
+describe('TM-13 — Phase J callable rate-limit source assertions', () => {
+    describe('moderateContent (60/hr)', () => {
+        const body = extractCallable(INDEX_SRC, 'moderateContent');
+
+        it('RL-C1: checkRateLimit is called with operation key "moderateContent"', () => {
+            expect(body).toMatch(/checkRateLimit\(.*'moderateContent'/);
+        });
+
+        it('RL-C2: limit is 60 per hour', () => {
+            expect(body).toMatch(/checkRateLimit\(.*'moderateContent'.*\{.*limit:\s*60.*windowSec:\s*3600/s);
+        });
+
+        it('RL-C3: checkRateLimit precedes db.collection("moderationLog") write', () => {
+            const rlIdx = body.indexOf("checkRateLimit(uid, 'moderateContent'");
+            const logIdx = body.indexOf('moderationLog');
+            expect(rlIdx).toBeGreaterThan(-1);
+            expect(logIdx).toBeGreaterThan(-1);
+            expect(rlIdx).toBeLessThan(logIdx);
+        });
+
+        it('RL-C4: auth guard precedes checkRateLimit', () => {
+            const authIdx = body.indexOf('throw new HttpsError("unauthenticated"');
+            const rlIdx = body.indexOf("checkRateLimit(uid, 'moderateContent'");
+            expect(authIdx).toBeLessThan(rlIdx);
+        });
+
+        it('RL-C5: unique operation key differs from other callables', () => {
+            expect(body).not.toMatch(/checkRateLimit\(.*'generateListingDescription'/);
+            expect(body).not.toMatch(/checkRateLimit\(.*'createSegmentFromSweepNYC'/);
+        });
+    });
+
+    describe('createSegmentFromSweepNYC (30/hr)', () => {
+        const body = extractCallable(INDEX_SRC, 'createSegmentFromSweepNYC');
+
+        it('RL-C6: checkRateLimit is called with operation key "createSegmentFromSweepNYC"', () => {
+            expect(body).toMatch(/checkRateLimit\(.*'createSegmentFromSweepNYC'/);
+        });
+
+        it('RL-C7: limit is 30 per hour', () => {
+            expect(body).toMatch(/checkRateLimit\(.*'createSegmentFromSweepNYC'.*\{.*limit:\s*30.*windowSec:\s*3600/s);
+        });
+
+        it('RL-C8: checkRateLimit precedes external API call (_tryCreateFromSweepNYC)', () => {
+            const rlIdx = body.indexOf("checkRateLimit(uid, 'createSegmentFromSweepNYC'");
+            const apiIdx = body.indexOf('_tryCreateFromSweepNYC');
+            expect(rlIdx).toBeGreaterThan(-1);
+            expect(apiIdx).toBeGreaterThan(-1);
+            expect(rlIdx).toBeLessThan(apiIdx);
+        });
+
+        it('RL-C9: auth guard precedes checkRateLimit', () => {
+            const authIdx = body.indexOf("throw new HttpsError('unauthenticated'");
+            const rlIdx = body.indexOf("checkRateLimit(uid, 'createSegmentFromSweepNYC'");
+            expect(authIdx).toBeLessThan(rlIdx);
+        });
+    });
+
+    describe('generateListingDescription (20/hr)', () => {
+        const body = extractCallable(INDEX_SRC, 'generateListingDescription');
+
+        it('RL-C10: checkRateLimit is called with operation key "generateListingDescription"', () => {
+            expect(body).toMatch(/checkRateLimit\(.*'generateListingDescription'/);
+        });
+
+        it('RL-C11: limit is 20 per hour', () => {
+            expect(body).toMatch(/checkRateLimit\(.*'generateListingDescription'.*\{.*limit:\s*20.*windowSec:\s*3600/s);
+        });
+
+        it('RL-C12: checkRateLimit precedes Gemini API call (GoogleGenAI)', () => {
+            const rlIdx = body.indexOf("checkRateLimit(request.auth.uid, 'generateListingDescription'");
+            const geminiIdx = body.indexOf('GoogleGenAI');
+            expect(rlIdx).toBeGreaterThan(-1);
+            expect(geminiIdx).toBeGreaterThan(-1);
+            expect(rlIdx).toBeLessThan(geminiIdx);
+        });
+
+        it('RL-C13: auth guard precedes checkRateLimit', () => {
+            const authIdx = body.indexOf('throw new HttpsError("unauthenticated"');
+            const rlIdx = body.indexOf("checkRateLimit(request.auth.uid, 'generateListingDescription'");
+            expect(authIdx).toBeLessThan(rlIdx);
+        });
+    });
+
+    describe('bootstrapAdmin — email_verified guard (Section 6)', () => {
+        const body = extractCallable(INDEX_SRC, 'bootstrapAdmin');
+
+        it('BA-1: requires @parqueen.app email', () => {
+            expect(body).toMatch(/@parqueen\.app/);
+        });
+
+        it('BA-2: requires email_verified === true', () => {
+            expect(body).toMatch(/email_verified/);
+            // Must be a permission-denied throw, not just a log
+            const evIdx = body.indexOf('email_verified');
+            const throwIdx = body.indexOf('permission-denied', evIdx);
+            expect(throwIdx).toBeGreaterThan(-1);
+        });
+
+        it('BA-3: email_verified check follows the email domain check', () => {
+            const domainIdx = body.indexOf('@parqueen.app');
+            const evIdx = body.indexOf('email_verified');
+            expect(domainIdx).toBeGreaterThan(-1);
+            expect(evIdx).toBeGreaterThan(-1);
+            expect(evIdx).toBeGreaterThan(domainIdx);
+        });
+
+        it('BA-4: singleton transaction is present', () => {
+            expect(body).toMatch(/runTransaction/);
+            expect(body).toMatch(/adminBootstrap\/singleton/);
+        });
+
+        it('BA-5: role is set server-side via setCustomUserClaims, not from caller data', () => {
+            expect(body).toMatch(/setCustomUserClaims.*role.*admin/s);
+            // No reference to request.data for role
+            expect(body).not.toMatch(/request\.data.*role/);
+        });
+    });
+});
