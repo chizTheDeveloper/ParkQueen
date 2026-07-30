@@ -242,13 +242,16 @@ describe('AV-01 – AV-06: upload abuse controls', () => {
         );
     });
 
-    // AV-02: Overwrite prevention (allow update: if false) is enforced in production
-    // Firebase Storage, but the local @firebase/rules-unit-testing emulator does NOT
-    // distinguish create vs update for Storage Rules — both pass through `allow create`.
-    // The rule `allow update: if false` is correct for production; emulator cannot test it.
-    // Production smoke test: upload to an existing avatarUploads/{uid}/{id}/original path
-    // and confirm PERMISSION_DENIED is returned by the Firebase Storage HTTP API.
-    it.skip('AV-02: EMULATOR-LIMITATION — overwrite of existing upload denied by allow update:false (prod only)', async () => {
+    // AV-02: PARTIAL — production Rules text verified by AV-07; staging overwrite smoke
+    // test required before go-live. The emulator cannot distinguish create vs update.
+    //
+    // Staging smoke test procedure (do NOT run against production):
+    //   1. Upload a valid original to avatarUploads/{uid}/{uploadId}/original.
+    //   2. Attempt a second write to the exact same path (same uid, same uploadId).
+    //   3. Confirm the second write is denied (PERMISSION_DENIED / HTTP 403).
+    //   4. Confirm a write to a different uploadId succeeds (new create is allowed).
+    //   5. Confirm a cross-user write to the same uid path is denied.
+    it.skip('AV-02: PARTIAL — overwrite denied by allow update:if false (staging smoke test required)', async () => {
         await assertFails(
             uploadBytes(
                 ref(avOwnerStorage(), `avatarUploads/${AV_UID}/${AV_UPLOAD_A}/original`),
@@ -303,14 +306,32 @@ describe('AV-01 – AV-06: upload abuse controls', () => {
 // This non-emulator test verifies the rule text itself is correct so that
 // production Firebase Storage will enforce the update prohibition.
 
-describe('AV-07: storage.rules static text assertion — update prohibition present', () => {
-    it('AV-07: storage.rules enforces allow update:if false on the avatarUploads/original path', () => {
+describe('AV-07: storage.rules static text assertion — update prohibition in exact match block', () => {
+    it('AV-07: exact /avatarUploads/.../original block allows create and denies update/delete/read', () => {
         const rules = readFileSync('storage.rules', 'utf8');
-        // The avatarUploads match block must contain the explicit update denial.
-        // Production Firebase Storage (unlike the emulator) distinguishes create from update.
-        expect(rules).toContain('allow update, delete, read: if false');
-        // The block must be inside an avatarUploads match.
-        const uploadsBlock = rules.split('match /avatarCandidates')[0];
-        expect(uploadsBlock).toContain('allow update, delete, read: if false');
+        // Isolate the exact block — guards against comments or unrelated blocks satisfying the check.
+        const matchIdx = rules.indexOf('match /avatarUploads/{uid}/{uploadId}/original');
+        expect(matchIdx).toBeGreaterThan(-1);
+        // Skip past the match path to the body-opening brace.
+        // {uid}/{uploadId} in the path are NOT block delimiters — start counting after /original.
+        const pathEnd  = rules.indexOf('/original', matchIdx) + '/original'.length;
+        const bodyOpen = rules.indexOf('{', pathEnd);
+        let depth = 0, blockEnd = bodyOpen;
+        for (let i = bodyOpen; i < rules.length; i++) {
+            if (rules[i] === '{') depth++;
+            else if (rules[i] === '}') { depth--; if (depth === 0) { blockEnd = i + 1; break; } }
+        }
+        const block = rules.slice(bodyOpen, blockEnd);
+        // Must allow create (owner + MIME/size guard).
+        expect(block).toMatch(/allow\s+create\s*:/);
+        // Must deny update. Combined "allow update, delete, read: if false" covers it.
+        expect(block).toMatch(/allow\s+update[^:]*:\s*if\s+false/);
+        // No allow line in this block may grant update, delete, or read.
+        const allowLines = block.split('\n').map((l: string) => l.trim()).filter((l: string) => l.startsWith('allow'));
+        for (const line of allowLines) {
+            if (/update|delete|read/.test(line)) {
+                expect(line).toContain('if false');
+            }
+        }
     });
 });

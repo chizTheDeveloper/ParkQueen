@@ -961,8 +961,8 @@ describe('§MOD — moderateAvatarUpload integration tests', () => {
         expect(typeof fnModule.cleanAvatarOrphans).toBe('function');
     });
 
-    // MOD-44: _cleanOrphans returns { checked, deleted } with accurate counts
-    it('MOD-44: _cleanOrphans returns { checked, deleted } object with correct counts', async () => {
+    // MOD-44: _cleanOrphans returns { checked, eligible, deleted, failed, preserved }
+    it('MOD-44: _cleanOrphans returns { checked, eligible, deleted, failed, preserved } with correct counts', async () => {
         const uid = freshUid(); const upId = freshUploadId();
         await nuke(uid);
         await db.doc(`avatarModeration/${uid}`).set({
@@ -974,9 +974,17 @@ describe('§MOD — moderateAvatarUpload integration tests', () => {
         await uploadOriginal(uid, upId, JPEG_1x1, 'image/jpeg');
 
         const result = await fnModule._cleanOrphans(bucket, db, Infinity);
-        expect(result).toMatchObject({ checked: expect.any(Number), deleted: expect.any(Number) });
+        expect(result).toMatchObject({
+            checked:   expect.any(Number),
+            eligible:  expect.any(Number),
+            deleted:   expect.any(Number),
+            failed:    expect.any(Number),
+            preserved: expect.any(Number),
+        });
         expect(result.checked).toBeGreaterThanOrEqual(1);
         expect(result.deleted).toBeGreaterThanOrEqual(1);
+        expect(result.eligible).toBeGreaterThanOrEqual(1);
+        expect(result.failed).toBe(0);
         await nuke(uid);
     });
 
@@ -994,5 +1002,167 @@ describe('§MOD — moderateAvatarUpload integration tests', () => {
         const [exists] = await bucket.file(`avatars/${uid}`).exists();
         expect(exists).toBe(true);
         await nuke(uid);
+    });
+
+    // ── §MOD pagination correctness, lease, cursor persistence ──────────────
+
+    // MOD-46: autoPaginate:false is present inside the cleanup function body
+    it('MOD-46: _cleanOrphans source contains autoPaginate:false inside the function body', () => {
+        const fs   = require('fs');
+        const path = require('path');
+        const src     = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+        const fnStart = src.indexOf('async function _cleanOrphanedAvatarObjects');
+        const fnEnd   = src.indexOf('exports._cleanOrphans', fnStart);
+        expect(src.slice(fnStart, fnEnd)).toContain('autoPaginate: false');
+    });
+
+    // MOD-47: page-1 nextQuery.pageToken is forwarded as the page-2 pageToken
+    it('MOD-47: page-1 nextQuery.pageToken is forwarded as the page-2 pageToken (mock)', async () => {
+        const queries = [];
+        const mockBucket = {
+            async getFiles(opts) {
+                queries.push({ prefix: opts.prefix, pageToken: opts.pageToken });
+                if (opts.prefix === 'avatarUploads/' && !opts.pageToken) {
+                    return [[{
+                        name:     'avatarUploads/uid_mock47/up1/original',
+                        metadata: { timeCreated: new Date(0).toISOString() },
+                        delete:   async () => {},
+                    }], { pageToken: 'tok-p2-mock47' }];
+                }
+                return [[], null];
+            },
+        };
+        await fnModule._cleanOrphans(mockBucket, db, Infinity, 9999);
+        const uploadsQ = queries.filter(q => q.prefix === 'avatarUploads/');
+        expect(uploadsQ.length).toBe(2);
+        expect(uploadsQ[0].pageToken).toBeFalsy();
+        expect(uploadsQ[1].pageToken).toBe('tok-p2-mock47');
+    });
+
+    // MOD-48: avatars/ prefix is never passed to getFiles (mock)
+    it('MOD-48: avatars/ prefix is never passed to getFiles (mock)', async () => {
+        const prefixes = [];
+        const mockBucket = {
+            async getFiles(opts) { prefixes.push(opts.prefix); return [[], null]; },
+        };
+        await fnModule._cleanOrphans(mockBucket, db);
+        expect(prefixes.every(p => p === 'avatarUploads/' || p === 'avatarCandidates/')).toBe(true);
+    });
+
+    // MOD-49: leased run persists cursor doc in Firestore on completion
+    it('MOD-49: leased run creates maintenanceJobs/avatarOrphanCleanup doc and releases lease', async () => {
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').delete().catch(() => {});
+        const mockBucket = { async getFiles() { return [[], null]; } };
+        await fnModule._cleanOrphans(mockBucket, db, Infinity, 9999, { leaseOwner: freshUid() });
+        const snap = await db.doc('maintenanceJobs/avatarOrphanCleanup').get();
+        expect(snap.exists).toBe(true);
+        expect(snap.data().leaseOwner).toBeNull();
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').delete().catch(() => {});
+    });
+
+    // MOD-50: cursor-resumed run reaches orphaned objects past the cap from run 1 (starvation-free)
+    it('MOD-50: cursor-resumed run reaches orphaned objects past the cap from run 1', async () => {
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').delete().catch(() => {});
+        const activeUid = 'mod50_active_uid';
+        const orphanUid = 'mod50_orphan_uid';
+        await db.doc(`avatarModeration/${activeUid}`).set({ status: 'retry_pending' });
+        await db.doc(`avatarModeration/${orphanUid}`).set({ status: 'rejected' });
+        let orphanDeleted = false;
+        const mockBucket = {
+            async getFiles(opts) {
+                if (opts.prefix === 'avatarCandidates/') return [[], null];
+                if (!opts.pageToken) return [[{
+                    name:     `avatarUploads/${activeUid}/up1/original`,
+                    metadata: { timeCreated: new Date(0).toISOString() },
+                    delete:   async () => { throw new Error('must not delete active'); },
+                }], { pageToken: 'page2' }];
+                return [[{
+                    name:     `avatarUploads/${orphanUid}/up2/original`,
+                    metadata: { timeCreated: new Date(0).toISOString() },
+                    delete:   async () => { orphanDeleted = true; },
+                }], null];
+            },
+        };
+        // Run 1: cap=1, active object fills the slot — orphan not reached
+        const r1 = await fnModule._cleanOrphans(mockBucket, db, Infinity, 1, { leaseOwner: freshUid() });
+        expect(r1.deleted).toBe(0);
+        expect(orphanDeleted).toBe(false);
+        // Run 2: cursor resumes at page2 — orphan is processed and deleted
+        const r2 = await fnModule._cleanOrphans(mockBucket, db, Infinity, 1, { leaseOwner: freshUid() });
+        expect(r2.deleted).toBe(1);
+        expect(orphanDeleted).toBe(true);
+        await db.doc(`avatarModeration/${activeUid}`).delete();
+        await db.doc(`avatarModeration/${orphanUid}`).delete();
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').delete().catch(() => {});
+    });
+
+    // MOD-51: active lease causes second invocation to return skipped:true
+    it('MOD-51: active lease held by another owner causes skipped:true return', async () => {
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').delete().catch(() => {});
+        const now = Date.now();
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').set({
+            leaseOwner:    'other-owner',
+            leaseExpiresAt: Timestamp.fromMillis(now + 10 * 60 * 1000),
+            lastStartedAt:  Timestamp.fromMillis(now),
+        });
+        const mockBucket = { async getFiles() { return [[], null]; } };
+        const result = await fnModule._cleanOrphans(mockBucket, db, Infinity, 9999, { leaseOwner: freshUid() });
+        expect(result.skipped).toBe(true);
+        expect(result.checked).toBe(0);
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').delete().catch(() => {});
+    });
+
+    // MOD-52: expired lease (leaseExpiresAt in the past) is reclaimed by the next run
+    it('MOD-52: expired lease is reclaimed and run proceeds normally', async () => {
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').delete().catch(() => {});
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').set({
+            leaseOwner:     'stale-owner',
+            leaseExpiresAt: Timestamp.fromMillis(Date.now() - 1000),
+            currentPrefix:  'avatarUploads/',
+            pageToken:      null,
+        });
+        const mockBucket = { async getFiles() { return [[], null]; } };
+        const result = await fnModule._cleanOrphans(mockBucket, db, Infinity, 9999, { leaseOwner: freshUid() });
+        expect(result.skipped).toBeUndefined();
+        const snap = await db.doc('maintenanceJobs/avatarOrphanCleanup').get();
+        expect(snap.data().leaseOwner).toBeNull();
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').delete().catch(() => {});
+    });
+
+    // MOD-53: successful leased run releases the lease (leaseOwner:null, leaseExpiresAt:epoch)
+    it('MOD-53: leaseOwner is null and leaseExpiresAt is epoch after successful run', async () => {
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').delete().catch(() => {});
+        const mockBucket = { async getFiles() { return [[], null]; } };
+        await fnModule._cleanOrphans(mockBucket, db, Infinity, 9999, { leaseOwner: freshUid() });
+        const snap = await db.doc('maintenanceJobs/avatarOrphanCleanup').get();
+        expect(snap.data().leaseOwner).toBeNull();
+        expect(snap.data().leaseExpiresAt.toMillis()).toBe(0);
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').delete().catch(() => {});
+    });
+
+    // MOD-54: file.delete() rejection increments failed (not deleted); run continues
+    it('MOD-54: delete failure increments failed not deleted; subsequent objects are still processed', async () => {
+        const uid1 = freshUid(); const uid2 = freshUid();
+        await db.doc(`avatarModeration/${uid1}`).set({ status: 'rejected' });
+        await db.doc(`avatarModeration/${uid2}`).set({ status: 'rejected' });
+        let uid2Deleted = false;
+        const mockBucket = {
+            async getFiles(opts) {
+                if (opts.prefix === 'avatarUploads/') return [[
+                    { name: `avatarUploads/${uid1}/up1/original`, metadata: { timeCreated: new Date(0).toISOString() },
+                      delete: async () => { throw new Error('simulated failure'); } },
+                    { name: `avatarUploads/${uid2}/up2/original`, metadata: { timeCreated: new Date(0).toISOString() },
+                      delete: async () => { uid2Deleted = true; } },
+                ], null];
+                return [[], null];
+            },
+        };
+        const result = await fnModule._cleanOrphans(mockBucket, db, Infinity);
+        expect(result.failed).toBe(1);
+        expect(result.deleted).toBe(1);
+        expect(result.eligible).toBe(2);
+        expect(uid2Deleted).toBe(true);
+        await db.doc(`avatarModeration/${uid1}`).delete();
+        await db.doc(`avatarModeration/${uid2}`).delete();
     });
 });
