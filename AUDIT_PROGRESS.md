@@ -726,3 +726,79 @@ App Check provider implications documented: native requires `AppAttestProvider` 
 - Deploy Storage Rules in a separately approved rollout
 - Production data migration: `utils/migration/privatizeContactFields.ts` in apply mode post-deployment
 - Legal sign-off on `adminAuditLog` and `moderationLog` retention categories
+
+## Phase J Verification — Source gaps closed, quality gates confirmed (2026-07-30)
+
+Completed all verification items from the Phase J pass. No deployment performed.
+
+### Commits
+
+| Commit | Message |
+|---|---|
+| `75fdc00` | `feat(security): Phase J — rate-limit completion, TM-16 closed, TM-19/20 documented` |
+| `8fd5ba1` | `test(security): Phase J verification — App Check source prep, rate-limit assertions, bootstrapAdmin hardening` |
+
+### Work completed
+
+**App Check source preparation (`firebaseConfig.ts`, TM-12):**
+- `initializeAppCheck` added with `ReCaptchaEnterpriseProvider`; gated on `VITE_FIREBASE_APPCHECK_SITE_KEY`
+- `isTokenAutoRefreshEnabled: true`; same `app` instance for Auth, Firestore, and App Check
+- DEV-only `console.warn` when key is absent (tree-shaken from prod); debug token gated on `import.meta.env.DEV`
+- Status: SOURCE PREPARED — provider registration and enforcement remain pending (PRODUCT ACTION REQUIRED)
+
+**`bootstrapAdmin` email_verified guard (`functions/index.js`, Section 6):**
+- Added `request.auth.token.email_verified !== true` check throwing `HttpsError('permission-denied')` after the `@parqueen.app` domain check
+- Prevents unverified corporate email from calling bootstrap even if it passes domain validation
+
+**App Check bundle assertion tests (`utils/appCheckBundleAssertion.test.ts`):**
+- AC-3 reframed: checks `VITE_FIREBASE_APPCHECK_SITE_KEY` is replaced at build time (env var not in dist), not function-name absence — static imports of `initializeAppCheck` survive bundling regardless of dead-branch status
+- AC-6 updated: asserts `initializeAppCheck` IS called in source (source prepared) and guarded by site key variable
+- AC-7 through AC-11 added: provider type, same app instance, auto-refresh, missing-key warning, import presence
+- AC-12: `FIREBASE_APPCHECK_DEBUG_TOKEN = ` assignment absent from prod bundle
+
+**Rate-limit source assertions (`utils/rateLimiter.test.ts`):**
+- RL-C1–RL-C13: confirm operation key, limit value, `checkRateLimit` precedes external API, auth guard precedes rate limit for all three Phase J callables
+- BA-1–BA-5: confirm `bootstrapAdmin` domain check, `email_verified` guard with `permission-denied` throw, ordering, singleton transaction, server-side role assignment
+
+**Native packaging ADR corrections (`docs/NATIVE_PACKAGING_ADR.md`):**
+- "Zero web rewrite" replaced with "Minimal web-layer rewrite for most features"
+- 2–4 week estimate marked PRELIMINARY — cannot approve until technical spike complete
+- Technical spike section added: 9 integration areas (Mapbox WebView, phone auth + reCAPTCHA, FCM, camera, background location, deep links, secure storage, App Check native providers, safe area)
+
+**Vehicle privacy options (`docs/THREAT_MODEL.md`, TM-04):**
+- OPTION A / OPTION B labeling corrected: Option A = retain public; Option B = private with temporary Ping disclosure
+- PRODUCT DECISION REQUIRED marker added
+
+**TM-19 git-history scan confirmed:**
+- Gemini API key committed in `.env` at commit `0dd395f` (key value redacted here) — ROTATION REQUIRED
+- Key absent from current HEAD source and prod bundle; `.env` now gitignored
+- Google Maps key: no current source references — DISABLE recommended (no rotation required)
+
+### Quality gates (post Phase J Verification)
+
+| Gate | Result |
+|---|---|
+| `npx tsc --noEmit` | PASS — 0 errors |
+| `npm test` | PASS — **795 tests** (28 files) |
+| `npm run test:rules` | PASS — 165 Firestore tests |
+| `npm run test:storage:rules` | PASS (emulator) |
+| `npm run test:functions` | PASS — 107 integration tests |
+| `npm run build` | PASS |
+| `git diff --check` | PASS |
+| `npm ls --prefix functions sharp` | `sharp@0.35.3` |
+| `npm audit` (root) | 1 critical (node-tar via xcode/Expo — toolchain only, not runtime), 42 high — pre-existing; no new vulns |
+| `npm audit --prefix functions` | 0 critical, 24 high — pre-existing @google-cloud chain; no new vulns |
+| Secret scan (source) | PASS — `AIzaSy*` in firebaseConfig/firebase-messaging-sw (TM-18 accepted); no other secrets in HEAD |
+| Secret scan (dist/) | PASS — no Gemini key, no debug tokens, no VITE_* env refs |
+| Git history secret scan | CONFIRMED: `0dd395f` committed `.env` with Gemini key — documented TM-19, ROTATION REQUIRED |
+
+### Updated threat model triage
+
+| Open CRITICAL | 0 |
+|---|---|
+| Open HIGH | 1 (TM-12 App Check — source prepared; blocked on provider registration decision) |
+| Open MEDIUM | 0 |
+| Open LOW | 0 |
+| Closed this pass | TM-16 FULLY CLOSED (Phase J); TM-17 CLOSED (Phase H) |
+| Partially addressed | TM-13 (3 callables added; admin callables and provider quotas remain); TM-04 (vehicle privacy decision required) |
+| Blocked/external | TM-12 (provider registration), TM-19 (credential rotation required), TM-20 (packaging decision) |
