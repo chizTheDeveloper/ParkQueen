@@ -737,6 +737,8 @@ Completed all verification items from the Phase J pass. No deployment performed.
 |---|---|
 | `75fdc00` | `feat(security): Phase J — rate-limit completion, TM-16 closed, TM-19/20 documented` |
 | `8fd5ba1` | `test(security): Phase J verification — App Check source prep, rate-limit assertions, bootstrapAdmin hardening` |
+| `a367183` | `docs: Phase J verification checkpoint — quality gates, threat triage, commit record` |
+| `db37dce` | `test(security): Phase J final verification — rate-limit behavioral tests, bootstrapAdmin emulator tests, App Check source guards` |
 
 ### Work completed
 
@@ -760,6 +762,26 @@ Completed all verification items from the Phase J pass. No deployment performed.
 - RL-C1–RL-C13: confirm operation key, limit value, `checkRateLimit` precedes external API, auth guard precedes rate limit for all three Phase J callables
 - BA-1–BA-5: confirm `bootstrapAdmin` domain check, `email_verified` guard with `permission-denied` throw, ordering, singleton transaction, server-side role assignment
 
+**Rate-limit behavioral emulator tests (`functions/rateLimitCallable.integration.test.js`, 19 tests, commit `db37dce`):**
+- `_callableHooks.sweepNYCResult` and `_callableHooks.geminiResponse` test seams added to `functions/index.js` — mirrors existing `_hooks.visionSafeSearch` pattern
+- RL-B: `moderateContent` — pre-seeded counter at 60 → `resource-exhausted`; unauthenticated → `unauthenticated`; counter at 59 → call succeeds; counter increments
+- RL-C: `createSegmentFromSweepNYC` — pre-seeded counter at 30 → `resource-exhausted`; OOB lat/lng → `invalid-argument` (not rate-limited path); under-limit → hook invoked
+- RL-D: `generateListingDescription` — pre-seeded counter at 20 → `resource-exhausted`; unauthenticated → `unauthenticated`; under-limit → hook invoked
+
+**bootstrapAdmin emulator behavioral tests (`functions/bootstrapAdmin.integration.test.js`, 8 tests, commit `db37dce`):**
+- BA-E1: unauthenticated → `unauthenticated`
+- BA-E2: verified non-@parqueen.app email → `permission-denied` with domain message
+- BA-E3: `@parqueen.app` + `email_verified=false` → `permission-denied` with "verified" message
+- BA-E4: verified `@parqueen.app` caller, no singleton → success; singleton doc created with `bootstrappedBy`
+- BA-E5: caller cannot supply `role` via `request.data` — server sets `role: 'admin'`, not `'superadmin'`
+- BA-E6: second bootstrap attempt → `already-exists`
+- BA-E7: pre-seeded singleton → `already-exists`; no audit log written for blocked attempt
+- BA-E8: audit record written to `adminAuditLog` with `action`, `email`, `adminUid`, `performedAt`
+
+**AC-13 and AC-14 added (`utils/appCheckBundleAssertion.test.ts`, commit `db37dce`):**
+- AC-13: `initializeApp` called exactly once in `firebaseConfig.ts` (prevents dual initialization from import order)
+- AC-14: `firebase.ts` has `getApps()` guard — `initializeApp` is inside a conditional; confirms the 28-view import of `firebase.ts` cannot cause double-initialization
+
 **Native packaging ADR corrections (`docs/NATIVE_PACKAGING_ADR.md`):**
 - "Zero web rewrite" replaced with "Minimal web-layer rewrite for most features"
 - 2–4 week estimate marked PRELIMINARY — cannot approve until technical spike complete
@@ -779,10 +801,10 @@ Completed all verification items from the Phase J pass. No deployment performed.
 | Gate | Result |
 |---|---|
 | `npx tsc --noEmit` | PASS — 0 errors |
-| `npm test` | PASS — **795 tests** (28 files) |
+| `npm test` | PASS — **797 tests** (28 files; +2 AC-13/AC-14 from `db37dce`) |
 | `npm run test:rules` | PASS — 165 Firestore tests |
 | `npm run test:storage:rules` | PASS (emulator) |
-| `npm run test:functions` | PASS — 107 integration tests |
+| `npm run test:functions` | PASS — **134 integration tests** (107 + 19 RL-B/C/D + 8 BA-E from `db37dce`) |
 | `npm run build` | PASS |
 | `git diff --check` | PASS |
 | `npm ls --prefix functions sharp` | `sharp@0.35.3` |
@@ -802,3 +824,7 @@ Completed all verification items from the Phase J pass. No deployment performed.
 | Closed this pass | TM-16 FULLY CLOSED (Phase J); TM-17 CLOSED (Phase H) |
 | Partially addressed | TM-13 (3 callables added; admin callables and provider quotas remain); TM-04 (vehicle privacy decision required) |
 | Blocked/external | TM-12 (provider registration), TM-19 (credential rotation required), TM-20 (packaging decision) |
+
+### CI status — executable tip `db37dce`
+
+GitHub Actions CI could not be polled from this environment (`gh` CLI not installed). Push to `origin/audit/app-store-readiness-2026` completed. All local quality gates passed. Monitor the Actions tab on the repository for the `firestore-rules.yml` and `avatar-pipeline.yml` workflow runs triggered by `db37dce`.
