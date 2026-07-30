@@ -846,6 +846,14 @@ exports.moderateAvatarUpload = onObjectFinalized(
 //   not support it on scheduled functions and fails to register the export.
 // Counters — deleted increments only after a successful file.delete(); failed
 //   increments when file.delete() rejects. One failed deletion does not abort.
+// Stale cursor recovery — if GCS returns HTTP 400 with reason "invalid" the
+//   page token has expired. The stale token is cleared transactionally in
+//   Firestore (cursorResetAt / cursorResetReason recorded) and the prefix is
+//   retried from page 1 in the same invocation. A per-prefix guard prevents
+//   a second clear, so a bad page-1 response always propagates.
+// Lease release — guaranteed by try/finally; unexpected throws cannot
+//   permanently lock the job. Release errors are swallowed so the caller sees
+//   the original error; bounded lease expiry recovers if release itself fails.
 const ORPHAN_CLEANUP_JOB_PATH     = "maintenanceJobs/avatarOrphanCleanup";
 const ORPHAN_CLEANUP_PREFIXES     = ["avatarUploads/", "avatarCandidates/"];
 const ORPHAN_CLEANUP_THRESHOLD_MS = 24 * 60 * 60 * 1000;
@@ -853,6 +861,14 @@ const ORPHAN_MAX_OBJECTS_PER_RUN  = 1000;
 const ORPHAN_LEASE_DURATION_MS    = 10 * 60 * 1000; // 10 minutes
 const ORPHAN_TERMINAL_STATUSES    = new Set(["approved", "rejected", "failed"]);
 const ORPHAN_ACTIVE_STATUSES      = new Set(["processing", "retry_pending"]);
+
+// Classify GCS errors that represent an expired/invalid page cursor.
+// Uses only stable API fields: HTTP status code and per-error reason string.
+function _isInvalidStoragePageTokenError(err) {
+  if (err?.code !== 400) return false;
+  const reasons = (err?.errors ?? []).map(e => e.reason ?? "");
+  return reasons.some(r => r === "invalid" || r === "invalidToken");
+}
 
 // Acquire a bounded cleanup lease via Firestore transaction.
 // Returns the persisted cursor { currentPrefix, pageToken } on success,
@@ -907,93 +923,145 @@ async function _cleanOrphanedAvatarObjects(storageBucket, firestoreDb, cutoffMs,
   let prefixIdx = ORPHAN_CLEANUP_PREFIXES.indexOf(startPrefix);
   if (prefixIdx < 0) prefixIdx = 0;
 
-  // nextPrefix/nextToken are the cursor saved for the next run.
-  // Default: wrap to the beginning after all prefixes are exhausted.
+  // nextPrefix/nextToken: cursor persisted for the next run.
+  // Default: wrap to beginning after all prefixes exhausted.
   let nextPrefix = ORPHAN_CLEANUP_PREFIXES[0];
   let nextToken  = null;
   let capHit     = false;
 
-  for (let pi = prefixIdx; pi < ORPHAN_CLEANUP_PREFIXES.length; pi++) {
-    const prefix    = ORPHAN_CLEANUP_PREFIXES[pi];
-    let   pageToken = (pi === prefixIdx) ? startToken : null;
+  // errorPrefix/errorToken: best-effort cursor for the error-exit path.
+  // Updated when a token reset clears the stale value so re-saving it is avoided.
+  let errorPrefix = startPrefix;
+  let errorToken  = startToken;
+  let didError    = false;
 
-    do {
-      const remaining = limit - checked;
-      if (remaining <= 0) {
-        // Budget exhausted before fetching the next page — persist cursor here.
-        capHit     = true;
-        nextPrefix = prefix;
-        nextToken  = pageToken;
-        break;
-      }
-      const [files, nextQuery] = await storageBucket.getFiles({
-        prefix,
-        maxResults:   Math.min(remaining, 500),
-        pageToken:    pageToken || undefined,
-        autoPaginate: false,
-      });
+  try {
+    for (let pi = prefixIdx; pi < ORPHAN_CLEANUP_PREFIXES.length; pi++) {
+      const prefix    = ORPHAN_CLEANUP_PREFIXES[pi];
+      let   pageToken = (pi === prefixIdx) ? startToken : null;
+      let   tokenResetDone = false; // guard: clear stale token at most once per prefix
 
-      for (const file of files) {
-        checked++;
-        const created = new Date(file.metadata?.timeCreated ?? 0).getTime();
-        if (created > stale) { preserved++; continue; }
-
-        const uid = file.name.split("/")[1];
-        if (!uid) {
-          // Malformed path — defensive deletion; no UID to log.
-          eligible++;
-          try { await file.delete(); deleted++; }
-          catch (err) { console.warn("Avatar orphan delete failed:", sanitizeError(err)); failed++; }
-          continue;
+      // for(;;) instead of do-while: after a token reset (pageToken=null), continue
+      // correctly restarts from the top rather than evaluating a while condition.
+      for (;;) {
+        const remaining = limit - checked;
+        if (remaining <= 0) {
+          // Budget exhausted before fetching the next page — persist cursor here.
+          capHit     = true;
+          nextPrefix = prefix;
+          nextToken  = pageToken;
+          break;
         }
 
-        const snap   = await firestoreDb.doc(`avatarModeration/${uid}`).get();
-        const status = snap.exists ? snap.data()?.status : null;
-
-        if (ORPHAN_ACTIVE_STATUSES.has(status)) { preserved++; continue; }
-
-        if (!status || ORPHAN_TERMINAL_STATUSES.has(status)) {
-          eligible++;
-          try { await file.delete(); deleted++; }
-          catch (err) { console.warn("Avatar orphan delete failed:", sanitizeError(err)); failed++; }
-        } else {
-          preserved++; // unknown status — conservative
+        let files, nextQuery;
+        try {
+          [files, nextQuery] = await storageBucket.getFiles({
+            prefix,
+            maxResults:   Math.min(remaining, 500),
+            pageToken:    pageToken || undefined,
+            autoPaginate: false,
+          });
+        } catch (gcsErr) {
+          if (!tokenResetDone && _isInvalidStoragePageTokenError(gcsErr)) {
+            tokenResetDone = true;
+            const nowMs = Date.now();
+            if (leaseOwner) {
+              const jobRef = firestoreDb.doc(ORPHAN_CLEANUP_JOB_PATH);
+              await firestoreDb.runTransaction(async (tx) => {
+                const snap = await tx.get(jobRef);
+                if (snap.exists) {
+                  tx.update(jobRef, {
+                    pageToken:         null,
+                    cursorResetAt:     Timestamp.fromMillis(nowMs),
+                    cursorResetReason: "invalid_page_token",
+                  });
+                }
+              });
+            }
+            console.warn(
+              `Avatar orphan cleanup: stale page token cleared for prefix "${prefix}"; retrying from page 1`
+            );
+            // Update error-path cursor so a subsequent throw saves the cleared state.
+            errorPrefix = prefix;
+            errorToken  = null;
+            pageToken   = null;
+            continue; // restart for(;;) from page 1 of this prefix
+          }
+          throw gcsErr; // non-token errors propagate; finally releases lease
         }
+
+        for (const file of files) {
+          checked++;
+          const created = new Date(file.metadata?.timeCreated ?? 0).getTime();
+          if (created > stale) { preserved++; continue; }
+
+          const uid = file.name.split("/")[1];
+          if (!uid) {
+            // Malformed path — defensive deletion; no UID to log.
+            eligible++;
+            try { await file.delete(); deleted++; }
+            catch (err) { console.warn("Avatar orphan delete failed:", sanitizeError(err)); failed++; }
+            continue;
+          }
+
+          const snap   = await firestoreDb.doc(`avatarModeration/${uid}`).get();
+          const status = snap.exists ? snap.data()?.status : null;
+
+          if (ORPHAN_ACTIVE_STATUSES.has(status)) { preserved++; continue; }
+
+          if (!status || ORPHAN_TERMINAL_STATUSES.has(status)) {
+            eligible++;
+            try { await file.delete(); deleted++; }
+            catch (err) { console.warn("Avatar orphan delete failed:", sanitizeError(err)); failed++; }
+          } else {
+            preserved++; // unknown status — conservative
+          }
+        }
+
+        // Advance past the page we just finished.
+        pageToken = nextQuery?.pageToken ?? null;
+
+        // After consuming the page, check if the budget is now exhausted.
+        if (checked >= limit && pageToken) {
+          capHit     = true;
+          nextPrefix = prefix;
+          nextToken  = pageToken;
+          break;
+        }
+        if (!pageToken) break; // prefix exhausted — move to next prefix
       }
 
-      // Advance past the page we just finished.
-      pageToken = nextQuery?.pageToken ?? null;
-
-      // After consuming the page, check if the budget is now exhausted.
-      if (checked >= limit && pageToken) {
-        capHit     = true;
-        nextPrefix = prefix;
-        nextToken  = pageToken;
-        break;
-      }
-    } while (pageToken);
-
-    if (capHit) break;
-  }
-
-  if (leaseOwner) {
-    await firestoreDb.doc(ORPHAN_CLEANUP_JOB_PATH).update({
-      leaseOwner:      null,
-      leaseExpiresAt:  Timestamp.fromMillis(0),
-      lastCompletedAt: Timestamp.fromMillis(Date.now()),
-      currentPrefix:   nextPrefix,
-      pageToken:       nextToken,
-      checkedLastRun:  checked,
-      deletedLastRun:  deleted,
-      failedLastRun:   failed,
-    });
+      if (capHit) break;
+    }
+  } catch (err) {
+    didError = true;
+    throw err;
+  } finally {
+    if (leaseOwner) {
+      // On normal completion or capHit: advance cursor.
+      // On unexpected error: restore best-effort cursor (retry same position).
+      const releasePrefix = (didError && !capHit) ? errorPrefix : nextPrefix;
+      const releaseToken  = (didError && !capHit) ? errorToken  : nextToken;
+      await firestoreDb.doc(ORPHAN_CLEANUP_JOB_PATH).update({
+        leaseOwner:      null,
+        leaseExpiresAt:  Timestamp.fromMillis(0),
+        lastCompletedAt: Timestamp.fromMillis(Date.now()),
+        currentPrefix:   releasePrefix,
+        pageToken:       releaseToken,
+        checkedLastRun:  checked,
+        deletedLastRun:  deleted,
+        failedLastRun:   failed,
+      // ponytail: swallow release failure — bounded lease expiry still recovers
+      }).catch(e => console.error("Avatar orphan cleanup: lease release failed:", sanitizeError(e)));
+    }
   }
 
   console.log(`Avatar orphan cleanup: checked=${checked} eligible=${eligible} deleted=${deleted} failed=${failed} preserved=${preserved}`);
   return { checked, eligible, deleted, failed, preserved };
 }
-exports._cleanOrphans       = _cleanOrphanedAvatarObjects;
-exports._acquireOrphanLease = _acquireOrphanLease;
+exports._cleanOrphans                   = _cleanOrphanedAvatarObjects;
+exports._acquireOrphanLease             = _acquireOrphanLease;
+exports._isInvalidStoragePageTokenError = _isInvalidStoragePageTokenError;
 
 exports.cleanAvatarOrphans = onSchedule(
   { region: "us-central1", schedule: "every 24 hours", memory: "256MiB" },

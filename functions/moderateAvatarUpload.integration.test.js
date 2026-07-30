@@ -1169,4 +1169,207 @@ describe('§MOD — moderateAvatarUpload integration tests', () => {
         await db.doc(`avatarModeration/${uid1}`).delete();
         await db.doc(`avatarModeration/${uid2}`).delete();
     });
+
+    // ── §CURSOR stale-token recovery ─────────────────────────────────────────
+
+    // CURSOR-01: classifier identifies HTTP 400 with reason "invalid"; rejects 500 and 400 without reason
+    it('CURSOR-01: _isInvalidStoragePageTokenError returns true only for HTTP 400 with invalid reason', () => {
+        const cls = fnModule._isInvalidStoragePageTokenError;
+        const bad400 = Object.assign(new Error('bad token'), { code: 400, errors: [{ reason: 'invalid' }] });
+        const tok400 = Object.assign(new Error('bad token'), { code: 400, errors: [{ reason: 'invalidToken' }] });
+        const err500 = Object.assign(new Error('server error'), { code: 500, errors: [{ reason: 'invalid' }] });
+        const no400  = Object.assign(new Error('bad request'), { code: 400, errors: [] });
+        const nullErr = null;
+        expect(cls(bad400)).toBe(true);
+        expect(cls(tok400)).toBe(true);
+        expect(cls(err500)).toBe(false);
+        expect(cls(no400)).toBe(false);
+        expect(cls(nullErr)).toBe(false);
+    });
+
+    // CURSOR-02: stale page token is cleared to null in Firestore on detection
+    it('CURSOR-02: stale page token is cleared to null in Firestore when invalid-token error fires', async () => {
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').delete().catch(() => {});
+        const invalidErr = Object.assign(new Error('invalid token'), { code: 400, errors: [{ reason: 'invalid' }] });
+        let firstCall = true;
+        const mockBucket = {
+            async getFiles(opts) {
+                if (opts.prefix === 'avatarUploads/' && firstCall) {
+                    firstCall = false;
+                    throw invalidErr;
+                }
+                return [[], null];
+            },
+        };
+        await fnModule._cleanOrphans(mockBucket, db, Infinity, 9999, { leaseOwner: freshUid() });
+        const snap = await db.doc('maintenanceJobs/avatarOrphanCleanup').get();
+        expect(snap.data().pageToken).toBeNull();
+        expect(snap.data().cursorResetReason).toBe('invalid_page_token');
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').delete().catch(() => {});
+    });
+
+    // CURSOR-03: after token cleared, getFiles is called again without a pageToken (retry from page 1)
+    it('CURSOR-03: after stale-token clear, getFiles is retried from page 1 (no pageToken)', async () => {
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').delete().catch(() => {});
+        const calls = [];
+        const invalidErr = Object.assign(new Error('invalid token'), { code: 400, errors: [{ reason: 'invalid' }] });
+        let threw = false;
+        const mockBucket = {
+            async getFiles(opts) {
+                calls.push({ prefix: opts.prefix, pageToken: opts.pageToken ?? null });
+                if (opts.prefix === 'avatarUploads/' && !threw) {
+                    threw = true;
+                    throw invalidErr; // first call: stale token
+                }
+                return [[], null]; // retry (page 1) and all other calls succeed
+            },
+        };
+        await fnModule._cleanOrphans(mockBucket, db, Infinity, 9999, { leaseOwner: freshUid() });
+        const uploadsP1 = calls.filter(c => c.prefix === 'avatarUploads/' && !c.pageToken);
+        // Must have at least one call with no pageToken (the page-1 retry)
+        expect(uploadsP1.length).toBeGreaterThanOrEqual(1);
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').delete().catch(() => {});
+    });
+
+    // CURSOR-04: second invalid-token error on same prefix propagates (tokenResetDone guard)
+    it('CURSOR-04: second invalid-token error on same prefix is not cleared again; error propagates', async () => {
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').delete().catch(() => {});
+        const invalidErr = Object.assign(new Error('invalid token'), { code: 400, errors: [{ reason: 'invalid' }] });
+        let callCount = 0;
+        const mockBucket = {
+            async getFiles(opts) {
+                if (opts.prefix === 'avatarUploads/') { callCount++; throw invalidErr; }
+                return [[], null];
+            },
+        };
+        await expect(
+            fnModule._cleanOrphans(mockBucket, db, Infinity, 9999, { leaseOwner: freshUid() })
+        ).rejects.toThrow();
+        // First call: cleared, retried. Second call (page 1): guard fires, error propagates.
+        expect(callCount).toBe(2);
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').delete().catch(() => {});
+    });
+
+    // CURSOR-05: generic HTTP 500 does not clear cursor; error propagates to caller
+    it('CURSOR-05: generic HTTP 500 error propagates without clearing cursor', async () => {
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').delete().catch(() => {});
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').set({
+            leaseOwner: null, leaseExpiresAt: Timestamp.fromMillis(0),
+            currentPrefix: 'avatarUploads/', pageToken: 'saved-token',
+        });
+        const serverErr = Object.assign(new Error('server error'), { code: 500, errors: [] });
+        const mockBucket = {
+            async getFiles(opts) {
+                if (opts.prefix === 'avatarUploads/') throw serverErr;
+                return [[], null];
+            },
+        };
+        await expect(
+            fnModule._cleanOrphans(mockBucket, db, Infinity, 9999, { leaseOwner: freshUid() })
+        ).rejects.toThrow();
+        // Cursor must NOT have been reset — error path preserves original token
+        const snap = await db.doc('maintenanceJobs/avatarOrphanCleanup').get();
+        expect(snap.data().cursorResetReason).toBeUndefined();
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').delete().catch(() => {});
+    });
+
+    // CURSOR-06: cursorResetAt and cursorResetReason are written to Firestore on token reset
+    it('CURSOR-06: cursorResetAt timestamp and cursorResetReason are persisted on token reset', async () => {
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').delete().catch(() => {});
+        const beforeMs = Date.now();
+        const invalidErr = Object.assign(new Error('invalid token'), { code: 400, errors: [{ reason: 'invalid' }] });
+        let threw = false;
+        const mockBucket = {
+            async getFiles(opts) {
+                if (opts.prefix === 'avatarUploads/' && !threw) { threw = true; throw invalidErr; }
+                return [[], null];
+            },
+        };
+        await fnModule._cleanOrphans(mockBucket, db, Infinity, 9999, { leaseOwner: freshUid() });
+        const snap = await db.doc('maintenanceJobs/avatarOrphanCleanup').get();
+        expect(snap.data().cursorResetReason).toBe('invalid_page_token');
+        expect(snap.data().cursorResetAt.toMillis()).toBeGreaterThanOrEqual(beforeMs);
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').delete().catch(() => {});
+    });
+
+    // CURSOR-07: orphan objects on page 1 are reachable and cleaned after stale-token recovery
+    it('CURSOR-07: objects on page 1 are processed and deleted after stale-token recovery', async () => {
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').delete().catch(() => {});
+        const uid = `cursor07_${Date.now()}`;
+        await db.doc(`avatarModeration/${uid}`).set({ status: 'rejected' });
+        let orphanDeleted = false;
+        const invalidErr = Object.assign(new Error('invalid token'), { code: 400, errors: [{ reason: 'invalid' }] });
+        let threw = false;
+        const mockBucket = {
+            async getFiles(opts) {
+                if (opts.prefix === 'avatarUploads/') {
+                    if (!threw && opts.pageToken) { threw = true; throw invalidErr; }
+                    // Page 1 (after reset) returns the orphan
+                    return [[{
+                        name:     `avatarUploads/${uid}/up1/original`,
+                        metadata: { timeCreated: new Date(0).toISOString() },
+                        delete:   async () => { orphanDeleted = true; },
+                    }], null];
+                }
+                return [[], null];
+            },
+        };
+        // Seed a stale pageToken so the first call actually uses it
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').set({
+            leaseOwner: null, leaseExpiresAt: Timestamp.fromMillis(0),
+            currentPrefix: 'avatarUploads/', pageToken: 'stale-tok',
+        });
+        const result = await fnModule._cleanOrphans(mockBucket, db, Infinity, 9999, { leaseOwner: freshUid() });
+        expect(orphanDeleted).toBe(true);
+        expect(result.deleted).toBeGreaterThanOrEqual(1);
+        await db.doc(`avatarModeration/${uid}`).delete();
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').delete().catch(() => {});
+    });
+
+    // CURSOR-08: lease is released (leaseOwner null) even when getFiles throws a non-token error
+    it('CURSOR-08: lease is released via try/finally even when getFiles throws unexpectedly', async () => {
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').delete().catch(() => {});
+        const owner = freshUid();
+        const boom = new Error('unexpected network failure');
+        const mockBucket = { async getFiles() { throw boom; } };
+        await expect(
+            fnModule._cleanOrphans(mockBucket, db, Infinity, 9999, { leaseOwner: owner })
+        ).rejects.toThrow('unexpected network failure');
+        const snap = await db.doc('maintenanceJobs/avatarOrphanCleanup').get();
+        expect(snap.data().leaseOwner).toBeNull();
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').delete().catch(() => {});
+    });
+
+    // CURSOR-09: prefix isolation — invalid token on avatarUploads/ does not affect avatarCandidates/
+    it('CURSOR-09: stale-token reset on avatarUploads/ does not prevent avatarCandidates/ from running', async () => {
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').delete().catch(() => {});
+        const uid = `cursor09_${Date.now()}`;
+        await db.doc(`avatarModeration/${uid}`).set({ status: 'rejected' });
+        let candidatesQueried = false;
+        let candidateDeleted  = false;
+        const invalidErr = Object.assign(new Error('invalid token'), { code: 400, errors: [{ reason: 'invalid' }] });
+        let threw = false;
+        const mockBucket = {
+            async getFiles(opts) {
+                if (opts.prefix === 'avatarUploads/') {
+                    if (!threw) { threw = true; throw invalidErr; }
+                    return [[], null]; // page-1 retry: empty
+                }
+                if (opts.prefix === 'avatarCandidates/') {
+                    candidatesQueried = true;
+                    return [[{
+                        name:     `avatarCandidates/${uid}/up1.webp`,
+                        metadata: { timeCreated: new Date(0).toISOString() },
+                        delete:   async () => { candidateDeleted = true; },
+                    }], null];
+                }
+                return [[], null];
+            },
+        };
+        await fnModule._cleanOrphans(mockBucket, db, Infinity, 9999, { leaseOwner: freshUid() });
+        expect(candidatesQueried).toBe(true);
+        expect(candidateDeleted).toBe(true);
+        await db.doc(`avatarModeration/${uid}`).delete();
+        await db.doc('maintenanceJobs/avatarOrphanCleanup').delete().catch(() => {});
+    });
 });
