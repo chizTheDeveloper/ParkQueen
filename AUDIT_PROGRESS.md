@@ -827,4 +827,72 @@ Completed all verification items from the Phase J pass. No deployment performed.
 
 ### CI status — executable tip `db37dce`
 
-GitHub Actions CI could not be polled from this environment (`gh` CLI not installed). Push to `origin/audit/app-store-readiness-2026` completed. All local quality gates passed. Monitor the Actions tab on the repository for the `firestore-rules.yml` and `avatar-pipeline.yml` workflow runs triggered by `db37dce`.
+| Workflow | Run ID | Status | Conclusion |
+|---|---|---|---|
+| Avatar Pipeline (Linux / Sharp) | `30570890909` | completed | **success** |
+| Secret scan | `30570891352` | completed | **success** |
+| Firestore Security Rules | not triggered | — | correct (no rules/rules-test/package files changed) |
+
+All jobs in Avatar Pipeline passed: checkout, setup-node, setup-java, Install npm 10, Install functions deps (Linux), Verify Sharp/libvips, Sharp smoke test, Install root deps, Install Firebase CLI, **Run Functions integration tests (Linux)**, all post-steps.
+
+`firebaseConfig.ts` and `utils/appCheckBundleAssertion.test.ts` changes are not covered by any existing CI path filter — no workflow runs unit tests (`npm test`) on push. This is a known CI coverage gap documented for future resolution.
+
+### Phase J closeout — additional defects fixed (commit `130ec7e`)
+
+Three proven defects corrected after `db37dce` CI verification:
+
+| Defect | Fix |
+|---|---|
+| `firebaseConfig.ts` called `initializeApp()` unconditionally — throws `duplicate-app` if `firebase.ts` evaluates first (all 28 view imports are lazy-loaded so production is safe, but the code is fragile to future refactors) | Added `getApps()` guard: `getApps().length === 0 ? initializeApp(firebaseConfig) : getApp()` — idempotent for both module evaluation orders |
+| `functions/rateLimitCallable.integration.test.js` and `functions/bootstrapAdmin.integration.test.js` absent from `avatar-pipeline.yml` path filters — changes to test files alone would not trigger CI | Both files added to push/PR path filters |
+| Expired time-window coverage missing from rate-limit behavioral tests | RL-B8 added: seed previous-window counter at limit → current-window request is allowed (window key changes each hour) |
+| `.env.example` only documented `VITE_MAPBOX_TOKEN` — App Check keys undocumented | Added `VITE_FIREBASE_APPCHECK_SITE_KEY=` and `VITE_APPCHECK_DEBUG_TOKEN=` |
+
+AC-13 updated: now verifies `getApps()` guard is present in `firebaseConfig.ts` (not just that `initializeApp` appears once).
+
+**Note on concurrent boundary cases**: `checkRateLimit` uses `db.runTransaction()` (rateLimiter.js:22) and `bootstrapAdmin` uses `db.runTransaction()` (index.js:1402). Both serialized by Firestore optimistic concurrency — exactly one winner is guaranteed by the implementation without a non-deterministic concurrent emulator test.
+
+### Quality gates (post Phase J closeout — `130ec7e`)
+
+| Gate | Result |
+|---|---|
+| `npx tsc --noEmit` | PASS — 0 errors |
+| `npm test` | PASS — **797 tests** (28 files) |
+| `npm run test:rules` | PASS — **165 Firestore tests** |
+| `npm run test:storage:rules` | PASS — **28 pass / 1 skip** (29 total) |
+| `npm run test:functions` | PASS — **135 integration tests** (107 + 19 RL-B/C/D + 8 BA-E + 1 RL-B8) |
+| `npm run build` | PASS |
+| `node --check functions/index.js` | PASS |
+| `node --check functions/rateLimiter.js` | PASS |
+| `node --check functions/notifyFanout.js` | PASS |
+| `node --check functions/redactForLog.js` | PASS |
+| `git diff --check` | PASS (LF→CRLF line-ending warnings only) |
+| `npm ls --prefix functions sharp` | `sharp@0.35.3` |
+| `npm audit` (root) | 1 critical (node-tar via Expo — toolchain only), 42 high, 23 moderate, 1 low — pre-existing, no new vulns |
+| `npm audit --prefix functions` | 0 critical, 24 high, 8 moderate — pre-existing @google-cloud chain, no new vulns |
+| Credential scan — HEAD source | PASS — 0 matches for [REDACTED HISTORICAL GEMINI API KEY] |
+| Credential scan — dist/ | PASS — 0 matches for [REDACTED HISTORICAL GEMINI API KEY] |
+| App Check debug-token scan (dist/) | PASS — `FIREBASE_APPCHECK_DEBUG_TOKEN =` assignment absent |
+| `VITE_*` unresolved-reference scan (dist/) | PASS — `VITE_FIREBASE_APPCHECK_SITE_KEY` absent; env refs replaced at build time |
+
+### Commits (Phase J Verification + Closeout)
+
+| Commit | Message |
+|---|---|
+| `75fdc00` | `feat(security): Phase J — rate-limit completion, TM-16 closed, TM-19/20 documented` |
+| `8fd5ba1` | `test(security): Phase J verification — App Check source prep, rate-limit assertions, bootstrapAdmin hardening` |
+| `a367183` | `docs: Phase J verification checkpoint — quality gates, threat triage, commit record` |
+| `db37dce` | `test(security): Phase J final verification — rate-limit behavioral tests, bootstrapAdmin emulator tests, App Check source guards` |
+| `f5de41e` | `docs: Phase J final verification — behavioral test totals, CI note, commit record` |
+| `130ec7e` | `fix(security): Phase J closeout — firebase init guard, CI path filters, expired-window test` |
+
+### Updated threat model triage
+
+| Open CRITICAL | 0 |
+|---|---|
+| Open HIGH | 1 (TM-12 App Check — source prepared; blocked on provider registration decision) |
+| Open MEDIUM | 0 |
+| Open LOW | 0 |
+| Closed this pass | TM-16 FULLY CLOSED (Phase J); TM-17 CLOSED (Phase H) |
+| Partially addressed | TM-13 (3 callables added; admin callables and provider quotas remain); TM-04 (vehicle privacy decision required) |
+| Blocked/external | TM-12 (provider registration), TM-19 (credential rotation required), TM-20 (packaging decision) |
