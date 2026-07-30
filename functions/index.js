@@ -831,68 +831,178 @@ exports.moderateAvatarUpload = onObjectFinalized(
 );
 
 // ── Orphan cleanup helper ─────────────────────────────────────────────────────
-// Deletes avatarUploads/ and avatarCandidates/ objects that are older than
-// cutoffMs (default: 24 h ago) AND whose moderation doc is terminal or absent.
-// Active objects (processing, retry_pending) are never touched.
-// avatars/ (published) is never iterated.
+// Deletes avatarUploads/ and avatarCandidates/ objects older than cutoffMs
+// (default 24 h ago) AND whose moderation status is terminal or absent.
+// Active objects (processing, retry_pending) are preserved.
+// avatars/ (published) is never iterated — not in ORPHAN_CLEANUP_PREFIXES.
 //
-// Bounded: at most maxObjects (default 1000) objects examined per invocation.
-// Pagination via maxResults + pageToken avoids loading all objects into memory.
-// Idempotent: failed deletes are logged via sanitizeError and do not abort cleanup.
+// autoPaginate:false — GCS returns one page at a time; cursor advances past
+//   each fully-processed page, preventing starvation of later objects.
+// Persistent cursor — stored in maintenanceJobs/avatarOrphanCleanup so each
+//   leased run resumes where the previous run stopped. Wraps after both prefixes
+//   are exhausted. Client access is blocked by Firestore Rules.
+// Lease — Firestore transaction prevents two concurrent scheduled executions
+//   from racing. maxInstances:1 on the CF is defense-in-depth.
+// Counters — deleted increments only after a successful file.delete(); failed
+//   increments when file.delete() rejects. One failed deletion does not abort.
+const ORPHAN_CLEANUP_JOB_PATH     = "maintenanceJobs/avatarOrphanCleanup";
+const ORPHAN_CLEANUP_PREFIXES     = ["avatarUploads/", "avatarCandidates/"];
 const ORPHAN_CLEANUP_THRESHOLD_MS = 24 * 60 * 60 * 1000;
 const ORPHAN_MAX_OBJECTS_PER_RUN  = 1000;
+const ORPHAN_LEASE_DURATION_MS    = 10 * 60 * 1000; // 10 minutes
 const ORPHAN_TERMINAL_STATUSES    = new Set(["approved", "rejected", "failed"]);
+const ORPHAN_ACTIVE_STATUSES      = new Set(["processing", "retry_pending"]);
 
-async function _cleanOrphanedAvatarObjects(storageBucket, firestoreDb, cutoffMs, maxObjects) {
+// Acquire a bounded cleanup lease via Firestore transaction.
+// Returns the persisted cursor { currentPrefix, pageToken } on success,
+// or null if a concurrent execution already holds an unexpired lease.
+async function _acquireOrphanLease(firestoreDb, leaseOwner, nowMs) {
+  const jobRef = firestoreDb.doc(ORPHAN_CLEANUP_JOB_PATH);
+  return firestoreDb.runTransaction(async (tx) => {
+    const snap = await tx.get(jobRef);
+    const d    = snap.exists ? snap.data() : {};
+    const exp  = d.leaseExpiresAt ? d.leaseExpiresAt.toMillis() : 0;
+    if (d.leaseOwner && exp > nowMs) return null;
+    const cursor = {
+      currentPrefix: d.currentPrefix ?? ORPHAN_CLEANUP_PREFIXES[0],
+      pageToken:     d.pageToken     ?? null,
+    };
+    tx.set(jobRef, {
+      ...d,
+      leaseOwner,
+      leaseExpiresAt: Timestamp.fromMillis(nowMs + ORPHAN_LEASE_DURATION_MS),
+      lastStartedAt:  Timestamp.fromMillis(nowMs),
+      checkedLastRun: 0,
+      deletedLastRun: 0,
+      failedLastRun:  0,
+    }, { merge: true });
+    return cursor;
+  });
+}
+
+async function _cleanOrphanedAvatarObjects(storageBucket, firestoreDb, cutoffMs, maxObjects, opts = {}) {
   const stale  = cutoffMs  ?? (Date.now() - ORPHAN_CLEANUP_THRESHOLD_MS);
   const limit  = maxObjects ?? ORPHAN_MAX_OBJECTS_PER_RUN;
-  let checked  = 0;
-  let deleted  = 0;
+  const { leaseOwner = null } = opts;
 
-  for (const prefix of ["avatarUploads/", "avatarCandidates/"]) {
-    let pageToken;
-    do {
-      const remaining = limit - checked;
-      if (remaining <= 0) break;
-      const [files, nextQuery] = await storageBucket.getFiles({
-        prefix,
-        maxResults: Math.min(remaining, 500),
-        pageToken,
-      });
-      for (const file of files) {
-        if (checked >= limit) break;
-        checked++;
-        const created = new Date(file.metadata?.timeCreated ?? 0).getTime();
-        if (created > stale) continue;
-        const uid = file.name.split("/")[1];
-        if (!uid) {
-          await file.delete().catch(err =>
-            console.warn("Avatar orphan delete failed:", sanitizeError(err)));
-          deleted++;
-          continue;
-        }
-        const snap = await firestoreDb.doc(`avatarModeration/${uid}`).get();
-        const status = snap.exists ? snap.data()?.status : null;
-        if (!status || ORPHAN_TERMINAL_STATUSES.has(status)) {
-          await file.delete().catch(err =>
-            console.warn("Avatar orphan delete failed:", sanitizeError(err)));
-          deleted++;
-        }
-      }
-      pageToken = nextQuery?.pageToken;
-      if (checked >= limit) break;
-    } while (pageToken);
-    if (checked >= limit) break;
+  let checked   = 0;
+  let eligible  = 0;
+  let deleted   = 0;
+  let failed    = 0;
+  let preserved = 0;
+
+  let startPrefix = ORPHAN_CLEANUP_PREFIXES[0];
+  let startToken  = null;
+  if (leaseOwner) {
+    const cursor = await _acquireOrphanLease(firestoreDb, leaseOwner, Date.now());
+    if (!cursor) {
+      console.log("Avatar orphan cleanup: lease held by concurrent execution — skipping");
+      return { checked, eligible, deleted, failed, preserved, skipped: true };
+    }
+    startPrefix = cursor.currentPrefix;
+    startToken  = cursor.pageToken;
   }
 
-  console.log(`Avatar orphan cleanup: ${checked} checked, ${deleted} deleted`);
-  return { checked, deleted };
+  let prefixIdx = ORPHAN_CLEANUP_PREFIXES.indexOf(startPrefix);
+  if (prefixIdx < 0) prefixIdx = 0;
+
+  // nextPrefix/nextToken are the cursor saved for the next run.
+  // Default: wrap to the beginning after all prefixes are exhausted.
+  let nextPrefix = ORPHAN_CLEANUP_PREFIXES[0];
+  let nextToken  = null;
+  let capHit     = false;
+
+  for (let pi = prefixIdx; pi < ORPHAN_CLEANUP_PREFIXES.length; pi++) {
+    const prefix    = ORPHAN_CLEANUP_PREFIXES[pi];
+    let   pageToken = (pi === prefixIdx) ? startToken : null;
+
+    do {
+      const remaining = limit - checked;
+      if (remaining <= 0) {
+        // Budget exhausted before fetching the next page — persist cursor here.
+        capHit     = true;
+        nextPrefix = prefix;
+        nextToken  = pageToken;
+        break;
+      }
+      const [files, nextQuery] = await storageBucket.getFiles({
+        prefix,
+        maxResults:   Math.min(remaining, 500),
+        pageToken:    pageToken || undefined,
+        autoPaginate: false,
+      });
+
+      for (const file of files) {
+        checked++;
+        const created = new Date(file.metadata?.timeCreated ?? 0).getTime();
+        if (created > stale) { preserved++; continue; }
+
+        const uid = file.name.split("/")[1];
+        if (!uid) {
+          // Malformed path — defensive deletion; no UID to log.
+          eligible++;
+          try { await file.delete(); deleted++; }
+          catch (err) { console.warn("Avatar orphan delete failed:", sanitizeError(err)); failed++; }
+          continue;
+        }
+
+        const snap   = await firestoreDb.doc(`avatarModeration/${uid}`).get();
+        const status = snap.exists ? snap.data()?.status : null;
+
+        if (ORPHAN_ACTIVE_STATUSES.has(status)) { preserved++; continue; }
+
+        if (!status || ORPHAN_TERMINAL_STATUSES.has(status)) {
+          eligible++;
+          try { await file.delete(); deleted++; }
+          catch (err) { console.warn("Avatar orphan delete failed:", sanitizeError(err)); failed++; }
+        } else {
+          preserved++; // unknown status — conservative
+        }
+      }
+
+      // Advance past the page we just finished.
+      pageToken = nextQuery?.pageToken ?? null;
+
+      // After consuming the page, check if the budget is now exhausted.
+      if (checked >= limit && pageToken) {
+        capHit     = true;
+        nextPrefix = prefix;
+        nextToken  = pageToken;
+        break;
+      }
+    } while (pageToken);
+
+    if (capHit) break;
+  }
+
+  if (leaseOwner) {
+    await firestoreDb.doc(ORPHAN_CLEANUP_JOB_PATH).update({
+      leaseOwner:      null,
+      leaseExpiresAt:  Timestamp.fromMillis(0),
+      lastCompletedAt: Timestamp.fromMillis(Date.now()),
+      currentPrefix:   nextPrefix,
+      pageToken:       nextToken,
+      checkedLastRun:  checked,
+      deletedLastRun:  deleted,
+      failedLastRun:   failed,
+    });
+  }
+
+  console.log(`Avatar orphan cleanup: checked=${checked} eligible=${eligible} deleted=${deleted} failed=${failed} preserved=${preserved}`);
+  return { checked, eligible, deleted, failed, preserved };
 }
-exports._cleanOrphans = _cleanOrphanedAvatarObjects;
+exports._cleanOrphans       = _cleanOrphanedAvatarObjects;
+exports._acquireOrphanLease = _acquireOrphanLease;
 
 exports.cleanAvatarOrphans = onSchedule(
-  { region: "us-central1", schedule: "every 24 hours", memory: "256MiB" },
-  () => _cleanOrphanedAvatarObjects(getStorage().bucket(), db)
+  { region: "us-central1", schedule: "every 24 hours", memory: "256MiB", maxInstances: 1 },
+  async () => {
+    const { randomUUID } = require("crypto");
+    return _cleanOrphanedAvatarObjects(
+      getStorage().bucket(), db, undefined, undefined,
+      { leaseOwner: randomUUID() }
+    );
+  }
 );
 
 // 7) Validate and claim a username
