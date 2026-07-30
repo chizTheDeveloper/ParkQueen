@@ -1169,6 +1169,7 @@ exports.moderateContent = onCall(
     if (!text || !type) throw new HttpsError("invalid-argument", "Text and type required.");
 
     const uid = request.auth.uid;
+    await checkRateLimit(uid, 'moderateContent', { limit: 60, windowSec: 3600 });
     let blocked = false;
     let reason = null;
 
@@ -2605,6 +2606,9 @@ exports.createSegmentFromSweepNYC = onCall(
   async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'Must be signed in.');
 
+    const uid = request.auth.uid;
+    await checkRateLimit(uid, 'createSegmentFromSweepNYC', { limit: 30, windowSec: 3600 });
+
     const { lat, lng } = request.data || {};
     if (typeof lat !== 'number' || typeof lng !== 'number')
       throw new HttpsError('invalid-argument', 'lat and lng must be numbers.');
@@ -3243,6 +3247,7 @@ exports.generateListingDescription = onCall(
   { secrets: [geminiApiKey], enforceAppCheck: false },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Must be signed in.");
+    await checkRateLimit(request.auth.uid, 'generateListingDescription', { limit: 20, windowSec: 3600 });
     const { features } = request.data;
     if (!Array.isArray(features)) {
       throw new HttpsError("invalid-argument", "features array is required.");

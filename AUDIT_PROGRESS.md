@@ -649,3 +649,80 @@ Avatar Pipeline CI (`avatar-pipeline.yml`) triggered by commit `0819761` (change
 ### Threat model — no new items
 
 Phase I closes no new threat model items. The stale-cursor defect was a reliability finding, not a security exposure (the job document is server-only; Firestore Rules block all client access). No threat model entries require updating.
+
+## Phase J — Rate-limit completion, credential history, native packaging ADR (2026-07-30)
+
+Closed TM-13 (partially), updated TM-16 (fully fixed), documented TM-19 credential scan, and wrote TM-20 native packaging ADR. No deployment performed.
+
+### Work completed
+
+**TM-13 — Rate-limit inventory and additions (`functions/index.js`):**
+
+Three previously unprotected callables now have hourly per-UID rate limits:
+
+| Callable | Limit added | Rationale |
+|---|---|---|
+| `moderateContent` | 60/hr | Writes to `moderationLog` per call; flooding could exhaust write quota |
+| `createSegmentFromSweepNYC` | 30/hr | Makes external API calls (SweepNYC + NYC Open Data) per call |
+| `generateListingDescription` | 20/hr | Gemini API call; consistent with `generateSmartReplies` (20/hr) |
+
+Full 23-callable rate-limit inventory added to `docs/THREAT_MODEL.md`. Admin callables (`setStaffRole`, `adminSuspendUser`, `adminUnsuspendUser`, `adminUpdateReport`, `adminUpdateSegmentStatus`, `adminArchiveSuspension`) have no function-layer rate limit; compensating controls are the `role === 'admin'` guard and the adminAuditLog. Provider-console per-project quotas (Gemini, Maps, SendGrid) remain a required manual action.
+
+**TM-16 — CI action SHA pinning (CLOSED):**
+
+All three GitHub Actions are confirmed SHA-pinned in both workflow files:
+- `actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683` (v4.2.2)
+- `actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020` (v4)
+- `actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9` (v4)
+
+Threat model updated from "Partially fixed" to "Fixed".
+
+**TM-19 — Credential history scan (REPOSITORY SCAN COMPLETE):**
+
+Two credential types identified in commit `0dd395f`:
+- `VITE_GEMINI_API_KEY` — no browser restriction; **HIGH rotation urgency**
+- `VITE_GOOGLE_MAPS_API_KEY` — browser referrer restriction; MEDIUM urgency
+
+Current HEAD: no plaintext secrets (functions use Firebase Secret Manager). History rewrite deferred (documented in `ca8dd88`). Status updated to PROVIDER ROTATION VERIFICATION PENDING — operator must confirm rotation via Google Cloud Console → Credentials → key metadata (lastUsed, status).
+
+**TM-20 — Native packaging ADR (`docs/NATIVE_PACKAGING_ADR.md`):**
+
+Four options documented with pros, cons, and audit checklists:
+- **Option A (Capacitor) — Recommended**: lowest rewrite cost, fastest store path; detailed pre-submission audit checklist for `Info.plist`, `AndroidManifest.xml`, universal links, secure storage, Privacy manifest
+- Option B (React Native/Expo): full UI rewrite; 8–16 engineer-weeks
+- Option C (separate native clients): three codebases; not recommended
+- Option D (PWA-only): no store listing; closes TM-20 as accepted risk
+
+App Check provider implications documented: native requires `AppAttestProvider` (iOS) and `PlayIntegrityProvider` (Android), not reCAPTCHA.
+
+### Quality gates (post Phase J)
+
+| Gate | Result |
+|---|---|
+| `node --check functions/index.js` | PASS |
+| `npx tsc --noEmit` | PASS |
+| `npm test` | PASS — 771 tests (28 files) |
+| `npm run test:rules` | PASS — 165 tests |
+| `npm run build` | PASS |
+| `npm run test:functions` | PASS — 107 tests |
+
+### Updated threat model triage
+
+| Open CRITICAL | 0 |
+|---|---|
+| Open HIGH | 1 (TM-12 App Check — blocked on console/provider decision) |
+| Open MEDIUM | 0 |
+| Open LOW | 0 |
+| Closed this pass | TM-16 FULLY CLOSED |
+| Partially addressed | TM-13 (3 callables added; admin callables and provider quotas remain); TM-04 (vehicle privacy deferred); TM-06 (Storage Rules deployment pending) |
+| Blocked/external | TM-12 (provider console), TM-19 (credential rotation), TM-20 (packaging decision) |
+
+### Remaining manual actions
+
+- **TM-12**: App Check enrollment — register app in Firebase Console, obtain reCAPTCHA site key (or DeviceCheck/Play Integrity after native decision), add `initializeAppCheck` to `firebaseConfig.ts`, then enable `enforceAppCheck: true` on callables per rollout plan in `docs/APP_CHECK_ROLLOUT.md`
+- **TM-13**: Provider-console per-project quotas (Gemini, Maps, SendGrid daily caps)
+- **TM-19**: Credential rotation verification via Google Cloud Console metadata
+- **TM-20**: Product/engineering decision on native packaging approach; then initiate Capacitor or alternative
+- Deploy Storage Rules in a separately approved rollout
+- Production data migration: `utils/migration/privatizeContactFields.ts` in apply mode post-deployment
+- Legal sign-off on `adminAuditLog` and `moderationLog` retention categories
