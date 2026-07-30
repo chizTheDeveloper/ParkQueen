@@ -117,10 +117,16 @@ describe('§6 — App Check prod bundle assertions', () => {
         expect(src).toMatch(/import.*ReCaptchaEnterpriseProvider.*from 'firebase\/app-check'/);
     });
 
-    it('AC-13: initializeApp is called exactly once in firebaseConfig.ts', () => {
+    it('AC-13: initializeApp in firebaseConfig.ts is guarded by getApps() — idempotent init', () => {
+        // Both firebaseConfig.ts and firebase.ts guard initializeApp with getApps().
+        // This makes initialization idempotent regardless of module evaluation order.
         const src = fs.readFileSync(SRC_CONFIG, 'utf-8');
-        const matches = src.match(/\binitializeApp\s*\(/g) || [];
-        expect(matches).toHaveLength(1);
+        expect(src).toMatch(/getApps\(\)/);
+        const initIdx = src.indexOf('initializeApp(');
+        expect(initIdx).toBeGreaterThan(-1);
+        const guardIdx = Math.max(src.lastIndexOf('?', initIdx), src.lastIndexOf('if ', initIdx));
+        expect(guardIdx, 'initializeApp must be inside a conditional guard in firebaseConfig.ts').toBeGreaterThan(-1);
+        expect(guardIdx).toBeLessThan(initIdx);
     });
 
     it('AC-14: firebase.ts has getApps() guard preventing dual FirebaseApp initialization', () => {

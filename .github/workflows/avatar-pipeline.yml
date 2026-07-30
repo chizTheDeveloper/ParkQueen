@@ -7,6 +7,8 @@ on:
       - functions/package-lock.json
       - functions/index.js
       - functions/moderateAvatarUpload.integration.test.js
+      - functions/rateLimitCallable.integration.test.js
+      - functions/bootstrapAdmin.integration.test.js
       - storage.rules
       - storage.rules.test.ts
       - vite.functions.config.ts
@@ -17,6 +19,8 @@ on:
       - functions/package-lock.json
       - functions/index.js
       - functions/moderateAvatarUpload.integration.test.js
+      - functions/rateLimitCallable.integration.test.js
+      - functions/bootstrapAdmin.integration.test.js
       - storage.rules
       - storage.rules.test.ts
       - vite.functions.config.ts

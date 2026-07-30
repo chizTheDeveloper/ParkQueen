@@ -159,6 +159,22 @@ describe('RL-B moderateContent â€” callable behavioral tests', () => {
         await db.collection('rateLimits').doc(`${OP}_${wk}_${uid2}`).delete().catch(() => {});
     });
 
+    it('RL-B8: exhausted counter in a prior time window does not block the current window', async () => {
+        if (!indexModule) return;
+        // Seed the PREVIOUS window's doc (wk - 1) at the limit
+        const prevWk = currentWindowKey(WIN) - 1;
+        const prevDocId = `${OP}_${prevWk}_${uid}`;
+        await db.collection('rateLimits').doc(prevDocId).set({
+            count: LIMIT, uid, operation: OP,
+            expiresAt: Timestamp.fromMillis(Date.now() + WIN * 2000),
+        });
+        // Current window has no counter doc → request must be allowed
+        const { result, error } = await callDirect(indexModule.moderateContent, uid, {}, { text: 'hello', type: 'message' });
+        expect(error).toBeUndefined();
+        expect(result.allowed).toBe(true);
+        await db.collection('rateLimits').doc(prevDocId).delete().catch(() => {});
+    });
+
     it('RL-B7: rejected (exhausted) request does not write a new moderationLog entry', async () => {
         if (!indexModule) return;
         seededDocId = await seedCounter(OP, uid, WIN, LIMIT);

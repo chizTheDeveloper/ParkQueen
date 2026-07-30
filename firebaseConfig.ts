@@ -1,4 +1,4 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
@@ -26,7 +26,10 @@ if (import.meta.env.DEV) {
 }
 
 // Initialize Firebase — single app instance shared by all service exports.
-const app = initializeApp(firebaseConfig);
+// getApps() guard makes this idempotent: if firebase.ts evaluates first (e.g., in
+// a test or future refactor), App Check and service exports still attach to the
+// same [DEFAULT] app rather than throwing app/duplicate-app.
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
 // ── App Check (TM-12) ────────────────────────────────────────────────────────
 // Initializes App Check when VITE_FIREBASE_APPCHECK_SITE_KEY is present.
