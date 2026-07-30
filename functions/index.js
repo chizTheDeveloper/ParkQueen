@@ -842,7 +842,8 @@ exports.moderateAvatarUpload = onObjectFinalized(
 //   leased run resumes where the previous run stopped. Wraps after both prefixes
 //   are exhausted. Client access is blocked by Firestore Rules.
 // Lease — Firestore transaction prevents two concurrent scheduled executions
-//   from racing. maxInstances:1 on the CF is defense-in-depth.
+//   from racing. maxInstances is NOT set: the Firebase Functions emulator does
+//   not support it on scheduled functions and fails to register the export.
 // Counters — deleted increments only after a successful file.delete(); failed
 //   increments when file.delete() rejects. One failed deletion does not abort.
 const ORPHAN_CLEANUP_JOB_PATH     = "maintenanceJobs/avatarOrphanCleanup";
@@ -995,7 +996,7 @@ exports._cleanOrphans       = _cleanOrphanedAvatarObjects;
 exports._acquireOrphanLease = _acquireOrphanLease;
 
 exports.cleanAvatarOrphans = onSchedule(
-  { region: "us-central1", schedule: "every 24 hours", memory: "256MiB", maxInstances: 1 },
+  { region: "us-central1", schedule: "every 24 hours", memory: "256MiB" },
   async () => {
     const { randomUUID } = require("crypto");
     return _cleanOrphanedAvatarObjects(
