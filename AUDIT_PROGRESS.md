@@ -925,3 +925,62 @@ Three commits pushed after Phase J closeout:
 **Latest checkpoints after Phase K**:
 - Latest executable: `f0852f3` (CI workflow addition)
 - Latest documentation: `4488a34` (TM-17 CLOSED, TM-14 recovery procedure)
+
+---
+
+### Phase L addendum — Credential security events and branch housekeeping (2026-07-31)
+
+Events recorded post-Phase K, prior to production deployment.
+
+**SendGrid API key rotation — REMEDIATED**
+
+| Item | Detail |
+|---|---|
+| Credential | `SENDGRID_API_KEY` in `functions/.env` |
+| Exposure scope | Commit `28385a3` on `spot-details-card-revamp` only; branch was local-only, **never pushed to any remote** |
+| Remediation | Key rotated via Firebase Secret Manager; new secret version deployed |
+| Redeployment | `generateEmailOTP` redeployed and bound to new key version |
+| Verification | OTP sending and verification confirmed working end-to-end |
+| Old key | Revoked |
+| Branch | `spot-details-card-revamp` deleted from local refs 2026-07-31 (UI work superseded by 22 days of main development) |
+
+**Firebase browser API key — website restrictions applied**
+
+| Item | Detail |
+|---|---|
+| Key type | Firebase browser configuration key (public, not a secret) |
+| Restrictions added | `https://parkqueen-46475363-ccf36.web.app/*`, `https://parkqueen-46475363-ccf36.firebaseapp.com/*`, `http://localhost:5174/*` |
+| Hosted app | Tested and passing after restriction |
+| Localhost | `localhost:5174` tested and passing after restriction |
+
+**Historical credential provenance summary (TM-19 update)**
+
+| Credential | Location in history | Current status |
+|---|---|---|
+| `VITE_GEMINI_API_KEY` | Commits `356c61f`–`0dd395f`, reachable from main | UNKNOWN — not confirmed disabled; rotation required before public launch |
+| `VITE_GOOGLE_MAPS_API_KEY` | Same range | NOT FOUND in current Google Cloud credentials as of 2026-07-31; cannot confirm disablement; provider console verification required |
+| `VITE_MAPBOX_TOKEN` | Same range (public `pk.` token) | Low sensitivity; Firebase browser key domain-restricted |
+| `SENDGRID_API_KEY` | Commit `28385a3` only (local-only branch) | REMEDIATED — rotated, redeployed, old key revoked |
+
+History rewrite deferred — all `.env` commits reachable from main; requires `git filter-repo`, force-push to all remotes, and coordinated contributor re-clone before public launch.
+
+**Stale branch cleanup (2026-07-31)**
+
+- 10 local branches deleted; all confirmed ancestors of main (0 unique commits vs main)
+- 9 branches were local-only (never pushed to remote as separate refs)
+- 1 branch (`integration/private-beta-consolidation-2026-07-31`) was also on remote — ref deleted and origin pruned
+- Remaining local branches: `audit/app-store-readiness-2026`, `backup/pre-cleanup-history`, `feature/parsona-avatar-creator`, `fix/firestore-ping-sync`, `main`, `security/browser-key-remediation`
+- Protected branches confirmed intact: `main` at `1c18a89`, `audit/app-store-readiness-2026` at `d3a8867`, `feature/parsona-avatar-creator`, `backup/pre-cleanup-history`
+
+**Updated threat model triage after Phase L**
+
+| Open CRITICAL | 0 |
+|---|---|
+| Open HIGH | 2: TM-12 (App Check — source prepared; blocked on provider registration), TM-19 (Gemini key rotation and Google Maps disablement required before public launch) |
+| Open MEDIUM | 0 |
+| Newly remediated | TM-19 SendGrid item CLOSED; Firebase browser key restricted |
+| Blocked/external | TM-12 (provider registration), TM-19 (Gemini rotation and Maps console verification), TM-20 (packaging decision) |
+
+**Latest checkpoints after Phase L**:
+- Latest executable: `f0852f3` (CI workflow addition — unchanged)
+- Latest documentation: this Phase L addendum commit
