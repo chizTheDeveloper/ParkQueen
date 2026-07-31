@@ -59,7 +59,7 @@ export const LocationSettingsView: React.FC<LocationSettingsViewProps> = ({ user
         setSaving(true);
         setError('');
         try {
-            await updateDoc(doc(db, 'users', user.id), { sharePreciseLocation: v });
+            await updateDoc(doc(db, 'users', user.id, 'private', 'preferences'), { sharePreciseLocation: v });
         } catch {
             setPrecise(!v);
             setError(t('settings.pref_save_error'));

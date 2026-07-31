@@ -821,6 +821,20 @@ const en: Record<string, string> = {
     'street_intel.try_again': 'Try again',
     'street_intel.check_again': 'Check again',
     'street_intel.trying': 'Trying…',
+
+    'settings.delete_confirm_title': 'Delete your account?',
+    'settings.delete_confirm_body': 'This permanently removes your parking history, messages, and profile. This cannot be undone.',
+    'settings.delete_deleting': 'Deleting your data…',
+    'settings.delete_success': 'Account deleted',
+    'settings.delete_failed': 'Deletion failed. Tap Retry or contact support.',
+    'settings.delete_retry': 'Retry',
+    'settings.delete_cancel': 'Cancel',
+    'settings.delete_reauth_title': 'Confirm your identity',
+    'settings.delete_reauth_phone_hint': 'We\'ll send a one-time code to your registered number.',
+    'settings.delete_reauth_send_code': 'Send Code',
+    'settings.delete_reauth_otp_hint': 'Enter the 6-digit code sent to your phone.',
+    'settings.delete_reauth_verify': 'Verify & Delete',
+    'settings.delete_reauth_resend': 'Resend Code',
 };
 
 export default en;

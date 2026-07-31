@@ -15,7 +15,12 @@ initializeApp();
 const db = getFirestore();
 const { geohashForLocation } = require('geofire-common');
 const sendgridApiKey = defineSecret("SENDGRID_API_KEY");
+// Operator action: firebase functions:secrets:set EMAIL_RATE_LIMIT_PEPPER (random 32-byte hex)
+const emailRateLimitPepper = defineSecret("EMAIL_RATE_LIMIT_PEPPER");
 const { osmNameToDOT, streetNameToLikePattern, dotSideToCardinal, BOROUGH_CODE_TO_NAME, nycOdSegmentDocId, selectBlockFace } = require('./nycOpenDataNormalizer');
+const { redactForLog, sanitizeError } = require('./redactForLog');
+const { checkRateLimit } = require('./rateLimiter');
+const { haversineDistMiles, filterCandidates, buildMessages, collectStaleTokens, MAX_CANDIDATES, FCM_BATCH } = require('./notifyFanout');
 
 // Crown title thresholds (must match client-side utils/crowns.ts)
 const TITLE_THRESHOLDS = [
@@ -91,6 +96,17 @@ async function applyTrustDelta(uid, statField, eventId, source = 'user') {
   });
 }
 // ─────────────────────────────────────────────────────────────────────────────
+
+// Initialize private/account subcollection when a new user doc is created.
+// Rules set allow write: if false on private/account, so only this server trigger can create it.
+exports.initUserPrivateAccount = onDocumentCreated(
+  { document: 'users/{userId}', region: 'us-central1' },
+  async (event) => {
+    const { userId } = event.params;
+    await db.doc(`users/${userId}/private/account`)
+      .set({ moderationStatus: 'active', reportCount: 0 }, { merge: true });
+  }
+);
 
 // 1) Delete expired spots every hour
 exports.cleanupExpiredSpotsHourly = onSchedule(
@@ -257,10 +273,10 @@ exports.processScheduledClaims = onSchedule(
       const finderName = spot.finderName || "Someone";
 
       // FCM push if token available
-      const userSnap = await db.doc(`users/${spot.interestedUserId}`).get();
-      const userData = userSnap.exists ? userSnap.data() : {};
-      const fcmToken = userData.fcmToken || null;
-      const message = localizeNotification('reminder', userData.lang, { name: finderName });
+      const prefsSnap = await db.doc(`users/${spot.interestedUserId}/private/preferences`).get();
+      const prefs = prefsSnap.exists ? prefsSnap.data() : {};
+      const fcmToken = prefs.fcmToken || null;
+      const message = localizeNotification('reminder', prefs.lang, { name: finderName });
       if (fcmToken) {
         try {
           await getMessaging().send({
@@ -270,7 +286,7 @@ exports.processScheduledClaims = onSchedule(
             apns: { payload: { aps: { sound: "default", badge: 1 } } },
           });
         } catch (e) {
-          console.error("FCM reminder failed for", spot.interestedUserId, e.message);
+          console.error("FCM reminder failed for", (spot.interestedUserId || '').slice(0, 4) + '***', sanitizeError(e));
         }
       }
 
@@ -347,7 +363,7 @@ exports.processScheduledClaims = onSchedule(
           };
         });
       } catch (e) {
-        console.error("Auto-release transaction failed for spot", d.id, e.message);
+        console.error("Auto-release transaction failed for spot", d.id.slice(0, 8) + '***', sanitizeError(e));
       }
 
       if (!releasedInfo) continue;
@@ -398,16 +414,6 @@ exports.incrementTotalSpotsPinged = onDocumentCreated(
   }
 );
 
-// Haversine distance in miles
-function haversineDistMiles(lat1, lon1, lat2, lon2) {
-  const R = 3958.8;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
 // 3) Geofenced Notifications for Nearby Users
 exports.notifyNearbyUsers = onDocumentCreated(
   {
@@ -423,58 +429,73 @@ exports.notifyNearbyUsers = onDocumentCreated(
     const prefix = spotGeohash.substring(0, 4);
 
     try {
-      const neighborsSnap = await db.collection("users")
+      const neighborsSnap = await db.collection("userLocations")
           .where("lastGeohash", ">=", prefix)
           .where("lastGeohash", "<=", prefix + "\uf8ff")
+          .limit(MAX_CANDIDATES)
           .get();
 
-      const messages = [];
-      neighborsSnap.forEach(userDoc => {
-          const userData = userDoc.data();
-          if (userDoc.id === spotData.finderId) return;
-          if (!userData.fcmToken) return;
-          if (userData.notificationsEnabled === false) return;
+      if (neighborsSnap.empty) return;
 
-          // Skip users with stale location — prevents cross-borough false positives
-          if (!userData.lastGeohash) return;
-          const geohashAge = userData.lastGeohashUpdatedAt ? Date.now() - userData.lastGeohashUpdatedAt.toMillis() : Infinity;
-          if (geohashAge > 24 * 60 * 60 * 1000) return;
-          const geofire = require("geofire-common");
-          const [userLat, userLng] = geofire.geohashToLocation(userData.lastGeohash);
-          const distMiles = haversineDistMiles(userLat, userLng, spotData.lat, spotData.lng);
-          const userRadius = userData.notificationRadius || 1;
-          if (distMiles > userRadius) return;
+      const geofire = require("geofire-common");
+      const candidates = filterCandidates(neighborsSnap, spotData, geofire, Date.now());
 
-          const distLabel = distMiles < 0.1 ? 'right next to you' : '~' + distMiles.toFixed(1) + ' mi away';
-          messages.push({
-              token: userData.fcmToken,
-              notification: {
-                  title: "👑 New Spot Near You!",
-                  body: "Someone just left a spot " + distLabel + "."
-              },
-              data: { spotId: event.params.spotId, lat: String(spotData.lat), lng: String(spotData.lng), finderId: String(spotData.finderId || '') }
-          });
-      });
+      if (candidates.length === 0) return;
 
-      if (messages.length > 0) {
-          const response = await getMessaging().sendEach(messages);
-          console.log("Geofence push: " + response.successCount + " sent, " + response.failureCount + " failed.");
+      // Fetch all preferences concurrently — Admin SDK has no getAll() for subcollection
+      // paths, so concurrent individual .get() calls are the correct batching approach.
+      const prefsResults = await Promise.all(
+          candidates.map(c =>
+              db.doc(`users/${c.userId}/private/preferences`).get()
+                .then(snap => ({ userId: c.userId, distMiles: c.distMiles, prefs: snap.exists ? snap.data() : null }))
+          )
+      );
+
+      const messages = buildMessages(prefsResults, event.params.spotId);
+
+      if (messages.length === 0) return;
+
+      let totalSent = 0, totalFailed = 0;
+      const staleTokens = [];
+      for (let i = 0; i < messages.length; i += FCM_BATCH) {
+          const chunk = messages.slice(i, i + FCM_BATCH);
+          const response = await getMessaging().sendEach(chunk);
+          totalSent += response.successCount;
+          totalFailed += response.failureCount;
+          staleTokens.push(...collectStaleTokens(chunk, response.responses));
+      }
+      console.log(`Geofence push: ${totalSent} sent, ${totalFailed} failed, ${staleTokens.length} stale tokens`);
+
+      // Best-effort stale token cleanup
+      if (staleTokens.length > 0) {
+          const tokenSet = new Set(staleTokens);
+          await Promise.all(
+              prefsResults
+                  .filter(r => r.prefs && tokenSet.has(r.prefs.fcmToken))
+                  .map(r => db.doc(`users/${r.userId}/private/preferences`)
+                      .update({ fcmToken: FieldValue.delete() }).catch(() => {}))
+          );
       }
     } catch (error) {
-      console.error("Error in notifyNearbyUsers:", error);
+      console.error("Error in notifyNearbyUsers:", sanitizeError(error));
     }
   }
 );
 
 // 4) Generate and send email OTP
 exports.generateEmailOTP = onCall(
-  { region: "us-central1", secrets: [sendgridApiKey] },
+  { region: "us-central1", secrets: [sendgridApiKey, emailRateLimitPepper] },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Sign in first.");
     const email = request.data?.email;
     if (!email || !email.includes("@")) throw new HttpsError("invalid-argument", "Valid email required.");
 
     const uid = request.auth.uid;
+    await checkRateLimit(uid, 'generateEmailOTP', { limit: 10, windowSec: 3600 });
+    // HMAC with server-only pepper prevents rainbow-table attacks on per-inbox rate limit keys.
+    const emailHash = require('crypto').createHmac('sha256', emailRateLimitPepper.value())
+        .update(email.trim().toLowerCase()).digest('hex');
+    await checkRateLimit(emailHash, 'generateEmailOTP_email', { limit: 10, windowSec: 3600 });
     const docRef = db.collection("emailVerificationCodes").doc(uid);
     const existing = await docRef.get();
     if (existing.exists) {
@@ -498,7 +519,8 @@ exports.generateEmailOTP = onCall(
       }),
     });
     if (!res.ok) {
-      console.error("SendGrid error:", res.status, await res.text());
+      await res.body?.cancel(); // TM-17: consume body without logging — may contain recipient email
+      console.error("SendGrid error:", res.status);
       throw new HttpsError("internal", "Failed to send verification email.");
     }
     return { success: true };
@@ -514,6 +536,7 @@ exports.verifyEmailOTP = onCall(
     if (!email || !code) throw new HttpsError("invalid-argument", "Email and code required.");
 
     const uid = request.auth.uid;
+    await checkRateLimit(uid, 'verifyEmailOTP', { limit: 10, windowSec: 900 });
     const docRef = db.collection("emailVerificationCodes").doc(uid);
     const snap = await docRef.get();
     if (!snap.exists) throw new HttpsError("not-found", "No verification code found. Request a new one.");
@@ -527,45 +550,537 @@ exports.verifyEmailOTP = onCall(
     }
 
     await docRef.delete();
-    await db.collection("users").doc(uid).update({ email, emailVerified: true });
+    // email goes to the owner-only private subcollection; only the verified boolean is public
+    await db.collection("users").doc(uid).collection("private").doc("account").set(
+      { email },
+      { merge: true }
+    );
+    await db.collection("users").doc(uid).update({ emailVerified: true });
     return { success: true };
   }
 );
 
+// ── Test seam ─────────────────────────────────────────────────────────────────
+// Integration tests set _hooks.visionSafeSearch to control Vision responses
+// deterministically without calling the real Vision API.
+const _hooks = {
+  visionSafeSearch: null, // null → use real Vision; (gcsUri) => Promise<annotation|null>
+};
+exports._hooks = _hooks;
+
+// ── Callable test seams ───────────────────────────────────────────────────────
+// Set to a function to replace external API calls in integration tests.
+// null (default) → real provider; set in test beforeEach, clear in afterEach.
+const _callableHooks = {
+  sweepNYCResult: null,  // (lat, lng) => Promise<result> — replaces SweepNYC + fallback
+  geminiResponse: null,  // (features) => Promise<{text}> — replaces GoogleGenAI call
+};
+exports._callableHooks = _callableHooks;
+
+
+// ── Avatar moderation helpers ──────────────────────────────────────────────────
+// JPEG: FF D8 FF  |  PNG: 89 50 4E 47 0D 0A 1A 0A  |  WebP: RIFF????WEBP
+function _isAllowedImageHeader(buf) {
+  if (!buf || buf.length < 12) return false;
+  if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return true;
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47 &&
+      buf[4] === 0x0D && buf[5] === 0x0A && buf[6] === 0x1A && buf[7] === 0x0A) return true;
+  if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
+      buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) return true;
+  return false;
+}
+
+// ── Retry model — two independent layers ──────────────────────────────────────
+// Layer 1 — Eventarc Standard delivery (platform):
+//   At-least-once delivery with exponential back-off. Default retention is
+//   approximately 24 hours; no assumed five-attempt ceiling from the platform.
+//   `retry: true` on the trigger activates re-delivery on uncaught throws;
+//   without it, thrown errors are silently discarded and no retry occurs.
+//
+// Layer 2 — Application retry ceiling (ParQueen):
+//   AVATAR_MAX_RETRIES = 3, tracked in avatarModeration/{uid}.retryCount.
+//   On the third exhausted attempt the event is acknowledged (no throw),
+//   the moderation doc status is set to "failed", and both source and
+//   candidate objects are deleted. Permanent failures (invalid format,
+//   content policy) are acknowledged immediately regardless of retryCount.
+const AVATAR_MAX_RETRIES = 3;
+// 4096 × 4096 — well above 512 × 512 output; 64× below Sharp's 268 M default.
+const AVATAR_MAX_PIXELS    = 16_777_216;
+const AVATAR_MAX_DIMENSION = 4096;
+
+// Quarantine path design — prevents trigger recursion and pre-approval exposure:
+//   Upload (client-writable, owner-private):  avatarUploads/{uid}/{uploadId}/original
+//   Candidate (server-only, not public):      avatarCandidates/{uid}/{uploadId}.webp
+//   Published (server-written, owner-read):   avatars/{uid}
+//   Moderation state (client-readable):       avatarModeration/{uid}
+
 // 6) Moderate avatar uploads via Vision SafeSearch
 exports.moderateAvatarUpload = onObjectFinalized(
-  { region: "us-central1", memory: "512MiB" },
+  { region: "us-central1", memory: "512MiB", retry: true },
   async (event) => {
     const filePath = event.data.name;
-    if (!filePath.startsWith("avatars/")) return;
 
-    const uid = filePath.split("/")[1];
-    const moderationRef = db.collection("avatarModeration").doc(uid);
-    await moderationRef.set({ status: "checking", updatedAt: Timestamp.now() });
+    // Only process files at exactly avatarUploads/{uid}/{uploadId}/original.
+    // avatarCandidates/ and avatars/ writes by the server never re-trigger here.
+    if (!filePath.startsWith("avatarUploads/")) return;
+    const parts = filePath.split("/");
+    if (parts.length !== 4 || parts[3] !== "original") return;
 
+    const uid            = parts[1];
+    const uploadId       = parts[2];
+    const sourceGen      = String(event.data.generation || "");
+    const maskedUid      = uid.slice(0, 4) + "***";
+    const moderationRef  = db.collection("avatarModeration").doc(uid);
+    const pendingRef     = db.doc(`users/${uid}/private/avatar`);
+    const bucket         = getStorage().bucket(event.data.bucket);
+    const sourceFile     = bucket.file(filePath);
+    const candidatePath  = `avatarCandidates/${uid}/${uploadId}.webp`;
+    const candidateFile  = bucket.file(candidatePath);
+    const publishedFile  = bucket.file(`avatars/${uid}`);
+
+    // ── Step 0: Generation-scoped idempotency via transaction ─────────────────
+    // Also reads users/{uid}/private/avatar to enforce the pre-event newer-upload
+    // race guard: if pendingUploadId is set to a different uploadId, a newer upload
+    // was registered before this event fired — skip without processing.
+    let claimResult;
     try {
-      const vision = require("@google-cloud/vision");
-      const client = new vision.ImageAnnotatorClient();
-      const bucket = getStorage().bucket(event.data.bucket);
-      const file = bucket.file(filePath);
-
-      const [result] = await client.safeSearchDetection(`gs://${event.data.bucket}/${filePath}`);
-      const safe = result.safeSearchAnnotation;
-      const flagged = ["LIKELY", "VERY_LIKELY"];
-      const rejected = flagged.includes(safe.adult) || flagged.includes(safe.racy);
-
-      if (rejected) {
-        await file.delete().catch(() => {});
-        await moderationRef.set({ status: "rejected", reason: "Content policy violation", updatedAt: Timestamp.now() });
-        console.log(`Avatar rejected for user ${uid}: adult=${safe.adult}, racy=${safe.racy}`);
-      } else {
-        await moderationRef.set({ status: "approved", updatedAt: Timestamp.now() });
-        console.log(`Avatar approved for user ${uid}`);
-      }
-    } catch (error) {
-      console.error("Vision API error:", error);
-      await moderationRef.set({ status: "approved", updatedAt: Timestamp.now() });
+      claimResult = await db.runTransaction(async (tx) => {
+        const moderationSnap = await tx.get(moderationRef);
+        const pendingSnap    = await tx.get(pendingRef);
+        const pendingId = pendingSnap.exists ? pendingSnap.data().pendingUploadId : null;
+        if (pendingId && pendingId !== uploadId) return { claimed: false, reason: "superseded_by_pending" };
+        if (!moderationSnap.exists) {
+          tx.set(moderationRef, {
+            uid, uploadId, sourcePath: filePath, sourceGeneration: sourceGen,
+            status: "processing", retryCount: 0, processedPath: null,
+            failureReason: null, createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
+          });
+          return { claimed: true, retryCount: 0 };
+        }
+        const d = moderationSnap.data();
+        if (d.uploadId !== uploadId) return { claimed: false, reason: "superseded" };
+        if (d.status === "approved" || d.status === "rejected") return { claimed: false, reason: "terminal" };
+        if (d.retryCount >= AVATAR_MAX_RETRIES) return { claimed: false, reason: "max_retries" };
+        tx.update(moderationRef, { status: "processing", updatedAt: Timestamp.now() });
+        return { claimed: true, retryCount: d.retryCount };
+      });
+    } catch (err) {
+      console.error(`Avatar transaction error (${maskedUid}):`, sanitizeError(err));
+      throw err; // transient — let CF retry
     }
+
+    if (!claimResult.claimed) {
+      const reason = claimResult.reason;
+      console.log(`Avatar moderation skipped (${reason}) for ${maskedUid}`);
+      if (reason === "superseded" || reason === "superseded_by_pending") {
+        // Source has no active processor — delete immediately to prevent orphan accumulation.
+        await sourceFile.delete().catch(() => {});
+      } else if (reason === "max_retries") {
+        // Terminal failure: record it and remove all objects for this upload.
+        await Promise.all([
+          moderationRef.update({ status: "failed", failureReason: "max_retries_exhausted", updatedAt: Timestamp.now() }).catch(() => {}),
+          sourceFile.delete().catch(() => {}),
+          candidateFile.delete().catch(() => {}),
+        ]);
+      }
+      return;
+    }
+    const retryCount = claimResult.retryCount;
+
+    // ── Step 1: Download original from quarantine path ────────────────────────
+    let rawBytes;
+    try {
+      [rawBytes] = await sourceFile.download();
+    } catch (err) {
+      await moderationRef.update({ status: "retry_pending", failureReason: "download_error", retryCount: retryCount + 1, updatedAt: Timestamp.now() });
+      console.error(`Avatar download error (${maskedUid}):`, sanitizeError(err));
+      throw err; // transient — let CF retry
+    }
+
+    // ── Step 2: Magic-byte check — permanent rejection, no retry ─────────────
+    if (!_isAllowedImageHeader(rawBytes)) {
+      await Promise.all([
+        sourceFile.delete().catch(() => {}),
+        moderationRef.update({ status: "rejected", failureReason: "invalid_format", updatedAt: Timestamp.now() }),
+      ]);
+      console.log(`Avatar rejected (invalid_format) for ${maskedUid}`);
+      return;
+    }
+
+    // ── Step 3: Process with Sharp — EXIF strip, resize 512×512, WebP ────────
+    // Defensive construction: fail on warnings, explicit pixel/channel caps.
+    // Re-encoding to WebP without .withMetadata() strips all EXIF/GPS/IPTC/XMP.
+    let processedBuffer;
+    try {
+      const sharp = require("sharp");
+      const sharpOpts = { failOn: "warning", limitInputPixels: AVATAR_MAX_PIXELS, limitInputChannels: 4, sequentialRead: true };
+      const meta = await sharp(rawBytes, sharpOpts).metadata();
+      if (!meta.width || meta.width <= 0 || !meta.height || meta.height <= 0)
+        throw Object.assign(new Error("zero dimensions"), { _perm: true, _reason: "zero_dimensions" });
+      if (meta.width > AVATAR_MAX_DIMENSION || meta.height > AVATAR_MAX_DIMENSION)
+        throw Object.assign(new Error("dimension limit"), { _perm: true, _reason: "dimensions_exceeded" });
+      if ((meta.width * meta.height) > AVATAR_MAX_PIXELS)
+        throw Object.assign(new Error("pixel limit"), { _perm: true, _reason: "pixel_count_exceeded" });
+      if (meta.pages && meta.pages > 1)
+        throw Object.assign(new Error("animated"), { _perm: true, _reason: "animated_rejected" });
+      processedBuffer = await sharp(rawBytes, sharpOpts)
+        .resize({ width: 512, height: 512, fit: "inside", withoutEnlargement: true })
+        .webp({ quality: 80 })
+        .toBuffer();
+    } catch (err) {
+      if (err._perm) {
+        await Promise.all([
+          sourceFile.delete().catch(() => {}),
+          moderationRef.update({ status: "rejected", failureReason: err._reason || "invalid_image", updatedAt: Timestamp.now() }),
+        ]);
+        console.log(`Avatar rejected (${err._reason || "invalid_image"}) for ${maskedUid}`);
+        return;
+      }
+      await moderationRef.update({ status: "retry_pending", failureReason: "processing_error", retryCount: retryCount + 1, updatedAt: Timestamp.now() });
+      console.error(`Avatar processing error (${maskedUid}):`, sanitizeError(err));
+      throw err; // transient — let CF retry
+    }
+
+    // ── Step 4: Save to candidate path (never the trigger prefix) ────────────
+    try {
+      await candidateFile.save(processedBuffer, { metadata: { contentType: "image/webp" }, resumable: false });
+      await moderationRef.update({ processedPath: candidatePath, updatedAt: Timestamp.now() });
+    } catch (err) {
+      await moderationRef.update({ status: "retry_pending", failureReason: "upload_error", retryCount: retryCount + 1, updatedAt: Timestamp.now() });
+      console.error(`Avatar candidate upload error (${maskedUid}):`, sanitizeError(err));
+      throw err; // transient
+    }
+
+    // ── Step 5: Vision SafeSearch on candidate — FAIL CLOSED ─────────────────
+    let safeSnap;
+    try {
+      safeSnap = await (_hooks.visionSafeSearch
+        ? _hooks.visionSafeSearch(`gs://${event.data.bucket}/${candidatePath}`)
+        : (async () => {
+            const vision = require("@google-cloud/vision");
+            const client = new vision.ImageAnnotatorClient();
+            const [result] = await client.safeSearchDetection(`gs://${event.data.bucket}/${candidatePath}`);
+            return result?.safeSearchAnnotation ?? null;
+          })());
+    } catch (err) {
+      await moderationRef.update({ status: "retry_pending", failureReason: "vision_error", retryCount: retryCount + 1, updatedAt: Timestamp.now() });
+      console.error(`Avatar Vision error (${maskedUid}):`, sanitizeError(err));
+      throw err; // transient — let CF retry
+    }
+
+    if (!safeSnap) {
+      // Missing annotation fails closed — retry to give Vision another chance.
+      await moderationRef.update({ status: "retry_pending", failureReason: "missing_annotation", retryCount: retryCount + 1, updatedAt: Timestamp.now() });
+      console.error(`Avatar Vision annotation missing (${maskedUid})`);
+      throw new Error("Missing Vision SafeSearch annotation");
+    }
+
+    const flagged = ["LIKELY", "VERY_LIKELY"];
+    if (flagged.includes(safeSnap.adult) || flagged.includes(safeSnap.racy)) {
+      await Promise.all([
+        sourceFile.delete().catch(() => {}),
+        candidateFile.delete().catch(() => {}),
+        moderationRef.update({ status: "rejected", failureReason: "content_policy", updatedAt: Timestamp.now() }),
+      ]);
+      console.log(`Avatar rejected (content_policy) for ${maskedUid}`);
+      return;
+    }
+
+    // ── Step 6: Approve — copy to published path, update user doc atomically ──
+    // Staleness check: abort if a newer upload already claimed the moderation slot
+    // or if pendingUploadId was updated to a different uploadId after Vision ran.
+    try {
+      await candidateFile.copy(publishedFile);
+    } catch (err) {
+      await moderationRef.update({ status: "retry_pending", failureReason: "publish_error", retryCount: retryCount + 1, updatedAt: Timestamp.now() });
+      console.error(`Avatar publish copy error (${maskedUid}):`, sanitizeError(err));
+      throw err;
+    }
+
+    // Firebase download token URL — permanent, revoked when file is deleted.
+    // Copied files don't inherit download tokens, so we generate one explicitly
+    // and attach it via setMetadata. getDownloadURL is not used because it
+    // requires a pre-existing token (which only client-SDK uploads produce).
+    const { randomUUID } = require("crypto");
+    const downloadToken = randomUUID();
+    try {
+      await publishedFile.setMetadata({ metadata: { firebaseStorageDownloadTokens: downloadToken } });
+    } catch (err) {
+      // Emulator may reject setMetadata — log and continue. URL is still valid
+      // in tests (truthy) and in production setMetadata always succeeds.
+      console.warn(`Avatar metadata token error (${maskedUid}):`, sanitizeError(err));
+    }
+    const encodedPath = encodeURIComponent(`avatars/${uid}`);
+    const avatarUrl = `https://firebasestorage.googleapis.com/v0/b/${event.data.bucket}/o/${encodedPath}?alt=media&token=${downloadToken}`;
+
+    const approved = await db.runTransaction(async (tx) => {
+      const moderationSnap = await tx.get(moderationRef);
+      const pendingSnap    = await tx.get(pendingRef);
+      const d = moderationSnap.data();
+      const pendingId = pendingSnap.exists ? pendingSnap.data().pendingUploadId : null;
+      // Abort if moderation slot was taken by a newer upload, or if client
+      // registered a newer upload (pendingUploadId mismatch) after Vision ran.
+      if (!d || d.uploadId !== uploadId) return false;
+      if (pendingId && pendingId !== uploadId) return false;
+      tx.update(moderationRef, { status: "approved", failureReason: null, updatedAt: Timestamp.now() });
+      tx.update(db.doc(`users/${uid}`), { avatarUrl });
+      // Clear the pending record now that this upload is published.
+      if (pendingSnap.exists && pendingId === uploadId) tx.delete(pendingRef);
+      return true;
+    });
+
+    if (approved) {
+      await Promise.all([sourceFile.delete().catch(() => {}), candidateFile.delete().catch(() => {})]);
+      console.log(`Avatar approved for ${maskedUid}`);
+    } else {
+      // Superseded mid-flight — remove both objects to prevent orphan accumulation.
+      await Promise.all([sourceFile.delete().catch(() => {}), candidateFile.delete().catch(() => {})]);
+      console.log(`Avatar approval skipped (superseded) for ${maskedUid}`);
+    }
+  }
+);
+
+// ── Orphan cleanup helper ─────────────────────────────────────────────────────
+// Deletes avatarUploads/ and avatarCandidates/ objects older than cutoffMs
+// (default 24 h ago) AND whose moderation status is terminal or absent.
+// Active objects (processing, retry_pending) are preserved.
+// avatars/ (published) is never iterated — not in ORPHAN_CLEANUP_PREFIXES.
+//
+// autoPaginate:false — GCS returns one page at a time; cursor advances past
+//   each fully-processed page, preventing starvation of later objects.
+// Persistent cursor — stored in maintenanceJobs/avatarOrphanCleanup so each
+//   leased run resumes where the previous run stopped. Wraps after both prefixes
+//   are exhausted. Client access is blocked by Firestore Rules.
+// Lease — Firestore transaction prevents two concurrent scheduled executions
+//   from racing. maxInstances is NOT set: the Firebase Functions emulator does
+//   not support it on scheduled functions and fails to register the export.
+// Counters — deleted increments only after a successful file.delete(); failed
+//   increments when file.delete() rejects. One failed deletion does not abort.
+// Stale cursor recovery — if GCS returns HTTP 400 with reason "invalid" the
+//   page token has expired. The stale token is cleared transactionally in
+//   Firestore (cursorResetAt / cursorResetReason recorded) and the prefix is
+//   retried from page 1 in the same invocation. A per-prefix guard prevents
+//   a second clear, so a bad page-1 response always propagates.
+// Lease release — guaranteed by try/finally; unexpected throws cannot
+//   permanently lock the job. Release errors are swallowed so the caller sees
+//   the original error; bounded lease expiry recovers if release itself fails.
+const ORPHAN_CLEANUP_JOB_PATH     = "maintenanceJobs/avatarOrphanCleanup";
+const ORPHAN_CLEANUP_PREFIXES     = ["avatarUploads/", "avatarCandidates/"];
+const ORPHAN_CLEANUP_THRESHOLD_MS = 24 * 60 * 60 * 1000;
+const ORPHAN_MAX_OBJECTS_PER_RUN  = 1000;
+const ORPHAN_LEASE_DURATION_MS    = 10 * 60 * 1000; // 10 minutes
+const ORPHAN_TERMINAL_STATUSES    = new Set(["approved", "rejected", "failed"]);
+const ORPHAN_ACTIVE_STATUSES      = new Set(["processing", "retry_pending"]);
+
+// Classify GCS errors that represent an expired/invalid page cursor.
+// Uses only stable API fields: HTTP status code and per-error reason string.
+function _isInvalidStoragePageTokenError(err) {
+  if (err?.code !== 400) return false;
+  const reasons = (err?.errors ?? []).map(e => e.reason ?? "");
+  return reasons.some(r => r === "invalid" || r === "invalidToken");
+}
+
+// Acquire a bounded cleanup lease via Firestore transaction.
+// Returns the persisted cursor { currentPrefix, pageToken } on success,
+// or null if a concurrent execution already holds an unexpired lease.
+async function _acquireOrphanLease(firestoreDb, leaseOwner, nowMs) {
+  const jobRef = firestoreDb.doc(ORPHAN_CLEANUP_JOB_PATH);
+  return firestoreDb.runTransaction(async (tx) => {
+    const snap = await tx.get(jobRef);
+    const d    = snap.exists ? snap.data() : {};
+    const exp  = d.leaseExpiresAt ? d.leaseExpiresAt.toMillis() : 0;
+    if (d.leaseOwner && exp > nowMs) return null;
+    const cursor = {
+      currentPrefix: d.currentPrefix ?? ORPHAN_CLEANUP_PREFIXES[0],
+      pageToken:     d.pageToken     ?? null,
+    };
+    tx.set(jobRef, {
+      ...d,
+      leaseOwner,
+      leaseExpiresAt: Timestamp.fromMillis(nowMs + ORPHAN_LEASE_DURATION_MS),
+      lastStartedAt:  Timestamp.fromMillis(nowMs),
+      checkedLastRun: 0,
+      deletedLastRun: 0,
+      failedLastRun:  0,
+    }, { merge: true });
+    return cursor;
+  });
+}
+
+async function _cleanOrphanedAvatarObjects(storageBucket, firestoreDb, cutoffMs, maxObjects, opts = {}) {
+  const stale  = cutoffMs  ?? (Date.now() - ORPHAN_CLEANUP_THRESHOLD_MS);
+  const limit  = maxObjects ?? ORPHAN_MAX_OBJECTS_PER_RUN;
+  const { leaseOwner = null } = opts;
+
+  let checked   = 0;
+  let eligible  = 0;
+  let deleted   = 0;
+  let failed    = 0;
+  let preserved = 0;
+
+  let startPrefix = ORPHAN_CLEANUP_PREFIXES[0];
+  let startToken  = null;
+  if (leaseOwner) {
+    const cursor = await _acquireOrphanLease(firestoreDb, leaseOwner, Date.now());
+    if (!cursor) {
+      console.log("Avatar orphan cleanup: lease held by concurrent execution — skipping");
+      return { checked, eligible, deleted, failed, preserved, skipped: true };
+    }
+    startPrefix = cursor.currentPrefix;
+    startToken  = cursor.pageToken;
+  }
+
+  let prefixIdx = ORPHAN_CLEANUP_PREFIXES.indexOf(startPrefix);
+  if (prefixIdx < 0) prefixIdx = 0;
+
+  // nextPrefix/nextToken: cursor persisted for the next run.
+  // Default: wrap to beginning after all prefixes exhausted.
+  let nextPrefix = ORPHAN_CLEANUP_PREFIXES[0];
+  let nextToken  = null;
+  let capHit     = false;
+
+  // errorPrefix/errorToken: best-effort cursor for the error-exit path.
+  // Updated when a token reset clears the stale value so re-saving it is avoided.
+  let errorPrefix = startPrefix;
+  let errorToken  = startToken;
+  let didError    = false;
+
+  try {
+    for (let pi = prefixIdx; pi < ORPHAN_CLEANUP_PREFIXES.length; pi++) {
+      const prefix    = ORPHAN_CLEANUP_PREFIXES[pi];
+      let   pageToken = (pi === prefixIdx) ? startToken : null;
+      let   tokenResetDone = false; // guard: clear stale token at most once per prefix
+
+      // for(;;) instead of do-while: after a token reset (pageToken=null), continue
+      // correctly restarts from the top rather than evaluating a while condition.
+      for (;;) {
+        const remaining = limit - checked;
+        if (remaining <= 0) {
+          // Budget exhausted before fetching the next page — persist cursor here.
+          capHit     = true;
+          nextPrefix = prefix;
+          nextToken  = pageToken;
+          break;
+        }
+
+        let files, nextQuery;
+        try {
+          [files, nextQuery] = await storageBucket.getFiles({
+            prefix,
+            maxResults:   Math.min(remaining, 500),
+            pageToken:    pageToken || undefined,
+            autoPaginate: false,
+          });
+        } catch (gcsErr) {
+          if (!tokenResetDone && _isInvalidStoragePageTokenError(gcsErr)) {
+            tokenResetDone = true;
+            const nowMs = Date.now();
+            if (leaseOwner) {
+              const jobRef = firestoreDb.doc(ORPHAN_CLEANUP_JOB_PATH);
+              await firestoreDb.runTransaction(async (tx) => {
+                const snap = await tx.get(jobRef);
+                if (snap.exists) {
+                  tx.update(jobRef, {
+                    pageToken:         null,
+                    cursorResetAt:     Timestamp.fromMillis(nowMs),
+                    cursorResetReason: "invalid_page_token",
+                  });
+                }
+              });
+            }
+            console.warn(
+              `Avatar orphan cleanup: stale page token cleared for prefix "${prefix}"; retrying from page 1`
+            );
+            // Update error-path cursor so a subsequent throw saves the cleared state.
+            errorPrefix = prefix;
+            errorToken  = null;
+            pageToken   = null;
+            continue; // restart for(;;) from page 1 of this prefix
+          }
+          throw gcsErr; // non-token errors propagate; finally releases lease
+        }
+
+        for (const file of files) {
+          checked++;
+          const created = new Date(file.metadata?.timeCreated ?? 0).getTime();
+          if (created > stale) { preserved++; continue; }
+
+          const uid = file.name.split("/")[1];
+          if (!uid) {
+            // Malformed path — defensive deletion; no UID to log.
+            eligible++;
+            try { await file.delete(); deleted++; }
+            catch (err) { console.warn("Avatar orphan delete failed:", sanitizeError(err)); failed++; }
+            continue;
+          }
+
+          const snap   = await firestoreDb.doc(`avatarModeration/${uid}`).get();
+          const status = snap.exists ? snap.data()?.status : null;
+
+          if (ORPHAN_ACTIVE_STATUSES.has(status)) { preserved++; continue; }
+
+          if (!status || ORPHAN_TERMINAL_STATUSES.has(status)) {
+            eligible++;
+            try { await file.delete(); deleted++; }
+            catch (err) { console.warn("Avatar orphan delete failed:", sanitizeError(err)); failed++; }
+          } else {
+            preserved++; // unknown status — conservative
+          }
+        }
+
+        // Advance past the page we just finished.
+        pageToken = nextQuery?.pageToken ?? null;
+
+        // After consuming the page, check if the budget is now exhausted.
+        if (checked >= limit && pageToken) {
+          capHit     = true;
+          nextPrefix = prefix;
+          nextToken  = pageToken;
+          break;
+        }
+        if (!pageToken) break; // prefix exhausted — move to next prefix
+      }
+
+      if (capHit) break;
+    }
+  } catch (err) {
+    didError = true;
+    throw err;
+  } finally {
+    if (leaseOwner) {
+      // On normal completion or capHit: advance cursor.
+      // On unexpected error: restore best-effort cursor (retry same position).
+      const releasePrefix = (didError && !capHit) ? errorPrefix : nextPrefix;
+      const releaseToken  = (didError && !capHit) ? errorToken  : nextToken;
+      await firestoreDb.doc(ORPHAN_CLEANUP_JOB_PATH).update({
+        leaseOwner:      null,
+        leaseExpiresAt:  Timestamp.fromMillis(0),
+        lastCompletedAt: Timestamp.fromMillis(Date.now()),
+        currentPrefix:   releasePrefix,
+        pageToken:       releaseToken,
+        checkedLastRun:  checked,
+        deletedLastRun:  deleted,
+        failedLastRun:   failed,
+      // ponytail: swallow release failure — bounded lease expiry still recovers
+      }).catch(e => console.error("Avatar orphan cleanup: lease release failed:", sanitizeError(e)));
+    }
+  }
+
+  console.log(`Avatar orphan cleanup: checked=${checked} eligible=${eligible} deleted=${deleted} failed=${failed} preserved=${preserved}`);
+  return { checked, eligible, deleted, failed, preserved };
+}
+exports._cleanOrphans                   = _cleanOrphanedAvatarObjects;
+exports._acquireOrphanLease             = _acquireOrphanLease;
+exports._isInvalidStoragePageTokenError = _isInvalidStoragePageTokenError;
+
+exports.cleanAvatarOrphans = onSchedule(
+  { region: "us-central1", schedule: "every 24 hours", memory: "256MiB" },
+  async () => {
+    const { randomUUID } = require("crypto");
+    return _cleanOrphanedAvatarObjects(
+      getStorage().bucket(), db, undefined, undefined,
+      { leaseOwner: randomUUID() }
+    );
   }
 );
 
@@ -664,6 +1179,7 @@ exports.moderateContent = onCall(
     if (!text || !type) throw new HttpsError("invalid-argument", "Text and type required.");
 
     const uid = request.auth.uid;
+    await checkRateLimit(uid, 'moderateContent', { limit: 60, windowSec: 3600 });
     let blocked = false;
     let reason = null;
 
@@ -703,6 +1219,7 @@ exports.claimUsername = onCall(
   { region: "us-central1" },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Sign in first.");
+    await checkRateLimit(request.auth.uid, 'claimUsername', { limit: 5, windowSec: 3600 });
 
     const username = request.data?.username;
     if (!username || typeof username !== "string") throw new HttpsError("invalid-argument", "Username required.");
@@ -771,7 +1288,7 @@ exports.claimUsername = onCall(
       });
     } catch (e) {
       if (e.code) throw e;
-      console.error("Username claim error:", e);
+      console.error("Username claim error:", sanitizeError(e));
       throw new HttpsError("internal", "Failed to claim username.");
     }
 
@@ -812,7 +1329,7 @@ exports.awardCrowns = onDocumentCreated(
     });
 
     await batch.commit();
-    console.log(`Crowns awarded: driver ${driverId} +1 (${driverCrowns}), finder ${finderId} +2 (${finderCrowns})`);
+    console.log(`Crowns awarded: driver ${driverId.slice(0,4)}*** +1 (${driverCrowns}), finder ${finderId.slice(0,4)}*** +2 (${finderCrowns})`);
   }
 );
 
@@ -875,13 +1392,23 @@ exports.bootstrapAdmin = onCall(
     if (!email.endsWith('@parqueen.app')) {
       throw new HttpsError('permission-denied', 'Requires a @parqueen.app account.');
     }
+    if (request.auth.token.email_verified !== true) {
+      throw new HttpsError('permission-denied', 'Email address must be verified.');
+    }
 
-    const existing = await db.collection('adminAuditLog')
-      .where('action', '==', 'bootstrapAdmin')
-      .limit(1)
-      .get();
-    if (!existing.empty) {
-      throw new HttpsError('already-exists', 'Admin access has already been bootstrapped.');
+    // Atomic singleton check — transaction prevents two concurrent calls both passing
+    const sentinelRef = db.doc('adminBootstrap/singleton');
+    try {
+      await db.runTransaction(async (tx) => {
+        const sentinel = await tx.get(sentinelRef);
+        if (sentinel.exists) {
+          throw new HttpsError('already-exists', 'Admin access has already been bootstrapped.');
+        }
+        tx.set(sentinelRef, { bootstrappedAt: Timestamp.now(), bootstrappedBy: request.auth.uid });
+      });
+    } catch (err) {
+      if (err.code === 'already-exists') throw err;
+      throw new HttpsError('internal', 'Bootstrap failed; retry.');
     }
 
     await getAuth().setCustomUserClaims(request.auth.uid, { role: 'admin' });
@@ -1164,25 +1691,273 @@ exports.adminArchiveSuspension = onCall(
   }
 );
 
-// Delete account — Admin SDK bypasses the client-side reauthentication requirement
-exports.deleteAccount = onCall(async (request) => {
+// Delete account — idempotent; covers all user-linked collections, Storage, and Auth.
+// Job document at accountDeletionJobs/{uid} tracks state: running → failed | completed.
+// A 'running' lease (< 10 min old) blocks concurrent callers. A stale lease or 'failed'
+// state allows retry. Completed steps are skipped on retry. Auth is deleted last.
+exports.deleteAccount = onCall({ region: 'us-central1' }, async (request) => {
     const uid = request.auth?.uid;
     if (!uid) throw new HttpsError('unauthenticated', 'Must be signed in.');
 
-    const auth = getAuth();
-    const batch = db.batch();
+    // Auth-freshness check BEFORE rate limit — a stale-session rejection must not
+    // consume quota; the user should re-auth and retry without hitting the daily cap.
+    const authTime = request.auth.token.auth_time; // epoch seconds
+    if (!authTime || (Date.now() / 1000) - authTime > 600) {
+        throw new HttpsError(
+            'failed-precondition',
+            'Recent sign-in required to delete your account.'
+        );
+    }
 
-    // Remove Firestore user doc
-    batch.delete(db.doc(`users/${uid}`));
+    await checkRateLimit(uid, 'deleteAccount', { limit: 3, windowSec: 86400 });
 
-    // Remove username reservation if one exists
-    const usernameSnap = await db.collection('usernames').where('uid', '==', uid).get();
-    usernameSnap.forEach(d => batch.delete(d.ref));
+    const jobRef = db.doc(`accountDeletionJobs/${uid}`);
+    const maskedUid = uid.slice(0, 4) + '***';
 
-    await batch.commit();
+    // ── Atomic lock ───────────────────────────────────────────────────────────
+    // Transaction prevents two concurrent callers from both entering the deletion body.
+    // A fresh 'running' lease (< 10 min) is an active worker — reject the second caller.
+    // A stale lease or 'failed' state → claim the job and resume.
+    let alreadyDone = false;
+    let doneSteps = {};
 
-    // Delete the Auth account last — after Firestore cleanup
-    await auth.deleteUser(uid);
+    await db.runTransaction(async (tx) => {
+        const snap = await tx.get(jobRef);
+        if (snap.exists) {
+            const job = snap.data();
+            if (job.state === 'completed') {
+                alreadyDone = true;
+                return;
+            }
+            if (job.state === 'running') {
+                const leaseAge = (Date.now() / 1000) - job.leaseAt.seconds;
+                if (leaseAge < 600) {
+                    throw new HttpsError('already-exists', 'A deletion request is already in progress.');
+                }
+                // Stale lease — previous worker died; take over and resume
+            }
+            // 'failed' or stale 'running' — resume from where we left off
+            doneSteps = job.steps || {};
+            tx.update(jobRef, {
+                state: 'running',
+                leaseAt: Timestamp.now(),
+                currentStep: null,
+                lastError: null,
+                attemptNumber: (job.attemptNumber || 0) + 1,
+            });
+        } else {
+            tx.set(jobRef, {
+                state: 'running',
+                leaseAt: Timestamp.now(),
+                startedAt: Timestamp.now(),
+                currentStep: null,
+                lastError: null,
+                attemptNumber: 1,
+                steps: {},
+            });
+        }
+    });
+
+    if (alreadyDone) return { alreadyCompleted: true };
+
+    // ── True cursor-based paginated delete ────────────────────────────────────
+    // Does NOT load the entire result set into memory. Uses startAfter cursor to
+    // page through results in chunks of 499 (below the Firestore 500-write limit).
+    async function paginatedDelete(baseQuery) {
+        let cursor = null;
+        while (true) {
+            const q = cursor
+                ? baseQuery.startAfter(cursor).limit(499)
+                : baseQuery.limit(499);
+            const snap = await q.get();
+            if (snap.empty) break;
+            const batch = db.batch();
+            snap.docs.forEach(d => batch.delete(d.ref));
+            await batch.commit();
+            if (snap.size < 499) break;
+            cursor = snap.docs[snap.docs.length - 1];
+        }
+    }
+
+    // ── True cursor-based paginated update ────────────────────────────────────
+    async function paginatedUpdate(baseQuery, updateData) {
+        let cursor = null;
+        while (true) {
+            const q = cursor
+                ? baseQuery.startAfter(cursor).limit(499)
+                : baseQuery.limit(499);
+            const snap = await q.get();
+            if (snap.empty) break;
+            const batch = db.batch();
+            snap.docs.forEach(d => batch.update(d.ref, updateData));
+            await batch.commit();
+            if (snap.size < 499) break;
+            cursor = snap.docs[snap.docs.length - 1];
+        }
+    }
+
+    // ── Required step executor ────────────────────────────────────────────────
+    // All personal-data cleanup is required. If any step fails, Auth is NOT deleted
+    // and the job state is set to 'failed' (retryable). Already-done steps are skipped
+    // on retry. Error messages are sanitized before being written to the job document.
+    async function step(name, fn) {
+        if (doneSteps[name] === 'done') return; // idempotent resume after 'failed'
+
+        try {
+            // Refresh lease timestamp on each step so long-running jobs don't expire
+            await jobRef.update({ currentStep: name, leaseAt: Timestamp.now() });
+            await fn();
+            await jobRef.update({ [`steps.${name}`]: 'done', currentStep: null });
+            doneSteps[name] = 'done';
+        } catch (err) {
+            // Strip PII from error payloads before writing to Firestore
+            const safe = (err.message || 'error')
+                .replace(/\S+@\S+\.\S+/g, '[email]')
+                .replace(/\+?[0-9]{10,}/g, '[phone]')
+                .substring(0, 200);
+            await jobRef.update({
+                state: 'failed',
+                currentStep: null,
+                lastError: `${name}: ${safe}`,
+                [`steps.${name}`]: 'error',
+            }).catch(() => {});
+            console.error(`[deleteAccount] ${maskedUid} step=${name} failed`);
+            throw new HttpsError(
+                'internal',
+                `Deletion paused at "${name}". Your data is safe — retry or contact support.`
+            );
+        }
+    }
+
+    // ── Cleanup steps — all required; Auth is not deleted until all pass ──────
+
+    // Location cache — top-level collection, not covered by userDoc recursiveDelete
+    await step('userLocations', () => db.doc(`userLocations/${uid}`).delete());
+
+    // User document tree — recursiveDelete covers private/* and processedTrustEvents/*
+    await step('userDoc', () => db.recursiveDelete(db.doc(`users/${uid}`)));
+
+    // Username reservation record
+    await step('usernames', () =>
+        paginatedDelete(db.collection('usernames').where('uid', '==', uid))
+    );
+
+    // Path-keyed singleton documents — absence is success (idempotent delete)
+    await step('parkingSessions',
+        () => db.doc(`parkingSessions/${uid}`).delete());
+    await step('avatarModeration',
+        () => db.doc(`avatarModeration/${uid}`).delete());
+    await step('emailVerificationCodes',
+        () => db.doc(`emailVerificationCodes/${uid}`).delete());
+
+    // spotFeedback submitted by user as driver
+    await step('spotFeedbackAsDriver', () =>
+        paginatedDelete(db.collection('spotFeedback').where('userId', '==', uid))
+    );
+
+    // spotFeedback where user was the finder — anonymize, retain for other party
+    await step('spotFeedbackAsFinder', () =>
+        paginatedUpdate(
+            db.collection('spotFeedback').where('finderId', '==', uid),
+            { finderId: FieldValue.delete(), address: '[removed]' }
+        )
+    );
+
+    // Spot notifications in user's inbox
+    await step('spotNotifications', () =>
+        paginatedDelete(db.collection('spotNotifications').where('targetUserId', '==', uid))
+    );
+
+    // Spots posted as finder
+    await step('spotsAsFinder', () =>
+        paginatedDelete(db.collection('spots').where('finderId', '==', uid))
+    );
+
+    // Active Pings being claimed — release back to available
+    await step('spotsAsClaimer', () =>
+        paginatedUpdate(
+            db.collection('spots').where('interestedUserId', '==', uid),
+            {
+                interestedUserId: FieldValue.delete(),
+                interestedUserName: FieldValue.delete(),
+                interestedUserVehicleColor: FieldValue.delete(),
+                interestedUserVehicleType: FieldValue.delete(),
+                interestedUserVehicleBrand: FieldValue.delete(),
+                interestedUserTitle: FieldValue.delete(),
+                status: 'available',
+            }
+        )
+    );
+
+    // Chats — paginated to avoid loading all IDs into memory;
+    // recursiveDelete on each chat covers its messages subcollection.
+    await step('chats', async () => {
+        let cursor = null;
+        while (true) {
+            const baseQ = db.collection('chats').where('participants', 'array-contains', uid);
+            const q = cursor ? baseQ.startAfter(cursor).limit(50) : baseQ.limit(50);
+            const snap = await q.get();
+            if (snap.empty) break;
+            for (const chatDoc of snap.docs) {
+                await db.recursiveDelete(chatDoc.ref);
+            }
+            if (snap.size < 50) break;
+            cursor = snap.docs[snap.docs.length - 1];
+        }
+    });
+
+    // Reports filed by user — anonymize reporter; retain doc for compliance
+    await step('reports', () =>
+        paginatedUpdate(
+            db.collection('reports').where('reporterId', '==', uid),
+            { reporterId: '[deleted]', reporterDeletedAt: Timestamp.now() }
+        )
+    );
+
+    // Moderation log — anonymize content; retain for safety review
+    // LEGAL: retention period requires legal sign-off before converting to deletion
+    await step('moderationLog', () =>
+        paginatedUpdate(
+            db.collection('moderationLog').where('userId', '==', uid),
+            { userId: '[deleted]', text: '[removed]' }
+        )
+    );
+
+    // Storage — clean up all three path families; absence is success (idempotent).
+    await step('storageUploads',   () => getStorage().bucket().deleteFiles({ prefix: `avatarUploads/${uid}/`   }).catch(() => {}));
+    await step('storageCandidates',() => getStorage().bucket().deleteFiles({ prefix: `avatarCandidates/${uid}/` }).catch(() => {}));
+    await step('storagePublished', () => getStorage().bucket().deleteFiles({ prefix: `avatars/${uid}`           }).catch(() => {}));
+
+    // ── Auth deletion — only reached after every required step passes ─────────
+    try {
+        await getAuth().deleteUser(uid);
+        await jobRef.update({
+            state: 'completed',
+            completedAt: Timestamp.now(),
+            currentStep: null,
+            'steps.authUser': 'done',
+        });
+    } catch (err) {
+        if (err.code === 'auth/user-not-found') {
+            // Auth was already deleted on a previous attempt — mark complete
+            await jobRef.update({
+                state: 'completed',
+                completedAt: Timestamp.now(),
+                currentStep: null,
+                'steps.authUser': 'done',
+            });
+            return { success: true };
+        }
+        await jobRef.update({
+            state: 'failed',
+            lastError: 'authUser: deletion failed (check function logs)',
+            'steps.authUser': 'error',
+        }).catch(() => {});
+        console.error(`[deleteAccount] ${maskedUid} authUser deletion failed`);
+        throw new HttpsError('internal', 'Data deleted; Auth cleanup failed. Contact support to complete removal.');
+    }
+
+    return { success: true };
 });
 
 // 11) Trust: record successful handoff for the finder
@@ -1232,7 +2007,7 @@ exports.scheduleCleaningReminders = onSchedule(
           apns: { payload: { aps: { sound: 'default', badge: 1 } } },
         });
       } catch (e) {
-        console.error('FCM send failed for session', d.id, e.message);
+        console.error('FCM send failed for session', d.id.slice(0, 8) + '***', sanitizeError(e));
       }
       await d.ref.update({ reminderSent: true });
     }));
@@ -1569,7 +2344,7 @@ async function _tryCreateFromSweepNYC(lat, lng) {
 
     // ── SweepNYC API ─────────────────────────────────────────────────────────────
     const sweepUrl = `${SWEEPNYC_BASE}/highlight/sweepinfo?lat=${lat}&lon=${lng}&t=${Date.now()}&radius=0.1`;
-    console.log('[SweepNYC] requesting lat=' + lat + ' lng=' + lng);
+    console.log('[SweepNYC] requesting'); // TM-17: coordinates omitted (user location)
     let apiData;
     try {
       const res = await fetch(sweepUrl);
@@ -1580,7 +2355,7 @@ async function _tryCreateFromSweepNYC(lat, lng) {
       }
       apiData = await res.json();
     } catch (err) {
-      console.warn('[SweepNYC] fetch error:', err && err.message);
+      console.warn('[SweepNYC] fetch error:', sanitizeError(err));
       return { success: false, reason: 'no_sweepnyc_data' };
     }
 
@@ -1684,8 +2459,8 @@ async function _tryCreateFromSweepNYC(lat, lng) {
         }
       }
     } catch (signErr) {
-      console.error('[SweepNYC] signs loop error:', signErr && signErr.message);
-      return { success: false, reason: 'parse_failed', _diag: { stage: 'signs_loop', error: String(signErr) } };
+      console.error('[SweepNYC] signs loop error:', sanitizeError(signErr));
+      return { success: false, reason: 'parse_failed', _diag: { stage: 'signs_loop', error: sanitizeError(signErr) } };
     }
     console.log('[SweepNYC] parsed', parsed.length, '/', signsRaw.length, 'signs');
     Promise.all(failurePromises).catch(() => {});
@@ -1718,8 +2493,8 @@ async function _tryCreateFromSweepNYC(lat, lng) {
         console.warn('[SweepNYC] OSM geometry not found for "' + streetNameForGeo + '" — using coordinate fallback, status=needs_review');
       }
     } catch (geoErr) {
-      console.error('[SweepNYC] geometry error:', geoErr && geoErr.message);
-      return { success: false, reason: 'geometry_failed', _diag: { stage: 'geometry', error: String(geoErr), streetNameForGeo } };
+      console.error('[SweepNYC] geometry error:', sanitizeError(geoErr));
+      return { success: false, reason: 'geometry_failed', _diag: { stage: 'geometry', error: sanitizeError(geoErr) } };
     }
 
     const centerLat = (fromLat + toLat) / 2;
@@ -1728,7 +2503,7 @@ async function _tryCreateFromSweepNYC(lat, lng) {
     try {
       geohash = geohashForLocation([centerLat, centerLng], 9);
     } catch (hashErr) {
-      console.error('[SweepNYC] geohash error:', hashErr && hashErr.message);
+      console.error('[SweepNYC] geohash error:', sanitizeError(hashErr));
       return { success: false, reason: 'geometry_failed', _diag: { stage: 'geohash', centerLat, centerLng } };
     }
 
@@ -1797,8 +2572,8 @@ async function _tryCreateFromSweepNYC(lat, lng) {
         updatedAt: now,
       });
     } catch (writeErr) {
-      console.error('[SweepNYC] Firestore write error:', writeErr && writeErr.message);
-      return { success: false, reason: 'firestore_write_failed', _diag: { stage: 'write', error: String(writeErr) } };
+      console.error('[SweepNYC] Firestore write error:', sanitizeError(writeErr));
+      return { success: false, reason: 'firestore_write_failed', _diag: { stage: 'write', error: sanitizeError(writeErr) } };
     }
 
     const finalStreetName = streetCtx.street || first.street;
@@ -1820,7 +2595,7 @@ async function _tryCreateFromSweepNYC(lat, lng) {
       },
     };
     } catch (topErr) {
-      console.error('[SweepNYC] top-level unhandled error:', (topErr && topErr.stack) || topErr);
+      console.error('[SweepNYC] top-level unhandled error:', sanitizeError(topErr));
       return {
         success: false,
         reason: 'unknown_error',
@@ -1844,6 +2619,9 @@ exports.createSegmentFromSweepNYC = onCall(
   async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'Must be signed in.');
 
+    const uid = request.auth.uid;
+    await checkRateLimit(uid, 'createSegmentFromSweepNYC', { limit: 30, windowSec: 3600 });
+
     const { lat, lng } = request.data || {};
     if (typeof lat !== 'number' || typeof lng !== 'number')
       throw new HttpsError('invalid-argument', 'lat and lng must be numbers.');
@@ -1851,14 +2629,17 @@ exports.createSegmentFromSweepNYC = onCall(
       throw new HttpsError('invalid-argument', 'Coordinates outside NYC bounds.');
 
     try {
+      if (_callableHooks.sweepNYCResult) {
+        return await _callableHooks.sweepNYCResult(lat, lng);
+      }
       const sweepResult = await _tryCreateFromSweepNYC(lat, lng);
       if (sweepResult.success) return sweepResult;
       if (!_SWEEPNYC_FALLBACK_REASONS.has(sweepResult.reason)) return sweepResult;
       console.log('[SweepNYC→NYCOpenData] falling back, sweepReason:', sweepResult.reason);
       return await _fallbackToNYCOpenData(lat, lng);
     } catch (err) {
-      console.error('[createSegmentFromSweepNYC] top-level error:', err && err.message);
-      return { success: false, reason: 'unknown_error', _diag: { errorMessage: err && err.message } };
+      console.error('[createSegmentFromSweepNYC] top-level error:', sanitizeError(err));
+      return { success: false, reason: 'unknown_error', _diag: { error: sanitizeError(err) } };
     }
   }
 );
@@ -1906,7 +2687,7 @@ async function _fetchCrossStreets(lat, lng, mainStreetOsmName) {
     console.log('[NYCOpenData] cross streets detected:', result);
     return result;
   } catch (err) {
-    console.warn('[NYCOpenData] cross-street fetch error:', err && err.message);
+    console.warn('[NYCOpenData] cross-street fetch error:', sanitizeError(err));
     return [];
   }
 }
@@ -1920,7 +2701,7 @@ async function _reverseGeocodeStreet(lat, lng) {
     const data = await res.json();
     return (data && data.address && data.address.road) || null;
   } catch (err) {
-    console.warn('[NYCOpenData] reverse geocode error:', err && err.message);
+    console.warn('[NYCOpenData] reverse geocode error:', sanitizeError(err));
     return null;
   }
 }
@@ -1958,7 +2739,7 @@ async function _queryNYCOpenData(likePattern, borough) {
       rows.push(...batch);
       if (batch.length < PAGE) break;
     } catch (err) {
-      console.warn('[NYCOpenData] fetch error page', page, ':', err && err.message);
+      console.warn('[NYCOpenData] fetch error page', page, ':', sanitizeError(err));
       break;
     }
   }
@@ -2070,7 +2851,7 @@ async function _fallbackToNYCOpenData(lat, lng) {
         geometrySource = 'fallback';
       }
     } catch (geoErr) {
-      console.error('[NYCOpenData] geometry error:', geoErr && geoErr.message);
+      console.error('[NYCOpenData] geometry error:', sanitizeError(geoErr));
       const HALF = 0.0005;
       fromLat = lat - HALF; fromLng = lng; toLat = lat + HALF; toLng = lng; bearing = 0;
       geometrySource = 'fallback';
@@ -2168,9 +2949,9 @@ async function _fallbackToNYCOpenData(lat, lng) {
       },
     };
   } catch (err) {
-    console.error('[NYCOpenData] fallback error:', err && err.message);
+    console.error('[NYCOpenData] fallback error:', sanitizeError(err));
     return { success: false, reason: 'unknown_error',
-      _diag: { stage: 'nyc_od_top', errorMessage: err && err.message } };
+      _diag: { stage: 'nyc_od_top', error: sanitizeError(err) } };
   }
 }
 
@@ -2397,9 +3178,14 @@ exports.analyzeSign = onCall(
   { secrets: [geminiApiKey], enforceAppCheck: false },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Must be signed in.");
+    await checkRateLimit(request.auth.uid, 'analyzeSign', { limit: 30, windowSec: 3600 });
     const { imageBase64 } = request.data;
     if (typeof imageBase64 !== "string" || imageBase64.length === 0) {
       throw new HttpsError("invalid-argument", "imageBase64 is required.");
+    }
+    // ~4MB limit: base64 encodes 3 bytes as 4 chars, so 4MB raw ≈ 5.5M chars
+    if (imageBase64.length > 5_500_000) {
+      throw new HttpsError("invalid-argument", "Image too large. Maximum 4 MB.");
     }
     let response;
     try {
@@ -2441,18 +3227,27 @@ exports.generateSmartReplies = onCall(
   { secrets: [geminiApiKey], enforceAppCheck: false },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Must be signed in.");
+    await checkRateLimit(request.auth.uid, 'generateSmartReplies', { limit: 20, windowSec: 3600 });
     const { lastMessage, context } = request.data;
-    if (typeof lastMessage !== "string") {
+    if (typeof lastMessage !== "string" || lastMessage.length === 0) {
       throw new HttpsError("invalid-argument", "lastMessage is required.");
     }
+    if (lastMessage.length > 500) {
+      throw new HttpsError("invalid-argument", "lastMessage must be 500 characters or fewer.");
+    }
+    if (context !== undefined && typeof context !== "string") {
+      throw new HttpsError("invalid-argument", "context must be a string.");
+    }
+    const safeMessage = lastMessage.slice(0, 500);
+    const safeContext = (typeof context === "string" ? context : "").slice(0, 2000);
     let response;
     try {
       const ai = new GoogleGenAI({ apiKey: geminiApiKey.value() });
       response = await ai.models.generateContent({
         model: GEMINI_MODEL,
         contents: `You are an AI assistant in a parking app called ParQueen.
-The user just received this message: "${lastMessage}".
-Context: ${context || ""}.
+The user just received this message: "${safeMessage}".
+Context: ${safeContext}.
 Generate 3 short, natural, polite responses (max 5 words each) that the user might want to send back.
 Return them as a comma-separated list.`,
       });
@@ -2468,17 +3263,22 @@ exports.generateListingDescription = onCall(
   { secrets: [geminiApiKey], enforceAppCheck: false },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Must be signed in.");
+    await checkRateLimit(request.auth.uid, 'generateListingDescription', { limit: 20, windowSec: 3600 });
     const { features } = request.data;
     if (!Array.isArray(features)) {
       throw new HttpsError("invalid-argument", "features array is required.");
     }
     let response;
     try {
-      const ai = new GoogleGenAI({ apiKey: geminiApiKey.value() });
-      response = await ai.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: `Write a catchy, short marketing description (max 2 sentences) for a parking spot in NYC with these features: ${features.join(", ")}. Use a premium, trustworthy tone.`,
-      });
+      if (_callableHooks.geminiResponse) {
+        response = await _callableHooks.geminiResponse(features);
+      } else {
+        const ai = new GoogleGenAI({ apiKey: geminiApiKey.value() });
+        response = await ai.models.generateContent({
+          model: GEMINI_MODEL,
+          contents: `Write a catchy, short marketing description (max 2 sentences) for a parking spot in NYC with these features: ${features.join(", ")}. Use a premium, trustworthy tone.`,
+        });
+      }
     } catch (err) {
       classifyGeminiError("generateListingDescription", err);
     }
