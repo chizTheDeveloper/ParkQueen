@@ -893,6 +893,35 @@ AC-13 updated: now verifies `getApps()` guard is present in `firebaseConfig.ts` 
 | Open HIGH | 1 (TM-12 App Check — source prepared; blocked on provider registration decision) |
 | Open MEDIUM | 0 |
 | Open LOW | 0 |
-| Closed this pass | TM-16 FULLY CLOSED (Phase J); TM-17 CLOSED (Phase H) |
+| Closed this pass | TM-16 FULLY CLOSED (Phase J); TM-17 CLOSED (Phase J/K — threat model text updated in `4488a34`) |
 | Partially addressed | TM-13 (3 callables added; admin callables and provider quotas remain); TM-04 (vehicle privacy decision required) |
 | Blocked/external | TM-12 (provider registration), TM-19 (credential rotation required), TM-20 (packaging decision) |
+
+---
+
+### Phase K addendum — TM-17 closeout and root CI (commits `f705a30`, `f0852f3`, `4488a34`)
+
+Three commits pushed after Phase J closeout:
+
+| Commit | Type | Changed files |
+|---|---|---|
+| `f705a30` | docs | `docs/THREAT_MODEL.md` — TM-12 updated to SOURCE PREPARED status |
+| `f0852f3` | ci | `.github/workflows/unit-tests.yml` — new root unit-test workflow |
+| `4488a34` | docs | `docs/THREAT_MODEL.md` — TM-17 marked CLOSED; TM-14 residual-risk recovery procedure added |
+
+**TM-17 closure basis**: full audit of all 80+ `console.*` call sites in `functions/index.js` confirmed: (1) all error paths use `sanitizeError()`; (2) user-controlled text callables (`moderateContent`, `generateSmartReplies`, `generateListingDescription`) contain zero `console.*` calls in their function bodies; (3) SweepNYC debug logs are public NYC Open Data API values, not user PII — accepted. Regression tests in `utils/redactForLog.test.ts` and `utils/logRedactionAudit.test.ts` gate future regressions.
+
+**Root CI**: `unit-tests.yml` triggers on push/PR touching `utils/**`, root TS source files (`firebaseConfig.ts`, `firebase.ts`, `App.tsx`, `index.tsx`, `database.ts`, `types.ts`, `vite.config.ts`), `package.json`, `package-lock.json`, and the workflow file itself. SHA-pinned actions (TM-16 compliant), `permissions: contents: read`, `timeout-minutes: 10`. Runs `npm test` (797 tests / 28 files). Excludes `functions/**`, `docs/**`, and rules files to avoid duplicating existing workflows.
+
+**GitHub Actions — push tip SHA `4488a34`** (single push included both `f0852f3` and `4488a34`):
+
+| Run ID | Workflow | SHA | Conclusion |
+|---|---|---|---|
+| `30602734488` | Unit Tests | `4488a34` | success |
+| `30602734442` | Secret scan | `4488a34` | success |
+
+**Quality gates** — unchanged from Phase J closeout (`130ec7e`): tsc 0 errors · 797 unit tests (28 files) · 165 Firestore Rules tests · 28 pass/1 skip Storage tests (AV-02 emulator limitation preserved) · 135 Functions integration tests · build PASS · `node --check` 12/12 PASS · npm audit root 67 vulns (pre-existing toolchain) · npm audit functions 32 vulns (pre-existing @google-cloud chain).
+
+**Latest checkpoints after Phase K**:
+- Latest executable: `f0852f3` (CI workflow addition)
+- Latest documentation: `4488a34` (TM-17 CLOSED, TM-14 recovery procedure)
