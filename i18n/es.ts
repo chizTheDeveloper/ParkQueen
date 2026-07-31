@@ -821,6 +821,20 @@ const es: Record<string, string> = {
     'street_intel.try_again': 'Intentar de nuevo',
     'street_intel.check_again': 'Verificar de nuevo',
     'street_intel.trying': 'Intentando…',
+
+    'settings.delete_confirm_title': '¿Eliminar tu cuenta?',
+    'settings.delete_confirm_body': 'Esto elimina permanentemente tu historial de estacionamiento, mensajes y perfil. Esta acción no se puede deshacer.',
+    'settings.delete_deleting': 'Eliminando tus datos…',
+    'settings.delete_success': 'Cuenta eliminada',
+    'settings.delete_failed': 'La eliminación falló. Intenta de nuevo o contacta soporte.',
+    'settings.delete_retry': 'Reintentar',
+    'settings.delete_cancel': 'Cancelar',
+    'settings.delete_reauth_title': 'Confirma tu identidad',
+    'settings.delete_reauth_phone_hint': 'Enviaremos un código de un solo uso a tu número registrado.',
+    'settings.delete_reauth_send_code': 'Enviar código',
+    'settings.delete_reauth_otp_hint': 'Ingresa el código de 6 dígitos enviado a tu teléfono.',
+    'settings.delete_reauth_verify': 'Verificar y eliminar',
+    'settings.delete_reauth_resend': 'Reenviar código',
 };
 
 export default es;

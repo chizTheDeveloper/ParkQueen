@@ -31,6 +31,7 @@ import {
 const OWNER_UID  = 'owner-aaa-111';
 const OTHER_UID  = 'other-bbb-222';
 const ADMIN_UID  = 'admin-ccc-333';
+const THIRD_UID  = 'third-ddd-444';
 const PROJECT_ID = 'demo-parkqueen-rules-test';
 
 let testEnv: RulesTestEnvironment;
@@ -39,6 +40,7 @@ let testEnv: RulesTestEnvironment;
 function ownerDb()  { return testEnv.authenticatedContext(OWNER_UID).firestore(); }
 function otherDb()  { return testEnv.authenticatedContext(OTHER_UID).firestore(); }
 function adminDb()  { return testEnv.authenticatedContext(ADMIN_UID, { role: 'admin' }).firestore(); }
+function thirdDb()  { return testEnv.authenticatedContext(THIRD_UID).firestore(); }
 function anonDb()   { return testEnv.unauthenticatedContext().firestore(); }
 
 // ── Seed helpers (bypass rules) ────────────────────────────────────────────────
@@ -389,11 +391,231 @@ describe('spotFeedback', () => {
     });
 
     it('F7: signed-in user can create feedback', async () => {
+        await seed('spots', 'feedback-spot', {
+            ...interestedSpot,
+            status: 'occupied',
+        });
         await assertSucceeds(
-            addDoc(collection(ownerDb(), 'spotFeedback'), {
-                userId:    OWNER_UID,
+            setDoc(doc(otherDb(), 'spotFeedback', `feedback-spot_${OTHER_UID}`), {
+                spotId:    'feedback-spot',
+                userId:    OTHER_UID,
+                finderId:  OWNER_UID,
                 address:   '999 New St',
                 outcome:   'success',
+                failureReason: null,
+                createdAt: Timestamp.now(),
+            })
+        );
+    });
+
+    it('F8: user cannot forge successful feedback for a spot they did not claim', async () => {
+        await seed('spots', 'feedback-spot', {
+            ...interestedSpot,
+            status: 'occupied',
+        });
+        await assertFails(
+            setDoc(doc(thirdDb(), 'spotFeedback', `feedback-spot_${THIRD_UID}`), {
+                spotId: 'feedback-spot',
+                userId: THIRD_UID,
+                finderId: OWNER_UID,
+                address: '999 New St',
+                outcome: 'success',
+                failureReason: null,
+                createdAt: Timestamp.now(),
+            })
+        );
+    });
+
+    it('F9: feedback cannot be overwritten to trigger rewards twice', async () => {
+        await assertFails(
+            setDoc(doc(ownerDb(), 'spotFeedback', FB_ID), {
+                ...feedbackDoc,
+                outcome: 'success',
+                createdAt: Timestamp.now(),
+            })
+        );
+    });
+
+    it('F10: feedback for a non-occupied spot is rejected', async () => {
+        await seed('spots', 'avail-feedback-spot', {
+            ...interestedSpot,
+            status: 'interested', // not occupied — rule requires status == 'occupied'
+        });
+        await assertFails(
+            setDoc(doc(otherDb(), 'spotFeedback', `avail-feedback-spot_${OTHER_UID}`), {
+                spotId:    'avail-feedback-spot',
+                userId:    OTHER_UID,
+                finderId:  OWNER_UID,
+                address:   '999 Not Occupied St',
+                outcome:   'success',
+                createdAt: Timestamp.now(),
+            })
+        );
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CHATS — participants only
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('chats and messages — participant isolation', () => {
+    const CHAT_ID = `${OTHER_UID}_${OWNER_UID}`;
+    const chatData = {
+        id: CHAT_ID,
+        participants: [OWNER_UID, OTHER_UID],
+        participantNames: {
+            [OWNER_UID]: 'Owner',
+            [OTHER_UID]: 'Other',
+        },
+        relatedSpotTitle: 'Street Spot',
+        lastMessage: 'Conversation started',
+        lastMessageTimestamp: Timestamp.now(),
+        lastSenderId: OWNER_UID,
+    };
+
+    beforeEach(async () => {
+        await seed('chats', CHAT_ID, chatData);
+        await testEnv.withSecurityRulesDisabled(async ctx => {
+            await setDoc(
+                doc(ctx.firestore(), 'chats', CHAT_ID, 'messages', 'message-1'),
+                { senderId: OWNER_UID, text: 'On my way out', timestamp: Timestamp.now() },
+            );
+        });
+    });
+
+    it('C1: participant can read their chat and messages', async () => {
+        await assertSucceeds(getDoc(doc(ownerDb(), 'chats', CHAT_ID)));
+        await assertSucceeds(getDocs(collection(ownerDb(), 'chats', CHAT_ID, 'messages')));
+    });
+
+    it('C2: non-participant cannot read a chat or its messages', async () => {
+        await assertFails(getDoc(doc(thirdDb(), 'chats', CHAT_ID)));
+        await assertFails(getDocs(collection(thirdDb(), 'chats', CHAT_ID, 'messages')));
+    });
+
+    it('C3: participant query used by the inbox remains allowed', async () => {
+        await assertSucceeds(
+            getDocs(query(collection(ownerDb(), 'chats'), where('participants', 'array-contains', OWNER_UID)))
+        );
+    });
+
+    it('C4: non-participant cannot alter another chat', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(
+            upd(doc(thirdDb(), 'chats', CHAT_ID), {
+                lastMessage: 'spoofed',
+                lastMessageTimestamp: Timestamp.now(),
+                lastSenderId: THIRD_UID,
+            })
+        );
+    });
+
+    it('C5: message sender must match the authenticated participant', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'chats', CHAT_ID, 'messages'), {
+                senderId: OTHER_UID,
+                text: 'spoofed',
+                timestamp: Timestamp.now(),
+            })
+        );
+    });
+
+    it('C6: participant can send a correctly attributed message', async () => {
+        await assertSucceeds(
+            addDoc(collection(ownerDb(), 'chats', CHAT_ID, 'messages'), {
+                senderId: OWNER_UID,
+                text: 'Leaving now',
+                timestamp: Timestamp.now(),
+            })
+        );
+    });
+
+    it('C7: participant can delete their chat', async () => {
+        const { deleteDoc } = await import('firebase/firestore');
+        await assertSucceeds(deleteDoc(doc(ownerDb(), 'chats', CHAT_ID)));
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SPOT NOTIFICATIONS — Ping participants only
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('spotNotifications — participant-bound creation', () => {
+    beforeEach(async () => {
+        await seed('spots', 'notification-spot', interestedSpot);
+    });
+
+    it('N1: finder can notify the active claimer', async () => {
+        await assertSucceeds(
+            addDoc(collection(ownerDb(), 'spotNotifications'), {
+                spotId: 'notification-spot',
+                senderId: OWNER_UID,
+                targetUserId: OTHER_UID,
+                type: 'delayed',
+                message: 'Driver needs a few more minutes',
+                createdAt: Timestamp.now(),
+            })
+        );
+    });
+
+    it('N2: claimer can notify the finder', async () => {
+        await assertSucceeds(
+            addDoc(collection(otherDb(), 'spotNotifications'), {
+                spotId: 'notification-spot',
+                senderId: OTHER_UID,
+                targetUserId: OWNER_UID,
+                type: 'claimer_cancelled',
+                message: 'The other driver canceled',
+                createdAt: Timestamp.now(),
+            })
+        );
+    });
+
+    it('N3: unrelated user cannot send a notification for another Ping', async () => {
+        await assertFails(
+            addDoc(collection(thirdDb(), 'spotNotifications'), {
+                spotId: 'notification-spot',
+                senderId: THIRD_UID,
+                targetUserId: OWNER_UID,
+                type: 'handoff_success',
+                message: 'spoofed',
+                createdAt: Timestamp.now(),
+            })
+        );
+    });
+
+    it('N4: sender cannot impersonate another participant', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'spotNotifications'), {
+                spotId: 'notification-spot',
+                senderId: OTHER_UID,
+                targetUserId: OTHER_UID,
+                type: 'delayed',
+                message: 'spoofed',
+                createdAt: Timestamp.now(),
+            })
+        );
+    });
+
+    it('N5: notification with a timestamp older than 5 minutes is rejected', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'spotNotifications'), {
+                spotId: 'notification-spot',
+                senderId: OWNER_UID,
+                targetUserId: OTHER_UID,
+                type: 'delayed',
+                message: 'This message is stale',
+                createdAt: PAST, // 1 hour ago — outside the 5-minute window
+            })
+        );
+    });
+
+    it('N6: finder cannot send notification to a user who is not the claimer of the Ping', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'spotNotifications'), {
+                spotId: 'notification-spot',
+                senderId: OWNER_UID,
+                targetUserId: THIRD_UID, // not the interestedUserId of this spot (OTHER_UID is)
+                type: 'delayed',
+                message: 'Wrong target',
                 createdAt: Timestamp.now(),
             })
         );
@@ -590,21 +812,20 @@ describe('users/{uid} public doc — private field denylist', () => {
         await assertSucceeds(upd(doc(ownerDb(), 'users', OWNER_UID), { fullName: 'Jay Updated' }));
     });
 
-    // 48
-    it('PD8: legitimate notificationRadius update still succeeds', async () => {
+    // 48 — notificationRadius moved to private/preferences; root write now blocked (TM-04)
+    it('PD8: notificationRadius write to root doc is now blocked', async () => {
         const { updateDoc: upd } = await import('firebase/firestore');
-        await assertSucceeds(upd(doc(ownerDb(), 'users', OWNER_UID), { notificationRadius: 2 }));
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { notificationRadius: 2 }));
     });
 
     // 49
     it('PD9: owner can create a clean user doc without private fields', async () => {
-        // Use a unique UID that has no pre-existing document
+        // Only public fields — private fields must go to subcollections
         const newUid = 'pd9-clean-create-uid-' + Date.now();
         await assertSucceeds(
             setDoc(
                 doc(testEnv.authenticatedContext(newUid).firestore(), 'users', newUid),
-                { fullName: 'New User', username: 'newuser', crowns: 0, title: 'Newcomer',
-                  moderationStatus: 'active', reportCount: 0, blockedUsers: [], notificationRadius: 1 }
+                { fullName: 'New User', username: 'newuser', crowns: 0, title: 'Newcomer' }
             )
         );
     });
@@ -628,5 +849,737 @@ describe('users/{uid} public doc — private field denylist', () => {
     // 52
     it('PD12: unauthenticated user cannot read or write the private profile', async () => {
         await assertFails(getDoc(doc(anonDb(), 'users', OWNER_UID, 'private', 'profile')));
+    });
+
+    // 53
+    it('PD13: owner cannot write phone to public users/{uid} via update', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { phone: '+15551234567' }));
+    });
+
+    // 54
+    it('PD14: owner cannot include phone in public users/{uid} create', async () => {
+        const newUid = 'pd14-uid-' + Date.now();
+        await assertFails(
+            setDoc(
+                doc(testEnv.authenticatedContext(newUid).firestore(), 'users', newUid),
+                { fullName: 'Test', username: 'testpd14', phone: '+15551234567' }
+            )
+        );
+    });
+
+    // 55
+    it('PD15: owner cannot write email to public users/{uid} via update', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { email: 'test@example.com' }));
+    });
+
+    // 56
+    it('PD16: owner cannot include email in public users/{uid} create', async () => {
+        const newUid = 'pd16-uid-' + Date.now();
+        await assertFails(
+            setDoc(
+                doc(testEnv.authenticatedContext(newUid).firestore(), 'users', newUid),
+                { fullName: 'Test', username: 'testpd16', email: 'test@example.com' }
+            )
+        );
+    });
+
+    // 57
+    it('PD17: owner can read users/{uid}/private/account', async () => {
+        await assertSucceeds(getDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'account')));
+    });
+
+    // 58
+    it('PD18: other authenticated user cannot read users/{uid}/private/account', async () => {
+        await assertFails(getDoc(doc(otherDb(), 'users', OWNER_UID, 'private', 'account')));
+    });
+
+    // 59
+    it('PD19: unauthenticated user cannot read users/{uid}/private/account', async () => {
+        await assertFails(getDoc(doc(anonDb(), 'users', OWNER_UID, 'private', 'account')));
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TM-11 — users/{uid} update allowlist
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('users — update allowlist (TM-11)', () => {
+    const publicUserData = { fullName: 'Alice', username: 'alice99', fcmToken: 'tok123' };
+
+    beforeEach(async () => {
+        await seed('users', OWNER_UID, publicUserData);
+    });
+
+    it('TM11-A: owner can update an explicitly allowed field (fullName)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertSucceeds(upd(doc(ownerDb(), 'users', OWNER_UID), { fullName: 'Alice B.' }));
+    });
+
+    it('TM11-B: owner cannot update fcmToken on root doc (moved to private/preferences)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { fcmToken: 'newtoken' }));
+    });
+
+    it('TM11-C: owner cannot update crowns (not in allowlist)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { crowns: 999 }));
+    });
+
+    it('TM11-D: owner cannot update title (not in allowlist)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { title: 'King' }));
+    });
+
+    it('TM11-E: owner cannot write an arbitrary unknown field', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { evilField: true }));
+    });
+
+    it('TM11-F: other user cannot update another user\'s profile fields', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(otherDb(), 'users', OWNER_UID), { fullName: 'Hacked' }));
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TM-10 — spots create schema validation
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('spots — create schema (TM-10)', () => {
+    const validSpot = {
+        lat: 40.7128,
+        lng: -74.0060,
+        type: 'free',
+        status: 'available',
+        finderId: OWNER_UID,
+        finderName: 'Alice',
+        pingMode: 'now',
+        reportedAt: Timestamp.now(),
+        expiresAt: FUTURE,
+        geohash: 'dr5ru',
+        address: '123 Main St, New York, NY',
+    };
+
+    it('TM10-A: valid spot create succeeds', async () => {
+        await assertSucceeds(addDoc(collection(ownerDb(), 'spots'), validSpot));
+    });
+
+    it('TM10-B: create with forged finderId denied', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'spots'), { ...validSpot, finderId: OTHER_UID })
+        );
+    });
+
+    it('TM10-C: create with non-available status denied', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'spots'), { ...validSpot, status: 'occupied' })
+        );
+    });
+
+    it('TM10-D: create with non-free type denied', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'spots'), { ...validSpot, type: 'paid' })
+        );
+    });
+
+    it('TM10-E: create missing required field (address) denied', async () => {
+        const { address: _a, ...noAddress } = validSpot;
+        await assertFails(addDoc(collection(ownerDb(), 'spots'), noAddress));
+    });
+
+    it('TM10-F: create with past expiresAt denied', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'spots'), { ...validSpot, expiresAt: PAST })
+        );
+    });
+
+    it('TM10-G: create with extra unknown field denied', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'spots'), { ...validSpot, adminOverride: true })
+        );
+    });
+
+    it('TM10-H: unauthenticated create denied', async () => {
+        await assertFails(addDoc(collection(anonDb(), 'spots'), validSpot));
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TM-08 — reports create schema validation
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('reports — create schema (TM-08)', () => {
+    const validReport = {
+        reporterId: OWNER_UID,
+        reportedUserId: OTHER_UID,
+        type: 'behavior',
+        reason: 'User was rude.',
+        status: 'pending',
+        createdAt: Timestamp.now(),
+    };
+
+    it('TM08-A: valid report create succeeds', async () => {
+        await assertSucceeds(addDoc(collection(ownerDb(), 'reports'), validReport));
+    });
+
+    it('TM08-B: report with forged reporterId denied', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'reports'), { ...validReport, reporterId: OTHER_UID })
+        );
+    });
+
+    it('TM08-C: self-report denied', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'reports'), { ...validReport, reportedUserId: OWNER_UID })
+        );
+    });
+
+    it('TM08-D: report with invalid type denied', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'reports'), { ...validReport, type: 'made_up' })
+        );
+    });
+
+    it('TM08-E: report with status other than pending denied', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'reports'), { ...validReport, status: 'resolved' })
+        );
+    });
+
+    it('TM08-F: report with empty reason denied', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'reports'), { ...validReport, reason: '' })
+        );
+    });
+
+    it('TM08-G: unauthenticated report create denied', async () => {
+        await assertFails(addDoc(collection(anonDb(), 'reports'), validReport));
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TM-07 — listings write disabled
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('listings — write disabled (TM-07)', () => {
+    it('TM07-A: authenticated user cannot create a listing', async () => {
+        await assertFails(
+            addDoc(collection(ownerDb(), 'listings'), { title: 'My Garage', price: 10 })
+        );
+    });
+
+    it('TM07-B: authenticated user cannot write to a specific listing', async () => {
+        await assertFails(
+            setDoc(doc(ownerDb(), 'listings', 'listing-123'), { title: 'Exploit' })
+        );
+    });
+
+    it('TM07-C: any signed-in user can still read listings', async () => {
+        await assertSucceeds(getDocs(collection(ownerDb(), 'listings')));
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TM-09 — parseFailures update field restriction
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('parseFailures — update allowlist (TM-09)', () => {
+    beforeEach(async () => {
+        await seed('parseFailures', 'failure-1', { count: 1, lastSeenAt: Timestamp.now() });
+    });
+
+    it('TM09-A: signed-in user can increment count and update lastSeenAt', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertSucceeds(
+            upd(doc(ownerDb(), 'parseFailures', 'failure-1'), {
+                count: 2,
+                lastSeenAt: Timestamp.now(),
+            })
+        );
+    });
+
+    it('TM09-B: signed-in user cannot add resolvedAt', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(
+            upd(doc(ownerDb(), 'parseFailures', 'failure-1'), {
+                count: 2,
+                resolvedAt: Timestamp.now(),
+            })
+        );
+    });
+
+    it('TM09-C: signed-in user cannot add arbitrary fields', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(
+            upd(doc(ownerDb(), 'parseFailures', 'failure-1'), { injected: true })
+        );
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TM-14 — adminBootstrap singleton not client-writable
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('adminBootstrap — client writes blocked (TM-14)', () => {
+    it('TM14-A: unauthenticated cannot write adminBootstrap/singleton', async () => {
+        await assertFails(
+            setDoc(doc(anonDb(), 'adminBootstrap', 'singleton'), { bootstrappedBy: 'anon' })
+        );
+    });
+
+    it('TM14-B: authenticated user cannot write adminBootstrap/singleton', async () => {
+        await assertFails(
+            setDoc(doc(ownerDb(), 'adminBootstrap', 'singleton'), { bootstrappedBy: OWNER_UID })
+        );
+    });
+
+    it('TM14-C: admin can read adminBootstrap/singleton', async () => {
+        await assertSucceeds(getDoc(doc(adminDb(), 'adminBootstrap', 'singleton')));
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TM-04 — Private user data separated from public user document
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('TM-04 — private user data isolation', () => {
+    beforeEach(async () => {
+        await seed('users', OWNER_UID, {
+            fullName: 'Owner',
+            crowns: 0,
+            title: 'Newcomer',
+            moderationStatus: 'active',
+            reportCount: 0,
+        });
+    });
+
+    it('TM04-A: owner cannot write fcmToken to root users doc', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { fcmToken: 'tok123' }));
+    });
+
+    it('TM04-B: owner cannot write blockedUsers to root users doc', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { blockedUsers: [] }));
+    });
+
+    it('TM04-C: owner cannot write notificationsEnabled to root users doc', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { notificationsEnabled: true }));
+    });
+
+    it('TM04-D: owner cannot write lang to root users doc', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { lang: 'en' }));
+    });
+
+    it('TM04-E: owner cannot write lastGeohash to root users doc', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { lastGeohash: 'dr5ru' }));
+    });
+
+    it('TM04-F: owner can write and read private/preferences', async () => {
+        await assertSucceeds(
+            setDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'preferences'),
+                { notificationRadius: 2, notificationsEnabled: true })
+        );
+        await assertSucceeds(getDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'preferences')));
+    });
+
+    it('TM04-G: other user cannot read private/preferences', async () => {
+        await assertFails(getDoc(doc(otherDb(), 'users', OWNER_UID, 'private', 'preferences')));
+    });
+
+    it('TM04-H: unauthenticated cannot read private/preferences', async () => {
+        await assertFails(getDoc(doc(anonDb(), 'users', OWNER_UID, 'private', 'preferences')));
+    });
+
+    it('TM04-I: owner can write and read private/social', async () => {
+        await assertSucceeds(
+            setDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'social'), { blockedUsers: [] })
+        );
+        await assertSucceeds(getDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'social')));
+    });
+
+    it('TM04-J: other user cannot read private/social', async () => {
+        await assertFails(getDoc(doc(otherDb(), 'users', OWNER_UID, 'private', 'social')));
+    });
+
+    it('TM04-K: owner can write and read userLocations/{uid}', async () => {
+        await assertSucceeds(
+            setDoc(doc(ownerDb(), 'userLocations', OWNER_UID), { lastGeohash: 'dr5ru', lastGeohashUpdatedAt: Timestamp.now() })
+        );
+        await assertSucceeds(getDoc(doc(ownerDb(), 'userLocations', OWNER_UID)));
+    });
+
+    it('TM04-L: user cannot write to another user\'s userLocations doc', async () => {
+        await assertFails(
+            setDoc(doc(otherDb(), 'userLocations', OWNER_UID), { lastGeohash: 'dr5ru', lastGeohashUpdatedAt: Timestamp.now() })
+        );
+    });
+
+    it('TM04-M: unauthenticated cannot read userLocations', async () => {
+        await assertFails(getDoc(doc(anonDb(), 'userLocations', OWNER_UID)));
+    });
+
+    it('TM04-N: owner cannot create root doc containing moderationStatus', async () => {
+        const { setDoc: sd } = await import('firebase/firestore');
+        await assertFails(sd(doc(ownerDb(), 'users', OWNER_UID + '_new'), {
+            fullName: 'Test', crowns: 0, title: 'Newcomer', moderationStatus: 'active',
+        }));
+    });
+
+    it('TM04-O: owner cannot write reportCount to root users doc', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        // Use a value different from the seed (0) so affectedKeys() is non-empty
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { reportCount: 5 }));
+    });
+
+    it('TM04-P: owner cannot write to private/account (server-only)', async () => {
+        const { setDoc: sd } = await import('firebase/firestore');
+        await assertFails(sd(doc(ownerDb(), 'users', OWNER_UID, 'private', 'account'), { moderationStatus: 'active' }));
+    });
+
+    it('TM04-Q: private/preferences rejects invalid lang value', async () => {
+        await assertFails(
+            setDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'preferences'), { lang: 'fr' })
+        );
+    });
+
+    it('TM04-R: private/preferences rejects notificationRadius out of bounds', async () => {
+        await assertFails(
+            setDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'preferences'), { notificationRadius: 200 })
+        );
+    });
+
+    it('TM04-S: private/preferences rejects extra unknown fields', async () => {
+        await assertFails(
+            setDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'preferences'), { notificationRadius: 1, suspiciousField: 'x' })
+        );
+    });
+
+    it('TM04-T: private/social rejects extra fields beyond blockedUsers', async () => {
+        await assertFails(
+            setDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'social'), { blockedUsers: [], extraField: true })
+        );
+    });
+
+    it('TM04-U: userLocations rejects extra fields beyond schema', async () => {
+        await assertFails(
+            setDoc(doc(ownerDb(), 'userLocations', OWNER_UID), { lastGeohash: 'dr5ru', lastGeohashUpdatedAt: Timestamp.now(), extraField: 'x' })
+        );
+    });
+
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// §4 — User schema: vehicle and avatar fields in create/update allowlists.
+//
+// vehicleBrand and vehicleColor are intentionally public: spot finders post
+// their vehicle so claimers know which car is pulling out. Product decision;
+// not a privacy gap. Documented here so future reviewers don't re-open it.
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('§4 — users/{uid} vehicle and avatar allowlists', () => {
+    const baseDoc = { fullName: 'Test', username: 'test_schema', crowns: 0, title: 'Newcomer' };
+
+    beforeEach(async () => {
+        await seed('users', OWNER_UID, baseDoc);
+    });
+
+    // ── update allowlist: vehicle fields ──────────────────────────────────────
+
+    it('SC-1: owner can update vehicleType (in update allowlist)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertSucceeds(upd(doc(ownerDb(), 'users', OWNER_UID), { vehicleType: 'sedan' }));
+    });
+
+    // UNRESOLVED PRODUCT DECISION (see Phase H audit): vehicleBrand is currently public.
+    // Option A: keep as public — finders expose their car for claimer recognition.
+    // Option B: keep private; copy a minimal vehicle description only to the active Ping during handoff.
+    // Current exposure: vehicleBrand and vehicleColor are readable by any signed-in user via users/{uid}.
+    // Recommendation: move to Option B (copy-on-handoff) before GA. Pending Product approval.
+    it('SC-2: owner can update vehicleBrand (currently public — product decision UNRESOLVED)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertSucceeds(upd(doc(ownerDb(), 'users', OWNER_UID), { vehicleBrand: 'Honda' }));
+    });
+
+    // Same unresolved decision as SC-2 above — vehicleColor is currently public.
+    it('SC-3: owner can update vehicleColor (currently public — product decision UNRESOLVED)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertSucceeds(upd(doc(ownerDb(), 'users', OWNER_UID), { vehicleColor: 'silver' }));
+    });
+
+    // ── update allowlist: avatar fields ───────────────────────────────────────
+
+    it('SC-4: owner can update avatarUrl (in update allowlist)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertSucceeds(upd(doc(ownerDb(), 'users', OWNER_UID), { avatarUrl: 'https://example.com/a.jpg' }));
+    });
+
+    it('SC-5: owner can update avatarManifestId (in update allowlist)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertSucceeds(upd(doc(ownerDb(), 'users', OWNER_UID), { avatarManifestId: 'manifest_abc' }));
+    });
+
+    // ── update denylist: immutable fields ─────────────────────────────────────
+
+    it('SC-6: owner cannot update id (not in update allowlist — immutable)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { id: 'hijacked_uid' }));
+    });
+
+    it('SC-7: owner cannot update createdAt (not in update allowlist — immutable)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { createdAt: Timestamp.now() }));
+    });
+
+    // ── create allowlist: vehicle fields ──────────────────────────────────────
+
+    it('SC-8: owner can create user doc with vehicleBrand and vehicleColor', async () => {
+        const newUid = 'sc8-uid-' + Date.now();
+        await assertSucceeds(
+            setDoc(
+                doc(testEnv.authenticatedContext(newUid).firestore(), 'users', newUid),
+                { fullName: 'Car User', username: 'caruser', vehicleBrand: 'Toyota', vehicleColor: 'blue' }
+            )
+        );
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// §5 — rateLimits collection: client access fully denied (server-only via Admin SDK)
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('§5 — rateLimits collection Rules', () => {
+    const RL_DOC = 'generateEmailOTP_0_test_uid';
+
+    beforeEach(async () => {
+        await testEnv.withSecurityRulesDisabled(async ctx => {
+            await setDoc(doc(ctx.firestore(), 'rateLimits', RL_DOC), { count: 1, uid: 'test_uid' });
+        });
+    });
+
+    it('RL-R1: authenticated user cannot read rateLimits docs', async () => {
+        await assertFails(getDoc(doc(ownerDb(), 'rateLimits', RL_DOC)));
+    });
+
+    it('RL-R2: authenticated user cannot write rateLimits docs', async () => {
+        await assertFails(setDoc(doc(ownerDb(), 'rateLimits', RL_DOC), { count: 99 }));
+    });
+
+    it('RL-R3: unauthenticated user cannot read rateLimits docs', async () => {
+        await assertFails(getDoc(doc(anonDb(), 'rateLimits', RL_DOC)));
+    });
+
+    it('RL-R4: unauthenticated user cannot write rateLimits docs', async () => {
+        await assertFails(setDoc(doc(anonDb(), 'rateLimits', RL_DOC), { count: 99 }));
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// §9 — Two-user workflow: OWNER (finder) ↔ OTHER (claimer) lifecycle
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('§9 — Two-user workflow: finder ↔ claimer lifecycle', () => {
+    const WF_SPOT_ID  = 'wf-spot-001';
+    const WF_CHAT_ID  = `${OWNER_UID}_${OTHER_UID}_wf`;
+    const WF_NOTIF_ID = 'wf-notif-001';
+
+    const wfAvailableSpot = {
+        finderId:   OWNER_UID,
+        finderName: 'Workflow Alice',
+        address:    '1 Workflow St',
+        lat:        40.71,
+        lng:        -74.01,
+        type:       'free',
+        status:     'available',
+        geohash:    'dr5rv',
+        pingMode:   'now',
+        reportedAt: Timestamp.now(),
+        expiresAt:  FUTURE,
+    };
+
+    const wfChat = {
+        id:                   WF_CHAT_ID,
+        participants:         [OWNER_UID, OTHER_UID],
+        participantNames:     { [OWNER_UID]: 'Alice', [OTHER_UID]: 'Bob' },
+        relatedSpotTitle:     '1 Workflow St',
+        lastMessage:          'Heading out',
+        lastMessageTimestamp: Timestamp.now(),
+        lastSenderId:         OWNER_UID,
+    };
+
+    beforeEach(async () => {
+        await seed('users', OWNER_UID, { fullName: 'Alice', username: 'alice' });
+        await seed('users', OTHER_UID, { fullName: 'Bob',   username: 'bob'   });
+        await testEnv.withSecurityRulesDisabled(async ctx => {
+            await setDoc(
+                doc(ctx.firestore(), 'users', OWNER_UID, 'private', 'account'),
+                { moderationStatus: 'active', reportCount: 0 },
+            );
+        });
+        await seed('spots',             WF_SPOT_ID,  wfAvailableSpot);
+        await seed('chats',             WF_CHAT_ID,  wfChat);
+        await seed('spotNotifications', WF_NOTIF_ID, {
+            spotId:       WF_SPOT_ID,
+            senderId:     OWNER_UID,
+            targetUserId: OTHER_UID,
+            type:         'delayed',
+            message:      'Heading out now',
+            createdAt:    Timestamp.now(),
+        });
+    });
+
+    // ── Profile cross-reads ────────────────────────────────────────────────────
+
+    it('WF-01: OTHER can read OWNER\'s public profile', async () => {
+        await assertSucceeds(getDoc(doc(otherDb(), 'users', OWNER_UID)));
+    });
+
+    it('WF-02: OTHER cannot read OWNER\'s private/account subcollection', async () => {
+        await assertFails(getDoc(doc(otherDb(), 'users', OWNER_UID, 'private', 'account')));
+    });
+
+    it('WF-03: OWNER cannot read OTHER\'s private/account subcollection', async () => {
+        await assertFails(getDoc(doc(ownerDb(), 'users', OTHER_UID, 'private', 'account')));
+    });
+
+    it('WF-04: unauthenticated cannot read any private/account subcollection', async () => {
+        await assertFails(getDoc(doc(anonDb(), 'users', OWNER_UID, 'private', 'account')));
+    });
+
+    // ── Ping lifecycle ─────────────────────────────────────────────────────────
+
+    it('WF-05: OWNER can create a valid available Ping', async () => {
+        await assertSucceeds(
+            setDoc(doc(ownerDb(), 'spots', 'wf-spot-new'), {
+                finderId:   OWNER_UID,
+                finderName: 'Workflow Alice',
+                address:    '2 Workflow St',
+                lat:        40.72,
+                lng:        -74.02,
+                type:       'free',
+                status:     'available',
+                geohash:    'dr5rv',
+                pingMode:   'now',
+                reportedAt: Timestamp.now(),
+                expiresAt:  FUTURE,
+            }),
+        );
+    });
+
+    it('WF-06: OTHER (authenticated) can read the available Ping', async () => {
+        await assertSucceeds(getDoc(doc(otherDb(), 'spots', WF_SPOT_ID)));
+    });
+
+    it('WF-07: THIRD cannot update OWNER\'s Ping', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(
+            upd(doc(thirdDb(), 'spots', WF_SPOT_ID), {
+                status:    'claimed',
+                claimedBy: THIRD_UID,
+            }),
+        );
+    });
+
+    it('WF-08: OTHER can claim OWNER\'s available Ping (express interest)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertSucceeds(
+            upd(doc(otherDb(), 'spots', WF_SPOT_ID), {
+                status:           'interested',
+                interestedUserId: OTHER_UID,
+            }),
+        );
+    });
+
+    // ── Chat isolation ─────────────────────────────────────────────────────────
+
+    it('WF-09: OWNER can read the OWNER↔OTHER chat', async () => {
+        await assertSucceeds(getDoc(doc(ownerDb(), 'chats', WF_CHAT_ID)));
+    });
+
+    it('WF-10: OTHER can read the OWNER↔OTHER chat', async () => {
+        await assertSucceeds(getDoc(doc(otherDb(), 'chats', WF_CHAT_ID)));
+    });
+
+    it('WF-11: THIRD cannot read the OWNER↔OTHER chat', async () => {
+        await assertFails(getDoc(doc(thirdDb(), 'chats', WF_CHAT_ID)));
+    });
+
+    // ── Notification isolation ─────────────────────────────────────────────────
+
+    it('WF-12: notification targeted at OTHER is readable by OTHER only', async () => {
+        await assertSucceeds(getDoc(doc(otherDb(), 'spotNotifications', WF_NOTIF_ID)));
+        await assertFails(getDoc(doc(thirdDb(), 'spotNotifications', WF_NOTIF_ID)));
+        await assertFails(getDoc(doc(anonDb(),  'spotNotifications', WF_NOTIF_ID)));
+    });
+});
+
+// ── PA: users/{uid}/private/avatar — pendingUploadId race guard ───────────────
+//
+// Client writes pendingUploadId here before each Storage upload. Server (Admin SDK,
+// bypasses rules) reads it in the moderation transaction and clears it on approval.
+// Rules: owner read/write with strict schema; client delete denied (server-only clear).
+
+describe('PA-01–PA-09: users/{uid}/private/avatar rules', () => {
+    const VALID_PAYLOAD = () => ({
+        pendingUploadId: 'upload-abc-123',
+        requestedAt: Timestamp.now(),
+    });
+
+    it('PA-01: owner can write a valid pendingUploadId record', async () => {
+        await assertSucceeds(
+            setDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'avatar'), VALID_PAYLOAD()),
+        );
+    });
+
+    it('PA-02: owner can read their own private/avatar doc', async () => {
+        await assertSucceeds(
+            getDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'avatar')),
+        );
+    });
+
+    it('PA-03: non-owner cannot write to another user\'s private/avatar', async () => {
+        await assertFails(
+            setDoc(doc(otherDb(), 'users', OWNER_UID, 'private', 'avatar'), VALID_PAYLOAD()),
+        );
+    });
+
+    it('PA-04: unauthenticated cannot write to private/avatar', async () => {
+        await assertFails(
+            setDoc(doc(anonDb(), 'users', OWNER_UID, 'private', 'avatar'), VALID_PAYLOAD()),
+        );
+    });
+
+    it('PA-05: non-owner cannot read another user\'s private/avatar', async () => {
+        await assertFails(
+            getDoc(doc(otherDb(), 'users', OWNER_UID, 'private', 'avatar')),
+        );
+    });
+
+    it('PA-06: unauthenticated cannot read private/avatar', async () => {
+        await assertFails(
+            getDoc(doc(anonDb(), 'users', OWNER_UID, 'private', 'avatar')),
+        );
+    });
+
+    it('PA-07: write rejected when extra unknown field is present', async () => {
+        await assertFails(
+            setDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'avatar'), {
+                ...VALID_PAYLOAD(),
+                extraField: 'bad',
+            }),
+        );
+    });
+
+    it('PA-08: write rejected when pendingUploadId exceeds 64 characters', async () => {
+        await assertFails(
+            setDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'avatar'), {
+                pendingUploadId: 'x'.repeat(65),
+                requestedAt: Timestamp.now(),
+            }),
+        );
+    });
+
+    it('PA-09: write rejected when pendingUploadId is empty string', async () => {
+        await assertFails(
+            setDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'avatar'), {
+                pendingUploadId: '',
+                requestedAt: Timestamp.now(),
+            }),
+        );
     });
 });

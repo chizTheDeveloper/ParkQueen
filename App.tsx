@@ -37,12 +37,13 @@ const ContactUsView = lazy(() => import('./views/ContactUsView').then(m => ({ de
 import { AppView } from './types';
 import { readPersistedAccess, persistAccessChoice, shouldShowPrimer, resolveFromPermissions, type LocationAccess } from './utils/locationAccess';
 import { nearbyPermissionState, type LocationCallbacks } from './utils/nearbyActivity';
-import { getLang, setLang } from './i18n';
+import { getLang, setLang, t } from './i18n';
 import { getLanguageHydrationAction } from './utils/languageHydration';
 import { ChevronLeft } from 'lucide-react';
 import ErrorBoundary from './ErrorBoundary';
 import { saveUserProfile, logoutUser, deleteUser } from './database';
-import { ConfirmationResult } from 'firebase/auth';
+import { ConfirmationResult, RecaptchaVerifier, reauthenticateWithPhoneNumber, signOut } from 'firebase/auth';
+import { maskPhoneNumber, verifyUidUnchanged } from './utils/reauthBeforeDelete';
 import { auth, db } from './firebaseConfig';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, onSnapshot, getDoc, updateDoc, collection, query, where, getDocs } from "firebase/firestore";
@@ -64,15 +65,29 @@ export default function App() {
   const [pushToast, setPushToast] = useState<{ title: string; body: string } | null>(null);
   const [titleUnlock, setTitleUnlock] = useState<string | null>(null);
   const prevTitleRef = useRef<string | null>(null);
+  const privateEmailRef = useRef<string | undefined>(undefined);
+  const [deletePhase, setDeletePhase] = useState<'idle' | 'confirming' | 'deleting' | 'failed' | 'reauth_entering_phone' | 'reauth_verifying_otp'>('idle');
   // phone stores canonical E.164 (e.g. "+15555551234", "+51987654321")
   const [phone, setPhone] = useState('');
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
+  const [reauthOtp, setReauthOtp] = useState('');
+  const [reauthResendCooldown, setReauthResendCooldown] = useState(0);
+  const reauthRecaptchaRef = useRef<RecaptchaVerifier | null>(null);
+  const reauthCooldownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const originalUidRef = useRef<string | null>(null);
 
   useEffect(() => {
     let userProfileUnsubscribe = () => {};
+    let privateAccountUnsubscribe = () => {};
+    let privatePreferencesUnsubscribe = () => {};
+    let privateSocialUnsubscribe = () => {};
 
     const authStateUnsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       userProfileUnsubscribe();
+      privateAccountUnsubscribe();
+      privatePreferencesUnsubscribe();
+      privateSocialUnsubscribe();
+      privateEmailRef.current = undefined;
       setLoading(true);
 
       if (firebaseUser) {
@@ -97,7 +112,7 @@ export default function App() {
                     if (permission === 'granted') {
                         getToken(messaging).then(currentToken => {
                             if (currentToken) {
-                                updateDoc(userDocRef, { fcmToken: currentToken }).catch(e => console.warn('FCM save error', e));
+                                updateDoc(doc(db, 'users', firebaseUser.uid, 'private', 'preferences'), { fcmToken: currentToken }).catch(e => console.warn('FCM save error', e));
                             }
                         }).catch(e => console.warn('FCM getToken error', e));
                     }
@@ -117,7 +132,11 @@ export default function App() {
         userProfileUnsubscribe = onSnapshot(userDocRef, (userDoc) => {
           if (userDoc.exists()) {
             const userData = userDoc.data();
-            setUser({ id: userDoc.id, ...userData });
+            // Prefer email from private subcollection; fall back to public doc for pre-migration accounts
+            const emailOverride = privateEmailRef.current !== undefined
+              ? { email: privateEmailRef.current }
+              : {};
+            setUser({ id: userDoc.id, ...userData, ...emailOverride });
             const newTitle = userData.title || 'Newcomer';
             if (prevTitleRef.current && prevTitleRef.current !== newTitle && newTitle !== 'Newcomer') {
               setTitleUnlock(newTitle);
@@ -127,6 +146,34 @@ export default function App() {
           } else {
             setUser({ id: firebaseUser.uid });
           }
+        });
+
+        // Listen for private account data (email) — owner-only subcollection
+        const privateAccountRef = doc(db, 'users', firebaseUser.uid, 'private', 'account');
+        privateAccountUnsubscribe = onSnapshot(privateAccountRef, (snap) => {
+          const email = snap.exists() ? snap.data().email : undefined;
+          privateEmailRef.current = email;
+          setUser(prev => prev ? { ...prev, email } : prev);
+        });
+
+        // Listen for private preferences (notif settings, location pref) — owner-only
+        const privatePrefsRef = doc(db, 'users', firebaseUser.uid, 'private', 'preferences');
+        privatePreferencesUnsubscribe = onSnapshot(privatePrefsRef, (snap) => {
+          if (!snap.exists()) return;
+          const prefs = snap.data();
+          setUser(prev => prev ? {
+            ...prev,
+            notificationsEnabled: prefs.notificationsEnabled,
+            notificationRadius: prefs.notificationRadius,
+            sharePreciseLocation: prefs.sharePreciseLocation,
+          } : prev);
+        });
+
+        // Listen for private social (blockedUsers) — owner-only
+        const privateSocialRef = doc(db, 'users', firebaseUser.uid, 'private', 'social');
+        privateSocialUnsubscribe = onSnapshot(privateSocialRef, (snap) => {
+          if (!snap.exists()) return;
+          setUser(prev => prev ? { ...prev, blockedUsers: snap.data().blockedUsers || [] } : prev);
         });
 
         // Check for admin claims and route accordingly
@@ -176,6 +223,9 @@ export default function App() {
     return () => {
       authStateUnsubscribe();
       userProfileUnsubscribe();
+      privateAccountUnsubscribe();
+      privatePreferencesUnsubscribe();
+      privateSocialUnsubscribe();
     };
   }, []);
 
@@ -233,7 +283,7 @@ export default function App() {
     // phone is canonical E.164 — store directly
     try {
       // Only write the fields this step owns — fullName is collected later
-      await saveUserProfile({ phone, username });
+      await saveUserProfile({ username });
       setVehicleOnboarding(true);
       setCurrentView(AppView.EDIT_VEHICLE);
     } catch (error: any) {
@@ -247,11 +297,13 @@ export default function App() {
       const uid = auth.currentUser?.uid;
       if (!uid) throw new Error("Not authenticated");
       const { doc: fsDoc, updateDoc, setDoc } = await import("firebase/firestore");
-      // Public fields only — demographics go to the private subcollection
+      // Public fields only — demographics and contact info go to private subcollections
       await updateDoc(fsDoc(db, 'users', uid), {
         fullName: profileData.fullName,
-        email: profileData.email,
       });
+      if (profileData.email) {
+        await setDoc(fsDoc(db, 'users', uid, 'private', 'account'), { email: profileData.email }, { merge: true });
+      }
       // dob and gender are private — write to owner-only subcollection
       const privateUpdates: Record<string, string> = {};
       if (profileData.dob)    privateUpdates.dob    = profileData.dob;
@@ -309,13 +361,93 @@ export default function App() {
     }
   };
 
-  const handleDeleteAccount = async () => {
-    if (window.confirm("Are you sure you want to delete your account? This action cannot be undone.")) {
-      try {
-        await deleteUser();
-      } catch (error) {
-        console.error("Failed to delete account: ", error);
-        alert("Failed to delete account.");
+  const handleDeleteAccount = () => {
+    setDeletePhase('confirming');
+  };
+
+  const clearReauthState = () => {
+    if (reauthCooldownRef.current) { clearInterval(reauthCooldownRef.current); reauthCooldownRef.current = null; }
+    if (reauthRecaptchaRef.current) { try { reauthRecaptchaRef.current.clear(); } catch {} reauthRecaptchaRef.current = null; }
+    setConfirmationResult(null);
+    setReauthOtp('');
+    setReauthResendCooldown(0);
+  };
+
+  const startResendCooldown = () => {
+    if (reauthCooldownRef.current) clearInterval(reauthCooldownRef.current);
+    setReauthResendCooldown(30);
+    reauthCooldownRef.current = setInterval(() => {
+      setReauthResendCooldown(prev => {
+        if (prev <= 1) { clearInterval(reauthCooldownRef.current!); reauthCooldownRef.current = null; return 0; }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  const handleReauthSendOtp = async () => {
+    const currentUser = auth.currentUser;
+    if (!currentUser?.phoneNumber) { setDeletePhase('failed'); return; }
+    try {
+      if (reauthRecaptchaRef.current) { try { reauthRecaptchaRef.current.clear(); } catch {} }
+      reauthRecaptchaRef.current = new RecaptchaVerifier(auth, 'reauth-recaptcha-anchor', { size: 'invisible' });
+      const result = await reauthenticateWithPhoneNumber(currentUser, currentUser.phoneNumber, reauthRecaptchaRef.current);
+      setConfirmationResult(result);
+      setDeletePhase('reauth_verifying_otp');
+      startResendCooldown();
+    } catch {
+      clearReauthState();
+      setDeletePhase('failed');
+    }
+  };
+
+  const handleReauthVerifyOtp = async () => {
+    if (!confirmationResult || reauthOtp.length < 6) return;
+    const originalUid = originalUidRef.current;
+    if (!originalUid) { setDeletePhase('failed'); return; }
+    setDeletePhase('deleting');
+    try {
+      await confirmationResult.confirm(reauthOtp);
+      // UID preservation check — abort if a different account was signed in during OTP
+      verifyUidUnchanged(auth.currentUser?.uid, originalUid);
+      await deleteUser();
+      localStorage.clear();
+      await logoutUser();
+    } catch (e: any) {
+      if (e?.code === 'auth/account-switched') { try { await signOut(auth); } catch {} }
+      clearReauthState();
+      setDeletePhase('failed');
+    }
+  };
+
+  const handleReauthResend = async () => {
+    if (reauthResendCooldown > 0) return;
+    const currentUser = auth.currentUser;
+    if (!currentUser?.phoneNumber) { setDeletePhase('failed'); return; }
+    try {
+      if (reauthRecaptchaRef.current) { try { reauthRecaptchaRef.current.clear(); } catch {} }
+      reauthRecaptchaRef.current = new RecaptchaVerifier(auth, 'reauth-recaptcha-anchor', { size: 'invisible' });
+      const result = await reauthenticateWithPhoneNumber(currentUser, currentUser.phoneNumber, reauthRecaptchaRef.current);
+      setConfirmationResult(result);
+      startResendCooldown();
+    } catch {
+      clearReauthState();
+      setDeletePhase('failed');
+    }
+  };
+
+  const handleDeleteConfirm = async () => {
+    setDeletePhase('deleting');
+    try {
+      await deleteUser();
+      localStorage.clear();
+      await logoutUser();
+    } catch (error: any) {
+      console.error("Failed to delete account:", error);
+      if (error?.code === 'functions/failed-precondition') {
+        originalUidRef.current = auth.currentUser?.uid ?? null;
+        setDeletePhase('reauth_entering_phone');
+      } else {
+        setDeletePhase('failed');
       }
     }
   };
@@ -484,6 +616,114 @@ export default function App() {
           <div className="text-3xl mb-1">👑</div>
           <p className="text-sm font-bold text-[var(--color-text)]">New Title Unlocked!</p>
           <p className="text-base font-extrabold text-yellow-400 mt-0.5">{titleUnlock}</p>
+        </div>
+      )}
+
+      {deletePhase !== 'idle' && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-[var(--color-bg)] border border-[var(--color-border)] rounded-2xl p-6 max-w-sm w-full">
+            {deletePhase === 'confirming' && (
+              <>
+                <h2 className="text-xl font-bold text-red-500 mb-2">{t('settings.delete_confirm_title')}</h2>
+                <p className="text-sm text-[var(--color-text-secondary)] mb-6">{t('settings.delete_confirm_body')}</p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setDeletePhase('idle')}
+                    className="flex-1 py-3 rounded-xl border border-[var(--color-border)] text-[var(--color-text)] font-medium"
+                  >
+                    {t('settings.delete_cancel')}
+                  </button>
+                  <button
+                    onClick={handleDeleteConfirm}
+                    className="flex-1 py-3 rounded-xl bg-red-600 text-white font-semibold"
+                  >
+                    {t('settings.delete_account')}
+                  </button>
+                </div>
+              </>
+            )}
+            {deletePhase === 'deleting' && (
+              <p className="text-center text-[var(--color-text)] py-4">{t('settings.delete_deleting')}</p>
+            )}
+            {deletePhase === 'failed' && (
+              <>
+                <p className="text-center text-red-500 mb-4">{t('settings.delete_failed')}</p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setDeletePhase('idle')}
+                    className="flex-1 py-3 rounded-xl border border-[var(--color-border)] text-[var(--color-text)]"
+                  >
+                    {t('settings.delete_cancel')}
+                  </button>
+                  <button
+                    onClick={handleDeleteConfirm}
+                    className="flex-1 py-3 rounded-xl bg-red-600 text-white font-semibold"
+                  >
+                    {t('settings.delete_retry')}
+                  </button>
+                </div>
+              </>
+            )}
+            {deletePhase === 'reauth_entering_phone' && (
+              <>
+                <h2 className="text-lg font-bold text-[var(--color-text)] mb-1">{t('settings.delete_reauth_title')}</h2>
+                <p className="text-sm text-[var(--color-text-secondary)] mb-4">{t('settings.delete_reauth_phone_hint')}</p>
+                <p
+                  aria-live="assertive"
+                  className="w-full mb-4 px-4 py-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] text-center tracking-widest select-none"
+                >
+                  {maskPhoneNumber(auth.currentUser?.phoneNumber ?? '')}
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => { clearReauthState(); setDeletePhase('idle'); }}
+                    className="flex-1 py-3 rounded-xl border border-[var(--color-border)] text-[var(--color-text)] font-medium"
+                  >{t('settings.delete_cancel')}</button>
+                  <button
+                    onClick={handleReauthSendOtp}
+                    className="flex-1 py-3 rounded-xl bg-red-600 text-white font-semibold"
+                  >{t('settings.delete_reauth_send_code')}</button>
+                </div>
+              </>
+            )}
+            {deletePhase === 'reauth_verifying_otp' && (
+              <>
+                <h2 className="text-lg font-bold text-[var(--color-text)] mb-1">{t('settings.delete_reauth_title')}</h2>
+                <p className="text-sm text-[var(--color-text-secondary)] mb-4">{t('settings.delete_reauth_otp_hint')}</p>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={reauthOtp}
+                  onChange={e => setReauthOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="123456"
+                  className="w-full mb-3 px-4 py-3 rounded-xl border border-[var(--color-border)] bg-transparent text-[var(--color-text)] text-center tracking-widest text-xl placeholder:text-[var(--color-text-secondary)] focus:outline-none focus:border-red-500"
+                />
+                <div className="flex gap-3 mb-3">
+                  <button
+                    onClick={() => { clearReauthState(); setDeletePhase('idle'); }}
+                    className="flex-1 py-3 rounded-xl border border-[var(--color-border)] text-[var(--color-text)] font-medium"
+                  >{t('settings.delete_cancel')}</button>
+                  <button
+                    onClick={handleReauthVerifyOtp}
+                    disabled={reauthOtp.length < 6}
+                    className="flex-1 py-3 rounded-xl bg-red-600 disabled:opacity-50 text-white font-semibold"
+                  >{t('settings.delete_reauth_verify')}</button>
+                </div>
+                <button
+                  onClick={handleReauthResend}
+                  disabled={reauthResendCooldown > 0}
+                  className="w-full text-sm text-[var(--color-text-secondary)] disabled:opacity-40"
+                >
+                  {reauthResendCooldown > 0
+                    ? `${t('settings.delete_reauth_resend')} (${reauthResendCooldown}s)`
+                    : t('settings.delete_reauth_resend')}
+                </button>
+              </>
+            )}
+            {/* Invisible reCAPTCHA anchor — must remain in DOM whenever the modal is open */}
+            <div id="reauth-recaptcha-anchor" />
+          </div>
         </div>
       )}
     </div>

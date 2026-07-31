@@ -67,7 +67,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
     try {
       const currentBlocked = user.blockedUsers || [];
       if (!currentBlocked.includes(otherUserId)) {
-        await updateDoc(doc(db, "users", user.id), {
+        await updateDoc(doc(db, "users", user.id, "private", "social"), {
           blockedUsers: [...currentBlocked, otherUserId]
         });
       }

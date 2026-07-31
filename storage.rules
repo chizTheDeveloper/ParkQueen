@@ -1,0 +1,54 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+    // JPEG, PNG, WebP only — SVG/GIF/TIFF/BMP and all other image/* subtypes rejected.
+    // Magic-byte validation and EXIF stripping are performed server-side by
+    // the moderateAvatarUpload Cloud Function via Sharp.
+    function isValidAvatarUpload() {
+      return request.resource.size < 5 * 1024 * 1024
+          && request.resource.contentType in ['image/jpeg', 'image/png', 'image/webp'];
+    }
+
+    // Upload quarantine — owner may only CREATE the "original" file; no overwrites.
+    // Enforced:   owner auth, MIME type, 5 MB size limit, create-only (no update).
+    // OPEN/TM-13: pendingUploadId match and requestedAt freshness cannot be checked
+    //             here because Storage Rules have no cross-service Firestore read.
+    //             Server-side enforcement (Step 0 transaction) provides that guard.
+    match /avatarUploads/{uid}/{uploadId}/original {
+      allow create: if isOwner(uid) && isValidAvatarUpload();
+      allow update, delete, read: if false;
+    }
+    // Any other filename under the upload quarantine is denied entirely.
+    match /avatarUploads/{uid}/{uploadId}/{fileName} {
+      allow read, write, delete: if false;
+    }
+
+    // Processed candidates — server-only; no client access at any time.
+    // Vision SafeSearch scans the candidate before it is published to avatars/.
+    match /avatarCandidates/{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    // Published avatar — written server-side after moderation approval.
+    // Owner can read their own published avatar; client cannot write or delete.
+    match /avatars/{uid} {
+      allow read:   if isOwner(uid);
+      allow write, delete: if false;
+    }
+
+    // Subdirectory variant kept for forward-compatibility with future avatar sizes.
+    match /avatars/{uid}/{allPaths=**} {
+      allow read:   if isOwner(uid);
+      allow write, delete: if false;
+    }
+
+    // Default: deny everything else.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

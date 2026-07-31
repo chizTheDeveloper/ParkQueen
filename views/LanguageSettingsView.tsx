@@ -28,7 +28,7 @@ export const LanguageSettingsView: React.FC<LanguageSettingsViewProps> = ({ user
         setError('');
         try {
             if (user?.id) {
-                await updateDoc(doc(db, 'users', user.id), { lang: code });
+                await updateDoc(doc(db, 'users', user.id, 'private', 'preferences'), { lang: code });
             }
         } catch {
             setLang(prev); // revert
