@@ -49,4 +49,52 @@ describe('firebase.json hosting headers', () => {
   it('HSTS header is present', () => {
     expect(headerValue('Strict-Transport-Security')).toMatch(/max-age=\d+/);
   });
+
+  // ── reCAPTCHA sources (added after production report-only violations) ────────
+
+  it('CSP script-src includes Google reCAPTCHA script origins', () => {
+    const csp = headerValue('Content-Security-Policy-Report-Only') ?? '';
+    const scriptSrc = csp.match(/script-src\s+([^;]+)/)?.[1] ?? '';
+    expect(scriptSrc).toContain('https://www.google.com/recaptcha/');
+    expect(scriptSrc).toContain('https://www.gstatic.com/recaptcha/');
+    // Existing recaptcha.net support preserved
+    expect(scriptSrc).toContain('https://www.recaptcha.net');
+  });
+
+  it('CSP frame-src includes Google reCAPTCHA frame origins', () => {
+    const csp = headerValue('Content-Security-Policy-Report-Only') ?? '';
+    const frameSrc = csp.match(/frame-src\s+([^;]+)/)?.[1] ?? '';
+    expect(frameSrc).toContain('https://www.google.com/recaptcha/');
+    expect(frameSrc).toContain('https://recaptcha.google.com/recaptcha/');
+    // Existing recaptcha.net support preserved
+    expect(frameSrc).toContain('https://www.recaptcha.net');
+    // Firebase auth iframe preserved
+    expect(frameSrc).toContain('https://parkqueen-46475363-ccf36.firebaseapp.com');
+  });
+
+  it('CSP connect-src includes Google reCAPTCHA connect origin', () => {
+    const csp = headerValue('Content-Security-Policy-Report-Only') ?? '';
+    const connectSrc = csp.match(/connect-src\s+([^;]+)/)?.[1] ?? '';
+    expect(connectSrc).toContain('https://www.google.com/recaptcha/');
+  });
+
+  it('CSP remains Report-Only, not enforced', () => {
+    expect(headerValue('Content-Security-Policy-Report-Only')).toBeDefined();
+    expect(headerValue('Content-Security-Policy')).toBeUndefined();
+  });
+
+  it('existing Mapbox connect-src sources are preserved', () => {
+    const csp = headerValue('Content-Security-Policy-Report-Only') ?? '';
+    const connectSrc = csp.match(/connect-src\s+([^;]+)/)?.[1] ?? '';
+    expect(connectSrc).toContain('https://api.mapbox.com');
+    expect(connectSrc).toContain('https://events.mapbox.com');
+  });
+
+  it('existing Firebase connect-src sources are preserved', () => {
+    const csp = headerValue('Content-Security-Policy-Report-Only') ?? '';
+    const connectSrc = csp.match(/connect-src\s+([^;]+)/)?.[1] ?? '';
+    expect(connectSrc).toContain('https://fcm.googleapis.com');
+    expect(connectSrc).toContain('wss://*.firebaseio.com');
+    expect(connectSrc).toContain('https://firebasestorage.googleapis.com');
+  });
 });

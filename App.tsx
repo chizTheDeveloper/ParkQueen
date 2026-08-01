@@ -46,7 +46,7 @@ import { ConfirmationResult, RecaptchaVerifier, reauthenticateWithPhoneNumber, s
 import { maskPhoneNumber, verifyUidUnchanged } from './utils/reauthBeforeDelete';
 import { auth, db } from './firebaseConfig';
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, onSnapshot, getDoc, updateDoc, collection, query, where, getDocs } from "firebase/firestore";
+import { doc, onSnapshot, getDoc, updateDoc, setDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { getToken, onMessage } from 'firebase/messaging';
 import { getFCM } from './firebaseConfig';
 
@@ -112,7 +112,7 @@ export default function App() {
                     if (permission === 'granted') {
                         getToken(messaging).then(currentToken => {
                             if (currentToken) {
-                                updateDoc(doc(db, 'users', firebaseUser.uid, 'private', 'preferences'), { fcmToken: currentToken }).catch(e => console.warn('FCM save error', e));
+                                setDoc(doc(db, 'users', firebaseUser.uid, 'private', 'preferences'), { fcmToken: currentToken }, { merge: true }).catch(e => console.warn('FCM save error', e));
                             }
                         }).catch(e => console.warn('FCM getToken error', e));
                     }

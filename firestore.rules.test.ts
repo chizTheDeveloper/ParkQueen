@@ -1265,6 +1265,37 @@ describe('TM-04 — private user data isolation', () => {
         );
     });
 
+    // FCM upsert compatibility — proves setDoc{merge:true} is allowed on private/preferences
+    // even when the document does not already exist (new user, no prior setDoc from onboarding).
+    it('FCM-1: owner can create private/preferences with only fcmToken (simulates first sign-in upsert)', async () => {
+        // Document does not exist — setDoc without merge creates it
+        await assertSucceeds(
+            setDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'preferences'), { fcmToken: 'tok_abc123' })
+        );
+    });
+
+    it('FCM-2: owner can merge fcmToken into existing private/preferences without losing other fields', async () => {
+        // Seed an existing preferences doc with notificationRadius
+        await seed('users/' + OWNER_UID + '/private', 'preferences', { notificationRadius: 3 });
+        // setDoc with merge:true — update only fcmToken; notificationRadius must survive
+        const { setDoc: sd } = await import('firebase/firestore');
+        await assertSucceeds(
+            sd(doc(ownerDb(), 'users', OWNER_UID, 'private', 'preferences'), { fcmToken: 'tok_new' }, { merge: true })
+        );
+    });
+
+    it('FCM-3: private/preferences rejects fcmToken exceeding 4096 chars', async () => {
+        await assertFails(
+            setDoc(doc(ownerDb(), 'users', OWNER_UID, 'private', 'preferences'), { fcmToken: 'x'.repeat(4097) })
+        );
+    });
+
+    it('FCM-4: other user cannot write fcmToken to owner private/preferences', async () => {
+        await assertFails(
+            setDoc(doc(otherDb(), 'users', OWNER_UID, 'private', 'preferences'), { fcmToken: 'tok_other' })
+        );
+    });
+
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
