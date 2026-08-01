@@ -301,9 +301,6 @@ export default function App() {
       await updateDoc(fsDoc(db, 'users', uid), {
         fullName: profileData.fullName,
       });
-      if (profileData.email) {
-        await setDoc(fsDoc(db, 'users', uid, 'private', 'account'), { email: profileData.email }, { merge: true });
-      }
       // dob and gender are private — write to owner-only subcollection
       const privateUpdates: Record<string, string> = {};
       if (profileData.dob)    privateUpdates.dob    = profileData.dob;

@@ -27,4 +27,11 @@ describe('index.html security assertions', () => {
       expect(allowList, `Unexpected external script: ${src}`).toContain(src);
     }
   });
+
+  it('does not load the mismatched Mapbox GL JS v2 CDN stylesheet', () => {
+    // The installed package is v3.x; the v2 CDN link caused rendering regressions.
+    // Mapbox CSS is now imported locally from mapbox-gl/dist/mapbox-gl.css.
+    expect(indexHtml).not.toContain('mapbox-gl-js/v2');
+    expect(indexHtml).not.toContain('mapbox-gl-js/v2.14.1');
+  });
 });

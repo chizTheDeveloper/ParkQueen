@@ -1,11 +1,11 @@
 
 import React, { useState, useRef } from 'react';
-import { User, Mail, Calendar, ChevronDown, Camera } from 'lucide-react';
+import { User, Calendar, ChevronDown, Camera } from 'lucide-react';
 import { t, useLang } from '../i18n';
 
 interface SetupProfileViewProps {
   phone: string;
-  onSave: (profileData: { fullName: string; email: string; dob: string; gender: string, avatar: File | null }) => void;
+  onSave: (profileData: { fullName: string; dob: string; gender: string, avatar: File | null }) => void;
   onSkip?: () => void;
 }
 
@@ -85,7 +85,6 @@ const SelectField = ({ icon, label, value, onChange, options, isOpen, setIsOpen 
 export const SetupProfileView: React.FC<SetupProfileViewProps> = ({ phone, onSave, onSkip }) => {
   useLang();
   const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('');
   const [dob, setDob] = useState('');
   const [gender, setGender] = useState('Male');
   const [isGenderDropdownOpen, setGenderDropdownOpen] = useState(false);
@@ -112,7 +111,7 @@ export const SetupProfileView: React.FC<SetupProfileViewProps> = ({ phone, onSav
   };
 
   const handleSave = () => {
-    onSave({ fullName, email, dob, gender, avatar });
+    onSave({ fullName, dob, gender, avatar });
   };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -164,15 +163,6 @@ export const SetupProfileView: React.FC<SetupProfileViewProps> = ({ phone, onSav
                 onChange={(e) => setFullName(e.target.value)}
                 placeholder="Johan Doe"
                 autoComplete="name"
-            />
-            <InputField
-                icon={<Mail size={20} />}
-                label={t('setup_profile.email')}
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="johandoe@gmail.com"
-                type="email"
-                autoComplete="email"
             />
             <InputField
                 icon={<Calendar size={20} />}
