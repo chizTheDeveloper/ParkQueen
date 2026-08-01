@@ -38,7 +38,8 @@ describe('FCM token registration — upsert semantics', () => {
   });
 
   it('registration errors are handled without an uncaught rejection', () => {
-    expect(appTsx).toContain("}, { merge: true }).catch(e => console.warn('FCM save error', e))");
+    // FCM setup now uses async/await inside a try/catch; errors are caught and warned.
+    expect(appTsx).toContain("console.warn('FCM setup error', e)");
   });
 });
 
@@ -69,10 +70,9 @@ describe('FCM token — logout removes token before signOut', () => {
   });
 
   it('offline cleanup failure never blocks logout — error is caught', () => {
-    // .catch(() => {}) on the updateDoc call ensures signOut proceeds even if
-    // the write fails (offline, missing preferences doc, network error).
-    expect(dbTs).toContain('.catch(() => {})');
-    // signOut still runs after the catch
+    // .then(true).catch(false) pattern ensures updateDoc failure returns false
+    // rather than throwing, so signOut always runs regardless of network state.
+    expect(dbTs).toContain('.then(() => true).catch(() => false)');
     expect(dbTs).toContain('await signOut(auth)');
   });
 
@@ -95,7 +95,7 @@ describe('FCM token — account switching cannot create cross-user association',
     // When the next user signs in and calls getToken(), the same browser token is
     // stored only under the new UID — no cross-user association.
     expect(dbTs).toContain("{ fcmToken: deleteField() }");
-    expect(dbTs).toContain('.catch(() => {})');
+    expect(dbTs).toContain('.then(() => true).catch(() => false)');
   });
 
   it('notifyFanout stale-token cleanup does not protect against cross-user association', () => {
@@ -108,5 +108,101 @@ describe('FCM token — account switching cannot create cross-user association',
     // Confirm there is no cross-user ownership resolution in fanout
     expect(fanout).not.toContain('cross-user');
     expect(fanout).not.toContain('account-switch');
+  });
+});
+
+// ── Browser-side ownership marker ───────────────────────────────────────────
+
+describe('FCM token — browser-side ownership marker and rotation', () => {
+  it('deleteToken is imported from firebase/messaging', () => {
+    expect(appTsx).toContain("deleteToken");
+    expect(appTsx).toMatch(/import\s*\{[^}]*deleteToken[^}]*\}\s*from\s*['"]firebase\/messaging['"]/);
+  });
+
+  it('ownership marker key is parqueen_fcm_owner_uid', () => {
+    expect(appTsx).toContain('parqueen_fcm_owner_uid');
+    expect(dbTs).toContain('parqueen_fcm_owner_uid');
+  });
+
+  it('owner marker is set only after Firestore write succeeds', () => {
+    // setItem must appear after setDoc in the source — verifies ordering
+    const setDocIdx = appTsx.indexOf("setDoc(doc(db, 'users', firebaseUser.uid, 'private', 'preferences')");
+    const setOwnerIdx = appTsx.indexOf("localStorage.setItem('parqueen_fcm_owner_uid'");
+    expect(setDocIdx).toBeGreaterThan(-1);
+    expect(setOwnerIdx).toBeGreaterThan(-1);
+    expect(setOwnerIdx).toBeGreaterThan(setDocIdx);
+  });
+
+  it('owner marker never contains the registration token', () => {
+    // Only the UID is stored — the token value is never written to localStorage
+    expect(appTsx).not.toContain("localStorage.setItem('parqueen_fcm_owner_uid', currentToken");
+    expect(appTsx).not.toContain("localStorage.setItem('parqueen_fcm_owner_uid', freshToken");
+  });
+
+  it('owner marker value is never logged', () => {
+    expect(appTsx).not.toContain("console.log(localStorage.getItem('parqueen_fcm_owner_uid')");
+    expect(dbTs).not.toContain("console.log(fcmOwnerUid");
+  });
+
+  it('different UID on same browser triggers deleteToken before getToken', () => {
+    // ownerMismatch detected → deleteToken called → then getToken for fresh registration
+    expect(appTsx).toContain('ownerMismatch');
+    expect(appTsx).toContain('deleteToken(messaging)');
+    const deleteIdx = appTsx.indexOf('deleteToken(messaging)');
+    const getIdx = appTsx.indexOf('getToken(messaging)');
+    expect(deleteIdx).toBeGreaterThan(-1);
+    expect(getIdx).toBeGreaterThan(-1);
+    expect(deleteIdx).toBeLessThan(getIdx);
+  });
+
+  it('legacy installs without owner marker rotate once to establish clean ownership', () => {
+    expect(appTsx).toContain('legacyInstall');
+    expect(appTsx).toContain('parqueen_fcm_owner_version');
+    expect(appTsx).toContain("FCM_OWNER_VERSION = '1'");
+  });
+
+  it('same-user sessions do not rotate — ownerMismatch is false when UIDs match', () => {
+    // ownerMismatch is only true when storedOwnerUid !== null AND !== firebaseUser.uid
+    expect(appTsx).toContain("storedOwnerUid !== null && storedOwnerUid !== firebaseUser.uid");
+  });
+
+  it('rotation failure does not associate old token with new UID — entire block is try/catch', () => {
+    // If deleteToken or getToken throws, the outer catch skips setDoc and setItem
+    const tryIdx = appTsx.indexOf("try {");
+    const deleteIdx = appTsx.indexOf('deleteToken(messaging)');
+    const setOwnerIdx = appTsx.indexOf("localStorage.setItem('parqueen_fcm_owner_uid'");
+    const catchIdx = appTsx.indexOf('FCM setup error');
+    expect(tryIdx).toBeLessThan(deleteIdx);
+    expect(deleteIdx).toBeLessThan(setOwnerIdx);
+    expect(setOwnerIdx).toBeLessThan(catchIdx);
+  });
+
+  it('failed logout Firestore cleanup retains owner marker for next account-switch detection', () => {
+    // If updateDoc().catch returns false, the marker is restored before signOut
+    expect(dbTs).toContain('.then(() => true).catch(() => false)');
+    expect(dbTs).toContain('if (!cleaned && fcmOwnerUid !== null)');
+    expect(dbTs).toContain("localStorage.setItem('parqueen_fcm_owner_uid', fcmOwnerUid)");
+  });
+
+  it('successful logout cleanup does not re-set the owner marker', () => {
+    // When cleaned === true the marker stays absent — cleared by localStorage.clear() above
+    expect(dbTs).toContain('if (!cleaned && fcmOwnerUid !== null)');
+    // Confirm there is no unconditional setItem for parqueen_fcm_owner_uid in database.ts
+    expect(dbTs).not.toContain("localStorage.setItem('parqueen_fcm_owner_uid', firebaseUser");
+  });
+
+  it('owner marker is captured before localStorage.clear() in logoutUser', () => {
+    const captureIdx = dbTs.indexOf("localStorage.getItem('parqueen_fcm_owner_uid')");
+    const clearIdx = dbTs.indexOf('localStorage.clear()');
+    expect(captureIdx).toBeGreaterThan(-1);
+    expect(clearIdx).toBeGreaterThan(-1);
+    expect(captureIdx).toBeLessThan(clearIdx);
+  });
+
+  it('single-device beta limitation: fcmToken is a scalar, second device overwrites first', () => {
+    // merge:true writes only the fcmToken key — no array or subcollection of tokens.
+    // This is a documented private-beta limitation: one active notification registration per account.
+    expect(appTsx).toContain("{ fcmToken: currentToken }, { merge: true }");
+    expect(appTsx).not.toContain('fcmTokens'); // no array/collection design
   });
 });

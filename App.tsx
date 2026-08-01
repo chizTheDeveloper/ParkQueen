@@ -47,7 +47,7 @@ import { maskPhoneNumber, verifyUidUnchanged } from './utils/reauthBeforeDelete'
 import { auth, db } from './firebaseConfig';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, onSnapshot, getDoc, updateDoc, setDoc, collection, query, where, getDocs } from "firebase/firestore";
-import { getToken, onMessage } from 'firebase/messaging';
+import { getToken, deleteToken, onMessage } from 'firebase/messaging';
 import { getFCM } from './firebaseConfig';
 
 export default function App() {
@@ -105,27 +105,47 @@ export default function App() {
           return;
         }
 
-        // FCM Setup
-        getFCM().then(messaging => {
-            if (messaging) {
-                Notification.requestPermission().then(permission => {
-                    if (permission === 'granted') {
-                        getToken(messaging).then(currentToken => {
-                            if (currentToken) {
-                                setDoc(doc(db, 'users', firebaseUser.uid, 'private', 'preferences'), { fcmToken: currentToken }, { merge: true }).catch(e => console.warn('FCM save error', e));
-                            }
-                        }).catch(e => console.warn('FCM getToken error', e));
+        // FCM Setup — ownership-aware registration to prevent cross-account token association.
+        // parqueen_fcm_owner_uid tracks which UID last successfully registered on this browser.
+        // If a different UID signs in, or if no marker exists (legacy install), the old browser
+        // registration is invalidated with deleteToken before a fresh one is obtained.
+        // Private-beta limitation: fcmToken is a scalar field — only one device per account.
+        getFCM().then(async messaging => {
+            if (!messaging) return;
+            const permission = await Notification.requestPermission();
+            if (permission === 'granted') {
+                try {
+                    const storedOwnerUid = localStorage.getItem('parqueen_fcm_owner_uid');
+                    const FCM_OWNER_VERSION = '1';
+                    const ownerMismatch = storedOwnerUid !== null && storedOwnerUid !== firebaseUser.uid;
+                    // Legacy installs have no marker; rotate once to establish clean ownership.
+                    const legacyInstall = storedOwnerUid === null && localStorage.getItem('parqueen_fcm_owner_version') !== FCM_OWNER_VERSION;
+                    if (ownerMismatch || legacyInstall) {
+                        // deleteToken invalidates the browser's cached registration at the FCM backend.
+                        // If it fails, the catch block skips token association so a shared token is
+                        // never written under the new UID.
+                        await deleteToken(messaging);
                     }
-                });
-
-                onMessage(messaging, (payload) => {
-                    // Skip spot notifications the current user created — defense in depth
-                    // against the CF self-filter failing or running a stale version.
-                    if (payload.data?.finderId && payload.data.finderId === firebaseUser.uid) return;
-                    setPushToast({ title: payload.notification?.title || '', body: payload.notification?.body || '' });
-                    setTimeout(() => setPushToast(null), 5000);
-                });
+                    const currentToken = await getToken(messaging);
+                    if (currentToken) {
+                        await setDoc(doc(db, 'users', firebaseUser.uid, 'private', 'preferences'), { fcmToken: currentToken }, { merge: true });
+                        // Record ownership only after Firestore write succeeds.
+                        localStorage.setItem('parqueen_fcm_owner_uid', firebaseUser.uid);
+                        localStorage.setItem('parqueen_fcm_owner_version', FCM_OWNER_VERSION);
+                    }
+                } catch (e) {
+                    // Rotation or registration failed — user continues without push notifications.
+                    // No token is stored; next authenticated online session will retry.
+                    console.warn('FCM setup error', e);
+                }
             }
+            onMessage(messaging, (payload) => {
+                // Skip spot notifications the current user created — defense in depth
+                // against the CF self-filter failing or running a stale version.
+                if (payload.data?.finderId && payload.data.finderId === firebaseUser.uid) return;
+                setPushToast({ title: payload.notification?.title || '', body: payload.notification?.body || '' });
+                setTimeout(() => setPushToast(null), 5000);
+            });
         });
         
         // Listen for profile data changes

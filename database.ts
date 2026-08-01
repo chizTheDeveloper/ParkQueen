@@ -46,22 +46,26 @@ export const saveUserProfile = async (profile: UserProfile) => {
 };
 
 export const logoutUser = async () => {
-  // Preserve device-level preferences; clear all account-scoped browser state
+  // Preserve device-level preferences; clear all account-scoped browser state.
+  // Capture fcm owner marker before clear: if Firestore cleanup fails (offline),
+  // we restore it so the next sign-in by a different user detects the ownership
+  // transition and rotates the browser registration before associating it.
   const theme = localStorage.getItem('theme');
+  const fcmOwnerUid = localStorage.getItem('parqueen_fcm_owner_uid');
   localStorage.clear();
   if (theme !== null) localStorage.setItem('theme', theme);
 
-  // Remove this browser's FCM token from Firestore before signing out.
-  // Prevents the token from remaining associated with this UID after sign-out:
-  // if a different account signs in on the same device, getToken() returns the
-  // same browser registration, and without this cleanup both accounts would share
-  // the token — notifications intended for the previous user would reach the new one.
   const uid = auth.currentUser?.uid;
   if (uid) {
-    await updateDoc(
+    const cleaned = await updateDoc(
       doc(db, 'users', uid, 'private', 'preferences'),
       { fcmToken: deleteField() }
-    ).catch(() => {}); // best-effort: offline or missing doc must never block logout
+    ).then(() => true).catch(() => false); // best-effort: offline must never block logout
+
+    if (!cleaned && fcmOwnerUid !== null) {
+      // Cleanup failed — restore marker so account-switch detection still works.
+      localStorage.setItem('parqueen_fcm_owner_uid', fcmOwnerUid);
+    }
   }
 
   await signOut(auth);
