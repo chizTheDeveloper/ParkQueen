@@ -1296,6 +1296,36 @@ describe('TM-04 — private user data isolation', () => {
         );
     });
 
+    it('FCM-5: owner can delete fcmToken from private/preferences (logout cleanup)', async () => {
+        // Proves the logout-time updateDoc({ fcmToken: deleteField() }) is permitted.
+        // Seed with an existing token first.
+        await seed('users/' + OWNER_UID + '/private', 'preferences', { notificationRadius: 2, fcmToken: 'tok_to_remove' });
+        const { updateDoc: upd, deleteField: df } = await import('firebase/firestore');
+        await assertSucceeds(
+            upd(doc(ownerDb(), 'users', OWNER_UID, 'private', 'preferences'), { fcmToken: df() })
+        );
+    });
+
+    it('FCM-6: deleting fcmToken leaves other preference fields intact (no full-doc overwrite)', async () => {
+        // After deleteField, notificationRadius must survive.
+        await seed('users/' + OWNER_UID + '/private', 'preferences', { notificationRadius: 3, fcmToken: 'tok_old' });
+        const { updateDoc: upd, deleteField: df, getDoc: gd } = await import('firebase/firestore');
+        await assertSucceeds(
+            upd(doc(ownerDb(), 'users', OWNER_UID, 'private', 'preferences'), { fcmToken: df() })
+        );
+        const snap = await gd(doc(ownerDb(), 'users', OWNER_UID, 'private', 'preferences'));
+        expect(snap.data()?.notificationRadius).toBe(3);
+        expect(snap.data()?.fcmToken).toBeUndefined();
+    });
+
+    it('FCM-7: other user cannot delete fcmToken from owner private/preferences', async () => {
+        await seed('users/' + OWNER_UID + '/private', 'preferences', { fcmToken: 'tok_secure' });
+        const { updateDoc: upd, deleteField: df } = await import('firebase/firestore');
+        await assertFails(
+            upd(doc(otherDb(), 'users', OWNER_UID, 'private', 'preferences'), { fcmToken: df() })
+        );
+    });
+
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════

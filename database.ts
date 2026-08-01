@@ -1,6 +1,6 @@
 import { auth, db } from './firebaseConfig';
 import { signOut, updateProfile, sendPasswordResetEmail as _sendPasswordResetEmail } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, setDoc, updateDoc, deleteField, serverTimestamp } from "firebase/firestore";
 import { getFunctions, httpsCallable } from 'firebase/functions';
 
 interface UserProfile {
@@ -50,6 +50,20 @@ export const logoutUser = async () => {
   const theme = localStorage.getItem('theme');
   localStorage.clear();
   if (theme !== null) localStorage.setItem('theme', theme);
+
+  // Remove this browser's FCM token from Firestore before signing out.
+  // Prevents the token from remaining associated with this UID after sign-out:
+  // if a different account signs in on the same device, getToken() returns the
+  // same browser registration, and without this cleanup both accounts would share
+  // the token — notifications intended for the previous user would reach the new one.
+  const uid = auth.currentUser?.uid;
+  if (uid) {
+    await updateDoc(
+      doc(db, 'users', uid, 'private', 'preferences'),
+      { fcmToken: deleteField() }
+    ).catch(() => {}); // best-effort: offline or missing doc must never block logout
+  }
+
   await signOut(auth);
 };
 

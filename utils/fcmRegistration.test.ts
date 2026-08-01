@@ -4,8 +4,9 @@ import { describe, it, expect } from 'vitest';
 
 const root = process.cwd();
 const appTsx = readFileSync(resolve(root, 'App.tsx'), 'utf-8');
+const dbTs   = readFileSync(resolve(root, 'database.ts'), 'utf-8');
 
-// ── Upsert instead of update-only ──────────────────────────────────────────
+// ── Upsert on sign-in ──────────────────────────────────────────────────────
 
 describe('FCM token registration — upsert semantics', () => {
   it('uses setDoc with merge:true to register the FCM token', () => {
@@ -15,15 +16,7 @@ describe('FCM token registration — upsert semantics', () => {
   });
 
   it('does not use updateDoc for the FCM registration write', () => {
-    // Confirm the previous failing pattern was removed.
-    // updateDoc for other unrelated fields is permitted; only the FCM-specific call is checked.
     expect(appTsx).not.toContain("updateDoc(doc(db, 'users', firebaseUser.uid, 'private', 'preferences'), { fcmToken:");
-  });
-
-  it('a missing private/preferences document can be created via setDoc merge', () => {
-    // setDoc with merge:true is equivalent to create-or-update — safe for first-time users.
-    // The Rules allow write for owner on private/preferences covering both create and update.
-    expect(appTsx).toContain("{ merge: true }");
   });
 
   it('existing preference fields are preserved — only fcmToken is specified in the write', () => {
@@ -33,40 +26,87 @@ describe('FCM token registration — upsert semantics', () => {
 
   it('FCM token is never written to the public root user document', () => {
     // Token must only go to users/{uid}/private/preferences — never to users/{uid}.
-    // Check that no updateDoc/setDoc call targets the root doc with fcmToken.
     expect(appTsx).not.toMatch(/updateDoc\(doc\(db,\s*['"]users['"]\s*,\s*\w+\s*\)\s*,\s*\{[^}]*fcmToken/);
     expect(appTsx).not.toMatch(/setDoc\(doc\(db,\s*['"]users['"]\s*,\s*\w+\s*\)\s*,\s*\{[^}]*fcmToken/);
   });
 
   it('FCM token value is never logged', () => {
-    // Tokens must not appear in console.log/warn/error calls alongside currentToken.
-    // The error handler only logs 'FCM save error', not the token value.
     expect(appTsx).not.toContain('console.log(currentToken');
     expect(appTsx).not.toContain('console.warn(currentToken');
     expect(appTsx).not.toContain('console.error(currentToken');
+    expect(dbTs).not.toContain('console.log(uid');
   });
 
-  it('errors are handled without an uncaught rejection', () => {
-    // .catch() must be chained directly on the setDoc promise.
+  it('registration errors are handled without an uncaught rejection', () => {
     expect(appTsx).toContain("}, { merge: true }).catch(e => console.warn('FCM save error', e))");
   });
 });
 
-// ── Logout behavior ─────────────────────────────────────────────────────────
+// ── Logout token cleanup ────────────────────────────────────────────────────
 
-describe('FCM token — logout behavior', () => {
-  it('logout clears account-scoped browser state and signs out', () => {
-    // logoutUser clears localStorage and calls signOut; it does not delete
-    // the device FCM registration (intentional: preserves notification capability
-    // across the session gap; stale tokens are cleaned up server-side by notifyFanout).
-    const dbTs = readFileSync(resolve(root, 'database.ts'), 'utf-8');
+describe('FCM token — logout removes token before signOut', () => {
+  it('logoutUser removes fcmToken via deleteField before calling signOut', () => {
+    // Cross-account fix: without this cleanup, the same browser token could be
+    // stored under both the previous user and the new user if they sign in on
+    // the same device, causing notifications for user A to reach user B's browser.
+    expect(dbTs).toContain('deleteField()');
+    expect(dbTs).toContain("{ fcmToken: deleteField() }");
+  });
+
+  it('deleteField targets private/preferences, not the root user document', () => {
+    expect(dbTs).toContain("'users', uid, 'private', 'preferences'");
+    // Confirm no deleteField touches the root doc
+    expect(dbTs).not.toMatch(/updateDoc\(doc\(db,\s*['"]users['"]\s*,\s*uid\s*\)\s*,\s*\{[^}]*deleteField/);
+  });
+
+  it('token removal is attempted before signOut — ordering is correct', () => {
+    // deleteField call must appear before signOut(auth) in the source.
+    const deleteIdx = dbTs.indexOf('deleteField()');
+    const signOutIdx = dbTs.indexOf('signOut(auth)');
+    expect(deleteIdx).toBeGreaterThan(-1);
+    expect(signOutIdx).toBeGreaterThan(-1);
+    expect(deleteIdx).toBeLessThan(signOutIdx);
+  });
+
+  it('offline cleanup failure never blocks logout — error is caught', () => {
+    // .catch(() => {}) on the updateDoc call ensures signOut proceeds even if
+    // the write fails (offline, missing preferences doc, network error).
+    expect(dbTs).toContain('.catch(() => {})');
+    // signOut still runs after the catch
+    expect(dbTs).toContain('await signOut(auth)');
+  });
+
+  it('logout clears account-scoped browser state', () => {
     expect(dbTs).toContain('localStorage.clear()');
     expect(dbTs).toContain('signOut(auth)');
   });
+});
 
-  it('FCM token is scoped to private/preferences — account switching is safe', () => {
+// ── Account-switch privacy ──────────────────────────────────────────────────
+
+describe('FCM token — account switching cannot create cross-user association', () => {
+  it('sign-in stores token under the authenticated UID, not a shared path', () => {
     // Each user writes their own token to their own private/preferences document.
-    // The new user's setDoc targets their own UID, not the previous user's document.
     expect(appTsx).toContain("'users', firebaseUser.uid, 'private', 'preferences'");
+  });
+
+  it('logout removes token from previous UID before signOut completes', () => {
+    // After signOut, the token is absent from the previous user's Firestore doc.
+    // When the next user signs in and calls getToken(), the same browser token is
+    // stored only under the new UID — no cross-user association.
+    expect(dbTs).toContain("{ fcmToken: deleteField() }");
+    expect(dbTs).toContain('.catch(() => {})');
+  });
+
+  it('notifyFanout stale-token cleanup does not protect against cross-user association', () => {
+    // collectStaleTokens only removes FCM-rejected tokens (invalid/unregistered).
+    // A valid token shared between two users would NOT be caught by this mechanism.
+    // The logout cleanup above is the correct fix; this test documents the gap.
+    const fanout = readFileSync(resolve(root, 'functions/notifyFanout.js'), 'utf-8');
+    expect(fanout).toContain('messaging/registration-token-not-registered');
+    expect(fanout).toContain('messaging/invalid-registration-token');
+    // Confirm there is no cross-user ownership resolution in fanout
+    expect(fanout).not.toContain('cross-user');
+    expect(fanout).not.toContain('account-switch');
   });
 });
