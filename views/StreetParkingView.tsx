@@ -780,6 +780,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
 
         let cancelled = false;
         let watchId: number | undefined;
+        let ro: ResizeObserver | undefined;
 
         const initMap = (center: [number, number]) => {
             if (cancelled || mapRef.current) return;
@@ -790,6 +791,11 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
             setMapReady(true);
 
             map.on('load', () => { map.resize(); });
+
+            // ResizeObserver keeps the Mapbox canvas in sync with the wrapper whenever
+            // the viewport changes (mobile chrome show/hide, orientation change, etc.).
+            ro = new ResizeObserver(() => { map.resize(); });
+            ro.observe(mapContainerRef.current!);
 
             const updateViewportRadius = () => {
                 const b = map.getBounds();
@@ -860,6 +866,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
             cancelled = true;
             clearTimeout(fallbackTimer);
             if (watchId !== undefined) navigator.geolocation.clearWatch(watchId);
+            ro?.disconnect();
             if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; }
         };
     }, []);
@@ -2239,7 +2246,9 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
                 );
             })()}
 
-            <div ref={mapContainerRef} className="sp-map" onClick={() => setSelectedItem(null)} />
+            <div className="sp-map">
+                <div ref={mapContainerRef} style={{ width: '100%', height: '100%' }} onClick={() => setSelectedItem(null)} />
+            </div>
 
             {!mapReady && (
                 <div className="absolute inset-0 z-20 bg-[var(--color-bg)] flex items-center justify-center">
