@@ -107,4 +107,107 @@ describe('deleteAccount flow — overlay lifecycle', () => {
     expect(confirmHandler).not.toContain('setTimeout');
   });
 
+  it('(DA-11) unlinkFcmTokenBeforeDeletion is exported from database.ts', () => {
+    expect(dbTs).toContain('export const unlinkFcmTokenBeforeDeletion');
+  });
+
+  it('(DA-12) unlinkFcmTokenBeforeDeletion targets private/preferences.fcmToken', () => {
+    // Must call deleteField() on the fcmToken field in the private/preferences path.
+    // This covers the gap where the pre-recursiveDelete server implementation left
+    // private/preferences intact after account deletion.
+    expect(dbTs).toContain("'private', 'preferences'");
+    const fnIdx = dbTs.indexOf('unlinkFcmTokenBeforeDeletion');
+    const deleteFieldIdx = dbTs.indexOf('deleteField()', fnIdx);
+    expect(deleteFieldIdx).toBeGreaterThan(fnIdx);
+  });
+
+  it('(DA-13) unlinkFcmTokenBeforeDeletion has a uid guard — no-op when signed out', () => {
+    // If called after signOut (e.g. defensive call), it must return early without
+    // attempting a Firestore write that would fail the Rules check.
+    expect(dbTs).toContain("auth.currentUser?.uid");
+    const fnIdx = dbTs.indexOf('unlinkFcmTokenBeforeDeletion');
+    const guardIdx = dbTs.indexOf('if (!uid) return', fnIdx);
+    expect(guardIdx).toBeGreaterThan(fnIdx);
+  });
+
+  it('(DA-14) unlinkFcmTokenBeforeDeletion swallows Firestore errors — non-blocking', () => {
+    // Deletion must proceed even when the token unlink fails (offline, token already absent).
+    const fnIdx = dbTs.indexOf('unlinkFcmTokenBeforeDeletion');
+    const catchIdx = dbTs.indexOf('.catch(() => {})', fnIdx);
+    expect(catchIdx).toBeGreaterThan(fnIdx);
+  });
+
+  it('(DA-15) clearLocalAccountState is called after deleteUser in handleDeleteConfirm', () => {
+    const confirmStart    = appTsx.indexOf('const handleDeleteConfirm');
+    const deleteUserIdx   = appTsx.indexOf('await deleteUser()', confirmStart);
+    const clearLocalIdx   = appTsx.indexOf('clearLocalAccountState()', deleteUserIdx);
+    expect(clearLocalIdx).toBeGreaterThan(deleteUserIdx);
+  });
+
+  it('(DA-16) clearLocalAccountState is called after deleteUser in handleReauthVerifyOtp', () => {
+    const reauthStart   = appTsx.indexOf('const handleReauthVerifyOtp');
+    const deleteUserIdx = appTsx.indexOf('await deleteUser()', reauthStart);
+    const clearLocalIdx = appTsx.indexOf('clearLocalAccountState()', deleteUserIdx);
+    expect(clearLocalIdx).toBeGreaterThan(deleteUserIdx);
+  });
+
+  it('(DA-17) unlinkFcmTokenBeforeDeletion is called before deleteUser in handleDeleteConfirm', () => {
+    // Token must be unlinked while auth.currentUser is still valid — before deleteUser()
+    // calls signOut. This covers the pre-recursiveDelete server gap.
+    const confirmStart = appTsx.indexOf('const handleDeleteConfirm');
+    const unlinkIdx    = appTsx.indexOf('unlinkFcmTokenBeforeDeletion()', confirmStart);
+    const deleteUserIdx = appTsx.indexOf('await deleteUser()', confirmStart);
+    expect(unlinkIdx).toBeGreaterThan(confirmStart);
+    expect(unlinkIdx).toBeLessThan(deleteUserIdx);
+  });
+
+  it('(DA-18) unlinkFcmTokenBeforeDeletion is called before deleteUser in handleReauthVerifyOtp', () => {
+    const reauthStart   = appTsx.indexOf('const handleReauthVerifyOtp');
+    const unlinkIdx     = appTsx.indexOf('unlinkFcmTokenBeforeDeletion()', reauthStart);
+    const deleteUserIdx = appTsx.indexOf('await deleteUser()', reauthStart);
+    expect(unlinkIdx).toBeGreaterThan(reauthStart);
+    expect(unlinkIdx).toBeLessThan(deleteUserIdx);
+  });
+
+  it('(DA-19) clearLocalAccountState preserves theme and parqueen_lang', () => {
+    // Device-scoped preferences must survive account deletion.
+    // FCM ownership markers must NOT be preserved (cleared markers trigger legacyInstall
+    // rotation on the next sign-in, preventing a deleted account's token from being reused).
+    const helperStart = appTsx.indexOf('const clearLocalAccountState');
+    const helperEnd   = appTsx.indexOf('export default function App', helperStart);
+    const helperText  = appTsx.slice(helperStart, helperEnd);
+    expect(helperText).toContain("'theme'");
+    expect(helperText).toContain("'parqueen_lang'");
+    expect(helperText).not.toContain("'parqueen_fcm_owner_uid'");
+    expect(helperText).not.toContain("'parqueen_fcm_owner_version'");
+  });
+
+  it('(DA-20) clearLocalAccountState calls localStorage.clear() — not selective removal', () => {
+    // Full clear is required to remove all account-scoped keys (lastReadChat_*, timer,
+    // spot state, etc.) without enumerating each key explicitly.
+    const helperStart = appTsx.indexOf('const clearLocalAccountState');
+    const helperEnd   = appTsx.indexOf('export default function App', helperStart);
+    const helperText  = appTsx.slice(helperStart, helperEnd);
+    expect(helperText).toContain('localStorage.clear()');
+  });
+
+  it('(DA-21) no raw localStorage.clear() in deletion handlers — replaced by clearLocalAccountState', () => {
+    // Both handlers must use the helper, not raw localStorage.clear(), so device-scoped
+    // preferences are preserved and the clear contract is centralized.
+    const confirmStart  = appTsx.indexOf('const handleDeleteConfirm');
+    const renderViewIdx = appTsx.indexOf('const renderView', confirmStart);
+    const confirmText   = appTsx.slice(confirmStart, renderViewIdx);
+    expect(confirmText).not.toContain('localStorage.clear()');
+
+    const reauthStart = appTsx.indexOf('const handleReauthVerifyOtp');
+    const reauthEnd   = appTsx.indexOf('const handleReauthResend', reauthStart);
+    const reauthText  = appTsx.slice(reauthStart, reauthEnd);
+    expect(reauthText).not.toContain('localStorage.clear()');
+  });
+
+  it('(DA-22) logoutUser remains intact for normal logout — not removed from database.ts', () => {
+    expect(dbTs).toContain('export const logoutUser');
+    expect(dbTs).toContain('fcmToken: deleteField()');
+  });
+
 });

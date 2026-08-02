@@ -41,7 +41,7 @@ import { getLang, setLang, t } from './i18n';
 import { getLanguageHydrationAction } from './utils/languageHydration';
 import { ChevronLeft } from 'lucide-react';
 import ErrorBoundary from './ErrorBoundary';
-import { saveUserProfile, logoutUser, deleteUser } from './database';
+import { saveUserProfile, logoutUser, deleteUser, unlinkFcmTokenBeforeDeletion } from './database';
 import { ConfirmationResult, RecaptchaVerifier, reauthenticateWithPhoneNumber, signOut } from 'firebase/auth';
 import { maskPhoneNumber, verifyUidUnchanged } from './utils/reauthBeforeDelete';
 import { auth, db } from './firebaseConfig';
@@ -49,6 +49,18 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { doc, onSnapshot, getDoc, updateDoc, setDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { getToken, deleteToken, onMessage } from 'firebase/messaging';
 import { getFCM } from './firebaseConfig';
+
+// Clears all account-scoped browser state after account deletion.
+// Preserves device-scoped preferences (theme, language) so they survive account transitions.
+// Clearing FCM ownership markers ensures legacyInstall detection on the next sign-in,
+// which calls deleteToken before associating a new registration with the new account.
+const clearLocalAccountState = () => {
+  const theme = localStorage.getItem('theme');
+  const lang  = localStorage.getItem('parqueen_lang');
+  localStorage.clear();
+  if (theme !== null) localStorage.setItem('theme', theme);
+  if (lang  !== null) localStorage.setItem('parqueen_lang', lang);
+};
 
 export default function App() {
   const [currentView, setCurrentView] = useState(AppView.CREATE_ACCOUNT);
@@ -430,8 +442,9 @@ export default function App() {
       await confirmationResult.confirm(reauthOtp);
       // UID preservation check — abort if a different account was signed in during OTP
       verifyUidUnchanged(auth.currentUser?.uid, originalUid);
+      await unlinkFcmTokenBeforeDeletion();
       await deleteUser();
-      localStorage.clear();
+      clearLocalAccountState();
       setDeletePhase('idle');
     } catch (e: any) {
       if (e?.code === 'auth/account-switched') { try { await signOut(auth); } catch {} }
@@ -460,8 +473,9 @@ export default function App() {
     if (deletePhase === 'deleting') return;
     setDeletePhase('deleting');
     try {
+      await unlinkFcmTokenBeforeDeletion();
       await deleteUser();
-      localStorage.clear();
+      clearLocalAccountState();
       setDeletePhase('idle');
     } catch (error: any) {
       console.error("Failed to delete account:", error);

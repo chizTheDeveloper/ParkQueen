@@ -78,6 +78,19 @@ export const updateUser = async (userId: string, data: Record<string, any>) => {
 export const sendPasswordResetEmail = (email: string) =>
   _sendPasswordResetEmail(auth, email);
 
+// Best-effort FCM token removal from private/preferences before account deletion.
+// Called while Auth is still valid. Covers the gap in the pre-recursiveDelete server
+// implementation where private/preferences was not included in the batch delete.
+// Errors are swallowed — deletion must not be blocked by a failed token unlink.
+export const unlinkFcmTokenBeforeDeletion = async (): Promise<void> => {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return;
+  await updateDoc(
+    doc(db, 'users', uid, 'private', 'preferences'),
+    { fcmToken: deleteField() }
+  ).catch(() => {});
+};
+
 export const deleteUser = async () => {
   if (!auth.currentUser) throw new Error("No user is currently signed in.");
   const fn = httpsCallable(getFunctions(undefined, 'us-central1'), 'deleteAccount');
