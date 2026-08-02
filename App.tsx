@@ -228,7 +228,10 @@ export default function App() {
           }
         }
       } else {
-        // No user is logged in
+        // No user is logged in — clear any pending deletion modal before rerouting.
+        // Successful deletion triggers this branch via signOut(); without this reset
+        // deletePhase stays 'deleting' and the modal survives the Auth transition.
+        setDeletePhase('idle');
         setUser(null);
         if (isAdminDomain) {
           setCurrentView(AppView.ADMIN_LOGIN);
@@ -419,6 +422,7 @@ export default function App() {
 
   const handleReauthVerifyOtp = async () => {
     if (!confirmationResult || reauthOtp.length < 6) return;
+    if (deletePhase === 'deleting') return;
     const originalUid = originalUidRef.current;
     if (!originalUid) { setDeletePhase('failed'); return; }
     setDeletePhase('deleting');
@@ -428,7 +432,7 @@ export default function App() {
       verifyUidUnchanged(auth.currentUser?.uid, originalUid);
       await deleteUser();
       localStorage.clear();
-      await logoutUser();
+      setDeletePhase('idle');
     } catch (e: any) {
       if (e?.code === 'auth/account-switched') { try { await signOut(auth); } catch {} }
       clearReauthState();
@@ -453,11 +457,12 @@ export default function App() {
   };
 
   const handleDeleteConfirm = async () => {
+    if (deletePhase === 'deleting') return;
     setDeletePhase('deleting');
     try {
       await deleteUser();
       localStorage.clear();
-      await logoutUser();
+      setDeletePhase('idle');
     } catch (error: any) {
       console.error("Failed to delete account:", error);
       if (error?.code === 'functions/failed-precondition') {
