@@ -12,6 +12,7 @@ import {
     maskPhone,
 } from '../utils/phone';
 import type { CountryCode } from '../utils/phone';
+import { clearRecaptchaVerifier, replaceRecaptchaVerifier } from '../utils/recaptchaLifecycle';
 
 interface CreateAccountViewProps {
     onContinue: (phoneE164: string, confirmationResult: ConfirmationResult) => void;
@@ -42,6 +43,7 @@ export const CreateAccountView: React.FC<CreateAccountViewProps> = ({ onContinue
     const [sending, setSending] = useState(false);
     const [error, setError] = useState('');
     const recaptchaRef = useRef<RecaptchaVerifier | null>(null);
+    const sendingRef = useRef(false);
 
     const prefersReduced =
         typeof window !== 'undefined' &&
@@ -60,10 +62,8 @@ export const CreateAccountView: React.FC<CreateAccountViewProps> = ({ onContinue
         '';
 
     useEffect(() => {
-        if (!recaptchaRef.current) {
-            recaptchaRef.current = new RecaptchaVerifier(auth, 'recaptcha-container', { size: 'invisible' });
-        }
-        return () => { recaptchaRef.current = null; };
+        replaceRecaptchaVerifier(recaptchaRef, auth, 'recaptcha-container');
+        return () => clearRecaptchaVerifier(recaptchaRef);
     }, []);
 
     const handleCountryChange = (country: CountryCode) => {
@@ -93,19 +93,27 @@ export const CreateAccountView: React.FC<CreateAccountViewProps> = ({ onContinue
     };
 
     const handleSend = async () => {
-        if (!phoneE164 || sending) return;
+        if (!phoneE164 || sendingRef.current) return;
+        sendingRef.current = true;
         setError('');
         setSending(true);
         try {
-            const result = await signInWithPhoneNumber(auth, phoneE164, recaptchaRef.current!);
+            const verifier = recaptchaRef.current
+                ?? replaceRecaptchaVerifier(recaptchaRef, auth, 'recaptcha-container');
+            const result = await signInWithPhoneNumber(auth, phoneE164, verifier);
             onContinue(phoneE164, result);
+            clearRecaptchaVerifier(recaptchaRef);
         } catch (e: any) {
+            clearRecaptchaVerifier(recaptchaRef);
             // Log masked — never log full phone
             console.error('Send OTP failed:', maskPhone(phoneE164), e?.code);
             if (e.code === 'auth/too-many-requests') setError(t('create_account.error_too_many'));
             else if (e.code === 'auth/invalid-phone-number') setError(t('create_account.error_invalid'));
-            else setError(e.message || t('create_account.error_generic'));
+            else if (['auth/invalid-app-credential', 'auth/missing-app-credential', 'auth/captcha-check-failed'].includes(e?.code)) {
+                setError(t('phone_auth.error_expired'));
+            } else setError(t('create_account.error_generic'));
         } finally {
+            sendingRef.current = false;
             setSending(false);
         }
     };

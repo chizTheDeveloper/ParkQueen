@@ -368,6 +368,7 @@ const es: Record<string, string> = {
     'create_account.error_unsupported': 'La verificación telefónica aún no está disponible para este país.',
     'create_account.error_too_many': 'Demasiados intentos. Intenta más tarde.',
     'create_account.error_generic': 'No se pudo enviar el código. Intenta de nuevo.',
+    'phone_auth.error_expired': 'La verificación expiró. Intenta enviar el código de nuevo.',
 
     // Country selector
     'phone.country_selector.title': 'Selecciona un país',

@@ -5,6 +5,7 @@ import { t, useLang } from '../i18n';
 import { maskPhone, maskPhoneForDisplay } from '../utils/phone';
 import { filterOtpInput, otpErrorKey, isOtpComplete } from '../utils/otp';
 import { SignupProgress } from '../components/SignupProgress';
+import { clearRecaptchaVerifier, replaceRecaptchaVerifier } from '../utils/recaptchaLifecycle';
 
 interface VerifyPhoneViewProps {
     // phone is canonical E.164, e.g. "+15555551234" or "+51987654321"
@@ -31,6 +32,8 @@ export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({
     const [confirmation, setConfirmation] = useState<ConfirmationResult>(initialConfirmation);
     const inputRef = useRef<HTMLInputElement>(null);
     const recaptchaRef = useRef<RecaptchaVerifier | null>(null);
+    const resendingRef = useRef(false);
+    const verifyingRef = useRef(false);
 
     const prefersReduced =
         typeof window !== 'undefined' &&
@@ -45,15 +48,21 @@ export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({
         return () => clearTimeout(timer);
     }, [cooldown]);
 
+    useEffect(() => () => clearRecaptchaVerifier(recaptchaRef), []);
+
     const doVerify = async (codeToVerify: string) => {
+        if (verifyingRef.current) return;
+        verifyingRef.current = true;
         setError('');
         setVerifying(true);
         try {
             await confirmation.confirm(codeToVerify);
+            clearRecaptchaVerifier(recaptchaRef);
             onVerify(confirmation);
         } catch (e: any) {
             console.error('OTP verification failed:', e?.code);
             setError(t(otpErrorKey(e?.code ?? '')));
+            verifyingRef.current = false;
             setVerifying(false);
         }
     };
@@ -72,19 +81,27 @@ export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({
     };
 
     const handleResend = async () => {
+        if (resendingRef.current) return;
+        resendingRef.current = true;
         setError('');
         try {
-            if (!recaptchaRef.current) {
-                recaptchaRef.current = new RecaptchaVerifier(auth, 'recaptcha-resend', { size: 'invisible' });
-            }
+            const verifier = replaceRecaptchaVerifier(recaptchaRef, auth, 'recaptcha-resend');
             // phone is canonical E.164 — use directly, no stripping or prefix
-            const result = await signInWithPhoneNumber(auth, phone, recaptchaRef.current);
+            const result = await signInWithPhoneNumber(auth, phone, verifier);
             setConfirmation(result);
+            clearRecaptchaVerifier(recaptchaRef);
             setCode('');
             setCooldown(30);
         } catch (e: any) {
+            clearRecaptchaVerifier(recaptchaRef);
             console.error('Resend failed:', maskPhone(phone), e?.code);
-            setError(t('verify_phone.resend_failed'));
+            if (['auth/invalid-app-credential', 'auth/missing-app-credential', 'auth/captcha-check-failed'].includes(e?.code)) {
+                setError(t('phone_auth.error_expired'));
+            } else {
+                setError(t('verify_phone.resend_failed'));
+            }
+        } finally {
+            resendingRef.current = false;
         }
     };
 
