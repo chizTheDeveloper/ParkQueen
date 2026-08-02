@@ -7,6 +7,7 @@ export default defineConfig({
     include: [
       'functions/deleteAccount.integration.test.js',
       'functions/initUserPrivateAccount.integration.test.js',
+      'functions/verifyEmailOTP.integration.test.js',
       'functions/rateLimiter.integration.test.js',
       'functions/moderateAvatarUpload.integration.test.js',
       'functions/rateLimitCallable.integration.test.js',

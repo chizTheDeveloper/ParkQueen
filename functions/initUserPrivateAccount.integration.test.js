@@ -142,6 +142,25 @@ describe('§3 — initUserPrivateAccount trigger', () => {
         expect(accountSnap.data()).toHaveProperty('moderationStatus');
     });
 
+    it('(OB-9) merge:true does not overwrite a pre-seeded email in private/account', async () => {
+        const UID_E = 'onboarding_test_e';
+        await nukeUser(UID_E);
+        try {
+            // Simulates verifyEmailOTP having already run before the trigger fires
+            await db.doc(`users/${UID_E}/private/account`).set({ email: 'preserved@example.com' });
+            await createUserDoc(UID_E);
+            const data = await waitFor(async () => {
+                const snap = await db.doc(`users/${UID_E}/private/account`).get();
+                const d = snap.exists ? snap.data() : null;
+                return d?.moderationStatus ? d : null;
+            });
+            expect(data.moderationStatus).toBe('active');
+            expect(data.email).toBe('preserved@example.com');
+        } finally {
+            await nukeUser(UID_E);
+        }
+    });
+
     it('(OB-8) deleting and re-creating user doc re-triggers initialization', async () => {
         const UID_D = 'onboarding_test_d';
         await nukeUser(UID_D);
