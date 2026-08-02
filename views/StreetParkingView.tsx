@@ -17,6 +17,7 @@ import { getMapboxToken } from '../utils/browserCredentials';
 import { t, useLang } from '../i18n';
 import { VehicleIcon } from '../utils/vehicleIcon';
 import { getTitleForCrowns } from '../utils/crowns';
+import { createUserLocationGeohashPersister } from '../utils/userLocationGeohash';
 
 const IMMEDIATE_PING_EXPIRY_MS = 30 * 60 * 1000;
 const SCHEDULED_PING_EXPIRY_MS = 60 * 60 * 1000;
@@ -83,6 +84,14 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
 
     const userRef = useRef(user);
     useEffect(() => { userRef.current = user; }, [user]);
+    const userLocationGeohashPersisterRef = useRef(createUserLocationGeohashPersister(
+        async (uid, geohash) => {
+            await setDoc(doc(db, 'userLocations', uid), {
+                lastGeohash: geohash,
+                lastGeohashUpdatedAt: serverTimestamp(),
+            }, { merge: true });
+        },
+    ));
     // Tracks last GPS accuracy reading from watchPosition — used at saveMySpot time
     const lastGpsAccuracyRef = useRef<number | null>(null);
 
@@ -842,11 +851,12 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
 
                     try {
                         const newGeohash = geofire.geohashForLocation([latitude, longitude]);
-                        const newPrefix = newGeohash.substring(0, 5);
-                        const currentPrefix = userRef.current?.lastGeohash?.substring(0, 5);
-                        if (userRef.current && db && newPrefix !== currentPrefix) {
-                            updateDoc(doc(db, 'userLocations', userRef.current.id), { lastGeohash: newGeohash, lastGeohashUpdatedAt: serverTimestamp() }).catch(e => console.warn('Failed to update lastGeohash', e));
-                        }
+                        void userLocationGeohashPersisterRef.current.persist({
+                            trackingAllowed: allowLocationTrackingRef.current,
+                            authUid: auth.currentUser?.uid ?? null,
+                            ownerUid: userRef.current?.id ?? null,
+                            geohash: newGeohash,
+                        }).catch(e => console.warn('Failed to persist lastGeohash', e));
                     } catch (err) {
                         console.error("Geohash generation error:", err);
                     }

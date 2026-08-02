@@ -1,5 +1,19 @@
 # ParQueen Engineering Handoff
 
+## userLocations geohash first-write fix — 2026-08-02
+
+- Branch: `codex/fix-userlocation-lastgeohash-initialization`, created from production `origin/main` at `73dd4db3b2dad8f9a9c7e280a761458727f416ac`.
+- Root cause: TM-04 moved the GPS geohash write from `users/{uid}` to `userLocations/{uid}` but retained `updateDoc`, while runtime account creation never creates `userLocations/{uid}`. A new or recreated account therefore reached its first consented GPS callback with no target document, and `updateDoc` failed with `No document to update`. The old dedupe comparison also read the removed root-user `lastGeohash`, allowing repeated attempts.
+- The map now delegates to a session-local persister that requires granted tracking, a current Auth UID, and matching rendered-owner UID. It serializes writes, deduplicates an owner/geohash-prefix only after success, and leaves failures retryable.
+- The write is one Rules-compatible `setDoc(..., { merge: true })` containing both `lastGeohash` and `lastGeohashUpdatedAt: serverTimestamp()`. No root user field, consent document, global cache, backend, Function, or Rules change was introduced.
+- Added eight unit behaviors for first write, synchronous concurrency suppression, prefix dedupe, retry after failure, denied permission, null Auth, owner mismatch/missing owner, and deleted/recreated UID separation.
+- Added four Firestore emulator behaviors proving missing-document creation, existing-document merge, concurrent first merges, and separate old/new UID ownership. Existing Rules coverage continues to reject anonymous, wrong-owner, and unexpected-field writes.
+- Fresh gates: TypeScript passed; unit tests 898/898; Firestore Rules tests 176/176; Functions integration tests 145/145; production build completed with 1,680 modules; `node --check functions/index.js` passed. Existing Functions Node 24 host/requested Node 20 and outdated `firebase-functions` warnings remain; Vite retains its existing CJS, mixed dynamic/static import, and large-chunk warnings.
+- Gitleaks found zero leaks across the completed 50.29 MB working tree, 400 commits in `origin/main`, and all 425 reachable commits.
+- No Firebase resource was deployed. `main`, the canonical Rules, backend behavior, notification behavior, and the separate Parsona worktree were not modified.
+
+---
+
 ## Phone-auth reCAPTCHA lifecycle fix — 2026-08-02
 
 - Branch: `codex/fix-phone-auth-recaptcha-lifecycle`, created from production `main` at `6fe405690d691843e340717e09866cfaa6510d64`.

@@ -1265,6 +1265,72 @@ describe('TM-04 — private user data isolation', () => {
         );
     });
 
+    it('UL-1: first authorized merge creates a complete userLocations document', async () => {
+        const locationRef = doc(ownerDb(), 'userLocations', OWNER_UID);
+        await assertSucceeds(
+            setDoc(locationRef, {
+                lastGeohash: 'dr5ru7k2',
+                lastGeohashUpdatedAt: Timestamp.now(),
+            }, { merge: true })
+        );
+
+        const snapshot = await getDoc(locationRef);
+        expect(snapshot.data()?.lastGeohash).toBe('dr5ru7k2');
+        expect(snapshot.data()?.lastGeohashUpdatedAt).toBeInstanceOf(Timestamp);
+    });
+
+    it('UL-2: merge updates an existing location without losing required fields', async () => {
+        await seed('userLocations', OWNER_UID, {
+            lastGeohash: 'dr5ruold',
+            lastGeohashUpdatedAt: Timestamp.fromMillis(Date.now() - 30_000),
+        });
+        const locationRef = doc(ownerDb(), 'userLocations', OWNER_UID);
+
+        await assertSucceeds(
+            setDoc(locationRef, {
+                lastGeohash: 'dr5runew',
+                lastGeohashUpdatedAt: Timestamp.now(),
+            }, { merge: true })
+        );
+
+        const data = (await getDoc(locationRef)).data();
+        expect(data?.lastGeohash).toBe('dr5runew');
+        expect(data?.lastGeohashUpdatedAt).toBeInstanceOf(Timestamp);
+        expect(Object.keys(data ?? {}).sort()).toEqual(['lastGeohash', 'lastGeohashUpdatedAt']);
+    });
+
+    it('UL-3: concurrent valid first merges are safe for a missing document', async () => {
+        const locationRef = doc(ownerDb(), 'userLocations', OWNER_UID);
+        await Promise.all([
+            assertSucceeds(setDoc(locationRef, {
+                lastGeohash: 'dr5ru7k2',
+                lastGeohashUpdatedAt: Timestamp.now(),
+            }, { merge: true })),
+            assertSucceeds(setDoc(locationRef, {
+                lastGeohash: 'dr5ru7k3',
+                lastGeohashUpdatedAt: Timestamp.now(),
+            }, { merge: true })),
+        ]);
+
+        const data = (await getDoc(locationRef)).data();
+        expect(['dr5ru7k2', 'dr5ru7k3']).toContain(data?.lastGeohash);
+        expect(data?.lastGeohashUpdatedAt).toBeInstanceOf(Timestamp);
+    });
+
+    it('UL-4: deleted and recreated accounts own separate location documents', async () => {
+        await assertSucceeds(setDoc(doc(ownerDb(), 'userLocations', OWNER_UID), {
+            lastGeohash: 'dr5ruold',
+            lastGeohashUpdatedAt: Timestamp.now(),
+        }, { merge: true }));
+        await assertSucceeds(setDoc(doc(otherDb(), 'userLocations', OTHER_UID), {
+            lastGeohash: 'dr5runew',
+            lastGeohashUpdatedAt: Timestamp.now(),
+        }, { merge: true }));
+
+        expect((await getDoc(doc(ownerDb(), 'userLocations', OWNER_UID))).data()?.lastGeohash).toBe('dr5ruold');
+        expect((await getDoc(doc(otherDb(), 'userLocations', OTHER_UID))).data()?.lastGeohash).toBe('dr5runew');
+    });
+
     // FCM upsert compatibility — proves setDoc{merge:true} is allowed on private/preferences
     // even when the document does not already exist (new user, no prior setDoc from onboarding).
     it('FCM-1: owner can create private/preferences with only fcmToken (simulates first sign-in upsert)', async () => {
