@@ -1,5 +1,21 @@
 # ParQueen Engineering Handoff
 
+## Phone-auth reCAPTCHA lifecycle fix — 2026-08-02
+
+- Branch: `codex/fix-phone-auth-recaptcha-lifecycle`, created from production `main` at `6fe405690d691843e340717e09866cfaa6510d64`.
+- Root cause: phone-auth views nulled verifier refs without calling `clear()`, so React StrictMode mount/cleanup/remount leaked the first verifier; the deletion flow also retained App-level verifier and `ConfirmationResult` state after successful or cancelled reauthentication.
+- Added a shared caller-owned, ref-based lifecycle utility. Every flow keeps its own verifier ref and unique container; there is no global verifier singleton.
+- All create/replace, failure, successful OTP-send, successful confirmation, cancellation, and unmount paths now clear and null the applicable verifier. Successful and cancelled deletion reauthentication reset all App-level reauthentication state through `clearReauthState()`.
+- Synchronous refs prevent duplicate phone-send, resend, OTP-confirmation, and deletion-reauth submissions before React state can render.
+- Added localized English and Spanish retry messaging for expired or invalid app verification.
+- Behavioral coverage includes clear-before-replace, clear error isolation, missing-container rejection, fresh verifier recreation, flow ownership, success/failure cleanup, App-level deletion cleanup, unique containers, and synchronous duplicate guards.
+- Rendered React StrictMode harness evidence: mount/remount produced `created=2, cleared=1, live=1`; a forced failure followed by two simultaneous retries produced `created=3, cleared=2, live=1, attempts=1`. The temporary harness was removed.
+- Fresh gates: TypeScript passed; unit tests 890/890; Firestore Rules tests 172/172; Functions integration tests 145/145; production build completed with 1,679 modules. Functions tests retain the existing Node 24 host versus requested Node 20 and outdated `firebase-functions` warnings; Vite retains existing dynamic-import and large-chunk warnings.
+- Gitleaks passed with zero findings for the 50.27 MB working directory, 399 commits in `origin/main`, and all 424 reachable commits.
+- No Hosting, Functions, Rules, indexes, Storage, or other Firebase resource was deployed. Production `main` was not modified.
+
+---
+
 ## Firestore Ping synchronization fix — 2026-07-24
 
 - Root cause: the live `spots` listener queried every unexpired status, but the July 21 private-history Rules allow cross-user reads only for `available` and `interested` Pings. Firestore rejected the entire listener with `Missing or insufficient permissions`.
