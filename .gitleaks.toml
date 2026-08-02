@@ -1,0 +1,68 @@
+title = "ParQueen narrowly reviewed public-client identifiers"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Generated and vendor artifacts are not source inputs"
+paths = [
+  '''(^|[\\/])node_modules([\\/]|$)''',
+  '''(^|[\\/])dist([\\/]|$)''',
+  '''(^|[\\/])\.firebase([\\/]|$)''',
+  '''(^|[\\/])(?:firestore-debug|ui-debug|firebase-debug)\.log$'''
+]
+
+[[rules]]
+id = "gcp-api-key"
+
+  [[rules.allowlists]]
+description = "Firebase WEB browser key only in exact client configuration fields"
+condition = "AND"
+regexTarget = "line"
+paths = [
+  '''^firebase\.ts$''',
+  '''^firebaseConfig\.ts$''',
+  '''^public[\\/]firebase-messaging-sw\.js$'''
+]
+regexes = [
+  '''^\s*apiKey:\s*["']AIza[0-9A-Za-z_-]{35}["'],?\s*$'''
+]
+
+[[rules]]
+id = "generic-api-key"
+
+  [[rules.allowlists]]
+description = "Firebase WEB browser key may also match the generic API-key rule"
+condition = "AND"
+regexTarget = "line"
+paths = [
+  '''^firebase\.ts$''',
+  '''^firebaseConfig\.ts$''',
+  '''^public[\\/]firebase-messaging-sw\.js$'''
+]
+regexes = [
+  '''apiKey:\s*["']AIza[0-9A-Za-z_-]{35}["']'''
+]
+
+  [[rules.allowlists]]
+description = "Public Mapbox pk token only in ignored environment files"
+condition = "AND"
+regexTarget = "line"
+paths = [
+  '''^\.env\.local$''',
+  '''^\.env\.production\.local$'''
+]
+regexes = [
+  '''^VITE_MAPBOX_TOKEN\s*=\s*["']?pk\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+["']?\s*$'''
+]
+
+  [[rules.allowlists]]
+description = "Exact noncredential localStorage key used by the product tour"
+condition = "AND"
+regexTarget = "line"
+paths = [
+  '''^views[\\/]street-parking[\\/]AppTour\.tsx$'''
+]
+regexes = [
+  '''TOUR_KEY\s*=\s*["']parqueenAppTourSeen_v1["']'''
+]
