@@ -1,13 +1,18 @@
 # ParQueen Engineering Handoff
 
-## generateEmailOTP secure-RNG deployment blocker — 2026-08-03
+## Email-OTP security hardening — 2026-08-03
 
-- Branch: `codex/fix-generate-email-otp-secure-rng`, created from production `main` at `182e0e432029b57800301d454952b64251b5bbc1`.
-- A controlled `generateEmailOTP`-only rollout was stopped before deployment because the current Function generated six-digit codes with `Math.random()`, which is not a cryptographically secure OTP source and violated the rollout security checklist.
-- The narrow fix uses Node's `crypto.randomInt(100000, 1000000)` and preserves the existing six-digit string record format consumed by the already-deployed `verifyEmailOTP` Function.
-- Added a focused regression test that verifies the six-digit bounds, secure default source, callable integration, and absence of `Math.random()` from the Function block. The test was observed failing before implementation and passing afterward.
-- Fresh gates: TypeScript passed; unit tests 922/922; Firestore Rules tests 176/176; Functions integration tests 146/146; Function syntax passed; production build completed with 1,682 modules. Gitleaks 8.28.0 found zero leaks in the 50.32 MB working tree, 402 commits in `origin/main`, and all 427 reachable commits. Existing Vite and Functions toolchain warnings remain unchanged.
-- No Firebase target, secret version, production data, or provider configuration was changed. Production `generateEmailOTP` remains revision `generateemailotp-00035-ruh` pending protected integration review.
+- Branch: `codex/fix-generate-email-otp-secure-rng`, created from production `main` at `182e0e432029b57800301d454952b64251b5bbc1`; this milestone began at `da1e018c7c941d05e0cdb88d9f05c806350480d9`.
+- Root cause: `generateEmailOTP` accepted almost any string containing `@`, generated codes with `Math.random()`, and used inconsistent email identity across rate limiting, storage, delivery, verification, and the private account. Delivery also made a newly stored code usable before SendGrid confirmed success, and verification compared codes normally and consumed the OTP before its account writes were known to succeed.
+- The canonical email contract trims and lowercases the full ASCII address, validates practical length/local/domain/label rules, preserves dots and plus tags, and performs no provider-specific rewriting. Generation, HMAC rate-limit identity, OTP records, SendGrid delivery, verification, and the owner-only private account all use it. Verification canonicalizes legacy stored mixed-case addresses for backward compatibility.
+- Six-digit codes use Node `crypto.randomInt(100000, 1000000)`. Verification requires exactly six decimal digits and uses equal-length buffers with `crypto.timingSafeEqual`.
+- OTP replacement is request-ID guarded: a code remains `pending` until delivery succeeds, failed delivery removes only its matching pending record, and a delayed older request cannot activate or delete a newer code. Provider responses, bodies, addresses, codes, HMACs, and secrets are not logged; provider failures return one generic client error.
+- Successful verification atomically deletes the OTP, merges the canonical address into `users/{uid}/private/account`, and updates only public `emailVerified`; any account-write failure rolls the entire transaction back. Legacy records without a status remain verifiable.
+- Rate controls retain the 10-per-hour UID bucket, add a 10-per-hour canonical-email HMAC bucket, retain the 60-second per-UID cooldown and 10-per-15-minute verification bucket, and are covered at exact boundaries and under concurrency.
+- Read-only production inspection found no Firestore TTL policy on the `rateLimits` collection group. This is non-blocking for enforcement because rate-limit document IDs contain fixed-window keys; enabling TTL later is recommended only for storage cleanup.
+- Added a 36-case focused security contract covering validation/canonicalization, secure generation, record privacy, delivery errors, replacement/failure ordering, constant-time comparison behavior, legacy compatibility, atomic rollback, concurrency races, and exact rate limits. Independent re-review approved the final delta with no blocking correctness or security findings.
+- Fresh gates: TypeScript passed; unit tests 922/922; Firestore Rules tests 176/176; Functions integration tests 181/181 (including focused email-OTP 36/36); Function syntax passed; production build completed with 1,682 modules. Gitleaks 8.28.0 found zero leaks in the 50.34 MB working tree, 402 commits/52.93 MB in `origin/main`, and 428 commits/53.49 MB across all reachable history. Existing Vite warnings plus the Functions Node 24 host/requested Node 20 and outdated `firebase-functions` warnings remain unchanged.
+- No Firebase target, secret version, production data, provider configuration, `main`, Hosting, Rules, or Parsona worktree was changed. After protected integration and explicit deployment authorization, deploy `generateEmailOTP` and `verifyEmailOTP` together; do not roll out only one side of this shared contract.
 
 ## Scheduled Ping live-transition fix — 2026-08-03
 
