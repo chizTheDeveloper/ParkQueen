@@ -21,7 +21,16 @@ const { osmNameToDOT, streetNameToLikePattern, dotSideToCardinal, BOROUGH_CODE_T
 const { redactForLog, sanitizeError } = require('./redactForLog');
 const { checkRateLimit } = require('./rateLimiter');
 const { haversineDistMiles, filterCandidates, buildMessages, collectStaleTokens, MAX_CANDIDATES, FCM_BATCH } = require('./notifyFanout');
-const { createHmac, randomInt: secureRandomInt, randomUUID, timingSafeEqual } = require('crypto');
+const { createHash, createHmac, randomInt: secureRandomInt, randomUUID, timingSafeEqual } = require('crypto');
+
+function stableId(...parts) {
+  return createHash('sha256').update(parts.map(part => String(part)).join('\u001f')).digest('hex');
+}
+
+function snapshotGeneration(snapshot) {
+  const updated = snapshot.updateTime;
+  return `${updated.seconds}_${updated.nanoseconds}`;
+}
 
 function _canonicalizeEmail(value) {
   if (typeof value !== 'string') throw new HttpsError('invalid-argument', 'Valid email required.');
@@ -312,6 +321,14 @@ function localizeNotification(type, lang, params) {
   return '';
 }
 
+const _pingNotificationHooks = {
+  send: null,
+  sendEach: null,
+  beforeStaleTokenCleanup: null,
+  now: null,
+};
+exports._pingNotificationHooks = _pingNotificationHooks;
+
 // 1d) Scheduled claim reminders + auto-release every 5 minutes
 exports.processScheduledClaims = onSchedule(
   {
@@ -334,7 +351,7 @@ exports.processScheduledClaims = onSchedule(
 
     for (const d of reminderSnap.docs) {
       const spot = d.data();
-      if (!spot.interestedUserId) continue;
+      if (!spot.interestedUserId || spot.interestedUserId === spot.finderId) continue;
 
       const finderName = spot.finderName || "Someone";
 
@@ -343,29 +360,42 @@ exports.processScheduledClaims = onSchedule(
       const prefs = prefsSnap.exists ? prefsSnap.data() : {};
       const fcmToken = prefs.fcmToken || null;
       const message = localizeNotification('reminder', prefs.lang, { name: finderName });
-      if (fcmToken) {
+      const claimed = await db.runTransaction(async tx => {
+        const fresh = await tx.get(d.ref);
+        if (!fresh.exists) return false;
+        const current = fresh.data();
+        if (current.status !== 'interested' || current.claimState !== 'committed' ||
+            current.interestedUserId !== spot.interestedUserId || !current.claimReminderAt ||
+            current.claimReminderAt.toMillis() > now.toMillis()) return false;
+        const claimId = `claim_${stableId(d.id, snapshotGeneration(fresh), current.interestedUserId)}`;
+        tx.set(db.doc(`spotNotifications/reminder_${claimId}`), {
+          spotId: d.id,
+          senderId: null,
+          actorType: 'system',
+          subjectUserId: current.finderId || null,
+          targetUserId: current.interestedUserId,
+          claimId,
+          type: 'scheduled_claim_reminder',
+          message,
+          createdAt: now,
+        });
+        tx.update(d.ref, { claimReminderAt: null, claimReminderSentAt: now });
+        return true;
+      });
+      if (claimed && fcmToken) {
         try {
-          await getMessaging().send({
+          const push = {
             token: fcmToken,
-            notification: { title: userData.lang === 'es' ? "🅿️ Lugar abriéndose pronto" : "🅿️ Spot opening soon", body: message },
+            notification: { title: prefs.lang === 'es' ? "🅿️ Lugar abriéndose pronto" : "🅿️ Spot opening soon", body: message },
             android: { priority: "high" },
             apns: { payload: { aps: { sound: "default", badge: 1 } } },
-          });
+          };
+          await (_pingNotificationHooks.send?.(push) ?? getMessaging().send(push));
         } catch (e) {
           console.error("FCM reminder failed for", (spot.interestedUserId || '').slice(0, 4) + '***', sanitizeError(e));
         }
       }
 
-      // In-app notification (client listener shows it as a toast)
-      await db.collection("spotNotifications").add({
-        targetUserId: spot.interestedUserId,
-        type: "scheduled_claim_reminder",
-        message,
-        createdAt: now,
-      });
-
-      // Null out claimReminderAt so this doc never re-appears in the reminder query
-      await d.ref.update({ claimReminderAt: null, claimReminderSentAt: now });
     }
 
     // ── Pass 2: Auto-release stale committed claims ───────────────────────────
@@ -378,6 +408,13 @@ exports.processScheduledClaims = onSchedule(
 
     for (const d of releaseSnap.docs) {
       let releasedInfo = null;
+      const initialSpot = d.data();
+      const [claimerSnap, ownerSnap] = await Promise.all([
+        initialSpot.interestedUserId ? db.doc(`users/${initialSpot.interestedUserId}`).get() : null,
+        initialSpot.finderId ? db.doc(`users/${initialSpot.finderId}`).get() : null,
+      ]);
+      const claimerLang = claimerSnap?.exists ? claimerSnap.data().lang : null;
+      const ownerLang = ownerSnap?.exists ? ownerSnap.data().lang : null;
 
       try {
         await db.runTransaction(async (tx) => {
@@ -415,11 +452,40 @@ exports.processScheduledClaims = onSchedule(
             claimAutoReleasedAt: now,
           };
 
+          const claimId = `claim_${stableId(d.id, snapshotGeneration(fresh), spot.interestedUserId)}`;
+
           if (spotExpired) {
             // Ping already expired — clear stale claim fields, don't revive to available
             tx.update(d.ref, clearFields);
           } else {
             tx.update(d.ref, { ...clearFields, status: "available" });
+          }
+
+          if (spot.interestedUserId !== spot.finderId) {
+            tx.set(db.doc(`spotNotifications/released_claimer_${claimId}`), {
+              spotId: d.id,
+              senderId: null,
+              actorType: 'system',
+              subjectUserId: spot.finderId || null,
+              targetUserId: spot.interestedUserId,
+              claimId,
+              type: 'scheduled_claim_auto_released',
+              message: localizeNotification('auto_released_claimer', claimerLang, {}),
+              createdAt: now,
+            });
+            if (spot.finderId && !spotExpired) {
+              tx.set(db.doc(`spotNotifications/released_owner_${claimId}`), {
+                spotId: d.id,
+                senderId: null,
+                actorType: 'system',
+                subjectUserId: spot.interestedUserId,
+                targetUserId: spot.finderId,
+                claimId,
+                type: 'scheduled_claim_released_owner',
+                message: localizeNotification('auto_released_owner', ownerLang, {}),
+                createdAt: now,
+              });
+            }
           }
 
           releasedInfo = {
@@ -434,29 +500,6 @@ exports.processScheduledClaims = onSchedule(
 
       if (!releasedInfo) continue;
 
-      // Fetch claimer and owner language preferences
-      const claimerSnap = await db.doc(`users/${releasedInfo.claimerId}`).get();
-      const claimerLang = claimerSnap.exists ? claimerSnap.data().lang : null;
-
-      // Notify claimer
-      await db.collection("spotNotifications").add({
-        targetUserId: releasedInfo.claimerId,
-        type: "scheduled_claim_auto_released",
-        message: localizeNotification('auto_released_claimer', claimerLang, {}),
-        createdAt: now,
-      });
-
-      // Notify owner only if spot is still live (not expired)
-      if (releasedInfo.finderId && !releasedInfo.spotExpired) {
-        const ownerSnap = await db.doc(`users/${releasedInfo.finderId}`).get();
-        const ownerLang = ownerSnap.exists ? ownerSnap.data().lang : null;
-        await db.collection("spotNotifications").add({
-          targetUserId: releasedInfo.finderId,
-          type: "scheduled_claim_released_owner",
-          message: localizeNotification('auto_released_owner', ownerLang, {}),
-          createdAt: now,
-        });
-      }
     }
 
     console.log(
@@ -471,12 +514,24 @@ exports.incrementTotalSpotsPinged = onDocumentCreated(
     document: "spots/{spotId}",
     region: "us-central1",
   },
-  async () => {
+  async (event) => {
+    const spotId = event.params?.spotId;
+    const spot = event.data?.data?.();
+    if (!spotId || !spot || typeof spot.finderId !== 'string' || !spot.finderId.trim()) return;
     const statsRef = db.doc("stats/global");
-    await statsRef.set(
-      { totalSpotsPinged: FieldValue.increment(1) },
-      { merge: true }
-    );
+    if (typeof event.id !== 'string' || !event.id) return;
+    const eventRef = db.doc(`functionEvents/incrementTotalSpotsPinged_${stableId(event.id)}`);
+    await db.runTransaction(async tx => {
+      if ((await tx.get(eventRef)).exists) return;
+      tx.set(eventRef, {
+        functionName: 'incrementTotalSpotsPinged',
+        sourceEventId: event.id,
+        spotId,
+        actorUserId: spot.finderId,
+        processedAt: Timestamp.now(),
+      });
+      tx.set(statsRef, { totalSpotsPinged: FieldValue.increment(1) }, { merge: true });
+    });
   }
 );
 
@@ -488,7 +543,8 @@ exports.notifyNearbyUsers = onDocumentCreated(
   },
   async (event) => {
     const spotData = event.data.data();
-    if (!spotData || !spotData.geohash) return;
+    if (!spotData || !spotData.geohash || typeof spotData.finderId !== 'string' || !spotData.finderId.trim() ||
+        !Number.isFinite(spotData.lat) || !Number.isFinite(spotData.lng)) return;
 
     const spotGeohash = spotData.geohash;
     // 4-char prefix ≈ 20km coarse filter, then precise distance check
@@ -521,26 +577,76 @@ exports.notifyNearbyUsers = onDocumentCreated(
 
       if (messages.length === 0) return;
 
+      // Claim each recipient before sending. A repeated Firestore event observes
+      // the durable delivery document and cannot duplicate its push or bell row.
+      if (typeof event.id !== 'string' || !event.id) return;
+      const claimedMessages = (await Promise.all(messages.map(async message => {
+        const recipientId = message.recipientUserId;
+        const deliveryId = `nearby_${stableId(event.id, recipientId)}`;
+        const deliveryRef = db.doc(`notificationDeliveries/${deliveryId}`);
+        const bellRef = db.doc(`spotNotifications/${deliveryId}`);
+        return db.runTransaction(async tx => {
+          if ((await tx.get(deliveryRef)).exists) return null;
+          const claimedAt = Timestamp.now();
+          tx.set(deliveryRef, {
+            functionName: 'notifyNearbyUsers',
+            eventId: event.id || null,
+            spotId: event.params.spotId,
+            actorUserId: spotData.finderId,
+            recipientUserId: recipientId,
+            status: 'reserved',
+            reservedAt: claimedAt,
+          });
+          tx.set(bellRef, {
+            spotId: event.params.spotId,
+            senderId: spotData.finderId,
+            targetUserId: recipientId,
+            claimId: null,
+            type: 'nearby_spot',
+            message: 'A new Ping is available nearby.',
+            createdAt: claimedAt,
+          });
+          return { ...message, deliveryId };
+        });
+      }))).filter(Boolean);
+
+      if (claimedMessages.length === 0) return;
+
       let totalSent = 0, totalFailed = 0;
-      const staleTokens = [];
-      for (let i = 0; i < messages.length; i += FCM_BATCH) {
-          const chunk = messages.slice(i, i + FCM_BATCH);
-          const response = await getMessaging().sendEach(chunk);
+      const staleRecipients = [];
+      for (let i = 0; i < claimedMessages.length; i += FCM_BATCH) {
+          const chunk = claimedMessages.slice(i, i + FCM_BATCH);
+          const outbound = chunk.map(({ recipientUserId, deliveryId, ...message }) => message);
+          const response = await (_pingNotificationHooks.sendEach?.(outbound) ?? getMessaging().sendEach(outbound));
           totalSent += response.successCount;
           totalFailed += response.failureCount;
-          staleTokens.push(...collectStaleTokens(chunk, response.responses));
+          const staleTokens = new Set(collectStaleTokens(outbound, response.responses));
+          await Promise.all(chunk.map((message, index) => {
+            const result = response.responses[index];
+            if (staleTokens.has(message.token)) {
+              staleRecipients.push({ userId: message.recipientUserId, token: message.token });
+            }
+            return db.doc(`notificationDeliveries/${message.deliveryId}`).update({
+              status: result?.success ? 'sent' : 'failed',
+              completedAt: Timestamp.now(),
+              failureCode: result?.success ? null : String(result?.error?.code || 'messaging/unknown'),
+            });
+          }));
       }
-      console.log(`Geofence push: ${totalSent} sent, ${totalFailed} failed, ${staleTokens.length} stale tokens`);
+      console.log(`Geofence push: ${totalSent} sent, ${totalFailed} failed, ${staleRecipients.length} stale tokens`);
 
       // Best-effort stale token cleanup
-      if (staleTokens.length > 0) {
-          const tokenSet = new Set(staleTokens);
-          await Promise.all(
-              prefsResults
-                  .filter(r => r.prefs && tokenSet.has(r.prefs.fcmToken))
-                  .map(r => db.doc(`users/${r.userId}/private/preferences`)
-                      .update({ fcmToken: FieldValue.delete() }).catch(() => {}))
-          );
+      if (staleRecipients.length > 0) {
+          await _pingNotificationHooks.beforeStaleTokenCleanup?.();
+          await Promise.all(staleRecipients.map(({ userId, token }) => {
+            const prefsRef = db.doc(`users/${userId}/private/preferences`);
+            return db.runTransaction(async tx => {
+              const current = await tx.get(prefsRef);
+              if (current.exists && current.data().fcmToken === token) {
+                tx.update(prefsRef, { fcmToken: FieldValue.delete() });
+              }
+            }).catch(() => {});
+          }));
       }
     } catch (error) {
       console.error("Error in notifyNearbyUsers:", sanitizeError(error));

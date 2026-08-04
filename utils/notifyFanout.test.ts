@@ -8,6 +8,7 @@ import { describe, it, expect } from 'vitest';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const {
+    decodeGeohashCenter,
     filterCandidates,
     buildMessages,
     collectStaleTokens,
@@ -15,6 +16,7 @@ const {
     MAX_CANDIDATES,
     FCM_BATCH,
 } = require('../functions/notifyFanout') as {
+    decodeGeohashCenter: (hash: string) => [number, number];
     filterCandidates: (
         locDocs: Iterable<{ id: string; data: () => Record<string, unknown> }>,
         spotData: { finderId: string; lat: number; lng: number },
@@ -24,7 +26,7 @@ const {
     buildMessages: (
         prefsResults: Array<{ userId: string; distMiles: number; prefs: Record<string, unknown> | null }>,
         spotId: string,
-    ) => Array<{ token: string; notification: object; data: Record<string, string> }>;
+    ) => Array<{ recipientUserId: string; token: string; notification: object; data: Record<string, string> }>;
     collectStaleTokens: (
         chunk: Array<{ token: string }>,
         responses: Array<{ success: boolean; error?: { code: string } }>,
@@ -33,6 +35,36 @@ const {
     MAX_CANDIDATES: number;
     FCM_BATCH: number;
 };
+
+describe('decodeGeohashCenter', () => {
+    it('decodes a real NYC geohash without relying on a nonexistent geofire-common API', () => {
+        const [lat, lng] = decodeGeohashCenter('dr5regw3p');
+        expect(lat).toBeCloseTo(40.7128, 3);
+        expect(lng).toBeCloseTo(-74.006, 3);
+    });
+
+    it('rejects malformed geohashes', () => {
+        expect(() => decodeGeohashCenter('INVALID')).toThrow('invalid geohash');
+        expect(() => decodeGeohashCenter('')).toThrow('invalid geohash');
+    });
+
+    it.each([
+        [51.5074, -0.1278, 4],
+        [-33.8688, 151.2093, 7],
+        [35.6762, 139.6503, 9],
+        [-34.6037, -58.3816, 12],
+        [0.1, 179.9, 8],
+        [-0.1, -179.9, 8],
+    ])('decodes reference coordinates in every hemisphere and near the antimeridian', (lat, lng, precision) => {
+        const geofire = require('geofire-common');
+        const hash = geofire.geohashForLocation([lat, lng], precision);
+        const [decodedLat, decodedLng] = decodeGeohashCenter(hash);
+        const maxErrorByPrecision: Record<number, number> = { 4: 0.2, 7: 0.001, 8: 0.0002, 9: 0.00003, 12: 0.0000001 };
+        const maxError = maxErrorByPrecision[precision];
+        expect(Math.abs(decodedLat - lat)).toBeLessThan(maxError);
+        expect(Math.abs(decodedLng - lng)).toBeLessThan(maxError);
+    });
+});
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -109,6 +141,16 @@ describe('filterCandidates', () => {
         expect(() => filterCandidates(docs, spotData, badGeofire, NOW)).not.toThrow();
         expect(filterCandidates(docs, spotData, badGeofire, NOW)).toHaveLength(0);
     });
+
+    it('accounts for geohash-cell uncertainty at a recipient radius boundary', () => {
+        const geofire = require('geofire-common');
+        const coarseHash = geofire.geohashForLocation([spotData.lat, spotData.lng], 4);
+        const docs = [makeLocDoc('user_edge', coarseHash, NOW - 1_000)];
+        const result = filterCandidates(docs, spotData, geofire, NOW);
+        expect(result).toHaveLength(1);
+        expect(result[0].distMiles).toBe(0);
+        expect(buildMessages([{ ...result[0], prefs: { ...validPrefs, notificationRadius: 0.01 } }], 'spot')).toHaveLength(1);
+    });
 });
 
 // ── buildMessages ─────────────────────────────────────────────────────────────
@@ -142,6 +184,20 @@ describe('buildMessages', () => {
         const msgs = buildMessages([{ userId: 'u1', distMiles: 0.3, prefs: validPrefs }], 'spot_1');
         expect(msgs).toHaveLength(1);
         expect(msgs[0].token).toBe('tok_abc');
+        expect(msgs[0].recipientUserId).toBe('u1');
+    });
+
+    it('deduplicates repeated rows for the same recipient', () => {
+        const row = { userId: 'u1', distMiles: 0.1, prefs: validPrefs };
+        expect(buildMessages([row, row], 'spot_1')).toHaveLength(1);
+    });
+
+    it('suppresses a token claimed by conflicting recipient accounts', () => {
+        const prefs = { ...validPrefs, fcmToken: 'shared-token' };
+        expect(buildMessages([
+            { userId: 'u1', distMiles: 0.1, prefs },
+            { userId: 'u2', distMiles: 0.1, prefs },
+        ], 'spot_1')).toHaveLength(0);
     });
 
     it('(14) FCM payload contains no location coordinates', () => {

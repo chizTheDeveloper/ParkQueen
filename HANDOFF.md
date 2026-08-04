@@ -930,3 +930,31 @@ All Firebase imports must resolve to **10.8.0**. The importmap in `index.html` p
 - **Ponytail** (full mode) — enforces laziest working solution
 - **Superpowers** — brainstorming, planning, verification skills
 - **Claude-mem** — cross-session memory (observation system)
+
+---
+
+## 17. Ping notification/privacy rollout blocker (2026-08-04)
+
+- Review base: clean `main` and `origin/main` at `260f50b12c791bd0851a1c228fcc49d1fe744b21`.
+- Remediation branch: `codex/fix-ping-notification-privacy-idempotency`.
+- Production deployment was stopped before mutation because current source contained material blockers in all three proposed targets:
+  - `processScheduledClaims` referenced undefined `userData.lang`, split reminder/release notification writes from state transitions, omitted actor/Ping/claim metadata, and could duplicate notifications after partial failure.
+  - `incrementTotalSpotsPinged` used an unguarded increment and could count a repeated Firestore delivery twice.
+  - `notifyNearbyUsers` called nonexistent `geofire-common.geohashToLocation` (silently excluding every candidate), had no delivery idempotency/bell record, and could delete a newly replaced FCM token during stale-token cleanup.
+- Branch remediation adds deterministic transaction markers, atomic scheduled-claim bell records, complete actor/recipient/Ping/claim metadata, creator/self exclusion, recipient/token deduplication, a local geohash-center decoder, conditional stale-token cleanup, and ten emulator-backed lifecycle contracts.
+- Integration review strengthened the identities before PR creation:
+  - Firestore create-trigger effects use a bounded SHA-256 key derived from the immutable event ID, so retries collide while a genuine recreation of the same Ping document ID does not.
+  - Scheduled effects use the Firestore document update generation plus Ping and recipient identity, preventing a later claim from colliding even when its timeout timestamp is reused.
+  - `functionEvents` and `notificationDeliveries` are server-only durable idempotency records. They are intentionally retained indefinitely for this private-beta rollout; a separately reviewed retention job may prune them only after the platform retry window and operational audit window are defined.
+- Nearby delivery intentionally provides a durable exactly-once bell plus an at-most-once FCM attempt. States are `reserved`, `sent`, and terminal `failed`; an ambiguous crash/send remains `reserved`, is visible in state/logs, and is not automatically resent. This prevents knowingly duplicated pushes, while acknowledging that provider-level duplicate display remains outside application control.
+- Scheduled timeout notifications use `senderId: null`, `actorType: system`, and `subjectUserId` rather than falsely attributing an automatic action to either participant.
+- Geohash distance filtering subtracts the decoded cell half-diagonal from center distance, conservatively accounting for location uncertainty at radius boundaries without storing or logging raw coordinates.
+- Fresh gates after implementation:
+  - `npx.cmd tsc --noEmit`: pass.
+  - `npm.cmd test`: 933 passed in 37 files.
+  - `npm.cmd run test:rules`: 176 passed.
+  - `npm.cmd run test:functions`: 191 passed in 9 files.
+  - `node --check functions/index.js`: pass.
+  - `npm.cmd run build`: pass; existing large-chunk/dynamic-import warnings only.
+  - Gitleaks 8.30.1 directory, `origin/main` history (404 commits), and all history (430 commits): zero findings in every scope.
+- No Firebase resource, secret, provider, migration, Hosting target, Rules target, Function, or Parsona file/worktree was changed or deployed. Protected integration review is required before any production rollout.
