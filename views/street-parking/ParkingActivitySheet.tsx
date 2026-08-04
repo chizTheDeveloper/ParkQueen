@@ -1,26 +1,26 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { BottomSheet } from './BottomSheet';
 import { MapPin } from 'lucide-react';
 import { getDistance } from './utils';
+import { derivePingLifecycle, timestampToMillis } from '../../utils/pingLifecycle';
+import { t, useLang } from '../../i18n';
 
 interface ParkingActivitySheetProps {
     destination: { name: string; fullName: string; center: [number, number] };
     onExplore: () => void;
     onDismiss: () => void;
+    nowMs: number;
 }
 
 const SEARCH_RADIUS_MILES = 1;
 
 export const ParkingActivitySheet: React.FC<ParkingActivitySheetProps> = ({
-    destination, onExplore, onDismiss,
+    destination, onExplore, onDismiss, nowMs,
 }) => {
-    const [stats, setStats] = useState<{
-        activePings: number;
-        leavingLaterPings: number;
-        mostRecentAgo: string | null;
-    } | null>(null);
+    useLang();
+    const [nearbySpots, setNearbySpots] = useState<any[] | null>(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -38,9 +38,7 @@ export const ParkingActivitySheet: React.FC<ParkingActivitySheetProps> = ({
                 const snap = await getDocs(q);
 
                 const [lng, lat] = destination.center;
-                let activePings = 0;
-                let leavingLaterPings = 0;
-                let mostRecentMs = 0;
+                const spots: any[] = [];
 
                 snap.docs.forEach(d => {
                     const s = d.data();
@@ -50,30 +48,15 @@ export const ParkingActivitySheet: React.FC<ParkingActivitySheetProps> = ({
                     const distMi = distKm * 0.621371;
                     if (distMi > SEARCH_RADIUS_MILES) return;
 
-                    if (s.pingMode === 'later') {
-                        leavingLaterPings++;
-                    } else {
-                        activePings++;
-                    }
-
-                    const reported = s.reportedAt?.toMillis?.() || 0;
-                    if (reported > mostRecentMs) mostRecentMs = reported;
+                    spots.push(s);
                 });
 
                 if (cancelled) return;
 
-                let mostRecentAgo: string | null = null;
-                if (mostRecentMs > 0) {
-                    const diffMin = Math.round((Date.now() - mostRecentMs) / 60000);
-                    if (diffMin < 1) mostRecentAgo = 'Just now';
-                    else if (diffMin < 60) mostRecentAgo = `${diffMin} min ago`;
-                    else mostRecentAgo = `${Math.round(diffMin / 60)} hr ago`;
-                }
-
-                setStats({ activePings, leavingLaterPings, mostRecentAgo });
+                setNearbySpots(spots);
             } catch (e) {
                 console.warn('Parking activity query failed', e);
-                if (!cancelled) setStats({ activePings: 0, leavingLaterPings: 0, mostRecentAgo: null });
+                if (!cancelled) setNearbySpots([]);
             } finally {
                 if (!cancelled) setLoading(false);
             }
@@ -82,6 +65,30 @@ export const ParkingActivitySheet: React.FC<ParkingActivitySheetProps> = ({
         fetchActivity();
         return () => { cancelled = true; };
     }, [destination.center[0], destination.center[1]]);
+
+    const stats = useMemo(() => {
+        if (!nearbySpots) return null;
+        let activePings = 0;
+        let leavingLaterPings = 0;
+        let mostRecentMs = 0;
+        nearbySpots.forEach(spot => {
+            const lifecycle = derivePingLifecycle(spot, nowMs);
+            if (lifecycle.expired) return;
+            if (lifecycle.phase === 'scheduled') leavingLaterPings++;
+            else {
+                activePings++;
+                mostRecentMs = Math.max(mostRecentMs, timestampToMillis(spot.reportedAt));
+            }
+        });
+        let mostRecentAgo: string | null = null;
+        if (mostRecentMs > 0) {
+            const diffMin = Math.round((nowMs - mostRecentMs) / 60000);
+            if (diffMin < 1) mostRecentAgo = t('parking_activity.just_now');
+            else if (diffMin < 60) mostRecentAgo = t('parking_activity.min_ago', { count: diffMin });
+            else mostRecentAgo = t('parking_activity.hr_ago', { count: Math.round(diffMin / 60) });
+        }
+        return { activePings, leavingLaterPings, mostRecentAgo };
+    }, [nearbySpots, nowMs]);
 
     const hasActivity = stats && (stats.activePings > 0 || stats.leavingLaterPings > 0);
 
@@ -95,27 +102,27 @@ export const ParkingActivitySheet: React.FC<ParkingActivitySheetProps> = ({
                 <p className="text-[10px] text-[var(--color-text-secondary)] mb-4 truncate px-4">{destination.fullName}</p>
 
                 {loading ? (
-                    <p className="text-xs text-[var(--color-text-secondary)] py-4">Checking parking activity...</p>
+                    <p className="text-xs text-[var(--color-text-secondary)] py-4">{t('parking_activity.checking')}</p>
                 ) : hasActivity ? (
                     <div className="space-y-2.5 mb-4">
                         <div className="flex justify-between items-center px-3 py-2 bg-white/5 rounded-xl border border-[var(--color-border)]">
-                            <span className="text-xs text-[var(--color-text-secondary)]">Active pings</span>
+                            <span className="text-xs text-[var(--color-text-secondary)]">{t('parking_activity.active_pings')}</span>
                             <span className="text-sm font-bold text-green-400">{stats!.activePings}</span>
                         </div>
                         <div className="flex justify-between items-center px-3 py-2 bg-white/5 rounded-xl border border-[var(--color-border)]">
-                            <span className="text-xs text-[var(--color-text-secondary)]">Leaving later</span>
+                            <span className="text-xs text-[var(--color-text-secondary)]">{t('parking_activity.leaving_later')}</span>
                             <span className="text-sm font-bold text-yellow-400">{stats!.leavingLaterPings}</span>
                         </div>
                         {stats!.mostRecentAgo && (
                             <div className="flex justify-between items-center px-3 py-2 bg-white/5 rounded-xl border border-[var(--color-border)]">
-                                <span className="text-xs text-[var(--color-text-secondary)]">Most recent ping</span>
+                                <span className="text-xs text-[var(--color-text-secondary)]">{t('parking_activity.most_recent')}</span>
                                 <span className="text-xs font-semibold text-[var(--color-text)]">{stats!.mostRecentAgo}</span>
                             </div>
                         )}
                     </div>
                 ) : (
                     <p className="text-xs text-[var(--color-text-secondary)] py-4 mb-2">
-                        No parking activity near {destination.name} right now
+                        {t('parking_activity.none_near', { name: destination.name })}
                     </p>
                 )}
 
@@ -124,7 +131,7 @@ export const ParkingActivitySheet: React.FC<ParkingActivitySheetProps> = ({
                     className="w-full py-3 rounded-xl text-sm font-bold transition-all active:scale-95 text-white"
                     style={{ background: 'linear-gradient(90deg, #378ADD, #1D9E75)' }}
                 >
-                    Explore {destination.name} area
+                    {t('parking_activity.explore_area', { name: destination.name })}
                 </button>
             </div>
         </BottomSheet>

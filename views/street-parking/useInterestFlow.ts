@@ -4,6 +4,7 @@ import { doc, updateDoc, deleteDoc, runTransaction, Timestamp, collection, query
 import { MapItem } from './types';
 import { getDistance, drawRoute, clearRoute, NYC_CENTER } from './utils';
 import { getTitleForCrowns } from '../../utils/crowns';
+import { getPingExpiresAtMs } from '../../utils/pingLifecycle';
 import { spotFeedbackDocId } from '../../utils/spotFeedback';
 
 interface UseInterestFlowOptions {
@@ -427,7 +428,7 @@ export function useInterestFlow({
 
         const now = Date.now();
         const reportedAt = Timestamp.fromMillis(now + durationMinutes * 60000);
-        const expiresAt = Timestamp.fromMillis(now + durationMinutes * 60000 + 3600000);
+        const expiresAt = Timestamp.fromMillis(getPingExpiresAtMs(reportedAt));
 
         await addDoc(collection(db, 'spots'), {
             lat: spotSnap.lat,

@@ -1,5 +1,21 @@
 # ParQueen Engineering Handoff
 
+## Scheduled Ping live-transition fix — 2026-08-03
+
+- Branch: `codex/fix-scheduled-ping-live-transition`, created from production `origin/main` at `1171e2305a55d07024f94c140f4255c240349e83`.
+- Root cause: marker rendering compared `reportedAt` to the current clock, but the open card, stack rows, nearby ordering, and activity summary treated persisted `pingMode: 'later'` as a permanent current state. A coarse 30-second map tick repainted markers only; no shared boundary lifecycle updated every consumer. Scheduled creation also used a separate 60-minute TTL despite the normal live TTL being 30 minutes.
+- Added one client lifecycle selector for serialized/Firestore timestamps. It derives scheduled/live, claimed/unclaimed, owner/claimant, claim eligibility, and expired state. `pingMode` now remains creation intent/history only.
+- Added a boundary clock that wakes exactly at the next `reportedAt` or `expiresAt`, refreshes minute-level countdown copy, reconciles on window focus or visible-document resume, and cancels pending timers on cleanup.
+- Markers, stack color/rows, nearby ordering, open-card badge/copy/CTA, owner card, parking-activity counts, expiration filtering, and selected/stack cleanup now consume the shared clock and selector. Unclaimed scheduled Pings become normal live Pings at `reportedAt`; committed/heading claims retain their claimant and handoff state.
+- Every creation path now sets `expiresAt = reportedAt + 30 minutes`, including My Car, manual Ping, and post-handoff scheduled Ping creation. Backend cleanup continues to honor the stored `expiresAt`; no Function, Rules, index, notification, or production-data change was required.
+- Added 24 focused behavioral/rendered tests for five-minutes/one-second/exact/after boundaries, an actually mounted open-card transition, selected-Ping reschedule cleanup, immediate and overdue Pings, timestamp forms/timezones, multiple boundaries and clients, resume, cleanup, expiration, TTL, owner/third-party CTA safety, committed-claim preservation, and English/Spanish card semantics. React Test Renderer is a test-only dependency for the mounted lifecycle proof.
+- Rendered browser evidence kept the same details card open across an eight-second boundary: `SCHEDULED / Soon / Leaving at / Claim for …` changed in place to `LIVE / Free / Leaving now / I'm heading there`; the countdown changed from 30 to 29 minutes. No navigation, refresh, snapshot, or Firestore write occurred. The temporary harness and server log were removed.
+- Fresh gates: TypeScript passed; unit tests 922/922; Firestore Rules tests 176/176; Functions integration tests 145/145; Functions syntax check passed; production build completed with 1,682 modules. Existing Vite CJS/esbuild-option, mixed Firestore import, and large-chunk warnings remain. Existing Functions Node 24 host/requested Node 20 and outdated `firebase-functions` warnings remain.
+- Gitleaks 8.30.1 found zero leaks across the 50.31 MB working tree, 401 commits in `origin/main`, and all 426 reachable commits.
+- Deployment scope after protected integration is Hosting only. Nothing was deployed; `main`, Parsona, Functions, Rules, indexes, notifications, and production data were untouched.
+
+---
+
 ## userLocations geohash first-write fix — 2026-08-02
 
 - Branch: `codex/fix-userlocation-lastgeohash-initialization`, created from production `origin/main` at `73dd4db3b2dad8f9a9c7e280a761458727f416ac`.

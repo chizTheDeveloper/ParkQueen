@@ -18,9 +18,8 @@ import { t, useLang } from '../i18n';
 import { VehicleIcon } from '../utils/vehicleIcon';
 import { getTitleForCrowns } from '../utils/crowns';
 import { createUserLocationGeohashPersister } from '../utils/userLocationGeohash';
+import { derivePingLifecycle, getPingExpiresAtMs, getPingPhase, timestampToMillis } from '../utils/pingLifecycle';
 
-const IMMEDIATE_PING_EXPIRY_MS = 30 * 60 * 1000;
-const SCHEDULED_PING_EXPIRY_MS = 60 * 60 * 1000;
 
 const reverseGeocode = async (lng: number, lat: number): Promise<string> => {
     try {
@@ -44,6 +43,7 @@ import { ParkingActivitySheet } from './street-parking/ParkingActivitySheet';
 import { HeaderBar } from './street-parking/HeaderBar';
 import { StreetIntelligenceCard } from './street-parking/StreetIntelligenceCard';
 import { useParkingTimer } from './street-parking/useParkingTimer';
+import { usePingPhaseClock } from './street-parking/usePingPhaseClock';
 import { AppTour, TOUR_KEY } from './street-parking/AppTour';
 
 
@@ -67,7 +67,6 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
     const [stackGroup, setStackGroup] = useState<MapItem[] | null>(null);
     const [spotDetailsBackStack, setSpotDetailsBackStack] = useState<MapItem[] | null>(null);
     const [mapFilterRadiusMiles, setMapFilterRadiusMiles] = useState(2.0);
-    const [nowMs, setNowMs] = useState(Date.now());
     const [showTour, setShowTour] = useState(false);
 
     const [showFree, setShowFree] = useState(true);
@@ -95,13 +94,6 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
     // Tracks last GPS accuracy reading from watchPosition — used at saveMySpot time
     const lastGpsAccuracyRef = useRef<number | null>(null);
 
-    // Tick every 30s so scheduled Ping markers flip yellow→blue at departure time
-    // without waiting for a Firestore event.
-    useEffect(() => {
-        const id = setInterval(() => setNowMs(Date.now()), 30_000);
-        return () => clearInterval(id);
-    }, []);
-
     // Show first-run tutorial once map is ready and user is authenticated
     useEffect(() => {
         if (!mapReady || !user?.id) return;
@@ -124,9 +116,27 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
         showPaid,
         filterRadiusMiles: mapFilterRadiusMiles,
     });
+    const nowMs = usePingPhaseClock(spotData.radiusFilteredItems);
+    const currentItems = useMemo(
+        () => spotData.radiusFilteredItems.filter(item => !derivePingLifecycle(item, nowMs, user?.id).expired),
+        [spotData.radiusFilteredItems, nowMs, user?.id],
+    );
 
     const itemsRef = useRef<MapItem[]>([]);
-    itemsRef.current = spotData.radiusFilteredItems;
+    itemsRef.current = currentItems;
+
+    useEffect(() => {
+        if (selectedItem && derivePingLifecycle(selectedItem, nowMs, user?.id).expired) {
+            setSelectedItem(null);
+            setSelectedItemManageMode(false);
+            setSpotDetailsBackStack(null);
+        }
+        setStackGroup(current => {
+            if (!current) return current;
+            const live = current.filter(item => !derivePingLifecycle(item, nowMs, user?.id).expired);
+            return live.length === current.length ? current : (live.length ? live : null);
+        });
+    }, [nowMs, selectedItem, user?.id]);
 
     // Consume pendingSpotId — fly to spot and open SpotDetailsCard (searches both arrays so
     // owner spots in activeSpots and claimer spots in freeSpots both resolve correctly)
@@ -683,7 +693,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
         return `${(km * 0.621371).toFixed(1)} mi away`;
     }, [userLocation, savedSpot]);
 
-    const otherSpots = spotData.radiusFilteredItems.filter(s => s.finderId !== user?.id);
+    const otherSpots = currentItems.filter(s => s.finderId !== user?.id);
     const spotCount = otherSpots.length;
 
     const [pillToast, setPillToast] = useState<string | null>(null);
@@ -696,7 +706,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
     const [nearbyPillSheet, setNearbyPillSheet] = useState(false);
 
     const handleNearbyPillClick = useCallback(() => {
-        const spots = spotData.radiusFilteredItems.filter(s => s.finderId !== user?.id);
+        const spots = currentItems.filter(s => s.finderId !== user?.id);
         if (spots.length === 0) {
             setPillToast(t('map.no_spots_available_now'));
             return;
@@ -706,14 +716,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
             return c ? [c.lng, c.lat] : null;
         })() ?? [spots[0].lng, spots[0].lat];
         const dist = (s: typeof spots[0]) => getDistance(origin[1], origin[0], s.lat, s.lng);
-        const nowMs3 = Date.now();
-        const isScheduled = (s: typeof spots[0]) => {
-            const ms = s.reportedAt
-                ? (typeof (s.reportedAt as any).toMillis === 'function' ? (s.reportedAt as any).toMillis()
-                    : typeof (s.reportedAt as any).seconds === 'number' ? (s.reportedAt as any).seconds * 1000 : 0)
-                : 0;
-            return s.pingMode === 'later' || (!s.pingMode && ms > nowMs3 + 5 * 60_000);
-        };
+        const isScheduled = (s: typeof spots[0]) => getPingPhase(s, nowMs) === 'scheduled';
         const sorted = [...spots].sort((a, b) => {
             const sa = isScheduled(a) ? 1 : 0;
             const sb = isScheduled(b) ? 1 : 0;
@@ -728,7 +731,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
             setNearbyPillSheet(true);
             setStackGroup(sorted);
         }
-    }, [spotData.radiusFilteredItems, user?.id, userLocation]);
+    }, [currentItems, user?.id, userLocation, nowMs]);
 
 
 
@@ -760,17 +763,14 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
         if (!selectedItem) return;
         const updatedFree = spotData.freeSpots.find(s => s.id === selectedItem.id);
         if (updatedFree) {
-            if (updatedFree.status !== selectedItem.status ||
-                updatedFree.interestedUserId !== selectedItem.interestedUserId ||
-                updatedFree.claimState !== selectedItem.claimState ||
-                updatedFree.ownerLeavingNow !== selectedItem.ownerLeavingNow) {
+            if (updatedFree !== selectedItem) {
                 setSelectedItem(updatedFree);
             }
             return;
         }
         const updatedPaid = spotData.paidListings.find(s => s.id === selectedItem.id);
         if (updatedPaid) {
-            if (updatedPaid.status !== selectedItem.status) {
+            if (updatedPaid !== selectedItem) {
                 setSelectedItem(updatedPaid);
             }
             return;
@@ -897,15 +897,13 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
 
         // Exclude only the My Car session's linked ping (shown separately in the session sheet).
         // Own manual pings remain visible so the creator sees their own marker on the map.
-        const allItems = spotData.radiusFilteredItems.filter(
+        const allItems = currentItems.filter(
             item => item.id !== (linkedPingIdRef.current ?? '')
         );
 
         // Split: community shared spots vs. paid/public (rendered individually, no stacking)
         const communityItems = allItems.filter(item => item.type === 'free');
         const otherItems = allItems.filter(item => item.type !== 'free');
-
-        const markerNowMs = Date.now();
 
         // --- Community spots: group within 30m, stack marker for groups > 1 ---
         const assigned = new Set<string>();
@@ -923,11 +921,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
             }
 
             if (group.length === 1) {
-                const reportedMs = item.reportedAt
-                    ? (typeof item.reportedAt.toMillis === 'function' ? item.reportedAt.toMillis()
-                        : typeof item.reportedAt.seconds === 'number' ? item.reportedAt.seconds * 1000 : 0)
-                    : 0;
-                const isScheduled = reportedMs > markerNowMs;
+                const reportedMs = timestampToMillis(item.reportedAt);
+                const isScheduled = getPingPhase(item, nowMs) === 'scheduled';
                 const el = createMarkerElement(isScheduled, reportedMs);
                 const lngLat: [number, number] = [item.lng, item.lat];
                 const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
@@ -947,11 +942,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
                 const centroid: [number, number] = [centroidLng, centroidLat];
 
                 const hasAvailableNow = group.some(i => {
-                    const ms = i.reportedAt
-                        ? (typeof i.reportedAt.toMillis === 'function' ? i.reportedAt.toMillis()
-                            : typeof i.reportedAt.seconds === 'number' ? i.reportedAt.seconds * 1000 : 0)
-                        : 0;
-                    return ms <= markerNowMs;
+                    return getPingPhase(i, nowMs) === 'live';
                 });
 
                 const el = createStackMarkerElement(group.length, hasAvailableNow);
@@ -967,11 +958,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
 
         // --- Paid/public items: individual markers, no stacking ---
         for (const item of otherItems) {
-            const reportedMs = item.reportedAt
-                ? (typeof item.reportedAt.toMillis === 'function' ? item.reportedAt.toMillis()
-                    : typeof item.reportedAt.seconds === 'number' ? item.reportedAt.seconds * 1000 : 0)
-                : 0;
-            const isScheduled = reportedMs > markerNowMs;
+            const reportedMs = timestampToMillis(item.reportedAt);
+            const isScheduled = getPingPhase(item, nowMs) === 'scheduled';
             const el = createMarkerElement(isScheduled, reportedMs);
             const lngLat: [number, number] = [item.lng, item.lat];
             const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
@@ -985,7 +973,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
             });
             allMarkersRef.current[item.id] = marker;
         }
-    }, [spotData.radiusFilteredItems, savedSpot?.linkedPingId, nowMs]);
+    }, [currentItems, savedSpot?.linkedPingId, nowMs]);
 
     // Last parked location marker
     useEffect(() => {
@@ -1131,7 +1119,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
 
         const now = Date.now();
         const reportedAt = departureTime ? Timestamp.fromDate(departureTime) : Timestamp.fromMillis(now);
-        const expiresAt = Timestamp.fromMillis(reportedAt.toMillis() + (departureTime ? SCHEDULED_PING_EXPIRY_MS : IMMEDIATE_PING_EXPIRY_MS));
+        const expiresAt = Timestamp.fromMillis(getPingExpiresAtMs(reportedAt));
         const spotId = `mycar_${user.id}_${savedSpot.sessionId}`;
         const spotRef = doc(db, 'spots', spotId);
 
@@ -1244,7 +1232,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
 
         const now = Date.now();
         const reportedAt = departureTime ? Timestamp.fromDate(departureTime) : Timestamp.fromMillis(now);
-        const expiresAt = Timestamp.fromMillis(reportedAt.toMillis() + (departureTime ? SCHEDULED_PING_EXPIRY_MS : IMMEDIATE_PING_EXPIRY_MS));
+        const expiresAt = Timestamp.fromMillis(getPingExpiresAtMs(reportedAt));
 
         const onSaveSuccess = () => {
             setIsPinging(false);
@@ -2111,7 +2099,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
             {/* Spot stack sheet — multiple community shared spots nearby */}
             <BottomSheet isOpen={!!stackGroup} ariaLabel="Nearby pings" onClose={() => { setStackGroup(null); setNearbyPillSheet(false); }}>
                 {stackGroup && (() => {
-                    const nowMs2 = Date.now();
+                    const nowMs2 = nowMs;
                     const origin2: [number, number] = userLocation ?? (() => {
                         const c = mapRef.current?.getCenter();
                         return c ? [c.lng, c.lat] : null;
@@ -2122,11 +2110,8 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
                         return `${(km * 0.621371).toFixed(1)} mi away`;
                     };
                     const getSpotMeta = (item: MapItem) => {
-                        const ms = item.reportedAt
-                            ? (typeof (item.reportedAt as any).toMillis === 'function' ? (item.reportedAt as any).toMillis()
-                                : typeof (item.reportedAt as any).seconds === 'number' ? (item.reportedAt as any).seconds * 1000 : 0)
-                            : 0;
-                        const isScheduled = item.pingMode === 'later' || (!item.pingMode && ms > nowMs2 + 5 * 60_000);
+                        const ms = timestampToMillis(item.reportedAt);
+                        const isScheduled = getPingPhase(item, nowMs2) === 'scheduled';
                         let statusLabel: string;
                         if (isScheduled) {
                             const d = new Date(ms);
@@ -2137,9 +2122,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
                         } else {
                             statusLabel = t('spot_details.leaving_now');
                         }
-                        const expiresMs = item.expiresAt
-                            ? (typeof (item.expiresAt as any).toMillis === 'function' ? (item.expiresAt as any).toMillis() : 0)
-                            : 0;
+                        const expiresMs = timestampToMillis(item.expiresAt);
                         const expiryMin = !isScheduled && expiresMs > nowMs2 ? Math.round((expiresMs - nowMs2) / 60000) : 0;
                         const address = item.address || item.title || t('map.nearby_shared_spot');
                         return { statusLabel, isScheduled, address, expiryMin };
@@ -2208,6 +2191,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
             {search.selectedDestination && (
                 <ParkingActivitySheet
                     destination={search.selectedDestination}
+                    nowMs={nowMs}
                     onExplore={() => {
                         const dest = search.selectedDestination!;
                         mapRef.current?.easeTo({
