@@ -48,24 +48,20 @@ describe('Ping notification/privacy Function contract', () => {
         vi.restoreAllMocks();
     });
 
-    it('PN-1 increments the global Ping count once for duplicate delivery and once for a recreated new ID', async () => {
-        const firstSpotId = nextId('count');
-        const secondSpotId = nextId('count');
+    it('PN-1 increments once for a retry and again when the same Ping ID is genuinely recreated', async () => {
+        const spotId = nextId('count');
         const statsRef = db.doc('stats/global');
         await statsRef.set({ totalSpotsPinged: 0 }, { merge: true });
 
-        const firstEvent = createdEvent(firstSpotId, { finderId: 'owner_a', geohash: 'dr5r', lat: 40.7, lng: -73.9 });
+        const firstEvent = createdEvent(spotId, { finderId: 'owner_a', geohash: 'dr5r', lat: 40.7, lng: -73.9 }, nextId('event'));
         await indexModule.incrementTotalSpotsPinged.run(firstEvent);
         await indexModule.incrementTotalSpotsPinged.run(firstEvent);
         await indexModule.incrementTotalSpotsPinged.run(
-            createdEvent(secondSpotId, { finderId: 'owner_a', geohash: 'dr5r', lat: 40.7, lng: -73.9 }),
+            createdEvent(spotId, { finderId: 'owner_a', geohash: 'dr5r', lat: 40.7, lng: -73.9 }, nextId('event')),
         );
 
         expect((await statsRef.get()).data().totalSpotsPinged).toBe(2);
-        await Promise.all([
-            db.doc(`functionEvents/incrementTotalSpotsPinged_${firstSpotId}`).delete(),
-            db.doc(`functionEvents/incrementTotalSpotsPinged_${secondSpotId}`).delete(),
-        ]);
+        await removeCollectionDocs('functionEvents', 'spotId', spotId);
     });
 
     it('PN-2 ignores malformed created Ping documents', async () => {
@@ -109,11 +105,17 @@ describe('Ping notification/privacy Function contract', () => {
         const event = createdEvent(spotId, { finderId: ownerId, geohash, lat: 40.7128, lng: -74.006 });
         await indexModule.notifyNearbyUsers.run(event);
         await indexModule.notifyNearbyUsers.run(event);
+        await indexModule.notifyNearbyUsers.run(createdEvent(
+            spotId,
+            { finderId: ownerId, geohash, lat: 40.7128, lng: -74.006 },
+            nextId('recreated_event'),
+        ));
 
         expect(errors).not.toHaveBeenCalled();
-        expect(batches.flat()).toHaveLength(1);
-        const bell = await db.doc(`spotNotifications/nearby_${spotId}_${recipientId}`).get();
-        expect(bell.data()).toMatchObject({
+        expect(batches.flat()).toHaveLength(2);
+        const bells = await db.collection('spotNotifications').where('spotId', '==', spotId).get();
+        expect(bells.docs).toHaveLength(2);
+        expect(bells.docs[0].data()).toMatchObject({
             spotId,
             senderId: ownerId,
             targetUserId: recipientId,
@@ -124,8 +126,8 @@ describe('Ping notification/privacy Function contract', () => {
         await Promise.all([
             db.doc(`userLocations/${recipientId}`).delete(),
             db.doc(`users/${recipientId}/private/preferences`).delete(),
-            db.doc(`spotNotifications/nearby_${spotId}_${recipientId}`).delete(),
-            db.doc(`notificationDeliveries/nearby_${spotId}_${recipientId}`).delete(),
+            ...bells.docs.map(doc => doc.ref.delete()),
+            removeCollectionDocs('notificationDeliveries', 'spotId', spotId),
         ]);
     });
 
@@ -152,8 +154,8 @@ describe('Ping notification/privacy Function contract', () => {
 
         await Promise.all([
             db.doc(`userLocations/${recipientId}`).delete(), prefsRef.delete(),
-            db.doc(`spotNotifications/nearby_${spotId}_${recipientId}`).delete(),
-            db.doc(`notificationDeliveries/nearby_${spotId}_${recipientId}`).delete(),
+            removeCollectionDocs('spotNotifications', 'spotId', spotId),
+            removeCollectionDocs('notificationDeliveries', 'spotId', spotId),
         ]);
     });
 
@@ -184,7 +186,9 @@ describe('Ping notification/privacy Function contract', () => {
         expect(notifications.docs).toHaveLength(1);
         expect(notifications.docs[0].data()).toMatchObject({
             spotId,
-            senderId: ownerId,
+            senderId: null,
+            actorType: 'system',
+            subjectUserId: ownerId,
             targetUserId: claimerId,
             type: 'scheduled_claim_reminder',
         });
@@ -220,6 +224,7 @@ describe('Ping notification/privacy Function contract', () => {
         expect(notifications.docs).toHaveLength(2);
         expect(notifications.docs.map(doc => doc.data().targetUserId).sort()).toEqual([claimerId, ownerId].sort());
         expect(notifications.docs.every(doc => typeof doc.data().claimId === 'string')).toBe(true);
+        expect(notifications.docs.every(doc => doc.data().senderId === null)).toBe(true);
 
         await Promise.all([db.doc(`spots/${spotId}`).delete(), ...notifications.docs.map(doc => doc.ref.delete())]);
     });
@@ -242,5 +247,99 @@ describe('Ping notification/privacy Function contract', () => {
         expect(notifications.empty).toBe(true);
         expect((await db.doc(`spots/${spotId}`).get()).data().status).toBe('available');
         await db.doc(`spots/${spotId}`).delete();
+    });
+
+    it('PN-8 leaves one durable bell and does not retry an ambiguous failed push attempt', async () => {
+        const spotId = nextId('ambiguous');
+        const ownerId = nextId('owner');
+        const recipientId = nextId('recipient');
+        const geohash = require('geofire-common').geohashForLocation([40.7128, -74.006], 9);
+        await db.doc(`userLocations/${recipientId}`).set({ lastGeohash: geohash, lastGeohashUpdatedAt: Timestamp.now() });
+        await db.doc(`users/${recipientId}/private/preferences`).set({ fcmToken: 'ambiguous-token', notificationRadius: 1 });
+        let attempts = 0;
+        indexModule._pingNotificationHooks.sendEach = async () => { attempts += 1; throw new Error('ambiguous provider result'); };
+        const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const event = createdEvent(spotId, { finderId: ownerId, geohash, lat: 40.7128, lng: -74.006 }, nextId('event'));
+
+        await indexModule.notifyNearbyUsers.run(event);
+        await indexModule.notifyNearbyUsers.run(event);
+
+        expect(attempts).toBe(1);
+        expect(errors).toHaveBeenCalledTimes(1);
+        expect((await db.collection('spotNotifications').where('spotId', '==', spotId).get()).docs).toHaveLength(1);
+        const deliveries = await db.collection('notificationDeliveries').where('spotId', '==', spotId).get();
+        expect(deliveries.docs).toHaveLength(1);
+        expect(deliveries.docs[0].data().status).toBe('reserved');
+        await Promise.all([
+            db.doc(`userLocations/${recipientId}`).delete(),
+            db.doc(`users/${recipientId}/private/preferences`).delete(),
+            removeCollectionDocs('spotNotifications', 'spotId', spotId),
+            removeCollectionDocs('notificationDeliveries', 'spotId', spotId),
+        ]);
+    });
+
+    it('PN-9 a later claim with the same timeout has a distinct generation and cannot collide', async () => {
+        const spotId = nextId('claim_generation');
+        const ownerId = nextId('owner');
+        const firstClaimerId = nextId('claimer');
+        const secondClaimerId = nextId('claimer');
+        const timeout = Timestamp.fromMillis(Date.now() - 1000);
+        const expiresAt = Timestamp.fromMillis(Date.now() + 600000);
+        const spotRef = db.doc(`spots/${spotId}`);
+        await spotRef.set({
+            finderId: ownerId, status: 'interested', claimState: 'committed', interestedUserId: firstClaimerId,
+            claimReminderAt: null, claimAutoReleaseAt: timeout, expiresAt,
+        });
+        await indexModule.processScheduledClaims.run({});
+        await spotRef.update({
+            status: 'interested', claimState: 'committed', interestedUserId: secondClaimerId,
+            claimReminderAt: null, claimAutoReleaseAt: timeout, expiresAt,
+        });
+        await indexModule.processScheduledClaims.run({});
+
+        const notifications = await db.collection('spotNotifications').where('spotId', '==', spotId).get();
+        expect(notifications.docs).toHaveLength(4);
+        expect(new Set(notifications.docs.map(doc => doc.data().claimId)).size).toBe(2);
+        expect(notifications.docs.every(doc => doc.data().senderId === null)).toBe(true);
+        await Promise.all([spotRef.delete(), ...notifications.docs.map(doc => doc.ref.delete())]);
+    });
+
+    it('PN-10 partial multicast success is terminal per recipient and never resends the success', async () => {
+        const spotId = nextId('partial');
+        const ownerId = nextId('owner');
+        const recipientIds = [nextId('recipient'), nextId('recipient')];
+        const geohash = require('geofire-common').geohashForLocation([40.7128, -74.006], 9);
+        await Promise.all(recipientIds.flatMap((recipientId, index) => [
+            db.doc(`userLocations/${recipientId}`).set({ lastGeohash: geohash, lastGeohashUpdatedAt: Timestamp.now() }),
+            db.doc(`users/${recipientId}/private/preferences`).set({ fcmToken: `partial-token-${index}`, notificationRadius: 1 }),
+        ]));
+        let attempts = 0;
+        indexModule._pingNotificationHooks.sendEach = async messages => {
+            attempts += 1;
+            return {
+                successCount: 1,
+                failureCount: 1,
+                responses: messages.map((_, index) => index === 0
+                    ? { success: true }
+                    : { success: false, error: { code: 'messaging/internal-error' } }),
+            };
+        };
+        const event = createdEvent(spotId, { finderId: ownerId, geohash, lat: 40.7128, lng: -74.006 }, nextId('event'));
+
+        await indexModule.notifyNearbyUsers.run(event);
+        await indexModule.notifyNearbyUsers.run(event);
+
+        expect(attempts).toBe(1);
+        const deliveries = await db.collection('notificationDeliveries').where('spotId', '==', spotId).get();
+        expect(deliveries.docs.map(doc => doc.data().status).sort()).toEqual(['failed', 'sent']);
+        expect((await db.collection('spotNotifications').where('spotId', '==', spotId).get()).docs).toHaveLength(2);
+        await Promise.all([
+            ...recipientIds.flatMap(recipientId => [
+                db.doc(`userLocations/${recipientId}`).delete(),
+                db.doc(`users/${recipientId}/private/preferences`).delete(),
+            ]),
+            removeCollectionDocs('spotNotifications', 'spotId', spotId),
+            removeCollectionDocs('notificationDeliveries', 'spotId', spotId),
+        ]);
     });
 });

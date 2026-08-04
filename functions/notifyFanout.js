@@ -5,7 +5,7 @@ const MAX_CANDIDATES = 200;
 const FCM_BATCH = 500;
 const GEOHASH_ALPHABET = '0123456789bcdefghjkmnpqrstuvwxyz';
 
-function decodeGeohashCenter(hash) {
+function decodeGeohashBounds(hash) {
     if (typeof hash !== 'string' || hash.length === 0) throw new Error('invalid geohash');
     let latitude = [-90, 90];
     let longitude = [-180, 180];
@@ -21,6 +21,11 @@ function decodeGeohashCenter(hash) {
             longitudeBit = !longitudeBit;
         }
     }
+    return { latitude, longitude };
+}
+
+function decodeGeohashCenter(hash) {
+    const { latitude, longitude } = decodeGeohashBounds(hash);
     return [(latitude[0] + latitude[1]) / 2, (longitude[0] + longitude[1]) / 2];
 }
 
@@ -55,7 +60,12 @@ function filterCandidates(locDocs, spotData, geofire, nowMs) {
                 ? geofire.geohashToLocation
                 : decodeGeohashCenter;
             const [userLat, userLng] = decode(locData.lastGeohash);
-            candidates.push({ userId, distMiles: haversineDistMiles(userLat, userLng, spotData.lat, spotData.lng) });
+            const centerDistance = haversineDistMiles(userLat, userLng, spotData.lat, spotData.lng);
+            const bounds = decodeGeohashBounds(locData.lastGeohash);
+            const cellRadius = haversineDistMiles(
+                bounds.latitude[0], bounds.longitude[0], bounds.latitude[1], bounds.longitude[1]
+            ) / 2;
+            candidates.push({ userId, distMiles: Math.max(0, centerDistance - cellRadius) });
         } catch {
             // malformed geohash — skip this candidate without aborting the fanout
         }

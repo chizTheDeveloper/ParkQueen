@@ -45,6 +45,24 @@ describe('decodeGeohashCenter', () => {
 
     it('rejects malformed geohashes', () => {
         expect(() => decodeGeohashCenter('INVALID')).toThrow('invalid geohash');
+        expect(() => decodeGeohashCenter('')).toThrow('invalid geohash');
+    });
+
+    it.each([
+        [51.5074, -0.1278, 4],
+        [-33.8688, 151.2093, 7],
+        [35.6762, 139.6503, 9],
+        [-34.6037, -58.3816, 12],
+        [0.1, 179.9, 8],
+        [-0.1, -179.9, 8],
+    ])('decodes reference coordinates in every hemisphere and near the antimeridian', (lat, lng, precision) => {
+        const geofire = require('geofire-common');
+        const hash = geofire.geohashForLocation([lat, lng], precision);
+        const [decodedLat, decodedLng] = decodeGeohashCenter(hash);
+        const maxErrorByPrecision: Record<number, number> = { 4: 0.2, 7: 0.001, 8: 0.0002, 9: 0.00003, 12: 0.0000001 };
+        const maxError = maxErrorByPrecision[precision];
+        expect(Math.abs(decodedLat - lat)).toBeLessThan(maxError);
+        expect(Math.abs(decodedLng - lng)).toBeLessThan(maxError);
     });
 });
 
@@ -122,6 +140,16 @@ describe('filterCandidates', () => {
         const docs = [makeLocDoc('user_bad', 'ZZZ', NOW - 1_000)];
         expect(() => filterCandidates(docs, spotData, badGeofire, NOW)).not.toThrow();
         expect(filterCandidates(docs, spotData, badGeofire, NOW)).toHaveLength(0);
+    });
+
+    it('accounts for geohash-cell uncertainty at a recipient radius boundary', () => {
+        const geofire = require('geofire-common');
+        const coarseHash = geofire.geohashForLocation([spotData.lat, spotData.lng], 4);
+        const docs = [makeLocDoc('user_edge', coarseHash, NOW - 1_000)];
+        const result = filterCandidates(docs, spotData, geofire, NOW);
+        expect(result).toHaveLength(1);
+        expect(result[0].distMiles).toBe(0);
+        expect(buildMessages([{ ...result[0], prefs: { ...validPrefs, notificationRadius: 0.01 } }], 'spot')).toHaveLength(1);
     });
 });
 

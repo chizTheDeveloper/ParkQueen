@@ -21,7 +21,16 @@ const { osmNameToDOT, streetNameToLikePattern, dotSideToCardinal, BOROUGH_CODE_T
 const { redactForLog, sanitizeError } = require('./redactForLog');
 const { checkRateLimit } = require('./rateLimiter');
 const { haversineDistMiles, filterCandidates, buildMessages, collectStaleTokens, MAX_CANDIDATES, FCM_BATCH } = require('./notifyFanout');
-const { createHmac, randomInt: secureRandomInt, randomUUID, timingSafeEqual } = require('crypto');
+const { createHash, createHmac, randomInt: secureRandomInt, randomUUID, timingSafeEqual } = require('crypto');
+
+function stableId(...parts) {
+  return createHash('sha256').update(parts.map(part => String(part)).join('\u001f')).digest('hex');
+}
+
+function snapshotGeneration(snapshot) {
+  const updated = snapshot.updateTime;
+  return `${updated.seconds}_${updated.nanoseconds}`;
+}
 
 function _canonicalizeEmail(value) {
   if (typeof value !== 'string') throw new HttpsError('invalid-argument', 'Valid email required.');
@@ -351,7 +360,6 @@ exports.processScheduledClaims = onSchedule(
       const prefs = prefsSnap.exists ? prefsSnap.data() : {};
       const fcmToken = prefs.fcmToken || null;
       const message = localizeNotification('reminder', prefs.lang, { name: finderName });
-      const claimId = `${d.id}_${spot.claimAutoReleaseAt?.toMillis?.() || 'scheduled'}`;
       const claimed = await db.runTransaction(async tx => {
         const fresh = await tx.get(d.ref);
         if (!fresh.exists) return false;
@@ -359,9 +367,12 @@ exports.processScheduledClaims = onSchedule(
         if (current.status !== 'interested' || current.claimState !== 'committed' ||
             current.interestedUserId !== spot.interestedUserId || !current.claimReminderAt ||
             current.claimReminderAt.toMillis() > now.toMillis()) return false;
+        const claimId = `claim_${stableId(d.id, snapshotGeneration(fresh), current.interestedUserId)}`;
         tx.set(db.doc(`spotNotifications/reminder_${claimId}`), {
           spotId: d.id,
-          senderId: current.finderId || null,
+          senderId: null,
+          actorType: 'system',
+          subjectUserId: current.finderId || null,
           targetUserId: current.interestedUserId,
           claimId,
           type: 'scheduled_claim_reminder',
@@ -441,7 +452,7 @@ exports.processScheduledClaims = onSchedule(
             claimAutoReleasedAt: now,
           };
 
-          const claimId = `${d.id}_${spot.claimAutoReleaseAt.toMillis()}`;
+          const claimId = `claim_${stableId(d.id, snapshotGeneration(fresh), spot.interestedUserId)}`;
 
           if (spotExpired) {
             // Ping already expired — clear stale claim fields, don't revive to available
@@ -453,7 +464,9 @@ exports.processScheduledClaims = onSchedule(
           if (spot.interestedUserId !== spot.finderId) {
             tx.set(db.doc(`spotNotifications/released_claimer_${claimId}`), {
               spotId: d.id,
-              senderId: spot.finderId || null,
+              senderId: null,
+              actorType: 'system',
+              subjectUserId: spot.finderId || null,
               targetUserId: spot.interestedUserId,
               claimId,
               type: 'scheduled_claim_auto_released',
@@ -463,7 +476,9 @@ exports.processScheduledClaims = onSchedule(
             if (spot.finderId && !spotExpired) {
               tx.set(db.doc(`spotNotifications/released_owner_${claimId}`), {
                 spotId: d.id,
-                senderId: spot.interestedUserId,
+                senderId: null,
+                actorType: 'system',
+                subjectUserId: spot.interestedUserId,
                 targetUserId: spot.finderId,
                 claimId,
                 type: 'scheduled_claim_released_owner',
@@ -504,11 +519,13 @@ exports.incrementTotalSpotsPinged = onDocumentCreated(
     const spot = event.data?.data?.();
     if (!spotId || !spot || typeof spot.finderId !== 'string' || !spot.finderId.trim()) return;
     const statsRef = db.doc("stats/global");
-    const eventRef = db.doc(`functionEvents/incrementTotalSpotsPinged_${spotId}`);
+    if (typeof event.id !== 'string' || !event.id) return;
+    const eventRef = db.doc(`functionEvents/incrementTotalSpotsPinged_${stableId(event.id)}`);
     await db.runTransaction(async tx => {
       if ((await tx.get(eventRef)).exists) return;
       tx.set(eventRef, {
         functionName: 'incrementTotalSpotsPinged',
+        sourceEventId: event.id,
         spotId,
         actorUserId: spot.finderId,
         processedAt: Timestamp.now(),
@@ -562,9 +579,10 @@ exports.notifyNearbyUsers = onDocumentCreated(
 
       // Claim each recipient before sending. A repeated Firestore event observes
       // the durable delivery document and cannot duplicate its push or bell row.
+      if (typeof event.id !== 'string' || !event.id) return;
       const claimedMessages = (await Promise.all(messages.map(async message => {
         const recipientId = message.recipientUserId;
-        const deliveryId = `nearby_${event.params.spotId}_${recipientId}`;
+        const deliveryId = `nearby_${stableId(event.id, recipientId)}`;
         const deliveryRef = db.doc(`notificationDeliveries/${deliveryId}`);
         const bellRef = db.doc(`spotNotifications/${deliveryId}`);
         return db.runTransaction(async tx => {
@@ -576,8 +594,8 @@ exports.notifyNearbyUsers = onDocumentCreated(
             spotId: event.params.spotId,
             actorUserId: spotData.finderId,
             recipientUserId: recipientId,
-            status: 'claimed',
-            claimedAt,
+            status: 'reserved',
+            reservedAt: claimedAt,
           });
           tx.set(bellRef, {
             spotId: event.params.spotId,
