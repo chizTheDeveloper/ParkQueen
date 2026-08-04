@@ -21,6 +21,72 @@ const { osmNameToDOT, streetNameToLikePattern, dotSideToCardinal, BOROUGH_CODE_T
 const { redactForLog, sanitizeError } = require('./redactForLog');
 const { checkRateLimit } = require('./rateLimiter');
 const { haversineDistMiles, filterCandidates, buildMessages, collectStaleTokens, MAX_CANDIDATES, FCM_BATCH } = require('./notifyFanout');
+const { createHmac, randomInt: secureRandomInt, randomUUID, timingSafeEqual } = require('crypto');
+
+function _canonicalizeEmail(value) {
+  if (typeof value !== 'string') throw new HttpsError('invalid-argument', 'Valid email required.');
+  const email = value.trim().toLowerCase();
+  if (!email || email.length > 254 || !/^[\x21-\x7e]+$/.test(email)) {
+    throw new HttpsError('invalid-argument', 'Valid email required.');
+  }
+  const parts = email.split('@');
+  if (parts.length !== 2) throw new HttpsError('invalid-argument', 'Valid email required.');
+  const [local, domain] = parts;
+  if (!local || local.length > 64 || local.startsWith('.') || local.endsWith('.') || local.includes('..') ||
+      !/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+$/.test(local)) {
+    throw new HttpsError('invalid-argument', 'Valid email required.');
+  }
+  const labels = domain.split('.');
+  if (domain.length > 253 || labels.length < 2 || labels.some(label =>
+      !label || label.length > 63 || !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(label)) ||
+      !/[a-z]/.test(labels.at(-1))) {
+    throw new HttpsError('invalid-argument', 'Valid email required.');
+  }
+  return email;
+}
+
+exports._canonicalizeEmail = _canonicalizeEmail;
+
+function _generateEmailOtpCode(randomIntFn = secureRandomInt) {
+  return String(randomIntFn(100000, 1000000));
+}
+
+exports._generateEmailOtpCode = _generateEmailOtpCode;
+
+function _emailOtpMatches(storedCode, suppliedCode) {
+  if (typeof storedCode !== 'string' || typeof suppliedCode !== 'string' ||
+      !/^\d{6}$/.test(storedCode) || !/^\d{6}$/.test(suppliedCode)) return false;
+  return timingSafeEqual(Buffer.from(storedCode, 'ascii'), Buffer.from(suppliedCode, 'ascii'));
+}
+
+exports._emailOtpMatches = _emailOtpMatches;
+
+async function _deliverEmailOtp(email, code, fetchFn = fetch) {
+  try {
+    const res = await fetchFn('https://api.sendgrid.com/v3/mail/send', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${sendgridApiKey.value()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        personalizations: [{ to: [{ email }] }],
+        from: { email: 'hello@parqueen.app', name: 'ParQueen' },
+        subject: 'Your ParQueen verification code',
+        content: [{ type: 'text/plain', value: `Your verification code is: ${code}\n\nThis code expires in 10 minutes.` }],
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res || res.ok !== true) {
+      await res?.body?.cancel?.();
+      throw new Error('Email delivery failed');
+    }
+  } catch {
+    throw new Error('Email delivery failed');
+  }
+}
+
+exports._deliverEmailOtp = _deliverEmailOtp;
+
+const _emailOtpHooks = { deliver: null, now: null, generateCode: null };
+exports._emailOtpHooks = _emailOtpHooks;
 
 // Crown title thresholds (must match client-side utils/crowns.ts)
 const TITLE_THRESHOLDS = [
@@ -487,40 +553,47 @@ exports.generateEmailOTP = onCall(
   { region: "us-central1", secrets: [sendgridApiKey, emailRateLimitPepper] },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Sign in first.");
-    const email = request.data?.email;
-    if (!email || !email.includes("@")) throw new HttpsError("invalid-argument", "Valid email required.");
+    const email = _canonicalizeEmail(request.data?.email);
 
     const uid = request.auth.uid;
     await checkRateLimit(uid, 'generateEmailOTP', { limit: 10, windowSec: 3600 });
     // HMAC with server-only pepper prevents rainbow-table attacks on per-inbox rate limit keys.
-    const emailHash = require('crypto').createHmac('sha256', emailRateLimitPepper.value())
-        .update(email.trim().toLowerCase()).digest('hex');
+    const emailHash = createHmac('sha256', emailRateLimitPepper.value()).update(email).digest('hex');
     await checkRateLimit(emailHash, 'generateEmailOTP_email', { limit: 10, windowSec: 3600 });
     const docRef = db.collection("emailVerificationCodes").doc(uid);
-    const existing = await docRef.get();
-    if (existing.exists) {
-      const lastSent = existing.data().createdAt?.toMillis() || 0;
-      if (Date.now() - lastSent < 60000) {
-        throw new HttpsError("resource-exhausted", "Wait 60 seconds before requesting another code.");
+    const nowMs = _emailOtpHooks.now?.() ?? Date.now();
+    const code = _emailOtpHooks.generateCode?.() ?? _generateEmailOtpCode();
+    const requestId = randomUUID();
+    await db.runTransaction(async tx => {
+      const existing = await tx.get(docRef);
+      if (existing.exists) {
+        const lastSent = existing.data().createdAt?.toMillis() || 0;
+        if (nowMs - lastSent < 60000) {
+          throw new HttpsError("resource-exhausted", "Wait 60 seconds before requesting another code.");
+        }
       }
-    }
-
-    const code = String(Math.floor(100000 + Math.random() * 900000));
-    await docRef.set({ code, email, createdAt: Timestamp.now(), expiresAt: Timestamp.fromMillis(Date.now() + 10 * 60000) });
-
-    const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${sendgridApiKey.value()}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        personalizations: [{ to: [{ email }] }],
-        from: { email: "hello@parqueen.app", name: "ParQueen" },
-        subject: "Your ParQueen verification code",
-        content: [{ type: "text/plain", value: `Your verification code is: ${code}\n\nThis code expires in 10 minutes.` }],
-      }),
+      tx.set(docRef, {
+        code, email, requestId, status: 'pending',
+        createdAt: Timestamp.fromMillis(nowMs),
+        expiresAt: Timestamp.fromMillis(nowMs + 10 * 60000),
+      });
     });
-    if (!res.ok) {
-      await res.body?.cancel(); // TM-17: consume body without logging — may contain recipient email
-      console.error("SendGrid error:", res.status);
+
+    try {
+      await (_emailOtpHooks.deliver?.(email, code) ?? _deliverEmailOtp(email, code));
+      await db.runTransaction(async tx => {
+        const current = await tx.get(docRef);
+        if (!current.exists || current.data().requestId !== requestId || current.data().status !== 'pending') {
+          throw new Error('OTP request superseded');
+        }
+        tx.update(docRef, { status: 'active' });
+      });
+    } catch {
+      await db.runTransaction(async tx => {
+        const current = await tx.get(docRef);
+        if (current.exists && current.data().requestId === requestId) tx.delete(docRef);
+      }).catch(() => {});
+      console.error('Email OTP delivery failed');
       throw new HttpsError("internal", "Failed to send verification email.");
     }
     return { success: true };
@@ -532,30 +605,38 @@ exports.verifyEmailOTP = onCall(
   { region: "us-central1" },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Sign in first.");
-    const { email, code } = request.data || {};
-    if (!email || !code) throw new HttpsError("invalid-argument", "Email and code required.");
+    const email = _canonicalizeEmail(request.data?.email);
+    const code = request.data?.code;
 
     const uid = request.auth.uid;
     await checkRateLimit(uid, 'verifyEmailOTP', { limit: 10, windowSec: 900 });
     const docRef = db.collection("emailVerificationCodes").doc(uid);
-    const snap = await docRef.get();
-    if (!snap.exists) throw new HttpsError("not-found", "No verification code found. Request a new one.");
+    const userRef = db.collection("users").doc(uid);
+    const privateAccountRef = userRef.collection("private").doc("account");
+    const verificationOutcome = await db.runTransaction(async tx => {
+      const snap = await tx.get(docRef);
+      if (!snap.exists) throw new HttpsError("not-found", "No verification code found. Request a new one.");
 
-    const data = snap.data();
-    if (data.email !== email) throw new HttpsError("invalid-argument", "Email does not match.");
-    if (data.code !== code) throw new HttpsError("invalid-argument", "Invalid code.");
-    if (Date.now() > data.expiresAt.toMillis()) {
-      await docRef.delete();
+      const data = snap.data();
+      let storedEmail;
+      try { storedEmail = _canonicalizeEmail(data.email); }
+      catch { storedEmail = null; }
+      if ((data.status && data.status !== 'active') || storedEmail !== email || !_emailOtpMatches(data.code, code)) {
+        throw new HttpsError("invalid-argument", "Invalid email or code.");
+      }
+      if (!data.expiresAt?.toMillis || Date.now() > data.expiresAt.toMillis()) {
+        tx.delete(docRef);
+        return 'expired';
+      }
+      tx.delete(docRef);
+      // Consume the OTP only if both account updates can commit with it.
+      tx.set(privateAccountRef, { email }, { merge: true });
+      tx.update(userRef, { emailVerified: true });
+      return 'verified';
+    });
+    if (verificationOutcome === 'expired') {
       throw new HttpsError("deadline-exceeded", "Code expired. Request a new one.");
     }
-
-    await docRef.delete();
-    // email goes to the owner-only private subcollection; only the verified boolean is public
-    await db.collection("users").doc(uid).collection("private").doc("account").set(
-      { email },
-      { merge: true }
-    );
-    await db.collection("users").doc(uid).update({ emailVerified: true });
     return { success: true };
   }
 );
