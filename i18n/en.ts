@@ -127,6 +127,16 @@ const en: Record<string, string> = {
     'spot_details.edit': 'Edit',
     'spot_details.delete': 'Delete',
 
+    'parking_activity.checking': 'Checking parking activity...',
+    'parking_activity.active_pings': 'Active Pings',
+    'parking_activity.leaving_later': 'Leaving later',
+    'parking_activity.most_recent': 'Most recent Ping',
+    'parking_activity.just_now': 'Just now',
+    'parking_activity.min_ago': '{count} min ago',
+    'parking_activity.hr_ago': '{count} hr ago',
+    'parking_activity.none_near': 'No parking activity near {name} right now',
+    'parking_activity.explore_area': 'Explore {name} area',
+
     // Ping errors (toast)
     'ping_errors.duplicate': 'You already have an active ping. End it before creating another.',
     'ping_errors.save_failed': "Couldn't save your ping — please try again.",

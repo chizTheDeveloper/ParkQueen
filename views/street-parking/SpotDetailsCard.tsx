@@ -8,6 +8,7 @@ import { getTierForTitle, TIER_VISUALS } from '../../utils/crowns';
 import { CrownBadge } from '../../utils/CrownBadge';
 import { db } from '../../firebase';
 import { doc, setDoc, addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { derivePingLifecycle, timestampToMillis } from '../../utils/pingLifecycle';
 
 // QUICK_REPLIES moved inside SpotDetailsCardInner so they re-resolve on language change
 
@@ -96,10 +97,12 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
         ? (distanceVal * 0.621371 < 0.1 ? `${Math.round(distanceVal * 1000 * 1.09361)} yd` : `${(distanceVal * 0.621371).toFixed(1)} mi`)
         : '';
 
-    const departureDate = selectedItem.reportedAt ? (typeof selectedItem.reportedAt.toDate === 'function' ? selectedItem.reportedAt.toDate() : new Date(selectedItem.reportedAt)) : null;
-    const isScheduled = selectedItem.pingMode === 'later' || (!selectedItem.pingMode && !!(departureDate && departureDate.getTime() > nowMs + 5 * 60_000));
-    const departureText = departureDate ? (isScheduled ? departureDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : t('spot_details.leaving_now')) : '';
-    const timeLeftMs = selectedItem.expiresAt ? (typeof selectedItem.expiresAt.toMillis === 'function' ? selectedItem.expiresAt.toMillis() : new Date(selectedItem.expiresAt).getTime()) - Date.now() : 0;
+    const departureMs = timestampToMillis(selectedItem.reportedAt);
+    const departureDate = departureMs ? new Date(departureMs) : null;
+    const lifecycle = derivePingLifecycle(selectedItem, nowMs, user?.id);
+    const isScheduled = lifecycle.phase === 'scheduled';
+    const departureText = departureDate ? departureDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    const timeLeftMs = timestampToMillis(selectedItem.expiresAt) - nowMs;
 
     const isFinder = user?.id === selectedItem.finderId;
     const isInterestedUser = user?.id === selectedItem.interestedUserId;
@@ -558,7 +561,7 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
                             {distanceText && (
                                 <span className="text-sm font-bold text-[var(--color-text-secondary)]">{distanceText}</span>
                             )}
-                            {timeLeftMs > 0 && (
+                            {!isScheduled && timeLeftMs > 0 && (
                                 <span className="text-xs text-[var(--color-text-secondary)]">{t('spot_details.expires_in', { time: formatTimeLeft(timeLeftMs) })}</span>
                             )}
                         </div>
@@ -638,7 +641,7 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
                                 {isScheduled ? t('spot_details.leaving_at', { time: departureText }) : t('spot_details.leaving_now')}
                             </span>
                         </div>
-                        {timeLeftMs > 0 && (
+                        {!isScheduled && timeLeftMs > 0 && (
                             <span className="text-xs text-[var(--color-text-secondary)]">{t('spot_details.expires_in', { time: formatTimeLeft(timeLeftMs) })}</span>
                         )}
                     </div>
