@@ -21,6 +21,13 @@ const { osmNameToDOT, streetNameToLikePattern, dotSideToCardinal, BOROUGH_CODE_T
 const { redactForLog, sanitizeError } = require('./redactForLog');
 const { checkRateLimit } = require('./rateLimiter');
 const { haversineDistMiles, filterCandidates, buildMessages, collectStaleTokens, MAX_CANDIDATES, FCM_BATCH } = require('./notifyFanout');
+const secureRandomInt = require('crypto').randomInt;
+
+function _generateEmailOtpCode(randomIntFn = secureRandomInt) {
+  return String(randomIntFn(100000, 1000000));
+}
+
+exports._generateEmailOtpCode = _generateEmailOtpCode;
 
 // Crown title thresholds (must match client-side utils/crowns.ts)
 const TITLE_THRESHOLDS = [
@@ -505,7 +512,7 @@ exports.generateEmailOTP = onCall(
       }
     }
 
-    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const code = _generateEmailOtpCode();
     await docRef.set({ code, email, createdAt: Timestamp.now(), expiresAt: Timestamp.fromMillis(Date.now() + 10 * 60000) });
 
     const res = await fetch("https://api.sendgrid.com/v3/mail/send", {

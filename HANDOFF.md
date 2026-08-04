@@ -1,5 +1,14 @@
 # ParQueen Engineering Handoff
 
+## generateEmailOTP secure-RNG deployment blocker — 2026-08-03
+
+- Branch: `codex/fix-generate-email-otp-secure-rng`, created from production `main` at `182e0e432029b57800301d454952b64251b5bbc1`.
+- A controlled `generateEmailOTP`-only rollout was stopped before deployment because the current Function generated six-digit codes with `Math.random()`, which is not a cryptographically secure OTP source and violated the rollout security checklist.
+- The narrow fix uses Node's `crypto.randomInt(100000, 1000000)` and preserves the existing six-digit string record format consumed by the already-deployed `verifyEmailOTP` Function.
+- Added a focused regression test that verifies the six-digit bounds, secure default source, callable integration, and absence of `Math.random()` from the Function block. The test was observed failing before implementation and passing afterward.
+- Fresh gates: TypeScript passed; unit tests 922/922; Firestore Rules tests 176/176; Functions integration tests 146/146; Function syntax passed; production build completed with 1,682 modules. Gitleaks 8.28.0 found zero leaks in the 50.32 MB working tree, 402 commits in `origin/main`, and all 427 reachable commits. Existing Vite and Functions toolchain warnings remain unchanged.
+- No Firebase target, secret version, production data, or provider configuration was changed. Production `generateEmailOTP` remains revision `generateemailotp-00035-ruh` pending protected integration review.
+
 ## Scheduled Ping live-transition fix — 2026-08-03
 
 - Branch: `codex/fix-scheduled-ping-live-transition`, created from production `origin/main` at `1171e2305a55d07024f94c140f4255c240349e83`.
