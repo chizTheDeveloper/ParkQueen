@@ -1,4 +1,4 @@
-import { doc, runTransaction, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, runTransaction, Timestamp } from 'firebase/firestore';
 import { timestampToMillis } from '../../utils/pingLifecycle';
 
 // Loosely typed on purpose: @firebase/rules-unit-testing's RulesTestContext
@@ -20,6 +20,14 @@ export interface CancelClaimParams {
     message: string;
 }
 
+function claimStatus(spot: Record<string, any>, claimantId: string, fingerprint: number | null) {
+    const currentFingerprint = timestampToMillis(spot.claimStartedAt) || null;
+    const matches = spot.interestedUserId === claimantId
+        && (fingerprint === null || currentFingerprint === fingerprint);
+    const releasedByOther = spot.interestedUserId == null;
+    return { matches, releasedByOther };
+}
+
 /**
  * Atomically cancels a claimant's claim on a Ping.
  *
@@ -39,13 +47,22 @@ export interface CancelClaimParams {
  *   - The notification is only ever written in the same atomic commit as
  *     the claim-field clear, by this exact function, keyed on
  *     (spotId, claimStartedAt). No other code path writes that id.
- *   - Once a claim's fields are cleared, `claimMatches` below is false for
- *     any later call with the same fingerprint — so a lost-response retry
- *     always resolves to `already_resolved` before it would ever attempt to
- *     write again.
- *   - Therefore "claim still active AND its notification already exists"
- *     cannot arise from this function's own operation, and nothing else in
- *     the codebase writes this id — so it isn't defended against here.
+ *   - Once a claim's fields are cleared, `claimStatus(...).matches` is false
+ *     for any later call with the same fingerprint — so a lost-response
+ *     retry always resolves to `already_resolved` before it would ever
+ *     attempt to write again.
+ *
+ * A permission-denied on commit does NOT automatically mean "someone else
+ * already resolved it" — it could also mean this claim is still fully
+ * intact and something else about the write was rejected (e.g. a stray
+ * notification doc already occupying this exact deterministic id). Treating
+ * every denial as success would silently misreport a genuine failure as a
+ * completed cancellation. So on denial, re-read the spot *outside* the
+ * failed transaction and classify from what's actually true now:
+ *   - claim is gone/cleared by someone else  -> already_resolved
+ *   - a different claimant now holds it      -> stale_claim
+ *   - the same claim is still fully active   -> rethrow (genuine failure)
+ *   - the re-read itself fails               -> rethrow the original error
  */
 export async function cancelClaimTransaction(
     db: Firestore,
@@ -63,15 +80,11 @@ export async function cancelClaimTransaction(
             if (!freshSpotSnap.exists()) return 'already_resolved';
             const spot = freshSpotSnap.data() as Record<string, any>;
 
-            const currentFingerprint = timestampToMillis(spot.claimStartedAt) || null;
-            const claimMatches = spot.interestedUserId === claimantId
-                && (fingerprint === null || currentFingerprint === fingerprint);
-
-            if (!claimMatches) {
+            const { matches, releasedByOther } = claimStatus(spot, claimantId, fingerprint);
+            if (!matches) {
                 // Already resolved (by the scheduler, the owner, or an earlier run
                 // of this exact call) or replaced by a newer claim — either way
                 // there is nothing to release and nothing to notify.
-                const releasedByOther = spot.interestedUserId == null;
                 return releasedByOther ? 'already_resolved' : 'stale_claim';
             }
 
@@ -111,15 +124,25 @@ export async function cancelClaimTransaction(
             return 'cancelled';
         });
     } catch (e: any) {
-        // A write staged against a stale-but-still-claimMatches read can lose a
-        // race to a concurrent commit (a second tab, or a second in-flight
-        // attempt landing between our read and write). Firestore evaluates the
-        // write's Rules against the now-current server document, which no
-        // longer satisfies isClaimer()/status — a clean permission denial, not
-        // a bug. That always means someone else already resolved this exact
-        // claim, so it's safe (and correct) to report it that way rather than
-        // surface a scary error for a benign race.
-        if (e?.code === 'permission-denied') return 'already_resolved';
+        if (e?.code !== 'permission-denied') throw e;
+
+        let freshSnap;
+        try {
+            freshSnap = await getDoc(spotRef);
+        } catch {
+            throw e; // can't determine current truth — never assume success
+        }
+
+        if (!freshSnap.exists()) return 'already_resolved';
+        const { matches, releasedByOther } = claimStatus(
+            freshSnap.data() as Record<string, any>, claimantId, fingerprint
+        );
+        if (!matches) return releasedByOther ? 'already_resolved' : 'stale_claim';
+
+        // Same user, same claim generation, still fully active — the write
+        // genuinely failed for some other reason. Report it as a real
+        // failure so the caller shows a retryable error instead of
+        // silently treating a failed cancellation as a successful one.
         throw e;
     }
 }

@@ -843,13 +843,19 @@ describe('cancelClaimTransaction — transaction read/write ordering and behavio
         expect(count).toBe(1);
     });
 
-    it('TX-9 (CASE 4 is structurally unreachable, and fails safe if forced): a notification pre-seeded under the id this call would produce makes the write atomically reject, and the permission-denied that produces is reported as an already-resolved no-op rather than an error', async () => {
+    it('TX-9 (CASE 4 is structurally unreachable via normal operation, and fails VISIBLY if forced — never silently reported as already_resolved): a notification pre-seeded under the id this call would produce makes the write atomically reject; since the claim is still fully active and unchanged, the function must rethrow rather than mask a genuine failure', async () => {
         // This state can't arise from cancelClaimTransaction itself (notification
         // and claim-clear always co-commit), so this simulates a hypothetical
         // external/legacy write landing on the same deterministic id. Since
         // spotNotifications has no `allow update` arm, tx.set() on the existing
         // doc is rejected — and because the transaction is atomic, that rejection
         // rolls back the claim-clear too, rather than leaving a partial state.
+        //
+        // Critically: a post-failure re-read still shows this exact claimant's
+        // claim fully active and matching — so this must NOT be reported as
+        // already_resolved (that would silently tell the user their still-active
+        // claim was cancelled when it wasn't). It must surface as a genuine,
+        // retryable failure.
         await seed('spots', 'tx9', { ...committedScheduledSpot, claimStartedAt: CLAIM_STARTED_AT });
         const fp = CLAIM_STARTED_AT.toMillis();
         const notifId = `claimer_cancelled_tx9_${fp}`;
@@ -858,13 +864,13 @@ describe('cancelClaimTransaction — transaction read/write ordering and behavio
             type: 'claimer_cancelled', message: 'original', createdAt: Timestamp.now(),
         });
 
-        const outcome = await cancelClaimTransaction(otherDb(), {
+        await expect(cancelClaimTransaction(otherDb(), {
             spotId: 'tx9', claimantId: OTHER_UID, finderId: OWNER_UID, fingerprint: fp, message: 'x',
-        });
-        expect(outcome).toBe('already_resolved');
+        })).rejects.toThrow();
 
         const spot = await readSpot('tx9');
-        expect(spot.interestedUserId).toBe(OTHER_UID); // untouched — rolled back
+        expect(spot.interestedUserId).toBe(OTHER_UID); // untouched — rolled back, claim still active
+        expect(spot.claimStartedAt?.isEqual(CLAIM_STARTED_AT)).toBe(true);
         const notif = await readNotif(notifId);
         expect(notif.message).toBe('original'); // untouched
     });
