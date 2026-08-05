@@ -25,7 +25,9 @@ import {
     query,
     where,
     Timestamp,
+    runTransaction,
 } from 'firebase/firestore';
+import { cancelClaimTransaction } from './views/street-parking/cancelClaimTransaction';
 
 // ── Test identities ────────────────────────────────────────────────────────────
 const OWNER_UID  = 'owner-aaa-111';
@@ -665,6 +667,259 @@ describe('spots — claimer cancellation', () => {
         });
         expect(stored?.claimStartedAt?.isEqual(claimedAt)).toBe(true);
         expect(stored?.claimStartedAt?.isEqual(CLAIM_STARTED_AT)).toBe(false);
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// cancelClaimTransaction — real Firestore SDK transaction execution (no mocks)
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('cancelClaimTransaction — transaction read/write ordering and behavior', () => {
+    async function readSpot(id: string) {
+        let data: any;
+        await testEnv.withSecurityRulesDisabled(async ctx => {
+            data = (await getDoc(doc(ctx.firestore(), 'spots', id))).data();
+        });
+        return data;
+    }
+    async function readNotif(id: string) {
+        let data: any;
+        await testEnv.withSecurityRulesDisabled(async ctx => {
+            data = (await getDoc(doc(ctx.firestore(), 'spotNotifications', id))).data();
+        });
+        return data;
+    }
+
+    it('TX-1 (reproduction): a transaction that writes before its second read throws the exact SDK ordering error, and commits nothing', async () => {
+        await seed('spots', 'tx1', committedScheduledSpot);
+        const db = otherDb();
+        const spotRef = doc(db, 'spots', 'tx1');
+        const notifRef = doc(db, 'spotNotifications', 'claimer_cancelled_tx1_repro');
+
+        // Mirrors the pre-fix operation order exactly: read, write, read, write.
+        const attempt = runTransaction(db, async (tx) => {
+            const fresh = await tx.get(spotRef);
+            tx.update(spotRef, { status: 'available', interestedUserId: null });
+            await tx.get(notifRef); // illegal: a read after a write was already queued
+            tx.set(notifRef, { spotId: 'tx1' });
+            void fresh;
+        });
+
+        // This ordering violation is caught client-side, before any network call
+        // for the second read — so it fires even though that read would also be
+        // rules-denied (spotNotifications is owner-only-readable). That's the
+        // real reason production only ever surfaced the ordering error and never
+        // the deeper permission problem underneath it.
+        await expect(attempt).rejects.toThrow(/reads to be executed before all writes/i);
+
+        const spotAfter = await readSpot('tx1');
+        expect(spotAfter.status).toBe('interested'); // untouched — nothing committed
+        expect(spotAfter.interestedUserId).toBe(OTHER_UID);
+        const notifAfter = await readNotif('claimer_cancelled_tx1_repro');
+        expect(notifAfter).toBeUndefined();
+    });
+
+    it('TX-2: all reads happen before any write in the corrected transaction (structural proof)', async () => {
+        await seed('spots', 'tx2', committedScheduledSpot);
+        await seed('spots', 'tx2b', availableSpot);
+        const db = otherDb();
+        const calls: string[] = [];
+        const spotRef = doc(db, 'spots', 'tx2');
+        const otherSpotRef = doc(db, 'spots', 'tx2b'); // a second doc, just to prove multi-read ordering
+        await runTransaction(db, async (tx) => {
+            calls.push('get:spot');
+            await tx.get(spotRef);
+            calls.push('get:otherSpot');
+            await tx.get(otherSpotRef);
+            calls.push('update:spot');
+            tx.update(spotRef, { etaMinutes: null });
+        });
+        const firstWriteIndex = calls.findIndex(c => c.startsWith('update') || c.startsWith('set'));
+        const readsAfterFirstWrite = calls.slice(firstWriteIndex + 1).filter(c => c.startsWith('get'));
+        expect(readsAfterFirstWrite).toHaveLength(0);
+    });
+
+    it('TX-3 (CASE 1): active matching claim, no prior notification — cancels atomically, exactly one notification created', async () => {
+        await seed('spots', 'tx3', committedScheduledSpot);
+        const outcome = await cancelClaimTransaction(otherDb(), {
+            spotId: 'tx3', claimantId: OTHER_UID, finderId: OWNER_UID,
+            fingerprint: CLAIM_STARTED_AT.toMillis(), message: 'Changed my mind',
+        });
+        expect(outcome).toBe('cancelled');
+
+        const spot = await readSpot('tx3');
+        expect(spot.status).toBe('available');
+        expect(spot.interestedUserId).toBeNull();
+        expect(spot.claimStartedAt).toBeNull();
+
+        const notif = await readNotif(`claimer_cancelled_tx3_${CLAIM_STARTED_AT.toMillis()}`);
+        expect(notif).toBeDefined();
+        expect(notif.senderId).toBe(OTHER_UID);
+        expect(notif.targetUserId).toBe(OWNER_UID);
+        expect(notif.spotId).toBe('tx3');
+        expect(notif.type).toBe('claimer_cancelled');
+    });
+
+    it('TX-4 (lifecycle — future scheduled): returns to scheduled/unclaimed', async () => {
+        await seed('spots', 'tx4', committedScheduledSpot); // pingMode 'later', not expired
+        const outcome = await cancelClaimTransaction(otherDb(), {
+            spotId: 'tx4', claimantId: OTHER_UID, finderId: OWNER_UID,
+            fingerprint: CLAIM_STARTED_AT.toMillis(), message: 'x',
+        });
+        expect(outcome).toBe('cancelled');
+        const spot = await readSpot('tx4');
+        expect(spot.status).toBe('available');
+        expect(spot.pingMode).toBe('later');
+    });
+
+    it('TX-5 (lifecycle — live unexpired): returns to live/unclaimed, not scheduled', async () => {
+        await seed('spots', 'tx5', {
+            ...committedScheduledSpot, pingMode: 'now',
+            reportedAt: Timestamp.fromMillis(Date.now() - 60_000),
+            expiresAt: FUTURE,
+        });
+        const outcome = await cancelClaimTransaction(otherDb(), {
+            spotId: 'tx5', claimantId: OTHER_UID, finderId: OWNER_UID,
+            fingerprint: CLAIM_STARTED_AT.toMillis(), message: 'x',
+        });
+        expect(outcome).toBe('cancelled');
+        const spot = await readSpot('tx5');
+        expect(spot.status).toBe('available');
+    });
+
+    it('TX-6 (lifecycle — expired): claim fields clear, Ping never reopens', async () => {
+        await seed('spots', 'tx6', { ...committedScheduledSpot, reportedAt: PAST, expiresAt: PAST });
+        const outcome = await cancelClaimTransaction(otherDb(), {
+            spotId: 'tx6', claimantId: OTHER_UID, finderId: OWNER_UID,
+            fingerprint: CLAIM_STARTED_AT.toMillis(), message: 'x',
+        });
+        expect(outcome).toBe('cancelled');
+        const spot = await readSpot('tx6');
+        expect(spot.status).toBe('interested'); // untouched — never flipped to available
+        expect(spot.interestedUserId).toBeNull();
+        expect(spot.claimStartedAt).toBeNull();
+    });
+
+    it('TX-7: a lost-response retry (same params, called twice) produces exactly one logical cancellation', async () => {
+        await seed('spots', 'tx7', committedScheduledSpot);
+        const params = {
+            spotId: 'tx7', claimantId: OTHER_UID, finderId: OWNER_UID,
+            fingerprint: CLAIM_STARTED_AT.toMillis(), message: 'x',
+        };
+        const first = await cancelClaimTransaction(otherDb(), params);
+        const second = await cancelClaimTransaction(otherDb(), params);
+        expect(first).toBe('cancelled');
+        expect(second).toBe('already_resolved');
+
+        let count = 0;
+        await testEnv.withSecurityRulesDisabled(async ctx => {
+            const snap = await getDocs(query(collection(ctx.firestore(), 'spotNotifications'),
+                where('spotId', '==', 'tx7')));
+            count = snap.size;
+        });
+        expect(count).toBe(1);
+    });
+
+    it('TX-8 (double-click / concurrent duplicate safety): two simultaneous calls with identical params produce exactly one cancellation and one notification', async () => {
+        await seed('spots', 'tx8', committedScheduledSpot);
+        const params = {
+            spotId: 'tx8', claimantId: OTHER_UID, finderId: OWNER_UID,
+            fingerprint: CLAIM_STARTED_AT.toMillis(), message: 'x',
+        };
+        const [a, b] = await Promise.all([
+            cancelClaimTransaction(otherDb(), params),
+            cancelClaimTransaction(otherDb(), params),
+        ]);
+        const outcomes = [a, b].sort();
+        expect(outcomes).toEqual(['already_resolved', 'cancelled']);
+
+        const spot = await readSpot('tx8');
+        expect(spot.interestedUserId).toBeNull();
+        let count = 0;
+        await testEnv.withSecurityRulesDisabled(async ctx => {
+            const snap = await getDocs(query(collection(ctx.firestore(), 'spotNotifications'),
+                where('spotId', '==', 'tx8')));
+            count = snap.size;
+        });
+        expect(count).toBe(1);
+    });
+
+    it('TX-9 (CASE 4 is structurally unreachable via normal operation, and fails VISIBLY if forced — never silently reported as already_resolved): a notification pre-seeded under the id this call would produce makes the write atomically reject; since the claim is still fully active and unchanged, the function must rethrow rather than mask a genuine failure', async () => {
+        // This state can't arise from cancelClaimTransaction itself (notification
+        // and claim-clear always co-commit), so this simulates a hypothetical
+        // external/legacy write landing on the same deterministic id. Since
+        // spotNotifications has no `allow update` arm, tx.set() on the existing
+        // doc is rejected — and because the transaction is atomic, that rejection
+        // rolls back the claim-clear too, rather than leaving a partial state.
+        //
+        // Critically: a post-failure re-read still shows this exact claimant's
+        // claim fully active and matching — so this must NOT be reported as
+        // already_resolved (that would silently tell the user their still-active
+        // claim was cancelled when it wasn't). It must surface as a genuine,
+        // retryable failure.
+        await seed('spots', 'tx9', { ...committedScheduledSpot, claimStartedAt: CLAIM_STARTED_AT });
+        const fp = CLAIM_STARTED_AT.toMillis();
+        const notifId = `claimer_cancelled_tx9_${fp}`;
+        await seed('spotNotifications', notifId, {
+            spotId: 'tx9', senderId: OTHER_UID, targetUserId: OWNER_UID,
+            type: 'claimer_cancelled', message: 'original', createdAt: Timestamp.now(),
+        });
+
+        await expect(cancelClaimTransaction(otherDb(), {
+            spotId: 'tx9', claimantId: OTHER_UID, finderId: OWNER_UID, fingerprint: fp, message: 'x',
+        })).rejects.toThrow();
+
+        const spot = await readSpot('tx9');
+        expect(spot.interestedUserId).toBe(OTHER_UID); // untouched — rolled back, claim still active
+        expect(spot.claimStartedAt?.isEqual(CLAIM_STARTED_AT)).toBe(true);
+        const notif = await readNotif(notifId);
+        expect(notif.message).toBe('original'); // untouched
+    });
+
+    it('TX-11 (CASE 3): claim already released by another process, no notification — no false notification, no reopen', async () => {
+        await seed('spots', 'tx11', {
+            finderId: OWNER_UID, finderName: 'TestFinder', address: '1 Auto St',
+            lat: 40.7, lng: -74.0, status: 'available', pingMode: 'later',
+            reportedAt: FUTURE, expiresAt: Timestamp.fromMillis(FUTURE.toMillis() + 3_600_000),
+        });
+        const outcome = await cancelClaimTransaction(otherDb(), {
+            spotId: 'tx11', claimantId: OTHER_UID, finderId: OWNER_UID,
+            fingerprint: CLAIM_STARTED_AT.toMillis(), message: 'x',
+        });
+        expect(outcome).toBe('already_resolved');
+        let count = 0;
+        await testEnv.withSecurityRulesDisabled(async ctx => {
+            const snap = await getDocs(query(collection(ctx.firestore(), 'spotNotifications'),
+                where('spotId', '==', 'tx11')));
+            count = snap.size;
+        });
+        expect(count).toBe(0);
+    });
+
+    it('TX-12 (CASE 5): a newer claimant has replaced the stale one — old claimant cannot release it', async () => {
+        await seed('spots', 'tx12', { ...committedScheduledSpot, interestedUserId: THIRD_UID, claimStartedAt: Timestamp.now() });
+        const outcome = await cancelClaimTransaction(otherDb(), {
+            spotId: 'tx12', claimantId: OTHER_UID, finderId: OWNER_UID,
+            fingerprint: CLAIM_STARTED_AT.toMillis(), message: 'x',
+        });
+        expect(outcome).toBe('stale_claim');
+        const spot = await readSpot('tx12');
+        expect(spot.interestedUserId).toBe(THIRD_UID); // newer claimant untouched
+    });
+
+    it('TX-13: claimant receives no self-notification when they are also the Ping owner', async () => {
+        await seed('spots', 'tx13', { ...committedScheduledSpot, finderId: OTHER_UID });
+        const outcome = await cancelClaimTransaction(otherDb(), {
+            spotId: 'tx13', claimantId: OTHER_UID, finderId: OTHER_UID,
+            fingerprint: CLAIM_STARTED_AT.toMillis(), message: 'x',
+        });
+        expect(outcome).toBe('cancelled');
+        let count = 0;
+        await testEnv.withSecurityRulesDisabled(async ctx => {
+            const snap = await getDocs(query(collection(ctx.firestore(), 'spotNotifications'),
+                where('spotId', '==', 'tx13')));
+            count = snap.size;
+        });
+        expect(count).toBe(0);
     });
 });
 

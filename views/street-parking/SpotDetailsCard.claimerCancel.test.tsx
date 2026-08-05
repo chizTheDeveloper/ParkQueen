@@ -115,6 +115,20 @@ describe('claimant Cancel button — loading, error, and a11y state', () => {
         expect(markup).not.toContain('disabled=""');
     });
 
+    it('renders the real claim_flow.cancel_error i18n string in English — and it never contains raw SDK/transaction wording', () => {
+        const markup = renderCommitted({ interestError: t('claim_flow.cancel_error') });
+        expect(markup).toContain('Couldn&#x27;t cancel');
+        expect(markup).toContain('please try again');
+        expect(markup.toLowerCase()).not.toMatch(/firestore|transaction|permission-denied|reads to be executed/);
+    });
+
+    it('renders the real claim_flow.cancel_error i18n string in Spanish — and it never contains raw SDK/transaction wording', () => {
+        setLang('es');
+        const markup = renderCommitted({ interestError: t('claim_flow.cancel_error') });
+        expect(markup).toContain('No se pudo cancelar');
+        expect(markup.toLowerCase()).not.toMatch(/firestore|transaction|permission-denied|reads to be executed/);
+    });
+
     it('an idle (non-submitting) button still invokes onCancelByClaimer — sanity check for the disabled-state contract', () => {
         let renderer: TestRenderer.ReactTestRenderer;
         const onCancelByClaimer = vi.fn();
