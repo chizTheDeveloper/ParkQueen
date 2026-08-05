@@ -272,6 +272,7 @@ const es: Record<string, string> = {
     'claim_flow.why_canceling': '¿Por qué cancelas?',
     'claim_flow.cancel': 'Cancelar',
     'claim_flow.canceling': 'Cancelando…',
+    'claim_flow.cancel_error': 'No se pudo cancelar — inténtalo de nuevo',
     'claim_flow.ive_arrived': 'Llegué',
     'claim_flow.dist_away': 'a {dist}',
     'claim_flow.get_closer': 'Acércate más',
