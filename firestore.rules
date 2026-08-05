@@ -190,7 +190,7 @@ service cloud.firestore {
                           'interestedUserId', 'interestedUserName',
                           'interestedUserVehicleColor', 'interestedUserVehicleType',
                           'interestedUserVehicleBrand', 'interestedUserTitle',
-                          'etaMinutes', 'interestExpiresAt',
+                          'etaMinutes', 'interestExpiresAt', 'claimStartedAt',
                           'claimReminderAt', 'claimReminderSentAt',
                           'claimAutoReleaseAt', 'claimAutoReleasedAt']))
 
@@ -215,7 +215,7 @@ service cloud.firestore {
                           'interestedUserId', 'interestedUserName',
                           'interestedUserVehicleColor', 'interestedUserVehicleType',
                           'interestedUserVehicleBrand', 'interestedUserTitle',
-                          'etaMinutes', 'interestExpiresAt',
+                          'etaMinutes', 'interestExpiresAt', 'claimStartedAt',
                           'claimReminderAt', 'claimReminderSentAt',
                           'claimAutoReleaseAt', 'claimAutoReleasedAt']))
 
@@ -228,7 +228,7 @@ service cloud.firestore {
                           'interestedUserId', 'interestedUserName',
                           'interestedUserVehicleColor', 'interestedUserVehicleType',
                           'interestedUserVehicleBrand', 'interestedUserTitle',
-                          'etaMinutes', 'interestExpiresAt',
+                          'etaMinutes', 'interestExpiresAt', 'claimStartedAt',
                           'claimReminderAt', 'claimReminderSentAt',
                           'claimAutoReleaseAt', 'claimAutoReleasedAt']))
 

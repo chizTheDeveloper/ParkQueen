@@ -118,6 +118,7 @@ const bareAvailableSpot = {
 };
 
 // Committed scheduled claim (pingMode 'later', claimant has tapped "heading there")
+const CLAIM_STARTED_AT = Timestamp.fromMillis(Date.now() - 5 * 60_000);
 const committedScheduledSpot = {
     finderId:          OWNER_UID,
     finderName:        'TestFinder',
@@ -131,6 +132,7 @@ const committedScheduledSpot = {
     reportedAt:        FUTURE,
     expiresAt:         Timestamp.fromMillis(FUTURE.toMillis() + 3_600_000),
     claimAutoReleaseAt: FUTURE,
+    claimStartedAt:    CLAIM_STARTED_AT,
 };
 
 // ── Global setup ───────────────────────────────────────────────────────────────
@@ -619,6 +621,50 @@ describe('spots — claimer cancellation', () => {
         await assertFails(
             updateDoc(doc(otherDb(), 'spots', 'cc6'), { ...clearFields, status: 'available' })
         );
+    });
+
+    it('CC7: claimStartedAt cannot be altered by a delay-style update (Arm 6) — proves it stays a stable claim fingerprint across a legitimate delay', async () => {
+        const { updateDoc } = await import('firebase/firestore');
+        await seed('spots', 'cc7', committedScheduledSpot);
+        // Owner extends the claimant's time (handleDelayByFinder) — legitimate Arm 6.
+        await assertSucceeds(
+            updateDoc(doc(ownerDb(), 'spots', 'cc7'), { interestExpiresAt: FUTURE })
+        );
+        // The same owner trying to also slip a claimStartedAt change into that
+        // write is out of scope for Arm 6 (onlyChanges(['interestExpiresAt'])).
+        await assertFails(
+            updateDoc(doc(ownerDb(), 'spots', 'cc7'), {
+                interestExpiresAt: FUTURE,
+                claimStartedAt: Timestamp.now(),
+            })
+        );
+        let untouched: any;
+        await testEnv.withSecurityRulesDisabled(async ctx => {
+            untouched = (await getDoc(doc(ctx.firestore(), 'spots', 'cc7'))).data();
+        });
+        expect(untouched?.claimStartedAt?.isEqual(CLAIM_STARTED_AT)).toBe(true);
+    });
+
+    it('CC8: a fresh claim on the same spot gets a different claimStartedAt than the one it replaced', async () => {
+        const { updateDoc } = await import('firebase/firestore');
+        await seed('spots', 'cc8', {
+            finderId: OWNER_UID, finderName: 'TestFinder', address: '9 Reclaim Ave',
+            lat: 40.71, lng: -74.03, status: 'available', pingMode: 'now',
+            reportedAt: Timestamp.now(), expiresAt: FUTURE,
+        });
+        const claimedAt = Timestamp.now();
+        await assertSucceeds(
+            updateDoc(doc(otherDb(), 'spots', 'cc8'), {
+                status: 'interested', claimState: 'heading', interestedUserId: OTHER_UID,
+                interestExpiresAt: FUTURE, claimStartedAt: claimedAt,
+            })
+        );
+        let stored: any;
+        await testEnv.withSecurityRulesDisabled(async ctx => {
+            stored = (await getDoc(doc(ctx.firestore(), 'spots', 'cc8'))).data();
+        });
+        expect(stored?.claimStartedAt?.isEqual(claimedAt)).toBe(true);
+        expect(stored?.claimStartedAt?.isEqual(CLAIM_STARTED_AT)).toBe(false);
     });
 });
 

@@ -205,6 +205,12 @@ export function useInterestFlow({
                     interestedUserTitle: getTitleForCrowns(user.crowns || 0),
                     etaMinutes,
                     interestExpiresAt: Timestamp.fromMillis(Date.now() + claimMinutes * 60000),
+                    // Set once per claim generation; never touched by any other
+                    // handler (delay/commit/etc. only mutate interestExpiresAt).
+                    // This is what makes a claim's identity immutable for as long
+                    // as it's active, unlike interestExpiresAt which legitimately
+                    // shifts under the same claim via handleDelayByFinder.
+                    claimStartedAt: Timestamp.now(),
                 });
             });
 
@@ -276,12 +282,13 @@ export function useInterestFlow({
         setSelectedItem(null);
     };
 
-    // Claim identity used to detect a stale/superseded claim: a fresh claim
-    // (or a delay/commit on the same claim) always gets a new interestExpiresAt,
-    // so this doubles as both a staleness guard and a deterministic notification
-    // id for idempotent retries.
-    const claimFingerprint = (spot: { interestExpiresAt?: unknown }): number | null => {
-        const ms = timestampToMillis(spot.interestExpiresAt);
+    // Claim identity used to detect a stale/superseded claim. claimStartedAt is
+    // set once when a claim is created (handleExpressInterest / handleScheduledClaim)
+    // and is never touched by any other handler — unlike interestExpiresAt, which
+    // legitimately shifts under the *same* claim via handleDelayByFinder, so it
+    // can't be used to distinguish "stale" from "just extended".
+    const claimFingerprint = (spot: { claimStartedAt?: unknown }): number | null => {
+        const ms = timestampToMillis(spot.claimStartedAt);
         return ms > 0 ? ms : null;
     };
 
@@ -334,6 +341,7 @@ export function useInterestFlow({
                     claimReminderSentAt: null,
                     claimAutoReleaseAt: null,
                     claimAutoReleasedAt: null,
+                    claimStartedAt: null,
                 };
                 const expired = spot.expiresAt && spot.expiresAt.toMillis() <= Date.now();
                 tx.update(spotRef, expired ? clearFields : { ...clearFields, status: 'available' });
@@ -551,6 +559,7 @@ export function useInterestFlow({
                         ? Timestamp.fromMillis(departureMs + 10 * 60 * 1000)
                         : null,
                     claimAutoReleasedAt: null,
+                    claimStartedAt: Timestamp.now(),
                 });
             });
 
