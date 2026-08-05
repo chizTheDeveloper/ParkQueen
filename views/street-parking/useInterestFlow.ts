@@ -4,7 +4,7 @@ import { doc, updateDoc, deleteDoc, runTransaction, Timestamp, collection, query
 import { MapItem } from './types';
 import { getDistance, drawRoute, clearRoute, NYC_CENTER } from './utils';
 import { getTitleForCrowns } from '../../utils/crowns';
-import { getPingExpiresAtMs } from '../../utils/pingLifecycle';
+import { getPingExpiresAtMs, timestampToMillis } from '../../utils/pingLifecycle';
 import { spotFeedbackDocId } from '../../utils/spotFeedback';
 
 interface UseInterestFlowOptions {
@@ -28,6 +28,8 @@ export function useInterestFlow({
 }: UseInterestFlowOptions) {
     const [trackedItemId, setTrackedItemId] = useState<string | null>(null);
     const [interestError, setInterestError] = useState<string | null>(null);
+    const [cancelingClaim, setCancelingClaim] = useState(false);
+    const cancelingClaimRef = useRef(false);
     const lastWrittenEtaRef = useRef<number | null>(null);
     const etaWriteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const expiryWarnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -274,46 +276,97 @@ export function useInterestFlow({
         setSelectedItem(null);
     };
 
+    // Claim identity used to detect a stale/superseded claim: a fresh claim
+    // (or a delay/commit on the same claim) always gets a new interestExpiresAt,
+    // so this doubles as both a staleness guard and a deterministic notification
+    // id for idempotent retries.
+    const claimFingerprint = (spot: { interestExpiresAt?: unknown }): number | null => {
+        const ms = timestampToMillis(spot.interestExpiresAt);
+        return ms > 0 ? ms : null;
+    };
+
     const handleCancelByClaimer = async (reason: string) => {
-        if (!selectedItem || !user || !db) return;
+        if (!selectedItem || !user || !db || cancelingClaimRef.current) return;
+        const spotId = selectedItem.id;
+        const claimantId = user.id;
         const finderId = selectedItem.finderId;
-        if (finderId) {
-            const messages: Record<string, string> = {
-                "Found parking elsewhere": "The driver found parking elsewhere — your spot is available again.",
-                "Traffic is too heavy": "The driver got stuck in traffic — your spot is available again.",
-                "Changed my mind": "The driver changed their mind — your spot is available again.",
-            };
-            await addDoc(collection(db, 'spotNotifications'), {
-                spotId: selectedItem.id,
-                senderId: user.id,
-                targetUserId: finderId,
-                type: 'claimer_cancelled',
-                message: messages[reason] ?? "The other driver canceled — your spot is available again.",
-                createdAt: Timestamp.now(),
+        const fingerprint = claimFingerprint(selectedItem);
+
+        const messages: Record<string, string> = {
+            "Found parking elsewhere": "The driver found parking elsewhere — your spot is available again.",
+            "Traffic is too heavy": "The driver got stuck in traffic — your spot is available again.",
+            "Changed my mind": "The driver changed their mind — your spot is available again.",
+        };
+
+        cancelingClaimRef.current = true;
+        setCancelingClaim(true);
+        setInterestError(null);
+
+        try {
+            await runTransaction(db, async (tx) => {
+                const spotRef = doc(db, 'spots', spotId);
+                const fresh = await tx.get(spotRef);
+                if (!fresh.exists()) return; // Ping already gone — nothing to release
+                const spot = fresh.data();
+
+                // Only the current claimant of THIS exact claim instance may cancel it.
+                // A newer claimant, a scheduler auto-release, or a re-claim all show up
+                // here as a mismatch and must not be released by stale UI — treat as
+                // an already-resolved no-op rather than an error.
+                if (spot.interestedUserId !== claimantId ||
+                    (fingerprint !== null && claimFingerprint(spot) !== fingerprint)) {
+                    return;
+                }
+
+                const clearFields = {
+                    claimState: null,
+                    ownerLeavingNow: null,
+                    ownerLeavingNowAt: null,
+                    interestedUserId: null,
+                    interestedUserName: null,
+                    interestedUserVehicleColor: null,
+                    interestedUserVehicleType: null,
+                    interestedUserVehicleBrand: null,
+                    interestedUserTitle: null,
+                    etaMinutes: null,
+                    interestExpiresAt: null,
+                    claimReminderAt: null,
+                    claimReminderSentAt: null,
+                    claimAutoReleaseAt: null,
+                    claimAutoReleasedAt: null,
+                };
+                const expired = spot.expiresAt && spot.expiresAt.toMillis() <= Date.now();
+                tx.update(spotRef, expired ? clearFields : { ...clearFields, status: 'available' });
+
+                // Deterministic id keyed on this exact claim instance: a retry after a
+                // lost response re-runs the same transaction and lands on the same
+                // notification doc, so it never produces a duplicate bell record.
+                if (finderId && finderId !== claimantId) {
+                    const notifRef = doc(db, 'spotNotifications', `claimer_cancelled_${spotId}_${fingerprint ?? 'x'}`);
+                    const notifSnap = await tx.get(notifRef);
+                    if (!notifSnap.exists()) {
+                        tx.set(notifRef, {
+                            spotId,
+                            senderId: claimantId,
+                            targetUserId: finderId,
+                            type: 'claimer_cancelled',
+                            message: messages[reason] ?? "The other driver canceled — your spot is available again.",
+                            createdAt: Timestamp.now(),
+                        });
+                    }
+                }
             });
+
+            setTrackedItemId(null);
+            activeRouteDestinationRef.current = null;
+            if (mapRef.current) clearRoute(mapRef.current);
+            setSelectedItem(null);
+        } catch (e: any) {
+            setInterestError(e?.message || "Couldn't cancel — please try again");
+        } finally {
+            cancelingClaimRef.current = false;
+            setCancelingClaim(false);
         }
-        await updateDoc(doc(db, 'spots', selectedItem.id), {
-            status: 'available',
-            claimState: null,
-            ownerLeavingNow: null,
-            ownerLeavingNowAt: null,
-            interestedUserId: null,
-            interestedUserName: null,
-            interestedUserVehicleColor: null,
-            interestedUserVehicleType: null,
-            interestedUserVehicleBrand: null,
-            interestedUserTitle: null,
-            etaMinutes: null,
-            interestExpiresAt: null,
-            claimReminderAt: null,
-            claimReminderSentAt: null,
-            claimAutoReleaseAt: null,
-            claimAutoReleasedAt: null,
-        });
-        setTrackedItemId(null);
-        activeRouteDestinationRef.current = null;
-        if (mapRef.current) clearRoute(mapRef.current);
-        setSelectedItem(null);
     };
 
     const handleDelayByFinder = async (extraMinutes = 3) => {
@@ -590,6 +643,7 @@ export function useInterestFlow({
         handleOwnerLeaveNow,
         handleCancelByFinder,
         handleCancelByClaimer,
+        cancelingClaim,
         handleFinderConfirmsArrival,
         handleDelayByFinder,
         handleArrival,

@@ -27,6 +27,7 @@ interface SpotDetailsCardProps {
     onArrival: () => void;
     onCancelByFinder: (reason: string) => void;
     onCancelByClaimer: (reason: string) => void;
+    cancelingClaim?: boolean;
     onDriverArrived: () => void;
     onMessageUser: (userId: string, context: string, returnSpotId?: string) => void;
     interestError: string | null;
@@ -43,7 +44,7 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
     selectedItem, freeSpots, user, userLocation, spotAddress,
     onHeadingThere, onScheduledClaim, onCommitToHeading, onOwnerLeaveNow,
     onEditSpot, onDeletePing, onArrival,
-    onCancelByFinder, onCancelByClaimer, onDriverArrived, onMessageUser,
+    onCancelByFinder, onCancelByClaimer, cancelingClaim = false, onDriverArrived, onMessageUser,
     interestError, estDriveMinutes, isWithinArrivalRange, maxEtaMinutes, manageMode = false, nowMs = Date.now(),
     backLabel, onBack,
 }) => {
@@ -60,7 +61,7 @@ export const SpotDetailsCard: React.FC<SpotDetailsCardProps> = ({
                     <span>{backLabel ?? 'Back'}</span>
                 </button>
             )}
-            <SpotDetailsCardInner {...{ selectedItem, freeSpots, user, userLocation, spotAddress, onHeadingThere, onScheduledClaim, onCommitToHeading, onOwnerLeaveNow, onEditSpot, onDeletePing, onArrival, onCancelByFinder, onCancelByClaimer, onDriverArrived, onMessageUser, interestError, estDriveMinutes, isWithinArrivalRange, maxEtaMinutes, manageMode, nowMs }} />
+            <SpotDetailsCardInner {...{ selectedItem, freeSpots, user, userLocation, spotAddress, onHeadingThere, onScheduledClaim, onCommitToHeading, onOwnerLeaveNow, onEditSpot, onDeletePing, onArrival, onCancelByFinder, onCancelByClaimer, cancelingClaim, onDriverArrived, onMessageUser, interestError, estDriveMinutes, isWithinArrivalRange, maxEtaMinutes, manageMode, nowMs }} />
         </>
     );
 };
@@ -69,7 +70,7 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
     selectedItem, freeSpots, user, userLocation, spotAddress,
     onHeadingThere, onScheduledClaim, onCommitToHeading, onOwnerLeaveNow,
     onEditSpot, onDeletePing, onArrival,
-    onCancelByFinder, onCancelByClaimer, onDriverArrived, onMessageUser,
+    onCancelByFinder, onCancelByClaimer, cancelingClaim = false, onDriverArrived, onMessageUser,
     interestError, estDriveMinutes, isWithinArrivalRange, maxEtaMinutes, manageMode = false, nowMs = Date.now(),
 }) => {
     useLang();
@@ -226,9 +227,10 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
                         <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest text-center mb-3">{t('claim_flow.why_canceling')}</p>
                         <div className="space-y-2 mb-2">
                             {claimerCancelReasons.map(({ key, label, value }) => (
-                                <button key={key} onClick={() => onCancelByClaimer(value)}
-                                    className="w-full py-3 px-4 rounded-2xl text-sm font-semibold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 transition-all active:scale-95 text-[var(--color-text)] text-left">
-                                    {label}
+                                <button key={key} onClick={() => onCancelByClaimer(value)} disabled={cancelingClaim}
+                                    aria-busy={cancelingClaim}
+                                    className="w-full py-3 px-4 rounded-2xl text-sm font-semibold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 transition-all active:scale-95 text-[var(--color-text)] text-left disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100">
+                                    {cancelingClaim ? t('claim_flow.canceling') : label}
                                 </button>
                             ))}
                         </div>
@@ -323,9 +325,10 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
                 {interestError && <p className="text-red-400 text-xs mb-2 text-center">{interestError}</p>}
 
                 <div className="grid grid-cols-2 gap-2 mb-2">
-                    <button onClick={() => onCancelByClaimer('Changed my mind')}
-                        className="flex items-center justify-center gap-2 py-3.5 rounded-2xl border border-red-500/30 hover:bg-red-500/10 text-red-400 font-semibold text-sm transition-all active:scale-95">
-                        {t('scheduled_claim.cancel')}
+                    <button onClick={() => onCancelByClaimer('Changed my mind')} disabled={cancelingClaim}
+                        aria-busy={cancelingClaim}
+                        className="flex items-center justify-center gap-2 py-3.5 rounded-2xl border border-red-500/30 hover:bg-red-500/10 text-red-400 font-semibold text-sm transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100">
+                        {cancelingClaim ? t('claim_flow.canceling') : t('scheduled_claim.cancel')}
                     </button>
                     <button onClick={() => onMessageUser(selectedItem.finderId, `Spot pinged by ${finderName}`, selectedItem.id)}
                         className="flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-[var(--color-card)] border border-[var(--color-border)] hover:bg-white/10 text-[var(--color-text)] font-semibold text-sm transition-all active:scale-95">

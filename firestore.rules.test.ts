@@ -117,6 +117,22 @@ const bareAvailableSpot = {
     expiresAt:  FUTURE,
 };
 
+// Committed scheduled claim (pingMode 'later', claimant has tapped "heading there")
+const committedScheduledSpot = {
+    finderId:          OWNER_UID,
+    finderName:        'TestFinder',
+    address:           '222 Scheduled Way',
+    lat:               40.71,
+    lng:               -74.03,
+    status:            'interested',
+    claimState:        'committed',
+    interestedUserId:  OTHER_UID,
+    pingMode:          'later',
+    reportedAt:        FUTURE,
+    expiresAt:         Timestamp.fromMillis(FUTURE.toMillis() + 3_600_000),
+    claimAutoReleaseAt: FUTURE,
+};
+
 // ── Global setup ───────────────────────────────────────────────────────────────
 beforeAll(async () => {
     testEnv = await initializeTestEnvironment({
@@ -536,6 +552,77 @@ describe('chats and messages — participant isolation', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// SPOTS — claimant cancellation (Arm 3 / Arm 3b)
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('spots — claimer cancellation', () => {
+    const clearFields = {
+        claimState: null,
+        ownerLeavingNow: null,
+        ownerLeavingNowAt: null,
+        interestedUserId: null,
+        interestedUserName: null,
+        interestedUserVehicleColor: null,
+        interestedUserVehicleType: null,
+        interestedUserVehicleBrand: null,
+        interestedUserTitle: null,
+        etaMinutes: null,
+        interestExpiresAt: null,
+        claimReminderAt: null,
+        claimReminderSentAt: null,
+        claimAutoReleaseAt: null,
+        claimAutoReleasedAt: null,
+    };
+
+    it('CC1: current claimant can cancel a non-expired claim — Ping returns to available', async () => {
+        const { updateDoc } = await import('firebase/firestore');
+        await seed('spots', 'cc1', committedScheduledSpot);
+        await assertSucceeds(
+            updateDoc(doc(otherDb(), 'spots', 'cc1'), { ...clearFields, status: 'available' })
+        );
+    });
+
+    it('CC2: current claimant can clear a claim on an already-expired Ping without reopening it', async () => {
+        const { updateDoc } = await import('firebase/firestore');
+        await seed('spots', 'cc2', { ...committedScheduledSpot, reportedAt: PAST, expiresAt: PAST });
+        await assertSucceeds(updateDoc(doc(otherDb(), 'spots', 'cc2'), clearFields));
+    });
+
+    it('CC3: unrelated user cannot cancel someone else\'s claim', async () => {
+        const { updateDoc } = await import('firebase/firestore');
+        await seed('spots', 'cc3', committedScheduledSpot);
+        await assertFails(
+            updateDoc(doc(thirdDb(), 'spots', 'cc3'), { ...clearFields, status: 'available' })
+        );
+    });
+
+    it('CC4: the Ping owner cannot invoke claimant-cancellation on their own Ping', async () => {
+        const { updateDoc } = await import('firebase/firestore');
+        await seed('spots', 'cc4', committedScheduledSpot);
+        await assertFails(
+            updateDoc(doc(ownerDb(), 'spots', 'cc4'), { ...clearFields, status: 'available' })
+        );
+    });
+
+    it('CC5: a superseded (old) claimant cannot release a newer claimant\'s claim', async () => {
+        const { updateDoc } = await import('firebase/firestore');
+        // Someone else (THIRD_UID) has since claimed the spot; OTHER_UID's stale
+        // client tries to run the same release it would have sent for its own claim.
+        await seed('spots', 'cc5', { ...committedScheduledSpot, interestedUserId: THIRD_UID });
+        await assertFails(
+            updateDoc(doc(otherDb(), 'spots', 'cc5'), { ...clearFields, status: 'available' })
+        );
+    });
+
+    it('CC6: cannot reopen an expired Ping to available even as the current claimant', async () => {
+        const { updateDoc } = await import('firebase/firestore');
+        await seed('spots', 'cc6', { ...committedScheduledSpot, reportedAt: PAST, expiresAt: PAST });
+        await assertFails(
+            updateDoc(doc(otherDb(), 'spots', 'cc6'), { ...clearFields, status: 'available' })
+        );
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // SPOT NOTIFICATIONS — Ping participants only
 // ═══════════════════════════════════════════════════════════════════════════════
 describe('spotNotifications — participant-bound creation', () => {
@@ -616,6 +703,136 @@ describe('spotNotifications — participant-bound creation', () => {
                 targetUserId: THIRD_UID, // not the interestedUserId of this spot (OTHER_UID is)
                 type: 'delayed',
                 message: 'Wrong target',
+                createdAt: Timestamp.now(),
+            })
+        );
+    });
+
+    it('N7: a second write to an already-existing deterministic notification id is rejected (no update rule) — proves the client must check-then-set for idempotent retries', async () => {
+        const notifRef = doc(ownerDb(), 'spotNotifications', 'claimer_cancelled_notification-spot_123');
+        await seed('spotNotifications', 'claimer_cancelled_notification-spot_123', {
+            spotId: 'notification-spot',
+            senderId: OTHER_UID,
+            targetUserId: OWNER_UID,
+            type: 'claimer_cancelled',
+            message: 'The other driver canceled',
+            createdAt: Timestamp.now(),
+        });
+        await assertFails(
+            setDoc(doc(otherDb(), 'spotNotifications', 'claimer_cancelled_notification-spot_123'), {
+                spotId: 'notification-spot',
+                senderId: OTHER_UID,
+                targetUserId: OWNER_UID,
+                type: 'claimer_cancelled',
+                message: 'The other driver canceled',
+                createdAt: Timestamp.now(),
+            })
+        );
+    });
+
+    it('N8: a third party cannot read another user\'s claimer_cancelled notification (account-switch isolation)', async () => {
+        await seed('spotNotifications', 'claimer_cancelled_notification-spot_456', {
+            spotId: 'notification-spot',
+            senderId: OTHER_UID,
+            targetUserId: OWNER_UID,
+            type: 'claimer_cancelled',
+            message: 'The other driver canceled',
+            createdAt: Timestamp.now(),
+        });
+        await assertFails(getDoc(doc(thirdDb(), 'spotNotifications', 'claimer_cancelled_notification-spot_456')));
+        await assertSucceeds(getDoc(doc(ownerDb(), 'spotNotifications', 'claimer_cancelled_notification-spot_456')));
+    });
+
+    it('REPRO-1: claimer of a committed scheduled claim CAN send claimer_cancelled (happy path)', async () => {
+        await seed('spots', 'scheduled-committed-spot', committedScheduledSpot);
+        await assertSucceeds(
+            addDoc(collection(otherDb(), 'spotNotifications'), {
+                spotId: 'scheduled-committed-spot',
+                senderId: OTHER_UID,
+                targetUserId: OWNER_UID,
+                type: 'claimer_cancelled',
+                message: 'The other driver canceled',
+                createdAt: Timestamp.now(),
+            })
+        );
+    });
+
+    it('REPRO-3: claimer CANNOT reopen an already-expired Ping via the old unconditional status:available write', async () => {
+        await seed('spots', 'expired-committed-spot', {
+            ...committedScheduledSpot,
+            reportedAt: PAST,
+            expiresAt: PAST, // already expired
+        });
+        const { updateDoc } = await import('firebase/firestore');
+        await assertFails(
+            updateDoc(doc(otherDb(), 'spots', 'expired-committed-spot'), {
+                status: 'available',
+                claimState: null,
+                ownerLeavingNow: null,
+                ownerLeavingNowAt: null,
+                interestedUserId: null,
+                interestedUserName: null,
+                interestedUserVehicleColor: null,
+                interestedUserVehicleType: null,
+                interestedUserVehicleBrand: null,
+                interestedUserTitle: null,
+                etaMinutes: null,
+                interestExpiresAt: null,
+                claimReminderAt: null,
+                claimReminderSentAt: null,
+                claimAutoReleaseAt: null,
+                claimAutoReleasedAt: null,
+            })
+        );
+    });
+
+    it('REPRO-4: claimer CAN clear claim fields on an expired Ping without reopening it (Arm 3b)', async () => {
+        await seed('spots', 'expired-committed-spot-2', {
+            ...committedScheduledSpot,
+            reportedAt: PAST,
+            expiresAt: PAST,
+        });
+        const { updateDoc } = await import('firebase/firestore');
+        await assertSucceeds(
+            updateDoc(doc(otherDb(), 'spots', 'expired-committed-spot-2'), {
+                claimState: null,
+                ownerLeavingNow: null,
+                ownerLeavingNowAt: null,
+                interestedUserId: null,
+                interestedUserName: null,
+                interestedUserVehicleColor: null,
+                interestedUserVehicleType: null,
+                interestedUserVehicleBrand: null,
+                interestedUserTitle: null,
+                etaMinutes: null,
+                interestExpiresAt: null,
+                claimReminderAt: null,
+                claimReminderSentAt: null,
+                claimAutoReleaseAt: null,
+                claimAutoReleasedAt: null,
+            })
+        );
+    });
+
+    it('REPRO-2: claimer_cancelled is REJECTED once the claim has already been released server-side (stale UI race)', async () => {
+        await seed('spots', 'scheduled-committed-spot', committedScheduledSpot);
+        // Simulate processScheduledClaims auto-releasing the claim a moment before
+        // the claimant's stale UI fires handleCancelByClaimer.
+        await testEnv.withSecurityRulesDisabled(async ctx => {
+            await setDoc(doc(ctx.firestore(), 'spots', 'scheduled-committed-spot'), {
+                ...committedScheduledSpot,
+                status: 'available',
+                claimState: null,
+                interestedUserId: null,
+            });
+        });
+        await assertFails(
+            addDoc(collection(otherDb(), 'spotNotifications'), {
+                spotId: 'scheduled-committed-spot',
+                senderId: OTHER_UID,
+                targetUserId: OWNER_UID,
+                type: 'claimer_cancelled',
+                message: 'The other driver canceled',
                 createdAt: Timestamp.now(),
             })
         );

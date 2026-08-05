@@ -271,6 +271,7 @@ const en: Record<string, string> = {
     'claim_flow.message_sent': 'Message sent',
     'claim_flow.why_canceling': 'Why are you canceling?',
     'claim_flow.cancel': 'Cancel',
+    'claim_flow.canceling': 'Canceling…',
     'claim_flow.ive_arrived': "I've arrived",
     'claim_flow.dist_away': '{dist} away',
     'claim_flow.get_closer': 'Get closer',
