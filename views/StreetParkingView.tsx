@@ -1500,6 +1500,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
                     onArrival={interestFlow.handleArrival}
                     onCancelByFinder={interestFlow.handleCancelByFinder}
                     onCancelByClaimer={interestFlow.handleCancelByClaimer}
+                    cancelingClaim={interestFlow.cancelingClaim}
                     onDriverArrived={interestFlow.handleFinderConfirmsArrival}
                     onMessageUser={onMessageUser}
                     interestError={interestFlow.interestError}

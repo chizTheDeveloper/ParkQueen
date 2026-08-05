@@ -190,7 +190,7 @@ service cloud.firestore {
                           'interestedUserId', 'interestedUserName',
                           'interestedUserVehicleColor', 'interestedUserVehicleType',
                           'interestedUserVehicleBrand', 'interestedUserTitle',
-                          'etaMinutes', 'interestExpiresAt',
+                          'etaMinutes', 'interestExpiresAt', 'claimStartedAt',
                           'claimReminderAt', 'claimReminderSentAt',
                           'claimAutoReleaseAt', 'claimAutoReleasedAt']))
 
@@ -204,14 +204,31 @@ service cloud.firestore {
                           'etaMinutes', 'interestExpiresAt',
                           'claimReminderAt', 'claimReminderSentAt', 'claimAutoReleaseAt']))
 
-        // Arm 3: Claimer cancels — clears all claimer metadata
+        // Arm 3: Claimer cancels — clears all claimer metadata, Ping reopens.
+        // Only valid while the Ping itself hasn't expired yet (an expired Ping
+        // must never be reopened to 'available' — see Arm 3b for that case).
         || (isClaimer()
           && request.resource.data.status == 'available'
+          && (resource.data.get('expiresAt', null) == null
+              || resource.data.expiresAt > request.time)
           && onlyChanges(['status', 'claimState', 'ownerLeavingNow', 'ownerLeavingNowAt',
                           'interestedUserId', 'interestedUserName',
                           'interestedUserVehicleColor', 'interestedUserVehicleType',
                           'interestedUserVehicleBrand', 'interestedUserTitle',
-                          'etaMinutes', 'interestExpiresAt',
+                          'etaMinutes', 'interestExpiresAt', 'claimStartedAt',
+                          'claimReminderAt', 'claimReminderSentAt',
+                          'claimAutoReleaseAt', 'claimAutoReleasedAt']))
+
+        // Arm 3b: Claimer cancels a claim on an already-expired Ping — clears
+        // claimer metadata but leaves status untouched (never reopens it).
+        || (isClaimer()
+          && resource.data.get('expiresAt', null) != null
+          && resource.data.expiresAt <= request.time
+          && onlyChanges(['claimState', 'ownerLeavingNow', 'ownerLeavingNowAt',
+                          'interestedUserId', 'interestedUserName',
+                          'interestedUserVehicleColor', 'interestedUserVehicleType',
+                          'interestedUserVehicleBrand', 'interestedUserTitle',
+                          'etaMinutes', 'interestExpiresAt', 'claimStartedAt',
                           'claimReminderAt', 'claimReminderSentAt',
                           'claimAutoReleaseAt', 'claimAutoReleasedAt']))
 
