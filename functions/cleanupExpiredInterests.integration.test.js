@@ -52,13 +52,18 @@ async function getSpot(id) {
 }
 
 describe('cleanupExpiredInterests Function contract', () => {
-    it('CEI-1: query is a bounded (limit 500), non-paginating scan of spots(status, interestExpiresAt)', () => {
+    it('CEI-1: query is a conservatively bounded (limit 100), non-paginating scan of spots(status, interestExpiresAt), processed sequentially (no unbounded Promise.all)', () => {
         const src = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
-        const fn = src.slice(src.indexOf('exports.cleanupExpiredInterests'), src.indexOf('exports.cleanupExpiredInterests') + 1500);
+        const start = src.indexOf('exports.cleanupExpiredInterests');
+        const fn = src.slice(start, src.indexOf('exports.cleanupExpiredHolds', start));
         expect(fn).toMatch(/\.collection\("spots"\)/);
         expect(fn).toMatch(/\.where\("status",\s*"==",\s*"interested"\)/);
         expect(fn).toMatch(/\.where\("interestExpiresAt",\s*"<=",\s*now\)/);
-        expect(fn).toMatch(/\.limit\(500\)/);
+        expect(fn).toMatch(/\.limit\(100\)/);
+        expect(fn).not.toMatch(/\.limit\(500\)/);
+        // Sequential for-of over the candidates, not Promise.all(snap.docs.map(...)).
+        expect(fn).toMatch(/for \(const d of snap\.docs\)/);
+        expect(fn).not.toMatch(/Promise\.all\(\s*snap\.docs\.map/);
     });
 
     it('CEI-2: an expired heading claim on a still-valid Ping is cleared and the Ping reopens to available', async () => {
@@ -158,5 +163,64 @@ describe('cleanupExpiredInterests Function contract', () => {
 
         const snap = await db.collection('spotNotifications').where('spotId', '==', id).get();
         expect(snap.empty).toBe(true);
+    });
+
+    it('CEI-10: two overlapping invocations processing the same candidate produce exactly one release, no errors, no duplicate effects', async () => {
+        const id = nextId('overlap');
+        await db.doc(`spots/${id}`).set(headingSpot());
+
+        await Promise.all([
+            indexModule.cleanupExpiredInterests.run(),
+            indexModule.cleanupExpiredInterests.run(),
+        ]);
+
+        const spot = await getSpot(id);
+        expect(spot.status).toBe('available');
+        expect(spot.interestedUserId).toBeNull();
+    }, 30000);
+
+    it('CEI-11: a backlog larger than one processing batch drains across successive invocations without losing candidates', async () => {
+        const ids = Array.from({ length: 120 }, () => nextId('backlog'));
+        await Promise.all(ids.map(id => db.doc(`spots/${id}`).set(headingSpot())));
+
+        await indexModule.cleanupExpiredInterests.run();
+        const afterFirst = await Promise.all(ids.map(getSpot));
+        const releasedAfterFirst = afterFirst.filter(s => s.status === 'available').length;
+        // The batch is capped at 100 candidates per run, so with 120 seeded,
+        // at most 100 can be released in the first pass and at least 20 must
+        // still be pending — proving the limit is really being applied.
+        expect(releasedAfterFirst).toBeGreaterThan(0);
+        expect(releasedAfterFirst).toBeLessThanOrEqual(100);
+        expect(releasedAfterFirst).toBeLessThan(ids.length);
+
+        await indexModule.cleanupExpiredInterests.run();
+        const afterSecond = await Promise.all(ids.map(getSpot));
+        const releasedAfterSecond = afterSecond.filter(s => s.status === 'available').length;
+        expect(releasedAfterSecond).toBe(ids.length); // every candidate eventually drained
+    }, 60000);
+
+    it('CEI-12: a cleaned expired-Ping claim cannot repeatedly occupy candidate slots (no starvation) — it drops out of the query on the next run once interestExpiresAt is nulled', async () => {
+        const staleId = nextId('starve_stale');
+        const freshId = nextId('starve_fresh');
+        // An expired-Ping "committed" claim: gets cleared but status stays
+        // "interested" (never reopened). If this kept matching the query,
+        // it could starve out fresh candidates on every subsequent run.
+        await db.doc(`spots/${staleId}`).set(headingSpot({
+            claimState: 'committed', expiresAt: PAST, interestExpiresAt: PAST,
+        }));
+        await indexModule.cleanupExpiredInterests.run();
+        const staleAfterFirst = await getSpot(staleId);
+        expect(staleAfterFirst.status).toBe('interested'); // never reopened
+        expect(staleAfterFirst.interestedUserId).toBeNull(); // but cleared
+        expect(staleAfterFirst.interestExpiresAt).toBeNull();
+
+        // A second, independent expired candidate arrives after the first run.
+        await db.doc(`spots/${freshId}`).set(headingSpot());
+        await indexModule.cleanupExpiredInterests.run();
+
+        const staleAfterSecond = await getSpot(staleId);
+        const fresh = await getSpot(freshId);
+        expect(staleAfterSecond).toEqual(staleAfterFirst); // not reprocessed — no longer a candidate
+        expect(fresh.status).toBe('available'); // fresh candidate was not starved out
     });
 });
