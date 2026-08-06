@@ -297,5 +297,94 @@ describe('bootstrapAdmin â€” emulator behavioral tests', () => {
         expect(user.customClaims?.role).toBe('admin');
         expect(user.customClaims?.betaTester).toBe(true);
     });
+
+    it('BA-E15: claims already granted but the audit record never landed — retry completes only the missing half, exactly one record results', async () => {
+        if (!bootstrapAdmin) return;
+        await adminAuth.createUser({ uid }).catch(() => {});
+        // Simulate the exact state after a process that completed the Auth
+        // claim but died before the audit write: sentinel + claim both done,
+        // audit doc absent.
+        await db.doc('adminBootstrap/singleton').set({ bootstrappedAt: Timestamp.now(), bootstrappedBy: uid });
+        await adminAuth.setCustomUserClaims(uid, { role: 'admin' });
+        const preSnap = await db.collection('adminAuditLog').where('adminUid', '==', uid).get();
+        expect(preSnap.empty).toBe(true); // confirms the gap is real
+
+        const { result, error } = await callDirect(uid, 'jay@parqueen.app', true);
+        expect(error).toBeUndefined();
+        expect(result.success).toBe(true);
+
+        const user = await adminAuth.getUser(uid);
+        expect(user.customClaims?.role).toBe('admin'); // untouched/reconfirmed, not reset
+        const snap = await db.collection('adminAuditLog').where('adminUid', '==', uid).get();
+        expect(snap.size).toBe(1); // the missing audit record now exists, exactly once
+    });
+
+    it('BA-E16: a caller with a pre-existing conflicting role claim is upgraded to admin by bootstrap (the documented singleton policy has no separate carve-out)', async () => {
+        if (!bootstrapAdmin) return;
+        await adminAuth.createUser({ uid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(uid, { role: 'staff' });
+
+        const { result, error } = await callDirect(uid, 'jay@parqueen.app', true);
+        expect(error).toBeUndefined();
+        expect(result.success).toBe(true);
+
+        const user = await adminAuth.getUser(uid);
+        expect(user.customClaims?.role).toBe('admin');
+    });
+
+    it('BA-E17: a malformed singleton (exists but names no recognizable owner) fails closed for every caller — never grants a role', async () => {
+        if (!bootstrapAdmin) return;
+        await adminAuth.createUser({ uid }).catch(() => {});
+        // A corrupted/manually-created doc missing the expected field shape.
+        await db.doc('adminBootstrap/singleton').set({ malformed: true });
+
+        const { error } = await callDirect(uid, 'jay@parqueen.app', true);
+        expect(error.code).toBe('already-exists'); // fails closed, not an internal crash
+        const user = await adminAuth.getUser(uid);
+        expect(user.customClaims?.role).toBeUndefined(); // no role granted
+    });
+
+    it('BA-E18: deleting an unrelated public profile document does not reopen or affect bootstrap state', async () => {
+        if (!bootstrapAdmin) return;
+        await adminAuth.createUser({ uid }).catch(() => {});
+        await callDirect(uid, 'jay@parqueen.app', true);
+
+        // adminBootstrap/singleton lives in its own collection — deleting any
+        // users/{uid} profile document cannot touch it (no trigger reads it).
+        await db.doc(`users/${uid}`).set({ id: uid }).catch(() => {});
+        await db.doc(`users/${uid}`).delete().catch(() => {});
+
+        const singleton = await db.doc('adminBootstrap/singleton').get();
+        expect(singleton.exists).toBe(true);
+        expect(singleton.data().bootstrappedBy).toBe(uid);
+
+        const otherUid = testUid();
+        await adminAuth.createUser({ uid: otherUid }).catch(() => {});
+        const { error } = await callDirect(otherUid, 'ops@parqueen.app', true);
+        expect(error.code).toBe('already-exists'); // still closed for anyone else
+        await nukeUser(otherUid);
+    });
+
+    it('BA-E19: deleting the original administrator\'s Auth account does not silently reopen bootstrap for a different caller', async () => {
+        if (!bootstrapAdmin) return;
+        await adminAuth.createUser({ uid }).catch(() => {});
+        await callDirect(uid, 'jay@parqueen.app', true);
+        await adminAuth.deleteUser(uid).catch(() => {});
+
+        const otherUid = testUid();
+        await adminAuth.createUser({ uid: otherUid }).catch(() => {});
+        const { error } = await callDirect(otherUid, 'ops@parqueen.app', true);
+        expect(error.code).toBe('already-exists'); // the singleton still names the deleted uid — closed
+        await nukeUser(otherUid);
+    });
+
+    it('BA-E20: denial error messages never echo the caller\'s email or the approved identity back', async () => {
+        if (!bootstrapAdmin) return;
+        const { error } = await callDirect(uid, 'someone@example.com', true);
+        expect(error.message).not.toMatch(/someone@example\.com/);
+        // The domain requirement is disclosed generically (it's already public
+        // in source), never as "your email X is not Y".
+        expect(error.message).not.toContain(uid);
+    });
 });
 
