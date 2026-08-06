@@ -235,29 +235,54 @@ exports.cleanupExpiredInterests = onSchedule(
 
     if (snap.empty) return;
 
-    const batch = db.batch();
-    snap.docs.forEach((d) => {
-      batch.update(d.ref, {
-        status: "available",
-        interestedUserId: null,
-        interestedUserName: null,
-        interestedUserVehicleColor: null,
-        interestedUserVehicleType: null,
-        interestedUserVehicleBrand: null,
-        interestedUserTitle: null,
-        etaMinutes: null,
-        interestExpiresAt: null,
-        claimState: null,
-        ownerLeavingNow: null,
-        ownerLeavingNowAt: null,
-        claimReminderAt: null,
-        claimReminderSentAt: null,
-        claimAutoReleaseAt: null,
-        claimAutoReleasedAt: null,
-      });
-    });
-    await batch.commit();
-    console.log(`✅ cleanupExpiredInterests: reverted ${snap.size} spots`);
+    let reverted = 0;
+    for (const d of snap.docs) {
+      try {
+        const didRevert = await db.runTransaction(async (tx) => {
+          const fresh = await tx.get(d.ref);
+          if (!fresh.exists) return false;
+          const spot = fresh.data();
+
+          // Re-verify against fresh state — the initial query snapshot can be
+          // stale by the time each transaction runs (the claimant may have
+          // just committed to heading, delayed, or a newer claim may have
+          // replaced this one).
+          if (
+            spot.status !== "interested" ||
+            !spot.interestExpiresAt ||
+            spot.interestExpiresAt.toMillis() > now.toMillis()
+          ) return false;
+
+          const clearFields = {
+            interestedUserId: null,
+            interestedUserName: null,
+            interestedUserVehicleColor: null,
+            interestedUserVehicleType: null,
+            interestedUserVehicleBrand: null,
+            interestedUserTitle: null,
+            etaMinutes: null,
+            interestExpiresAt: null,
+            claimState: null,
+            claimStartedAt: null,
+            ownerLeavingNow: null,
+            ownerLeavingNowAt: null,
+            claimReminderAt: null,
+            claimReminderSentAt: null,
+            claimAutoReleaseAt: null,
+            claimAutoReleasedAt: null,
+          };
+
+          // Never reopen an already-expired Ping — only clear the stale claim.
+          const pingExpired = spot.expiresAt && spot.expiresAt.toMillis() <= now.toMillis();
+          tx.update(d.ref, pingExpired ? clearFields : { ...clearFields, status: "available" });
+          return true;
+        });
+        if (didRevert) reverted++;
+      } catch (e) {
+        console.error("cleanupExpiredInterests: failed to release spot", d.id.slice(0, 8) + "***", sanitizeError(e));
+      }
+    }
+    console.log(`✅ cleanupExpiredInterests: reverted ${reverted} of ${snap.size} candidate spots`);
   }
 );
 
