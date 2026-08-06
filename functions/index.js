@@ -1624,29 +1624,42 @@ exports.bootstrapAdmin = onCall(
       throw new HttpsError('permission-denied', 'Email address must be verified.');
     }
 
-    // Atomic singleton check — transaction prevents two concurrent calls both passing
+    const uid = request.auth.uid;
+
+    // Atomic singleton check — transaction prevents two concurrent calls both
+    // passing. A sentinel already naming this exact caller ('self') is not
+    // an error: it's either a benign duplicate call, or recovery from a
+    // prior attempt that won the singleton but failed before the Auth claim
+    // was set below (Firestore and Firebase Auth are separate systems and
+    // cannot be updated in one atomic operation — without this, that gap
+    // would permanently lock the intended admin out, since every retry
+    // would otherwise hit the same "already-exists" rejection).
     const sentinelRef = db.doc('adminBootstrap/singleton');
     try {
       await db.runTransaction(async (tx) => {
         const sentinel = await tx.get(sentinelRef);
         if (sentinel.exists) {
+          if (sentinel.data().bootstrappedBy === uid) return;
           throw new HttpsError('already-exists', 'Admin access has already been bootstrapped.');
         }
-        tx.set(sentinelRef, { bootstrappedAt: Timestamp.now(), bootstrappedBy: request.auth.uid });
+        tx.set(sentinelRef, { bootstrappedAt: Timestamp.now(), bootstrappedBy: uid });
       });
     } catch (err) {
       if (err.code === 'already-exists') throw err;
       throw new HttpsError('internal', 'Bootstrap failed; retry.');
     }
 
-    await getAuth().setCustomUserClaims(request.auth.uid, { role: 'admin' });
-
-    await db.collection('adminAuditLog').add({
+    // Both idempotent by construction, so safe to (re)run on every retry that
+    // reaches here: setCustomUserClaims always sets the same final value, and
+    // the deterministic audit-log id means a retry updates the same record
+    // rather than creating a duplicate.
+    await getAuth().setCustomUserClaims(uid, { role: 'admin' });
+    await db.doc(`adminAuditLog/bootstrap_${uid}`).set({
       action: 'bootstrapAdmin',
-      adminUid: request.auth.uid,
+      adminUid: uid,
       email,
       performedAt: Timestamp.now(),
-    });
+    }, { merge: true });
 
     return { success: true };
   }

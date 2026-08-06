@@ -193,5 +193,75 @@ describe('bootstrapAdmin â€” emulator behavioral tests', () => {
         expect(rec.adminUid).toBe(uid);
         expect(rec.performedAt).toBeTruthy();
     });
+
+    it('BA-E9: recovers from a partial failure — sentinel claimed by this caller but the Auth claim was never set (e.g. the process crashed between the two) — retry completes the grant instead of permanently rejecting', async () => {
+        if (!bootstrapAdmin) return;
+        await adminAuth.createUser({ uid }).catch(() => {});
+        // Simulate exactly what the transaction would have left behind if the
+        // process died immediately after it committed, before setCustomUserClaims ran.
+        await db.doc('adminBootstrap/singleton').set({
+            bootstrappedAt: Timestamp.now(),
+            bootstrappedBy: uid,
+        });
+        const before = await adminAuth.getUser(uid);
+        expect(before.customClaims?.role).not.toBe('admin'); // confirms the gap is real
+
+        const { result, error } = await callDirect(uid, 'jay@parqueen.app', true);
+
+        expect(error).toBeUndefined();
+        expect(result.success).toBe(true);
+        const after = await adminAuth.getUser(uid);
+        expect(after.customClaims?.role).toBe('admin'); // the missing half is now granted
+        const snap = await db.collection('adminAuditLog').where('adminUid', '==', uid).get();
+        expect(snap.size).toBe(1); // exactly one audit record, not zero and not two
+    });
+
+    it('BA-E10: an already-fully-bootstrapped admin retrying gets an idempotent success — no duplicate audit record', async () => {
+        if (!bootstrapAdmin) return;
+        await adminAuth.createUser({ uid }).catch(() => {});
+        const first = await callDirect(uid, 'jay@parqueen.app', true);
+        expect(first.result.success).toBe(true);
+
+        const second = await callDirect(uid, 'jay@parqueen.app', true);
+        expect(second.error).toBeUndefined();
+        expect(second.result.success).toBe(true);
+
+        const user = await adminAuth.getUser(uid);
+        expect(user.customClaims?.role).toBe('admin');
+        const snap = await db.collection('adminAuditLog').where('adminUid', '==', uid).get();
+        expect(snap.size).toBe(1); // still exactly one record after the retry
+    });
+
+    it('BA-E11: two concurrent valid bootstrap calls from different callers produce exactly one administrator', async () => {
+        if (!bootstrapAdmin) return;
+        const uidA = uid;
+        const uidB = testUid();
+        await adminAuth.createUser({ uid: uidA }).catch(() => {});
+        await adminAuth.createUser({ uid: uidB }).catch(() => {});
+
+        const [a, b] = await Promise.all([
+            callDirect(uidA, 'jay@parqueen.app', true),
+            callDirect(uidB, 'ops@parqueen.app', true),
+        ]);
+        const outcomes = [a, b].map(r => (r.error ? r.error.code : 'success')).sort();
+        expect(outcomes).toEqual(['already-exists', 'success']);
+
+        const [userA, userB] = await Promise.all([adminAuth.getUser(uidA), adminAuth.getUser(uidB)]);
+        const admins = [userA, userB].filter(u => u.customClaims?.role === 'admin');
+        expect(admins).toHaveLength(1); // exactly one administrator, never two
+
+        const snap = await db.collection('adminAuditLog')
+            .where('adminUid', 'in', [uidA, uidB]).get();
+        expect(snap.size).toBe(1); // exactly one audit record across both attempts
+
+        await nukeUser(uidB);
+        await deleteAuditLogs(uidB);
+    });
+
+    it('BA-E12: case-mismatched domain is rejected (fails safe, does not bypass the allowlist)', async () => {
+        if (!bootstrapAdmin) return;
+        const { error } = await callDirect(uid, 'jay@PARQUEEN.APP', true);
+        expect(error.code).toBe('permission-denied');
+    });
 });
 
