@@ -226,38 +226,79 @@ exports.cleanupExpiredInterests = onSchedule(
   },
   async () => {
     const now = Timestamp.now();
+    // Bounded conservatively (not the Firestore max of 500): each candidate is
+    // handled as its own sequential transaction below, and this runs every
+    // minute with a 60s timeout. 100 sequential single-doc transactions
+    // comfortably finishes in a few seconds under realistic Firestore
+    // latency; a larger backlog simply drains over successive one-minute
+    // runs rather than risking the invocation timing out mid-batch.
     const snap = await db
       .collection("spots")
       .where("status", "==", "interested")
       .where("interestExpiresAt", "<=", now)
-      .limit(500)
+      .limit(100)
       .get();
 
     if (snap.empty) return;
 
-    const batch = db.batch();
-    snap.docs.forEach((d) => {
-      batch.update(d.ref, {
-        status: "available",
-        interestedUserId: null,
-        interestedUserName: null,
-        interestedUserVehicleColor: null,
-        interestedUserVehicleType: null,
-        interestedUserVehicleBrand: null,
-        interestedUserTitle: null,
-        etaMinutes: null,
-        interestExpiresAt: null,
-        claimState: null,
-        ownerLeavingNow: null,
-        ownerLeavingNowAt: null,
-        claimReminderAt: null,
-        claimReminderSentAt: null,
-        claimAutoReleaseAt: null,
-        claimAutoReleasedAt: null,
-      });
-    });
-    await batch.commit();
-    console.log(`✅ cleanupExpiredInterests: reverted ${snap.size} spots`);
+    let released = 0;
+    let skipped = 0;
+    let errors = 0;
+    for (const d of snap.docs) {
+      try {
+        const didRelease = await db.runTransaction(async (tx) => {
+          const fresh = await tx.get(d.ref);
+          if (!fresh.exists) return false;
+          const spot = fresh.data();
+
+          // Re-verify against fresh state — the initial query snapshot can be
+          // stale by the time each transaction runs (the claimant may have
+          // just committed to heading, delayed, or a newer claim may have
+          // replaced this one).
+          if (
+            spot.status !== "interested" ||
+            !spot.interestExpiresAt ||
+            spot.interestExpiresAt.toMillis() > now.toMillis()
+          ) return false;
+
+          const clearFields = {
+            interestedUserId: null,
+            interestedUserName: null,
+            interestedUserVehicleColor: null,
+            interestedUserVehicleType: null,
+            interestedUserVehicleBrand: null,
+            interestedUserTitle: null,
+            etaMinutes: null,
+            interestExpiresAt: null,
+            claimState: null,
+            claimStartedAt: null,
+            ownerLeavingNow: null,
+            ownerLeavingNowAt: null,
+            claimReminderAt: null,
+            claimReminderSentAt: null,
+            claimAutoReleaseAt: null,
+            claimAutoReleasedAt: null,
+          };
+
+          // Never reopen an already-expired Ping — only clear the stale claim.
+          // Once cleared, interestExpiresAt is null, which Firestore's range
+          // comparison never matches — so this document will not be selected
+          // as a candidate again, regardless of whether status stays
+          // "interested" (an already-expired Ping is fully removed within the
+          // hour by cleanupExpiredSpotsHourly regardless of status).
+          const pingExpired = spot.expiresAt && spot.expiresAt.toMillis() <= now.toMillis();
+          tx.update(d.ref, pingExpired ? clearFields : { ...clearFields, status: "available" });
+          return true;
+        });
+        if (didRelease) released++; else skipped++;
+      } catch (e) {
+        errors++;
+        console.error("cleanupExpiredInterests: failed to release spot", d.id.slice(0, 8) + "***", sanitizeError(e));
+      }
+    }
+    console.log(
+      `✅ cleanupExpiredInterests: examined ${snap.size}, released ${released}, skipped ${skipped} (already stale/renewed), errors ${errors}`
+    );
   }
 );
 
