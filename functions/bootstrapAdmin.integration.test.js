@@ -263,5 +263,39 @@ describe('bootstrapAdmin â€” emulator behavioral tests', () => {
         const { error } = await callDirect(uid, 'jay@PARQUEEN.APP', true);
         expect(error.code).toBe('permission-denied');
     });
+
+    it('BA-E13: an unrelated pre-existing custom claim survives bootstrap — the role claim is merged, not a blind replace', async () => {
+        if (!bootstrapAdmin) return;
+        await adminAuth.createUser({ uid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(uid, { betaTester: true });
+
+        const { result, error } = await callDirect(uid, 'jay@parqueen.app', true);
+        expect(error).toBeUndefined();
+        expect(result.success).toBe(true);
+
+        const user = await adminAuth.getUser(uid);
+        expect(user.customClaims?.role).toBe('admin');
+        expect(user.customClaims?.betaTester).toBe(true); // unrelated claim not dropped
+    });
+
+    it('BA-E14: an already-admin caller retrying does not needlessly rewrite claims (existing correct claim detected safely)', async () => {
+        if (!bootstrapAdmin) return;
+        await adminAuth.createUser({ uid }).catch(() => {});
+        const first = await callDirect(uid, 'jay@parqueen.app', true);
+        expect(first.result.success).toBe(true);
+
+        // Simulate a distinguishing unrelated claim set after the first grant,
+        // to prove a second retry's merge doesn't stomp it either.
+        const afterFirst = await adminAuth.getUser(uid);
+        await adminAuth.setCustomUserClaims(uid, { ...afterFirst.customClaims, betaTester: true });
+
+        const second = await callDirect(uid, 'jay@parqueen.app', true);
+        expect(second.error).toBeUndefined();
+        expect(second.result.success).toBe(true);
+
+        const user = await adminAuth.getUser(uid);
+        expect(user.customClaims?.role).toBe('admin');
+        expect(user.customClaims?.betaTester).toBe(true);
+    });
 });
 

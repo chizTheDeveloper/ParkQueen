@@ -1649,11 +1649,18 @@ exports.bootstrapAdmin = onCall(
       throw new HttpsError('internal', 'Bootstrap failed; retry.');
     }
 
-    // Both idempotent by construction, so safe to (re)run on every retry that
-    // reaches here: setCustomUserClaims always sets the same final value, and
-    // the deterministic audit-log id means a retry updates the same record
-    // rather than creating a duplicate.
-    await getAuth().setCustomUserClaims(uid, { role: 'admin' });
+    // Merge rather than replace: setCustomUserClaims overwrites the entire
+    // claims object, so a blind { role: 'admin' } would silently drop any
+    // other claim the account happened to carry. role is the only claim this
+    // codebase ever sets today, but that's not a guarantee for the future —
+    // read current claims and only touch the role key.
+    const currentUser = await getAuth().getUser(uid);
+    if (currentUser.customClaims?.role !== 'admin') {
+      await getAuth().setCustomUserClaims(uid, { ...(currentUser.customClaims || {}), role: 'admin' });
+    }
+    // Idempotent by construction, so safe to (re)run on every retry that
+    // reaches here: the deterministic audit-log id means a retry updates the
+    // same record rather than creating a duplicate.
     await db.doc(`adminAuditLog/bootstrap_${uid}`).set({
       action: 'bootstrapAdmin',
       adminUid: uid,
