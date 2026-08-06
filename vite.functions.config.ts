@@ -15,6 +15,7 @@ export default defineConfig({
       'functions/moderateAvatarUpload.integration.test.js',
       'functions/rateLimitCallable.integration.test.js',
       'functions/bootstrapAdmin.integration.test.js',
+      'functions/reconcileLegacyAdminSingleton.integration.test.js',
     ],
     testTimeout: 120000,
     hookTimeout: 120000,
