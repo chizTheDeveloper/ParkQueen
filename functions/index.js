@@ -1672,6 +1672,92 @@ exports.bootstrapAdmin = onCall(
   }
 );
 
+// 14b) Legacy-admin singleton reconciliation — for an admin role granted out-of-band
+// before bootstrapAdmin/adminBootstrap existed, so adminBootstrap/singleton was never
+// created. NOT a way to grant admin: gated on the caller ALREADY holding role ===
+// 'admin' in their token, which an ordinary account can never satisfy — this is
+// unreachable by anyone bootstrapAdmin itself would still be open to. Refuses unless
+// Auth-wide admin-claim state is unambiguous (exactly one admin, matching the caller);
+// a full listUsers scan is safe here specifically because this path is admin-gated and
+// not part of any hot/public request flow — do not copy this pattern into a callable
+// reachable by ordinary users. Never touches custom claims; the claim is already correct.
+exports.reconcileLegacyAdminSingleton = onCall(
+  { region: 'us-central1' },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+    if (request.auth.token.role !== 'admin') {
+      throw new HttpsError('permission-denied', 'Admin only.');
+    }
+
+    const uid = request.auth.uid;
+    const sentinelRef = db.doc('adminBootstrap/singleton');
+
+    const existing = await sentinelRef.get();
+    if (existing.exists && existing.data().bootstrappedBy !== uid) {
+      throw new HttpsError('already-exists', 'Admin access has already been bootstrapped.');
+    }
+
+    // Skip the scan+transaction entirely when the singleton is already ours — not
+    // just an optimization: it also means a retry that only needs to recover a
+    // missing audit record (see below) never re-derives ambiguity from scratch.
+    if (!existing.exists) {
+      // Policy: disabled accounts are excluded from the admin-role count. A disabled
+      // account cannot obtain a valid ID token, so it cannot currently exercise admin
+      // privileges or contend for ownership — counting it would only make legitimate
+      // reconciliation fail closed forever on a stale, unusable claim, without adding
+      // any real security value (a disabled account can't claim the singleton either).
+      let adminUids = [];
+      let pageToken;
+      do {
+        const page = await getAuth().listUsers(1000, pageToken);
+        for (const u of page.users) {
+          if (!u.disabled && u.customClaims?.role === 'admin') adminUids.push(u.uid);
+        }
+        pageToken = page.pageToken;
+      } while (pageToken);
+
+      if (adminUids.length !== 1 || adminUids[0] !== uid) {
+        throw new HttpsError(
+          'failed-precondition',
+          'Cannot reconcile: admin-role state is not unambiguous.'
+        );
+      }
+
+      try {
+        await db.runTransaction(async (tx) => {
+          const sentinel = await tx.get(sentinelRef);
+          if (sentinel.exists) {
+            if (sentinel.data().bootstrappedBy === uid) return;
+            throw new HttpsError('already-exists', 'Admin access has already been bootstrapped.');
+          }
+          tx.set(sentinelRef, {
+            bootstrappedAt: Timestamp.now(),
+            bootstrappedBy: uid,
+            reconciledLegacyAdmin: true,
+          });
+        });
+      } catch (err) {
+        if (err.code === 'already-exists') throw err;
+        throw new HttpsError('internal', 'Reconciliation failed; retry.');
+      }
+    }
+
+    // Idempotent by construction, so safe to (re)run on every retry that reaches
+    // here — including recovery from a prior attempt that won the singleton but
+    // crashed before this write: the deterministic audit-log id means a retry
+    // updates the same record rather than creating a duplicate, or leaving one
+    // permanently missing. Deterministic id distinct from bootstrap_${uid} — this
+    // was never a bootstrap event, and must never be described as one.
+    await db.doc(`adminAuditLog/legacyReconciliation_${uid}`).set({
+      action: 'legacy_admin_bootstrap_reconciliation',
+      adminUid: uid,
+      performedAt: Timestamp.now(),
+    }, { merge: true });
+
+    return { success: true };
+  }
+);
+
 // 15) Admin-only role management — grant or revoke staff roles.
 exports.setStaffRole = onCall(
   { region: 'us-central1' },
