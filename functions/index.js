@@ -1701,12 +1701,17 @@ exports.reconcileLegacyAdminSingleton = onCall(
     // just an optimization: it also means a retry that only needs to recover a
     // missing audit record (see below) never re-derives ambiguity from scratch.
     if (!existing.exists) {
+      // Policy: disabled accounts are excluded from the admin-role count. A disabled
+      // account cannot obtain a valid ID token, so it cannot currently exercise admin
+      // privileges or contend for ownership — counting it would only make legitimate
+      // reconciliation fail closed forever on a stale, unusable claim, without adding
+      // any real security value (a disabled account can't claim the singleton either).
       let adminUids = [];
       let pageToken;
       do {
         const page = await getAuth().listUsers(1000, pageToken);
         for (const u of page.users) {
-          if (u.customClaims?.role === 'admin') adminUids.push(u.uid);
+          if (!u.disabled && u.customClaims?.role === 'admin') adminUids.push(u.uid);
         }
         pageToken = page.pageToken;
       } while (pageToken);

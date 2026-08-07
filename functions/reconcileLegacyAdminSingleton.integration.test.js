@@ -373,4 +373,107 @@ describe('reconcileLegacyAdminSingleton — emulator behavioral tests', () => {
         expect(joined).not.toMatch(/@parqueen\.app/);
         expect(joined.includes(uid)).toBe(false);
     });
+
+    it('RA-14: unauthenticated caller is rejected', async () => {
+        if (!reconcileLegacyAdminSingleton) return;
+        const { error } = await callReconcile(null, undefined);
+        expect(error.code).toBe('unauthenticated');
+    });
+
+    it('RA-15: caller token claims admin but Auth-wide truth has zero admins — fails closed', async () => {
+        if (!reconcileLegacyAdminSingleton) return;
+        // The token is the only place asserting 'admin' here (e.g. stale/forged) —
+        // Auth-side reality (no customClaims set) must be what actually decides.
+        await adminAuth.createUser({ uid }).catch(() => {});
+
+        const { error } = await callReconcile(uid, 'admin');
+        expect(error.code).toBe('failed-precondition');
+
+        const singleton = await db.doc('adminBootstrap/singleton').get();
+        expect(singleton.exists).toBe(false);
+    });
+
+    it('RA-17: exactly one existing admin exists but it is not the caller — fails closed', async () => {
+        if (!reconcileLegacyAdminSingleton) return;
+        const realAdminUid = testUid();
+        await adminAuth.createUser({ uid: realAdminUid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(realAdminUid, { role: 'admin' });
+        await adminAuth.createUser({ uid }).catch(() => {});
+
+        const { error } = await callReconcile(uid, 'admin');
+        expect(error.code).toBe('failed-precondition');
+
+        const singleton = await db.doc('adminBootstrap/singleton').get();
+        expect(singleton.exists).toBe(false);
+
+        await nukeUser(realAdminUid);
+    });
+
+    it('RA-18: pagination exhaustively scans beyond the first page and detects a second admin', async () => {
+        if (!reconcileLegacyAdminSingleton) return;
+        await adminAuth.createUser({ uid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(uid, { role: 'admin' });
+
+        // Seed just over one listUsers page (1000) of ordinary users via bulk import,
+        // plus one extra admin-claimed account, so the second admin is only found if
+        // the pagination loop actually follows pageToken past the first page.
+        const extraAdminUid = testUid();
+        const bulkUsers = [];
+        for (let i = 0; i < 1005; i++) {
+            bulkUsers.push({ uid: `ra_bulk_${Date.now()}_${i}` });
+        }
+        bulkUsers.push({ uid: extraAdminUid, customClaims: { role: 'admin' } });
+        for (let i = 0; i < bulkUsers.length; i += 1000) {
+            await adminAuth.importUsers(bulkUsers.slice(i, i + 1000));
+        }
+
+        try {
+            const { error } = await callReconcile(uid, 'admin');
+            expect(error.code).toBe('failed-precondition');
+
+            const singleton = await db.doc('adminBootstrap/singleton').get();
+            expect(singleton.exists).toBe(false);
+        } finally {
+            const uidsToDelete = bulkUsers.map(u => u.uid);
+            for (let i = 0; i < uidsToDelete.length; i += 1000) {
+                await adminAuth.deleteUsers(uidsToDelete.slice(i, i + 1000)).catch(() => {});
+            }
+        }
+    }, 60000);
+
+    it('RA-19: a malformed singleton document fails closed rather than being overwritten', async () => {
+        if (!reconcileLegacyAdminSingleton) return;
+        await adminAuth.createUser({ uid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(uid, { role: 'admin' });
+        // Malformed: exists, but missing bootstrappedBy entirely — must never be
+        // treated as "ours" or silently replaced.
+        await db.doc('adminBootstrap/singleton').set({ note: 'unexpected shape' });
+
+        const { error } = await callReconcile(uid, 'admin');
+        expect(error.code).toBe('already-exists');
+
+        const singleton = await db.doc('adminBootstrap/singleton').get();
+        expect(singleton.data()).toEqual({ note: 'unexpected shape' });
+    });
+
+    it('RA-20: concurrent calls from two different admin-role accounts cannot take ownership while ambiguous', async () => {
+        if (!reconcileLegacyAdminSingleton) return;
+        const uidB = testUid();
+        await adminAuth.createUser({ uid }).catch(() => {});
+        await adminAuth.createUser({ uid: uidB }).catch(() => {});
+        await adminAuth.setCustomUserClaims(uid, { role: 'admin' });
+        await adminAuth.setCustomUserClaims(uidB, { role: 'admin' });
+
+        const [a, b] = await Promise.all([
+            callReconcile(uid, 'admin'),
+            callReconcile(uidB, 'admin'),
+        ]);
+        expect(a.error?.code).toBe('failed-precondition');
+        expect(b.error?.code).toBe('failed-precondition');
+
+        const singleton = await db.doc('adminBootstrap/singleton').get();
+        expect(singleton.exists).toBe(false);
+
+        await nukeUser(uidB);
+    });
 });
