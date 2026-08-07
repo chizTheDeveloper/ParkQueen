@@ -1758,7 +1758,7 @@ exports.reconcileLegacyAdminSingleton = onCall(
   }
 );
 
-// 15) Admin-only role management — grant or revoke staff roles.
+// 15) Admin-only role management — grant, change, or revoke staff/admin roles.
 exports.setStaffRole = onCall(
   { region: 'us-central1' },
   async (request) => {
@@ -1772,24 +1772,95 @@ exports.setStaffRole = onCall(
       throw new HttpsError('invalid-argument', "role must be 'admin', 'staff', or null.");
     }
 
-    const claims = role ? { role } : {};
-    await getAuth().setCustomUserClaims(uid, claims);
+    let targetUser;
+    try {
+      targetUser = await getAuth().getUser(uid);
+    } catch (err) {
+      if (err.code === 'auth/user-not-found') {
+        throw new HttpsError('not-found', 'Target user not found.');
+      }
+      throw new HttpsError('internal', 'Could not load target user; retry.');
+    }
 
+    const previousRole = targetUser.customClaims?.role || null;
+    const removingAdmin = previousRole === 'admin' && role !== 'admin';
+
+    if (removingAdmin) {
+      // A full paginated scan is justified here specifically because this is the
+      // one transition that can cause an irrecoverable production lockout —
+      // bootstrapAdmin is permanently closed once adminBootstrap/singleton
+      // exists, and reconcileLegacyAdminSingleton itself requires an existing
+      // admin claim to invoke. Not a pattern to repeat on a hot/frequent path.
+      // Disabled accounts are excluded, mirroring reconcileLegacyAdminSingleton's
+      // policy: a disabled account can't authenticate, so it can't act as admin.
+      // The target itself is excluded — we're checking whether anyone else
+      // remains, which also correctly covers an admin demoting themselves.
+      let otherActiveAdmins = 0;
+      let pageToken;
+      do {
+        const page = await getAuth().listUsers(1000, pageToken);
+        for (const u of page.users) {
+          if (u.uid !== uid && !u.disabled && u.customClaims?.role === 'admin') otherActiveAdmins++;
+        }
+        pageToken = page.pageToken;
+      } while (pageToken);
+
+      if (otherActiveAdmins === 0) {
+        throw new HttpsError('failed-precondition', 'Cannot remove the last active administrator.');
+      }
+    }
+
+    // Merge rather than replace: setCustomUserClaims overwrites the entire
+    // claims object, so a blind { role: ... } would silently drop any other
+    // claim the account happened to carry. Only the role key is ever touched.
+    if (previousRole !== role) {
+      const { role: _oldRole, ...unrelatedClaims } = targetUser.customClaims || {};
+      const nextClaims = role ? { ...unrelatedClaims, role } : unrelatedClaims;
+      try {
+        await getAuth().setCustomUserClaims(uid, nextClaims);
+      } catch (err) {
+        if (err.code === 'auth/user-not-found') {
+          throw new HttpsError('not-found', 'Target user not found.');
+        }
+        throw new HttpsError('internal', 'Role update failed; retry.');
+      }
+      if (removingAdmin) {
+        // Best-effort: bounds exposure to the current ID token's remaining
+        // lifetime rather than persisting indefinitely via silent refresh. Does
+        // NOT invalidate an already-issued, unexpired ID token in flight — this
+        // callable's default auth verification does not check revocation — and
+        // a transient failure here must not turn an otherwise-successful role
+        // change into a reported failure.
+        await getAuth().revokeRefreshTokens(uid).catch(() => {});
+      }
+    }
+
+    // Recorded even for a same-role no-op call — a truthful record that the
+    // admin confirmed this state, not silently skipped.
     const now = Timestamp.now();
-    await db.collection('adminAuditLog').add({
-      // Standard fields
-      action: 'user.set_role',
-      targetType: 'user',
-      targetId: uid,
-      targetUserId: uid,
-      adminId: request.auth.uid,
-      metadata: { role: role || null },
-      createdAt: now,
-      // Legacy fields preserved for backward compat
-      targetUid: uid,
-      adminUid: request.auth.uid,
-      performedAt: now,
-    });
+    try {
+      await db.collection('adminAuditLog').add({
+        // Standard fields
+        action: 'user.set_role',
+        targetType: 'user',
+        targetId: uid,
+        targetUserId: uid,
+        adminId: request.auth.uid,
+        metadata: { previousRole, role: role || null, noop: previousRole === role },
+        createdAt: now,
+        // Legacy fields preserved for backward compat
+        targetUid: uid,
+        adminUid: request.auth.uid,
+        performedAt: now,
+      });
+    } catch (err) {
+      // The claims mutation above already committed and is not rolled back —
+      // Auth and Firestore are separate systems and cannot be updated
+      // atomically. Surface this distinctly so the caller knows to verify
+      // rather than silently reporting a success that may be missing its
+      // audit trail.
+      throw new HttpsError('internal', 'Role updated but audit logging failed; contact support to verify.');
+    }
 
     return { success: true };
   }
