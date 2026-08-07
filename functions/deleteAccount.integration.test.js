@@ -784,12 +784,16 @@ describe('deleteAccount — admin-lockout safety (DA)', () => {
         await adminAuth.setCustomUserClaims(adminB, { role: 'admin' });
 
         const fresh = Math.floor(Date.now() / 1000) - 30;
+        // setStaffRole is now gated by requireCurrentAdmin, which verifies an
+        // actual signed ID token — a fake unsigned auth object is no longer
+        // sufficient for a caller meant to pass as admin.
+        const adminAIdToken = await signInUser(adminA);
         const [delResult, srResult] = await Promise.allSettled([
             callDirect(adminA, fresh),
             setStaffRole.run({
                 data: { uid: adminB, role: 'staff', operationId: `op_${Date.now()}_demoteB` },
                 auth: { uid: adminA, token: { uid: adminA, role: 'admin', auth_time: fresh, iat: fresh, exp: fresh + 3600 } },
-                rawRequest: {},
+                rawRequest: { headers: { authorization: `Bearer ${adminAIdToken}` } },
             }),
         ]);
 
@@ -812,12 +816,16 @@ describe('deleteAccount — admin-lockout safety (DA)', () => {
         await adminAuth.setCustomUserClaims(admin, { role: 'admin' });
 
         const fresh = Math.floor(Date.now() / 1000) - 30;
+        // setStaffRole is now gated by requireCurrentAdmin, which verifies an
+        // actual signed ID token — a fake unsigned auth object is no longer
+        // sufficient for a caller meant to pass as admin.
+        const adminIdToken = await signInUser(admin);
         const results = await Promise.allSettled([
             callDirect(uid, fresh),
             setStaffRole.run({
                 data: { uid, role: 'admin', operationId: `op_${Date.now()}_promote` },
                 auth: { uid: admin, token: { uid: admin, role: 'admin', auth_time: fresh, iat: fresh, exp: fresh + 3600 } },
-                rawRequest: {},
+                rawRequest: { headers: { authorization: `Bearer ${adminIdToken}` } },
             }),
         ]);
 

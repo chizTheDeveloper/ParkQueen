@@ -96,6 +96,7 @@ try {
 
 const PROJECT_ID = 'parkqueen-46475363-ccf36';
 const APP_NAME = '__setStaffRole_intg__';
+const AUTH_EMULATOR = 'http://localhost:9099';
 
 const testApp =
     getApps().find(a => a.name === APP_NAME) ??
@@ -105,8 +106,34 @@ const adminAuth = getAuth(testApp);
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
-function fakeRequest(uid, callerRole, data = {}) {
+// setStaffRole is now gated by requireCurrentAdmin (functions/adminAuth.js),
+// which verifies an ACTUAL signed ID token (checkRevoked) in addition to the
+// cheap request.auth.token.role check — a fake, unsigned token object is no
+// longer sufficient for a caller that is meant to pass. Sign in for real
+// whenever the test intends the caller to be currently admin; the cheap
+// token.role check alone still correctly fails unauthenticated/non-admin
+// negative-path tests before any real token would ever be needed.
+async function signInUser(uid) {
+    const customToken = await adminAuth.createCustomToken(uid);
+    const res = await fetch(
+        `${AUTH_EMULATOR}/identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=fake-key`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: customToken, returnSecureToken: true }),
+        },
+    );
+    const body = await res.json();
+    if (!body.idToken) throw new Error(`signInUser failed for ${uid}: ${JSON.stringify(body)}`);
+    return body.idToken;
+}
+
+async function fakeRequest(uid, callerRole, data = {}) {
     const NOW = Math.floor(Date.now() / 1000);
+    let idToken;
+    if (uid && callerRole === 'admin') {
+        idToken = await signInUser(uid);
+    }
     return {
         data,
         auth: uid ? {
@@ -119,14 +146,14 @@ function fakeRequest(uid, callerRole, data = {}) {
                 exp: NOW + 3600,
             },
         } : null,
-        rawRequest: {},
+        rawRequest: { headers: idToken ? { authorization: `Bearer ${idToken}` } : {} },
     };
 }
 
 async function call(callerUid, callerRole, data) {
     if (!setStaffRole) throw new Error('setStaffRole not loaded');
     try {
-        return { result: await setStaffRole.run(fakeRequest(callerUid, callerRole, data)) };
+        return { result: await setStaffRole.run(await fakeRequest(callerUid, callerRole, data)) };
     } catch (err) {
         return { error: { code: err.code, message: err.message } };
     }
@@ -197,7 +224,13 @@ describe('setStaffRole — emulator behavioral tests', () => {
     it('SR-1: unauthenticated caller rejected', async () => {
         if (!setStaffRole) return;
         const { error } = await call(null, undefined, { uid: targetUid, role: 'staff', operationId: opId('u') });
-        expect(error.code).toBe('permission-denied');
+        // requireCurrentAdmin (functions/adminAuth.js) now distinguishes
+        // unauthenticated from authenticated-but-not-admin, rather than
+        // collapsing both into 'permission-denied' via the prior
+        // request.auth?.token?.role optional-chaining pattern — a diagnostic
+        // improvement, not a privilege-semantics change (the caller is
+        // rejected either way).
+        expect(error.code).toBe('unauthenticated');
     });
 
     it('SR-2: non-admin caller rejected', async () => {

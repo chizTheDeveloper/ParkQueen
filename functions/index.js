@@ -20,6 +20,7 @@ const emailRateLimitPepper = defineSecret("EMAIL_RATE_LIMIT_PEPPER");
 const { osmNameToDOT, streetNameToLikePattern, dotSideToCardinal, BOROUGH_CODE_TO_NAME, nycOdSegmentDocId, selectBlockFace } = require('./nycOpenDataNormalizer');
 const { redactForLog, sanitizeError } = require('./redactForLog');
 const { checkRateLimit } = require('./rateLimiter');
+const { requireCurrentAdmin } = require('./adminAuth');
 const { haversineDistMiles, filterCandidates, buildMessages, collectStaleTokens, MAX_CANDIDATES, FCM_BATCH } = require('./notifyFanout');
 const { createHash, createHmac, randomInt: secureRandomInt, randomUUID, timingSafeEqual } = require('crypto');
 
@@ -1567,9 +1568,7 @@ exports.awardCrowns = onDocumentCreated(
 exports.adminDeleteSpot = onCall(
   { region: 'us-central1' },
   async (request) => {
-    if (request.auth?.token?.role !== 'admin') {
-      throw new HttpsError('permission-denied', 'Admin only.');
-    }
+    await requireCurrentAdmin(request);
 
     const { spotId, reason } = request.data || {};
     if (!spotId || typeof spotId !== 'string') {
@@ -1611,6 +1610,10 @@ exports.adminDeleteSpot = onCall(
 );
 
 // 14) One-time admin bootstrap — any @parqueen.app account can claim admin if none exists yet.
+// Deliberately NOT gated by requireCurrentAdmin (functions/adminAuth.js): by
+// design the caller is NOT yet an admin — that is the entire bootstrap
+// contract. Its own singleton-transaction gate is the correct, distinct
+// authorization model here, not a stale-token gap.
 exports.bootstrapAdmin = onCall(
   { region: 'us-central1' },
   async (request) => {
@@ -1681,6 +1684,15 @@ exports.bootstrapAdmin = onCall(
 // a full listUsers scan is safe here specifically because this path is admin-gated and
 // not part of any hot/public request flow — do not copy this pattern into a callable
 // reachable by ordinary users. Never touches custom claims; the claim is already correct.
+//
+// Deliberately NOT migrated to requireCurrentAdmin (see functions/adminAuth.js):
+// its own exhaustive listUsers scan a few lines below already independently
+// re-derives current Auth-wide admin state (and requires it be unambiguous —
+// exactly one admin, matching the caller), which is a strictly stronger,
+// fresher guarantee than requireCurrentAdmin's single getUser() check. Its
+// one-time purpose is complete and its eventual removal is a separate,
+// already-tracked cleanup item; touching it further here would only widen
+// that future diff for no additional safety.
 exports.reconcileLegacyAdminSingleton = onCall(
   { region: 'us-central1' },
   async (request) => {
@@ -1796,9 +1808,7 @@ exports.reconcileLegacyAdminSingleton = onCall(
 exports.setStaffRole = onCall(
   { region: 'us-central1' },
   async (request) => {
-    if (request.auth?.token?.role !== 'admin') {
-      throw new HttpsError('permission-denied', 'Admin only.');
-    }
+    await requireCurrentAdmin(request);
 
     const { uid, role, operationId } = request.data || {};
     if (!uid || typeof uid !== 'string') throw new HttpsError('invalid-argument', 'uid required.');
@@ -2032,9 +2042,7 @@ exports.setStaffRole = onCall(
 exports.adminSuspendUser = onCall(
   { region: 'us-central1' },
   async (request) => {
-    if (request.auth?.token?.role !== 'admin') {
-      throw new HttpsError('permission-denied', 'Admin only.');
-    }
+    await requireCurrentAdmin(request);
     const { userId, reason } = request.data || {};
     if (!userId || typeof userId !== 'string') throw new HttpsError('invalid-argument', 'userId required.');
     if (!reason || typeof reason !== 'string' || !reason.trim()) throw new HttpsError('invalid-argument', 'reason required.');
@@ -2068,9 +2076,7 @@ exports.adminSuspendUser = onCall(
 exports.adminUnsuspendUser = onCall(
   { region: 'us-central1' },
   async (request) => {
-    if (request.auth?.token?.role !== 'admin') {
-      throw new HttpsError('permission-denied', 'Admin only.');
-    }
+    await requireCurrentAdmin(request);
     const { userId } = request.data || {};
     if (!userId || typeof userId !== 'string') throw new HttpsError('invalid-argument', 'userId required.');
 
@@ -2102,9 +2108,7 @@ exports.adminUnsuspendUser = onCall(
 exports.adminUpdateReport = onCall(
   { region: 'us-central1' },
   async (request) => {
-    if (request.auth?.token?.role !== 'admin') {
-      throw new HttpsError('permission-denied', 'Admin only.');
-    }
+    await requireCurrentAdmin(request);
     const { reportId, status, adminNote } = request.data || {};
     if (!reportId || typeof reportId !== 'string') throw new HttpsError('invalid-argument', 'reportId required.');
     const allowed = ['reviewed', 'dismissed', 'pending'];
@@ -2159,9 +2163,7 @@ exports.adminUpdateReport = onCall(
 exports.adminUpdateSegmentStatus = onCall(
   { region: 'us-central1' },
   async (request) => {
-    if (request.auth?.token?.role !== 'admin') {
-      throw new HttpsError('permission-denied', 'Admin only.');
-    }
+    await requireCurrentAdmin(request);
     const { segmentId, status, reason } = request.data || {};
     if (!segmentId || typeof segmentId !== 'string') throw new HttpsError('invalid-argument', 'segmentId required.');
     const allowed = ['active', 'needs_review', 'archived'];
@@ -2219,9 +2221,7 @@ exports.adminUpdateSegmentStatus = onCall(
 exports.adminArchiveSuspension = onCall(
   { region: 'us-central1' },
   async (request) => {
-    if (request.auth?.token?.role !== 'admin') {
-      throw new HttpsError('permission-denied', 'Admin only.');
-    }
+    await requireCurrentAdmin(request);
     const { suspensionId, reason } = request.data || {};
     if (!suspensionId || typeof suspensionId !== 'string') throw new HttpsError('invalid-argument', 'suspensionId required.');
 
@@ -2754,9 +2754,7 @@ exports.updateTrustOnSpotDelete = onDocumentDeleted(
 exports.adminResolveParseFailure = onCall(
   { region: 'us-central1' },
   async (request) => {
-    if (request.auth?.token?.role !== 'admin') {
-      throw new HttpsError('permission-denied', 'Admin only.');
-    }
+    await requireCurrentAdmin(request);
     const { failureId, resolutionType, resolutionNote } = request.data || {};
     if (!failureId || typeof failureId !== 'string') throw new HttpsError('invalid-argument', 'failureId required.');
     const allowed = ['fixed', 'expected_ignore'];
@@ -2799,9 +2797,7 @@ exports.adminResolveParseFailure = onCall(
 exports.adminReopenParseFailure = onCall(
   { region: 'us-central1' },
   async (request) => {
-    if (request.auth?.token?.role !== 'admin') {
-      throw new HttpsError('permission-denied', 'Admin only.');
-    }
+    await requireCurrentAdmin(request);
     const { failureId } = request.data || {};
     if (!failureId || typeof failureId !== 'string') throw new HttpsError('invalid-argument', 'failureId required.');
 
@@ -2835,9 +2831,7 @@ exports.adminReopenParseFailure = onCall(
 exports.adminAddSegment = onCall(
   { region: 'us-central1' },
   async (request) => {
-    if (request.auth?.token?.role !== 'admin') {
-      throw new HttpsError('permission-denied', 'Admin only.');
-    }
+    await requireCurrentAdmin(request);
     const p = request.data || {};
     const required = ['cityId', 'streetName', 'borough', 'fromLat', 'fromLng', 'toLat', 'toLng', 'centerLat', 'centerLng', 'bearing', 'geohash'];
     for (const field of required) {
@@ -2905,9 +2899,7 @@ exports.adminAddSegment = onCall(
 exports.adminAddCleaningRule = onCall(
   { region: 'us-central1' },
   async (request) => {
-    if (request.auth?.token?.role !== 'admin') {
-      throw new HttpsError('permission-denied', 'Admin only.');
-    }
+    await requireCurrentAdmin(request);
     const { segmentId, side, days, startTime, endTime } = request.data || {};
     if (!segmentId || typeof segmentId !== 'string') throw new HttpsError('invalid-argument', 'segmentId required.');
     if (!side || !['even', 'odd'].includes(side)) throw new HttpsError('invalid-argument', "side must be 'even' or 'odd'.");
@@ -2960,9 +2952,7 @@ exports.adminAddCleaningRule = onCall(
 exports.adminSupersedeRule = onCall(
   { region: 'us-central1' },
   async (request) => {
-    if (request.auth?.token?.role !== 'admin') {
-      throw new HttpsError('permission-denied', 'Admin only.');
-    }
+    await requireCurrentAdmin(request);
     const { segmentId, ruleId, reason } = request.data || {};
     if (!segmentId || typeof segmentId !== 'string') throw new HttpsError('invalid-argument', 'segmentId required.');
     if (!ruleId || typeof ruleId !== 'string') throw new HttpsError('invalid-argument', 'ruleId required.');
@@ -3007,9 +2997,7 @@ exports.adminSupersedeRule = onCall(
 exports.adminAddSuspension = onCall(
   { region: 'us-central1' },
   async (request) => {
-    if (request.auth?.token?.role !== 'admin') {
-      throw new HttpsError('permission-denied', 'Admin only.');
-    }
+    await requireCurrentAdmin(request);
     const { date, label, type } = request.data || {};
     if (!date || typeof date !== 'string') throw new HttpsError('invalid-argument', 'date required (YYYY-MM-DD).');
     if (!label || typeof label !== 'string' || !label.trim()) throw new HttpsError('invalid-argument', 'label required.');
