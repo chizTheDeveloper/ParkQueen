@@ -1758,7 +1758,41 @@ exports.reconcileLegacyAdminSingleton = onCall(
   }
 );
 
-// 15) Admin-only role management — grant or revoke staff roles.
+// 15) Admin-only role management — grant, change, or revoke staff/admin roles.
+//
+// Every call is serialized through a single Firestore-owned lock
+// (adminRoleLock/singleton) and journaled per client-supplied operationId
+// (adminRoleOperations/{operationId}) — not just admin-removal transitions.
+// This Function is backend-only and low-volume; correctness matters far more
+// than throughput, so one uniform serialized path was chosen over
+// special-casing only the dangerous transitions.
+//
+// Why serialization is required: the last-admin check is a read-then-decide
+// guard. Two concurrent removal attempts (e.g. two admins demoting each
+// other) can each independently observe "another admin exists" before
+// either commits, both pass, and together leave zero admins — a
+// sequential-only guard cannot prevent that TOCTOU race. Holding one lock
+// across the entire critical section (fresh admin count through the Auth
+// mutation) closes the window: whichever of two racing operations is
+// serialized second always re-evaluates the count against the first
+// operation's already-committed result, so it is a mathematical invariant
+// that the count can never be driven below one through this Function alone
+// — the operation that would take it to zero is always the one rejected.
+//
+// operationId is caller-supplied but never trusted for authorization or for
+// who/what/target — those are always derived from request.auth and the
+// validated uid/role. It exists purely so a retried call (lost response,
+// crash-and-resume) can be recognized as the SAME logical operation rather
+// than risk a duplicate mutation or a duplicate audit record. Reusing an
+// operationId with different actor/target/role fails closed.
+//
+// Firebase Auth has no compare-and-swap for custom claims. Serializing every
+// setStaffRole call means two setStaffRole invocations can no longer race
+// each other's read-modify-write claims cycle. It provides NO protection
+// against a claims write from outside this Function (a different Function,
+// a manual Admin SDK script) racing concurrently — that residual is
+// accepted and documented, not solved, since no other in-repo code path
+// writes the role claim.
 exports.setStaffRole = onCall(
   { region: 'us-central1' },
   async (request) => {
@@ -1766,32 +1800,231 @@ exports.setStaffRole = onCall(
       throw new HttpsError('permission-denied', 'Admin only.');
     }
 
-    const { uid, role } = request.data || {};
+    const { uid, role, operationId } = request.data || {};
     if (!uid || typeof uid !== 'string') throw new HttpsError('invalid-argument', 'uid required.');
     if (role !== null && role !== 'admin' && role !== 'staff') {
       throw new HttpsError('invalid-argument', "role must be 'admin', 'staff', or null.");
     }
+    if (typeof operationId !== 'string' || !/^[A-Za-z0-9_-]{8,128}$/.test(operationId)) {
+      throw new HttpsError('invalid-argument', 'operationId required (8-128 chars, [A-Za-z0-9_-]).');
+    }
 
-    const claims = role ? { role } : {};
-    await getAuth().setCustomUserClaims(uid, claims);
+    const actorUid = request.auth.uid;
+    const lockRef = db.doc('adminRoleLock/singleton');
+    const opRef = db.doc(`adminRoleOperations/${operationId}`);
 
-    const now = Timestamp.now();
-    await db.collection('adminAuditLog').add({
-      // Standard fields
-      action: 'user.set_role',
-      targetType: 'user',
-      targetId: uid,
-      targetUserId: uid,
-      adminId: request.auth.uid,
-      metadata: { role: role || null },
-      createdAt: now,
-      // Legacy fields preserved for backward compat
-      targetUid: uid,
-      adminUid: request.auth.uid,
-      performedAt: now,
-    });
+    // Lease duration: this Function's own timeout is 60s (Cloud Functions v2
+    // default, unchanged). A lease shorter than that would not structurally
+    // guarantee serialization — a still-live invocation could reach the Auth
+    // mutation after its own lease was stolen out from under it, since there
+    // is no fencing token Firebase Auth itself can check. 120s (2x the
+    // Function timeout) is chosen so that ANY lease acquired or renewed at
+    // ANY point during this invocation's lifetime necessarily outlives the
+    // latest possible moment Cloud Functions could forcibly kill it: if
+    // acquisition/renewal happens at time R and the invocation started at
+    // T0, then R <= T0+60s and the hard kill happens by T0+60s at the very
+    // latest — so leaseExpiresAt = R+120s is always > T0+60s >= kill time.
+    // The tradeoff is that a genuinely crashed invocation can block role
+    // management for up to 120s before a new operation can steal the lock —
+    // acceptable for this low-volume, backend-only administrative Function,
+    // where correctness (never letting two invocations both reach the Auth
+    // mutation) matters far more than that bounded recovery latency.
+    const LEASE_MS = 120000;
+    const ACQUIRE_ATTEMPTS = 6;
+    let acquired = false;
+    for (let attempt = 0; attempt < ACQUIRE_ATTEMPTS && !acquired; attempt++) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, Math.min(400 * attempt, 2000)));
+      }
+      acquired = await db.runTransaction(async (tx) => {
+        const snap = await tx.get(lockRef);
+        const now = Timestamp.now();
+        if (snap.exists) {
+          const data = snap.data();
+          const expired = !data.leaseExpiresAt || data.leaseExpiresAt.toMillis() <= now.toMillis();
+          const sameOwner = data.ownerOperationId === operationId;
+          if (!expired && !sameOwner) return false;
+        }
+        tx.set(lockRef, {
+          ownerOperationId: operationId,
+          acquiredAt: now,
+          leaseExpiresAt: Timestamp.fromMillis(now.toMillis() + LEASE_MS),
+        });
+        return true;
+      });
+    }
+    if (!acquired) {
+      throw new HttpsError('aborted', 'Another role operation is in progress; please retry.');
+    }
 
-    return { success: true };
+    // Transactionally re-verify ownership and renew the lease to a fresh
+    // full LEASE_MS immediately before any irreversible Auth mutation —
+    // belt-and-suspenders on top of the acquisition-time margin above, so
+    // the invariant is self-verifying at the point of use rather than
+    // resting solely on a proof that holds at a distance. If ownership was
+    // somehow already lost (should be unreachable given the margin, but
+    // never assume), fail closed rather than proceed to mutate Auth.
+    async function renewLockOrThrow() {
+      const stillOwned = await db.runTransaction(async (tx) => {
+        const snap = await tx.get(lockRef);
+        if (!snap.exists || snap.data().ownerOperationId !== operationId) return false;
+        const now = Timestamp.now();
+        tx.set(lockRef, {
+          ownerOperationId: operationId,
+          acquiredAt: snap.data().acquiredAt,
+          leaseExpiresAt: Timestamp.fromMillis(now.toMillis() + LEASE_MS),
+        });
+        return true;
+      });
+      if (!stillOwned) {
+        throw new HttpsError('aborted', 'Lock ownership lost before Auth mutation; retry.');
+      }
+    }
+
+    try {
+      // Bind (or resume) the operation journal. actor/target/requestedRole
+      // and originalPreviousRole are immutable once the journal is created —
+      // written exactly once, before the first Auth mutation, and never
+      // recomputed on resume. This matters specifically for audit
+      // truthfulness: if a retry re-derived "previous role" from Auth's
+      // CURRENT state, a resume after "Auth succeeded, audit failed" would
+      // see the NEW role already applied and could misrecord e.g. an
+      // admin->staff transition as a false staff->staff no-op. A resume may
+      // still re-read CURRENT Auth state freely for merge-safety and
+      // recovery decisions — only the audited originalPreviousRole is frozen.
+      let opSnap = await opRef.get();
+      if (!opSnap.exists) {
+        let targetUser;
+        try {
+          targetUser = await getAuth().getUser(uid);
+        } catch (err) {
+          if (err.code === 'auth/user-not-found') throw new HttpsError('not-found', 'Target user not found.');
+          throw new HttpsError('internal', 'Could not load target user; retry.');
+        }
+        await opRef.set({
+          operationId,
+          actorUid,
+          targetUid: uid,
+          requestedRole: role,
+          originalPreviousRole: targetUser.customClaims?.role || null,
+          status: 'pending',
+          createdAt: Timestamp.now(),
+        });
+        opSnap = await opRef.get();
+      }
+
+      const op = opSnap.data();
+      if (op.actorUid !== actorUid || op.targetUid !== uid || op.requestedRole !== role) {
+        throw new HttpsError('failed-precondition', 'operationId already used for a different request.');
+      }
+
+      if (op.status === 'completed') {
+        return op.result;
+      }
+
+      const removingAdmin = op.originalPreviousRole === 'admin' && op.requestedRole !== 'admin';
+
+      if (removingAdmin) {
+        // Re-run fresh on every attempt, including resumes after a crash —
+        // cheap relative to the lock's own cost, and correct even across a
+        // crash-and-resume cycle rather than trusting a possibly-stale
+        // earlier result. Disabled accounts are excluded (mirrors
+        // reconcileLegacyAdminSingleton's policy: a disabled account can't
+        // authenticate, so it can't act as admin). The target itself is
+        // excluded — this correctly covers an admin demoting themselves.
+        let otherActiveAdmins = 0;
+        let pageToken;
+        do {
+          const page = await getAuth().listUsers(1000, pageToken);
+          for (const u of page.users) {
+            if (u.uid !== uid && !u.disabled && u.customClaims?.role === 'admin') otherActiveAdmins++;
+          }
+          pageToken = page.pageToken;
+        } while (pageToken);
+
+        if (otherActiveAdmins === 0) {
+          throw new HttpsError('failed-precondition', 'Cannot remove the last active administrator.');
+        }
+      }
+
+      // Merge rather than replace: setCustomUserClaims overwrites the entire
+      // claims object, so a blind { role: ... } would silently drop any other
+      // claim the account happened to carry. Only the role key is ever
+      // touched, and unrelated claims are re-read fresh (not cached from
+      // journal creation) so a resume reflects the current reality.
+      if (op.originalPreviousRole !== op.requestedRole) {
+        let currentTarget;
+        try {
+          currentTarget = await getAuth().getUser(uid);
+        } catch (err) {
+          if (err.code === 'auth/user-not-found') throw new HttpsError('not-found', 'Target user not found.');
+          throw new HttpsError('internal', 'Could not load target user; retry.');
+        }
+        const { role: _oldRole, ...unrelatedClaims } = currentTarget.customClaims || {};
+        const nextClaims = op.requestedRole ? { ...unrelatedClaims, role: op.requestedRole } : unrelatedClaims;
+        await renewLockOrThrow();
+        try {
+          await getAuth().setCustomUserClaims(uid, nextClaims);
+        } catch (err) {
+          if (err.code === 'auth/user-not-found') throw new HttpsError('not-found', 'Target user not found.');
+          throw new HttpsError('internal', 'Role update failed; retry.');
+        }
+        if (removingAdmin) {
+          // Best-effort: bounds exposure to the current ID token's remaining
+          // lifetime rather than persisting indefinitely via silent refresh.
+          // Does NOT invalidate an already-issued, unexpired ID token in
+          // flight — this callable's default auth verification does not
+          // check revocation — and a transient failure here must not turn an
+          // otherwise-successful role change into a reported failure.
+          await getAuth().revokeRefreshTokens(uid).catch(() => {});
+        }
+        await opRef.set({ authMutatedAt: Timestamp.now() }, { merge: true });
+      }
+
+      const result = { success: true, previousRole: op.originalPreviousRole, role: op.requestedRole };
+
+      // Deterministic id keyed to operationId, not .add() — exactly one
+      // logical successful mutation produces exactly one successful audit
+      // record, even across a crash-and-resume retry.
+      await db.doc(`adminAuditLog/roleOp_${operationId}`).set({
+        // Standard fields
+        action: 'user.set_role',
+        targetType: 'user',
+        targetId: uid,
+        targetUserId: uid,
+        adminId: actorUid,
+        metadata: {
+          previousRole: op.originalPreviousRole,
+          role: op.requestedRole,
+          noop: op.originalPreviousRole === op.requestedRole,
+          operationId,
+        },
+        createdAt: Timestamp.now(),
+        // Legacy fields preserved for backward compat
+        targetUid: uid,
+        adminUid: actorUid,
+        performedAt: Timestamp.now(),
+      }, { merge: true });
+      // If the audit write above throws, the journal stays at status
+      // 'pending' (never advances to 'completed' below) and the error
+      // propagates to the caller — a retry with the same operationId safely
+      // resumes: the Auth mutation re-applies idempotently and the audit
+      // write is retried, still landing on the same deterministic doc id.
+
+      await opRef.set({ status: 'completed', result, completedAt: Timestamp.now() }, { merge: true });
+
+      return result;
+    } finally {
+      // Fencing: only release if this operation still owns the lock — a
+      // stale/crashed invocation whose lease already expired and was stolen
+      // by a newer operation must never release that newer operation's lock.
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(lockRef);
+        if (!snap.exists) return;
+        if (snap.data().ownerOperationId !== operationId) return;
+        tx.delete(lockRef);
+      }).catch(() => {});
+    }
   }
 );
 
