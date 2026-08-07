@@ -21,6 +21,7 @@ const { osmNameToDOT, streetNameToLikePattern, dotSideToCardinal, BOROUGH_CODE_T
 const { redactForLog, sanitizeError } = require('./redactForLog');
 const { checkRateLimit } = require('./rateLimiter');
 const { requireCurrentAdmin } = require('./adminAuth');
+const { isSweepNYCData, computeSegmentUpdate, computeRuleUpdate } = require('./backfillLogic');
 const { haversineDistMiles, filterCandidates, buildMessages, collectStaleTokens, MAX_CANDIDATES, FCM_BATCH } = require('./notifyFanout');
 const { createHash, createHmac, randomInt: secureRandomInt, randomUUID, timingSafeEqual } = require('crypto');
 
@@ -3034,6 +3035,110 @@ exports.adminAddSuspension = onCall(
     });
 
     return { success: true, suspensionId: suspRef.id };
+  }
+);
+
+// 27) Admin backfill street intelligence schema — server-side replacement for
+// the direct client Firestore writes formerly performed by
+// utils/backfill.ts's backfillStreetIntelligence() from
+// views/admin/StreetSegmentsPage.tsx's Data Maintenance panel. That path was
+// authorized only by firestore.rules' token-only isAdmin() check, so a
+// demoted/deleted/disabled admin's stale token could still invoke it — the
+// same vulnerability class requireCurrentAdmin closes for callables, but
+// Rules cannot re-check current server-side Auth state. firestore.rules now
+// denies direct client writes to streetSegments/streetRules; this callable
+// is the only way to perform the backfill going forward.
+//
+// Paginated (fixed page of streetSegments per call, walking each segment's
+// streetRules subcollection inline) to stay well within the callable
+// timeout regardless of collection size — the client repeatedly calls with
+// the returned cursor until done:true. Idempotent: only ever fills in
+// currently-missing fields, so a resumed/re-run page is harmless.
+exports.adminBackfillStreetIntelligence = onCall(
+  { region: 'us-central1' },
+  async (request) => {
+    await requireCurrentAdmin(request);
+    const p = request.data || {};
+
+    // Strict, narrow parameter schema — this callable encodes exactly one
+    // fixed administrative operation on exactly two fixed collections. The
+    // client cannot select a different collection, path, or set of fields;
+    // any such extra data in the payload is simply ignored, never read.
+    if (p.dryRun !== undefined && typeof p.dryRun !== 'boolean') {
+      throw new HttpsError('invalid-argument', 'dryRun must be a boolean.');
+    }
+    if (p.cursor !== undefined && p.cursor !== null && (typeof p.cursor !== 'string' || p.cursor.length === 0)) {
+      throw new HttpsError('invalid-argument', 'cursor must be a non-empty string or null.');
+    }
+    if (p.limit !== undefined && (!Number.isInteger(p.limit) || p.limit <= 0 || p.limit > 200)) {
+      throw new HttpsError('invalid-argument', 'limit must be an integer between 1 and 200.');
+    }
+
+    const dryRun = p.dryRun === true;
+    const cursorId = typeof p.cursor === 'string' && p.cursor ? p.cursor : null;
+    const pageLimit = Number.isInteger(p.limit) ? p.limit : 50;
+
+    let segQuery = db.collection('streetSegments').orderBy('__name__').limit(pageLimit);
+    if (cursorId) {
+      const cursorSnap = await db.collection('streetSegments').doc(cursorId).get();
+      if (cursorSnap.exists) segQuery = segQuery.startAfter(cursorSnap);
+    }
+    const segmentsSnap = await segQuery.get();
+
+    const result = {
+      segmentsScanned: 0, segmentsUpdated: 0,
+      rulesScanned: 0, rulesUpdated: 0,
+      dryRun, nextCursor: null, done: true,
+    };
+
+    for (const segDoc of segmentsSnap.docs) {
+      result.segmentsScanned++;
+      const data = segDoc.data();
+      const isSwNYC = isSweepNYCData(data);
+      const segUpdate = computeSegmentUpdate(data);
+
+      if (Object.keys(segUpdate).length > 0) {
+        if (data.updatedAt == null) segUpdate.updatedAt = Timestamp.now();
+        result.segmentsUpdated++;
+        if (!dryRun) await segDoc.ref.update(segUpdate);
+      }
+
+      const rulesSnap = await segDoc.ref.collection('streetRules').get();
+      for (const ruleDoc of rulesSnap.docs) {
+        result.rulesScanned++;
+        const ruleUpdate = computeRuleUpdate(ruleDoc.data(), isSwNYC);
+        if (Object.keys(ruleUpdate).length > 0) {
+          result.rulesUpdated++;
+          if (!dryRun) await ruleDoc.ref.update(ruleUpdate);
+        }
+      }
+    }
+
+    if (segmentsSnap.size === pageLimit) {
+      result.nextCursor = segmentsSnap.docs[segmentsSnap.docs.length - 1].id;
+      result.done = false;
+    }
+
+    if (!dryRun && (result.segmentsUpdated > 0 || result.rulesUpdated > 0)) {
+      await db.collection('adminAuditLog').add({
+        action: 'streetIntelligence.backfill',
+        targetType: 'streetSegments',
+        targetId: null,
+        adminId: request.auth.uid,
+        adminEmail: request.auth.token?.email || null,
+        metadata: {
+          segmentsScanned: result.segmentsScanned,
+          segmentsUpdated: result.segmentsUpdated,
+          rulesScanned: result.rulesScanned,
+          rulesUpdated: result.rulesUpdated,
+          cursor: cursorId,
+          nextCursor: result.nextCursor,
+        },
+        createdAt: Timestamp.now(),
+      });
+    }
+
+    return result;
   }
 );
 

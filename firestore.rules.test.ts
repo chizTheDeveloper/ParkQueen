@@ -1458,6 +1458,11 @@ describe('users — update allowlist (TM-11)', () => {
         const { updateDoc: upd } = await import('firebase/firestore');
         await assertFails(upd(doc(otherDb(), 'users', OWNER_UID), { fullName: 'Hacked' }));
     });
+
+    it('TM11-G: admin token can no longer bypass the allowlist directly (coordinated remediation — direct admin writes removed)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(adminDb(), 'users', OWNER_UID), { crowns: 999999 }));
+    });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1628,6 +1633,106 @@ describe('parseFailures — update allowlist (TM-09)', () => {
         await assertFails(
             upd(doc(ownerDb(), 'parseFailures', 'failure-1'), { injected: true })
         );
+    });
+
+    it('TM09-D: admin token can no longer bypass the allowlist directly (coordinated remediation — direct admin writes removed)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(
+            upd(doc(adminDb(), 'parseFailures', 'failure-1'), { resolvedAt: Timestamp.now() })
+        );
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Coordinated admin session hardening — streetSegments/streetRules direct
+// client mutation removed. views/admin/StreetSegmentsPage.tsx's Data
+// Maintenance panel used to call utils/backfill.ts's
+// backfillStreetIntelligence() directly against the client Firestore SDK,
+// authorized only by isAdmin() — a token-only check Rules cannot re-verify
+// against current server-side Auth state. A demoted/deleted/disabled
+// admin's stale token could keep writing directly until the token expired.
+// adminBackfillStreetIntelligence (functions/index.js, requireCurrentAdmin-
+// gated) is now the only way to perform this mutation.
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('streetSegments/streetRules — direct client mutation blocked (coordinated remediation)', () => {
+    beforeEach(async () => {
+        await seed('streetSegments', 'seg-1', { streetName: 'Test St', status: 'active' });
+        await seed('streetSegments/seg-1/streetRules', 'rule-1', { schedules: [] });
+    });
+
+    it('SS-1: admin token can still read streetSegments directly (dashboard listing unaffected)', async () => {
+        await assertSucceeds(getDoc(doc(adminDb(), 'streetSegments', 'seg-1')));
+    });
+
+    it('SS-2: admin token can no longer directly create a streetSegment', async () => {
+        await assertFails(
+            setDoc(doc(adminDb(), 'streetSegments', 'seg-new'), { streetName: 'New St' })
+        );
+    });
+
+    it('SS-3: admin token can no longer directly update a streetSegment (the confirmed backfill.ts exploit path)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(
+            upd(doc(adminDb(), 'streetSegments', 'seg-1'), { source: 'admin' })
+        );
+    });
+
+    it('SS-4: admin token can no longer directly delete a streetSegment', async () => {
+        const { deleteDoc } = await import('firebase/firestore');
+        await assertFails(deleteDoc(doc(adminDb(), 'streetSegments', 'seg-1')));
+    });
+
+    it('SS-5: admin token can still read streetRules directly (dashboard listing unaffected)', async () => {
+        await assertSucceeds(getDoc(doc(adminDb(), 'streetSegments/seg-1/streetRules', 'rule-1')));
+    });
+
+    it('SS-6: admin token can no longer directly update a streetRule (the confirmed backfill.ts exploit path)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(
+            upd(doc(adminDb(), 'streetSegments/seg-1/streetRules', 'rule-1'), { editedBy: 'hack' })
+        );
+    });
+
+    it('SS-7: admin token can no longer directly delete a streetRule', async () => {
+        const { deleteDoc } = await import('firebase/firestore');
+        await assertFails(deleteDoc(doc(adminDb(), 'streetSegments/seg-1/streetRules', 'rule-1')));
+    });
+
+    it('SS-8: public/unauthenticated read access to streetSegments/streetRules is unchanged (Street Parking view depends on it)', async () => {
+        await assertSucceeds(getDoc(doc(anonDb(), 'streetSegments', 'seg-1')));
+        await assertSucceeds(getDoc(doc(anonDb(), 'streetSegments/seg-1/streetRules', 'rule-1')));
+    });
+});
+
+describe('suspensions — admin direct write blocked (coordinated remediation)', () => {
+    it('SU-1: admin token can still read suspensions directly (dashboard listing unaffected)', async () => {
+        await seed('suspensions', 'susp-1', { date: '2026-01-01', label: 'Test', type: 'holiday' });
+        await assertSucceeds(getDoc(doc(adminDb(), 'suspensions', 'susp-1')));
+    });
+
+    it('SU-2: admin token can no longer directly create a suspension (adminAddSuspension callable is the only path now)', async () => {
+        await assertFails(
+            setDoc(doc(adminDb(), 'suspensions', 'susp-new'), { date: '2026-01-01', label: 'Test', type: 'holiday' })
+        );
+    });
+});
+
+describe('reports — admin direct update blocked (coordinated remediation)', () => {
+    it('RP-1: admin token can still read reports directly (dashboard listing unaffected)', async () => {
+        await seed('reports', 'report-1', {
+            reporterId: OTHER_UID, reportedUserId: OWNER_UID, type: 'spam',
+            reason: 'test', status: 'pending', createdAt: Timestamp.now(),
+        });
+        await assertSucceeds(getDoc(doc(adminDb(), 'reports', 'report-1')));
+    });
+
+    it('RP-2: admin token can no longer directly update a report (adminUpdateReport callable is the only path now)', async () => {
+        await seed('reports', 'report-1', {
+            reporterId: OTHER_UID, reportedUserId: OWNER_UID, type: 'spam',
+            reason: 'test', status: 'pending', createdAt: Timestamp.now(),
+        });
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(adminDb(), 'reports', 'report-1'), { status: 'reviewed' }));
     });
 });
 

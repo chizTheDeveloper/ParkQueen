@@ -1,9 +1,19 @@
-import {
-  collection, getDocs, doc, updateDoc, Timestamp,
-  type Firestore,
-} from 'firebase/firestore';
-
 // ─── Pure helpers (testable without Firestore) ────────────────────────────────
+//
+// The Firestore-writing half of this module (formerly backfillStreetIntelligence,
+// invoked directly from views/admin/StreetSegmentsPage.tsx against the client
+// Firestore SDK) has been removed. That direct-write path was authorized only
+// by firestore.rules' token-only isAdmin() check, which a stale admin token
+// (demoted/deleted/disabled after the token was minted) could still pass —
+// Rules cannot re-verify current server-side Auth state the way
+// requireCurrentAdmin does for callables. The mutation now happens exclusively
+// via the adminBackfillStreetIntelligence callable (functions/index.js), whose
+// field-derivation logic is a 1:1 port of the two pure functions below (see
+// functions/backfillLogic.js).
+//
+// These pure functions are retained here only because utils/streetIntelligence.test.ts
+// has existing unit coverage for them; they are no longer called by any
+// production write path in this file.
 
 function isSweepNYCData(data: Record<string, any>): boolean {
   return (
@@ -86,81 +96,4 @@ export function computeRuleUpdate(
   }
 
   return update;
-}
-
-// ─── Result type ──────────────────────────────────────────────────────────────
-
-export interface BackfillResult {
-  segmentsScanned: number;
-  segmentsUpdated: number;
-  rulesScanned: number;
-  rulesUpdated: number;
-  dryRun: boolean;
-}
-
-// ─── Firestore runner ─────────────────────────────────────────────────────────
-
-/**
- * Backfills missing schema fields on all streetSegments and their streetRules.
- *
- * Idempotent: only writes fields that are currently null/undefined.
- * Running twice leaves already-backfilled documents unchanged.
- *
- * @param dryRun  When true, counts what would change but writes nothing.
- */
-export async function backfillStreetIntelligence(
-  db: Firestore,
-  dryRun = false,
-): Promise<BackfillResult> {
-  const result: BackfillResult = {
-    segmentsScanned: 0,
-    segmentsUpdated: 0,
-    rulesScanned: 0,
-    rulesUpdated: 0,
-    dryRun,
-  };
-
-  const segmentsSnap = await getDocs(collection(db, 'streetSegments'));
-
-  for (const segDoc of segmentsSnap.docs) {
-    result.segmentsScanned++;
-    const data = segDoc.data();
-    const isSwNYC = isSweepNYCData(data);
-
-    const segUpdate = computeSegmentUpdate(data);
-
-    // Add updatedAt only when there's actually something to update,
-    // and only if updatedAt is also missing (don't bump timestamps on no-ops).
-    if (Object.keys(segUpdate).length > 0) {
-      if (data.updatedAt == null) {
-        segUpdate.updatedAt = Timestamp.now();
-      }
-      result.segmentsUpdated++;
-      if (!dryRun) {
-        await updateDoc(doc(db, 'streetSegments', segDoc.id), segUpdate);
-      }
-    }
-
-    // Rules subcollection
-    const rulesSnap = await getDocs(
-      collection(db, 'streetSegments', segDoc.id, 'streetRules'),
-    );
-    for (const ruleDoc of rulesSnap.docs) {
-      result.rulesScanned++;
-      const ruleData = ruleDoc.data();
-      const ruleUpdate = computeRuleUpdate(ruleData, isSwNYC);
-
-      if (Object.keys(ruleUpdate).length > 0) {
-        result.rulesUpdated++;
-        if (!dryRun) {
-          await updateDoc(
-            doc(db, 'streetSegments', segDoc.id, 'streetRules', ruleDoc.id),
-            ruleUpdate,
-          );
-        }
-      }
-    }
-  }
-
-  return result;
 }

@@ -423,7 +423,10 @@ describe('requireCurrentAdmin — session revocation / stale admin token hardeni
     it('AS-22: exactly the expected privileged callables use requireCurrentAdmin; exactly one documented exception remains', () => {
         const src = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
         const migratedCount = (src.match(/await requireCurrentAdmin\(request\);/g) || []).length;
-        expect(migratedCount).toBe(13);
+        // 13 from the original session-revocation hardening pass +
+        // adminBackfillStreetIntelligence (coordinated Functions/Rules/client
+        // remediation — see functions/adminBackfill.integration.test.js AB-15).
+        expect(migratedCount).toBe(14);
 
         // Only reconcileLegacyAdminSingleton may still use the raw token-only
         // pattern — if this count ever exceeds 1, a newly added admin

@@ -18,6 +18,7 @@ export default defineConfig({
       'functions/reconcileLegacyAdminSingleton.integration.test.js',
       'functions/setStaffRole.integration.test.js',
       'functions/adminSessionAuth.integration.test.js',
+      'functions/adminBackfill.integration.test.js',
     ],
     testTimeout: 120000,
     hookTimeout: 120000,
