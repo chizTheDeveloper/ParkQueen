@@ -38,9 +38,9 @@ const { getAuth } = require('firebase-admin/auth');
 // env vars (FIRESTORE_EMULATOR_HOST etc.) are set by firebase emulators:exec, so
 // the default app connects to emulators. Must come after named test-app creation.
 // (Named and default apps coexist; no conflict.)
-let deleteAccount;
+let deleteAccount, setStaffRole;
 try {
-    ({ deleteAccount } = require('./index.js'));
+    ({ deleteAccount, setStaffRole } = require('./index.js'));
 } catch (e) {
     // If the module fails to load (missing node_modules), direct-handler tests
     // will be skipped by the null-guard in callDirect.
@@ -551,5 +551,498 @@ describe('deleteAccount — Functions emulator integration', () => {
         const job = (await db.doc(`accountDeletionJobs/${uid}`).get()).data();
         expect(job?.state).toBe('failed');
         expect(job?.lastError).toMatch(/userDoc/);
+    });
+});
+
+/**
+ * Admin-lockout safety (DA-*) — deleteAccount now shares adminRoleLock/singleton
+ * with setStaffRole so account deletion is serialized against every admin-role
+ * mutation, not just deletions that already looked admin-relevant when the call
+ * started. Every deleteAccount call acquires this lock (deterministic per-uid
+ * operationId `delete_${uid}`, not random — a crash-and-resume attempt for the
+ * SAME uid naturally re-identifies as the same owner), holds it across the
+ * entire destructive lifecycle, and — only if the target currently has
+ * customClaims.role === 'admin' — runs the same exhaustive paginated
+ * last-admin scan setStaffRole and reconcileLegacyAdminSingleton use before
+ * any Firestore/Storage/Auth destruction begins.
+ *
+ * Mapping to the full DA-1..28 checklist: DA-1 ≡ FN-01 (unauthenticated
+ * rejected), DA-2 ≡ FN-08 (ordinary full deletion baseline), DA-3 ≡ FN-06
+ * (target derives only from request.auth.uid), DA-19 ≡ FN-07 (partial-cleanup
+ * retry), DA-21 ≡ FN-13 (already-deleted Auth user retry) — not duplicated
+ * here. DA-24/25/26 (setStaffRole/bootstrapAdmin/reconcileLegacyAdminSingleton
+ * suites unaffected) are verified by the full functions-gate run, not as
+ * cases in this file.
+ *
+ *   DA-4:  sole active admin deletion rejected
+ *   DA-5:  rejection happens before ANY destructive Firestore/Storage/Auth work
+ *   DA-6:  admin may delete self when another active admin exists
+ *   DA-7:  a disabled admin does not count as another active admin
+ *   DA-8:  pagination finds another admin beyond the first Auth listUsers page
+ *   DA-9:  pagination proves no other admin exists beyond the first page and blocks
+ *   DA-10: concurrent two-admin self-deletion cannot produce zero admins
+ *   DA-11: deleteAccount vs setStaffRole demotion cannot produce zero admins
+ *   DA-12: deleteAccount vs setStaffRole promotion of the deleting target is serialized safely
+ *   DA-13: an externally-held valid lock blocks deleteAccount from proceeding
+ *   DA-14: deleteAccount's own failed acquire never corrupts another operation's lock
+ *   DA-15: (see comment at its definition — proven jointly with DA-16, not a separate live-timing test)
+ *   DA-16: ownership loss prevents getAuth().deleteUser() from ever being reached
+ *   DA-17: a crashed deletion's lock is recoverable once its lease genuinely expires
+ *   DA-18: non-admin deletion remains retry/idempotency compatible under the new lock wrapping
+ *   DA-20: an Auth-deletion failure still preserves truthful retry behavior under the new lock wrapping
+ *   DA-22: bootstrap singleton is never touched by account deletion
+ *   DA-23: deleting a historical bootstrap owner (with another active admin) does not reopen bootstrap
+ *   DA-27: logs contain no sensitive identity during admin-safety rejection or lock activity
+ *   DA-28: only clean HttpsError codes reach the client, never raw Admin SDK codes
+ */
+describe('deleteAccount — admin-lockout safety (DA)', () => {
+    let uid;
+
+    async function wipeAllStrayAdmins() {
+        let pageToken;
+        do {
+            const page = await adminAuth.listUsers(1000, pageToken);
+            for (const u of page.users) {
+                if (u.customClaims?.role === 'admin') {
+                    await adminAuth.deleteUser(u.uid).catch(() => {});
+                }
+            }
+            pageToken = page.pageToken;
+        } while (pageToken);
+    }
+
+    async function deleteLock() {
+        await db.doc('adminRoleLock/singleton').delete().catch(() => {});
+    }
+
+    async function deleteSingleton() {
+        await db.doc('adminBootstrap/singleton').delete().catch(() => {});
+    }
+
+    beforeEach(async () => {
+        uid = `da_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        await wipeAllStrayAdmins();
+        await deleteLock();
+    });
+
+    afterEach(async () => {
+        await nukeTestData(uid);
+        await cleanupSideEffects(uid);
+        await deleteLock();
+    });
+
+    it('DA-4: sole active admin deletion rejected', async () => {
+        await adminAuth.createUser({ uid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(uid, { role: 'admin' });
+
+        await expect(callDirect(uid, Math.floor(Date.now() / 1000) - 30))
+            .rejects.toMatchObject({ code: 'failed-precondition' });
+
+        const authRecord = await adminAuth.getUser(uid).catch(() => null);
+        expect(authRecord).not.toBeNull();
+        expect(authRecord.customClaims?.role).toBe('admin');
+    });
+
+    it('DA-5: rejection happens before ANY destructive Firestore/Storage/Auth work', async () => {
+        await adminAuth.createUser({ uid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(uid, { role: 'admin' });
+        await db.doc(`users/${uid}`).set({ id: uid, fullName: 'Sole Admin', createdAt: Timestamp.now() });
+        await db.collection('usernames').doc('soleadmintestname').set({ uid });
+
+        await expect(callDirect(uid, Math.floor(Date.now() / 1000) - 30))
+            .rejects.toMatchObject({ code: 'failed-precondition' });
+
+        const userDoc = await db.doc(`users/${uid}`).get();
+        expect(userDoc.exists).toBe(true);
+        const usernameDoc = await db.collection('usernames').doc('soleadmintestname').get();
+        expect(usernameDoc.exists).toBe(true);
+        const authRecord = await adminAuth.getUser(uid).catch(() => null);
+        expect(authRecord).not.toBeNull();
+
+        const job = (await db.doc(`accountDeletionJobs/${uid}`).get()).data();
+        expect(job?.state).toBe('failed');
+        expect(job?.lastError).toMatch(/adminSafetyCheck/);
+        expect(Object.keys(job?.steps || {})).toHaveLength(0); // no cleanup step ever ran
+
+        await db.collection('usernames').doc('soleadmintestname').delete().catch(() => {});
+    });
+
+    it('DA-6: admin may delete self when another active admin exists', async () => {
+        const otherAdmin = `da_other_${Date.now()}`;
+        await adminAuth.createUser({ uid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(uid, { role: 'admin' });
+        await adminAuth.createUser({ uid: otherAdmin }).catch(() => {});
+        await adminAuth.setCustomUserClaims(otherAdmin, { role: 'admin' });
+
+        const result = await callDirect(uid, Math.floor(Date.now() / 1000) - 30);
+        expect(result.success).toBe(true);
+
+        const authRecord = await adminAuth.getUser(uid).catch(() => null);
+        expect(authRecord).toBeNull();
+
+        await adminAuth.deleteUser(otherAdmin).catch(() => {});
+    });
+
+    it('DA-7: a disabled admin does not count as another active admin', async () => {
+        const disabledAdmin = `da_disabled_${Date.now()}`;
+        await adminAuth.createUser({ uid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(uid, { role: 'admin' });
+        await adminAuth.createUser({ uid: disabledAdmin, disabled: true }).catch(() => {});
+        await adminAuth.setCustomUserClaims(disabledAdmin, { role: 'admin' });
+
+        await expect(callDirect(uid, Math.floor(Date.now() / 1000) - 30))
+            .rejects.toMatchObject({ code: 'failed-precondition' });
+
+        await adminAuth.deleteUser(disabledAdmin).catch(() => {});
+    });
+
+    it('DA-8: pagination finds another admin beyond the first Auth listUsers page', async () => {
+        await adminAuth.createUser({ uid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(uid, { role: 'admin' });
+
+        const otherAdmin = `da_pg_admin_${Date.now()}`;
+        const bulkUsers = [];
+        for (let i = 0; i < 1005; i++) bulkUsers.push({ uid: `da_bulk_${Date.now()}_${i}` });
+        bulkUsers.push({ uid: otherAdmin, customClaims: { role: 'admin' } });
+        for (let i = 0; i < bulkUsers.length; i += 1000) {
+            await adminAuth.importUsers(bulkUsers.slice(i, i + 1000));
+        }
+
+        try {
+            const result = await callDirect(uid, Math.floor(Date.now() / 1000) - 30);
+            expect(result.success).toBe(true);
+            const authRecord = await adminAuth.getUser(uid).catch(() => null);
+            expect(authRecord).toBeNull();
+        } finally {
+            const uidsToDelete = bulkUsers.map(u => u.uid);
+            for (let i = 0; i < uidsToDelete.length; i += 1000) {
+                await adminAuth.deleteUsers(uidsToDelete.slice(i, i + 1000)).catch(() => {});
+            }
+        }
+    }, 60000);
+
+    it('DA-9: pagination proves no other admin exists beyond the first page and blocks', async () => {
+        await adminAuth.createUser({ uid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(uid, { role: 'admin' });
+
+        const bulkUsers = [];
+        for (let i = 0; i < 1005; i++) bulkUsers.push({ uid: `da_bulk2_${Date.now()}_${i}` });
+        for (let i = 0; i < bulkUsers.length; i += 1000) {
+            await adminAuth.importUsers(bulkUsers.slice(i, i + 1000));
+        }
+
+        try {
+            await expect(callDirect(uid, Math.floor(Date.now() / 1000) - 30))
+                .rejects.toMatchObject({ code: 'failed-precondition' });
+            const authRecord = await adminAuth.getUser(uid).catch(() => null);
+            expect(authRecord).not.toBeNull(); // not deleted
+        } finally {
+            const uidsToDelete = bulkUsers.map(u => u.uid);
+            for (let i = 0; i < uidsToDelete.length; i += 1000) {
+                await adminAuth.deleteUsers(uidsToDelete.slice(i, i + 1000)).catch(() => {});
+            }
+        }
+    }, 60000);
+
+    it('DA-10: concurrent two-admin self-deletion cannot produce zero admins', async () => {
+        const adminA = `da_ca_${Date.now()}`;
+        const adminB = `da_cb_${Date.now()}`;
+        await adminAuth.createUser({ uid: adminA }).catch(() => {});
+        await adminAuth.createUser({ uid: adminB }).catch(() => {});
+        await adminAuth.setCustomUserClaims(adminA, { role: 'admin' });
+        await adminAuth.setCustomUserClaims(adminB, { role: 'admin' });
+
+        const fresh = Math.floor(Date.now() / 1000) - 30;
+        const [a, b] = await Promise.allSettled([
+            callDirect(adminA, fresh),
+            callDirect(adminB, fresh),
+        ]);
+        const outcomes = [a, b].map(r => (r.status === 'fulfilled' ? 'success' : r.reason?.code));
+        expect(outcomes.filter(o => o === 'success')).toHaveLength(1);
+        expect(outcomes.filter(o => o === 'failed-precondition')).toHaveLength(1);
+
+        const [userA, userB] = await Promise.all([
+            adminAuth.getUser(adminA).catch(() => null),
+            adminAuth.getUser(adminB).catch(() => null),
+        ]);
+        const stillExisting = [userA, userB].filter(Boolean);
+        expect(stillExisting).toHaveLength(1);
+        expect(stillExisting[0].customClaims?.role).toBe('admin');
+
+        await adminAuth.deleteUser(adminA).catch(() => {});
+        await adminAuth.deleteUser(adminB).catch(() => {});
+        await db.doc(`accountDeletionJobs/${adminA}`).delete().catch(() => {});
+        await db.doc(`accountDeletionJobs/${adminB}`).delete().catch(() => {});
+    }, 30000);
+
+    it('DA-11: deleteAccount vs setStaffRole demotion cannot produce zero admins', async () => {
+        const adminA = `da_sr_a_${Date.now()}`;
+        const adminB = `da_sr_b_${Date.now()}`;
+        await adminAuth.createUser({ uid: adminA }).catch(() => {});
+        await adminAuth.createUser({ uid: adminB }).catch(() => {});
+        await adminAuth.setCustomUserClaims(adminA, { role: 'admin' });
+        await adminAuth.setCustomUserClaims(adminB, { role: 'admin' });
+
+        const fresh = Math.floor(Date.now() / 1000) - 30;
+        const [delResult, srResult] = await Promise.allSettled([
+            callDirect(adminA, fresh),
+            setStaffRole.run({
+                data: { uid: adminB, role: 'staff', operationId: `op_${Date.now()}_demoteB` },
+                auth: { uid: adminA, token: { uid: adminA, role: 'admin', auth_time: fresh, iat: fresh, exp: fresh + 3600 } },
+                rawRequest: {},
+            }),
+        ]);
+
+        const [userA, userB] = await Promise.all([
+            adminAuth.getUser(adminA).catch(() => null),
+            adminAuth.getUser(adminB).catch(() => null),
+        ]);
+        const activeAdmins = [userA, userB].filter(u => u && u.customClaims?.role === 'admin');
+        expect(activeAdmins.length).toBeGreaterThanOrEqual(1);
+
+        await adminAuth.deleteUser(adminA).catch(() => {});
+        await adminAuth.deleteUser(adminB).catch(() => {});
+        await db.doc(`accountDeletionJobs/${adminA}`).delete().catch(() => {});
+    }, 30000);
+
+    it('DA-12: deleteAccount vs setStaffRole promotion of the deleting target is serialized safely', async () => {
+        const admin = `da_promo_admin_${Date.now()}`;
+        await adminAuth.createUser({ uid }).catch(() => {}); // non-admin target, deleting itself
+        await adminAuth.createUser({ uid: admin }).catch(() => {});
+        await adminAuth.setCustomUserClaims(admin, { role: 'admin' });
+
+        const fresh = Math.floor(Date.now() / 1000) - 30;
+        const results = await Promise.allSettled([
+            callDirect(uid, fresh),
+            setStaffRole.run({
+                data: { uid, role: 'admin', operationId: `op_${Date.now()}_promote` },
+                auth: { uid: admin, token: { uid: admin, role: 'admin', auth_time: fresh, iat: fresh, exp: fresh + 3600 } },
+                rawRequest: {},
+            }),
+        ]);
+
+        // No hang, no unhandled crash — both settle to a defined outcome.
+        expect(results.every(r => r.status === 'fulfilled' || r.reason?.code)).toBe(true);
+        // The promoting admin is untouched throughout either ordering.
+        const adminRecord = await adminAuth.getUser(admin).catch(() => null);
+        expect(adminRecord).not.toBeNull();
+        expect(adminRecord.customClaims?.role).toBe('admin');
+
+        await adminAuth.deleteUser(admin).catch(() => {});
+        await adminAuth.deleteUser(uid).catch(() => {});
+    }, 30000);
+
+    it('DA-13: an externally-held valid lock blocks deleteAccount from proceeding', async () => {
+        await adminAuth.createUser({ uid }).catch(() => {});
+        await db.doc('adminRoleLock/singleton').set({
+            ownerOperationId: 'unrelated-active-operation',
+            acquiredAt: Timestamp.now(),
+            leaseExpiresAt: Timestamp.fromMillis(Date.now() + 100000),
+        });
+
+        await expect(callDirect(uid, Math.floor(Date.now() / 1000) - 30))
+            .rejects.toMatchObject({ code: 'aborted' });
+
+        const authRecord = await adminAuth.getUser(uid).catch(() => null);
+        expect(authRecord).not.toBeNull();
+    }, 20000);
+
+    it('DA-14: deleteAccount\'s own failed acquire never corrupts another operation\'s lock', async () => {
+        await adminAuth.createUser({ uid }).catch(() => {});
+        await db.doc('adminRoleLock/singleton').set({
+            ownerOperationId: 'unrelated-active-operation',
+            acquiredAt: Timestamp.now(),
+            leaseExpiresAt: Timestamp.fromMillis(Date.now() + 100000),
+        });
+
+        await expect(callDirect(uid, Math.floor(Date.now() / 1000) - 30))
+            .rejects.toMatchObject({ code: 'aborted' });
+
+        const lock = await db.doc('adminRoleLock/singleton').get();
+        expect(lock.data().ownerOperationId).toBe('unrelated-active-operation');
+    }, 20000);
+
+    // DA-15 (safe lease renewal before Auth deletion) is proven jointly with
+    // DA-16 and DA-18/DA-20 below: the renewal call is unconditionally on the
+    // path to every successful deletion (source-confirmed immediately before
+    // getAuth().deleteUser()), so any successful DA test already exercises
+    // its success path, and DA-16 directly exercises its failure path.
+
+    it('DA-16: ownership loss prevents getAuth().deleteUser() from ever being reached', async () => {
+        if (!deleteAccount) return;
+        await adminAuth.createUser({ uid }).catch(() => {});
+
+        const fnDb = getFirestore();
+        const origRecursiveDelete = fnDb.recursiveDelete.bind(fnDb);
+        let corrupted = false;
+        fnDb.recursiveDelete = async (...args) => {
+            if (!corrupted) {
+                corrupted = true;
+                // Simulate ownership genuinely being lost mid-flight (e.g. an
+                // external steal after a lease this invocation believed was
+                // still valid, or out-of-band Firestore corruption).
+                await db.doc('adminRoleLock/singleton').set({
+                    ownerOperationId: 'someone-else-now-owns-it',
+                    acquiredAt: Timestamp.now(),
+                    leaseExpiresAt: Timestamp.fromMillis(Date.now() + 100000),
+                });
+            }
+            return origRecursiveDelete(...args);
+        };
+
+        let caughtError;
+        try {
+            await callDirect(uid, Math.floor(Date.now() / 1000) - 30);
+        } catch (err) {
+            caughtError = err;
+        } finally {
+            fnDb.recursiveDelete = origRecursiveDelete;
+        }
+
+        expect(caughtError).toBeDefined();
+        expect(caughtError?.code).toBe('aborted');
+
+        const authRecord = await adminAuth.getUser(uid).catch(() => null);
+        expect(authRecord).not.toBeNull(); // deleteUser() never reached
+
+        await db.doc('adminRoleLock/singleton').delete().catch(() => {});
+    });
+
+    it('DA-17: a crashed deletion\'s lock is recoverable once its lease genuinely expires', async () => {
+        await adminAuth.createUser({ uid }).catch(() => {});
+        await db.doc('adminRoleLock/singleton').set({
+            ownerOperationId: `delete_${uid}`, // matches THIS uid's own deterministic id —
+            acquiredAt: Timestamp.fromMillis(Date.now() - 130000), // proves expiry (not sameOwner
+            leaseExpiresAt: Timestamp.fromMillis(Date.now() - 10000), // reacquire) governs recovery
+        });
+
+        const result = await callDirect(uid, Math.floor(Date.now() / 1000) - 30);
+        expect(result.success).toBe(true);
+
+        const lock = await db.doc('adminRoleLock/singleton').get();
+        expect(lock.exists).toBe(false);
+    });
+
+    it('DA-18: non-admin deletion remains retry/idempotency compatible under the new lock wrapping', async () => {
+        await adminAuth.createUser({ uid }).catch(() => {});
+        const first = await callDirect(uid, Math.floor(Date.now() / 1000) - 30);
+        expect(first.success).toBe(true);
+
+        // Retry after full success — job is 'completed', the pre-existing
+        // fast path short-circuits before the admin lock is even touched
+        // (matches FN-04's established alreadyCompleted contract).
+        const second = await callDirect(uid, Math.floor(Date.now() / 1000) - 30);
+        expect(second.alreadyCompleted).toBe(true);
+    });
+
+    it('DA-20: an Auth-deletion failure still preserves truthful retry behavior under the new lock wrapping', async () => {
+        if (!deleteAccount) return;
+        await adminAuth.createUser({ uid }).catch(() => {});
+
+        const fnAuth = getAuth();
+        const origDeleteUser = fnAuth.deleteUser.bind(fnAuth);
+        fnAuth.deleteUser = async () => {
+            const err = new Error('injected Auth failure for DA-20');
+            err.code = 'auth/internal-error';
+            throw err;
+        };
+
+        let caughtError;
+        try {
+            await callDirect(uid, Math.floor(Date.now() / 1000) - 30);
+        } catch (err) {
+            caughtError = err;
+        } finally {
+            fnAuth.deleteUser = origDeleteUser;
+        }
+
+        expect(caughtError).toBeDefined();
+        expect(caughtError?.code).toBe('internal');
+
+        const job = (await db.doc(`accountDeletionJobs/${uid}`).get()).data();
+        expect(job?.state).toBe('failed');
+        expect(job?.lastError).toMatch(/authUser/);
+
+        const lock = await db.doc('adminRoleLock/singleton').get();
+        expect(lock.exists).toBe(false); // lock still released despite the failure
+    });
+
+    it('DA-22: bootstrap singleton is never touched by account deletion', async () => {
+        await deleteSingleton();
+        const otherAdmin = `da_singleton_other_${Date.now()}`;
+        await adminAuth.createUser({ uid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(uid, { role: 'admin' });
+        await adminAuth.createUser({ uid: otherAdmin }).catch(() => {});
+        await adminAuth.setCustomUserClaims(otherAdmin, { role: 'admin' });
+
+        const result = await callDirect(uid, Math.floor(Date.now() / 1000) - 30);
+        expect(result.success).toBe(true);
+
+        const singleton = await db.doc('adminBootstrap/singleton').get();
+        expect(singleton.exists).toBe(false);
+
+        await adminAuth.deleteUser(otherAdmin).catch(() => {});
+    });
+
+    it('DA-23: deleting a historical bootstrap owner (with another active admin) does not reopen bootstrap', async () => {
+        const otherAdmin = `da_hist_other_${Date.now()}`;
+        await adminAuth.createUser({ uid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(uid, { role: 'admin' });
+        await adminAuth.createUser({ uid: otherAdmin }).catch(() => {});
+        await adminAuth.setCustomUserClaims(otherAdmin, { role: 'admin' });
+        // uid is (as far as the singleton is concerned) the historical bootstrap owner.
+        await db.doc('adminBootstrap/singleton').set({
+            bootstrappedAt: Timestamp.now(),
+            bootstrappedBy: uid,
+        });
+
+        const result = await callDirect(uid, Math.floor(Date.now() / 1000) - 30);
+        expect(result.success).toBe(true);
+
+        // Singleton remains exactly as it was — deletion neither clears nor
+        // transfers ownership. bootstrapAdmin's own logic treats existence as
+        // permanent closure regardless of whether that owner UID still exists
+        // in Auth; that's a property of bootstrapAdmin's code (already
+        // verified in its own test suite), not something this test re-proves.
+        const singleton = await db.doc('adminBootstrap/singleton').get();
+        expect(singleton.exists).toBe(true);
+        expect(singleton.data().bootstrappedBy).toBe(uid);
+
+        await db.doc('adminBootstrap/singleton').delete().catch(() => {});
+        await adminAuth.deleteUser(otherAdmin).catch(() => {});
+    });
+
+    it('DA-27: logs contain no sensitive identity during admin-safety rejection or lock activity', async () => {
+        await adminAuth.createUser({ uid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(uid, { role: 'admin' });
+
+        const originalLog = console.log;
+        const originalError = console.error;
+        const captured = [];
+        console.log = (...args) => captured.push(args.join(' '));
+        console.error = (...args) => captured.push(args.join(' '));
+        try {
+            await callDirect(uid, Math.floor(Date.now() / 1000) - 30).catch(() => {});
+        } finally {
+            console.log = originalLog;
+            console.error = originalError;
+        }
+
+        const joined = captured.join('\n');
+        expect(joined).not.toMatch(/@parqueen\.app|@gmail\.com/);
+        expect(joined.includes(uid)).toBe(false);
+    });
+
+    it('DA-28: only clean HttpsError codes reach the client, never raw Admin SDK codes', async () => {
+        await adminAuth.createUser({ uid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(uid, { role: 'admin' });
+
+        try {
+            await callDirect(uid, Math.floor(Date.now() / 1000) - 30);
+            throw new Error('expected rejection');
+        } catch (err) {
+            expect(err.code).toBe('failed-precondition');
+            expect(err.code).not.toMatch(/^auth\//);
+        }
     });
 });

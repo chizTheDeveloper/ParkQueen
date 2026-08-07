@@ -2327,204 +2327,353 @@ exports.deleteAccount = onCall({ region: 'us-central1' }, async (request) => {
 
     if (alreadyDone) return { alreadyCompleted: true };
 
-    // ── True cursor-based paginated delete ────────────────────────────────────
-    // Does NOT load the entire result set into memory. Uses startAfter cursor to
-    // page through results in chunks of 499 (below the Firestore 500-write limit).
-    async function paginatedDelete(baseQuery) {
-        let cursor = null;
-        while (true) {
-            const q = cursor
-                ? baseQuery.startAfter(cursor).limit(499)
-                : baseQuery.limit(499);
-            const snap = await q.get();
-            if (snap.empty) break;
-            const batch = db.batch();
-            snap.docs.forEach(d => batch.delete(d.ref));
-            await batch.commit();
-            if (snap.size < 499) break;
-            cursor = snap.docs[snap.docs.length - 1];
+    // ── Admin-lifecycle serialization ──────────────────────────────────────────
+    // Shares adminRoleLock/singleton with setStaffRole so account deletion is
+    // serialized against every admin-role mutation, not just deletions that
+    // already looked admin-relevant when this call started. Without this, two
+    // independently-safe-looking operations — e.g. an admin deleting themselves
+    // while another admin is concurrently demoted via setStaffRole, or a
+    // non-admin's deletion racing their own promotion — could each observe
+    // "another admin exists" and together leave zero. Same TOCTOU class of race
+    // setStaffRole's own lock exists to close.
+    //
+    // Held across the ENTIRE destructive lifecycle (the last-admin check through
+    // every cleanup step through the final Auth deletion), not acquired once and
+    // released early. A narrower "check once, release, recheck only right before
+    // Auth deletion" design was considered and rejected: if that late recheck
+    // ever failed, this account's Firestore/Storage data would already be
+    // irreversibly gone while Auth (and the admin claim) survived — a worse
+    // outcome than the bounded throughput cost of holding one lock across an
+    // operation that is already rate-limited to 3/day and serialized per-user by
+    // the accountDeletionJobs lease below.
+    //
+    // Lease math is identical to setStaffRole's: this Function's own timeout is
+    // 60s (confirmed against the deployed config), so a 120s lease (2x margin)
+    // guarantees any lease acquired or renewed at any point in this invocation's
+    // life outlives the latest possible moment Cloud Functions could kill it.
+    // Deterministic per-uid, not random: at most one deletion can legitimately
+    // be in flight for a given uid at a time (already enforced by the
+    // accountDeletionJobs lease above), so a crash-and-resume attempt for the
+    // SAME uid naturally re-identifies as the same lock owner and can reclaim
+    // an unexpired lease immediately rather than needing to wait it out.
+    const deletionOperationId = `delete_${uid}`;
+    const lockRef = db.doc('adminRoleLock/singleton');
+    const LOCK_LEASE_MS = 120000;
+    const LOCK_ACQUIRE_ATTEMPTS = 6;
+
+    async function renewLockOrThrow() {
+        const stillOwned = await db.runTransaction(async (tx) => {
+            const snap = await tx.get(lockRef);
+            if (!snap.exists || snap.data().ownerOperationId !== deletionOperationId) return false;
+            const now = Timestamp.now();
+            tx.set(lockRef, {
+                ownerOperationId: deletionOperationId,
+                acquiredAt: snap.data().acquiredAt,
+                leaseExpiresAt: Timestamp.fromMillis(now.toMillis() + LOCK_LEASE_MS),
+            });
+            return true;
+        });
+        if (!stillOwned) {
+            throw new HttpsError('aborted', 'Lock ownership lost before Auth deletion; retry.');
         }
     }
 
-    // ── True cursor-based paginated update ────────────────────────────────────
-    async function paginatedUpdate(baseQuery, updateData) {
-        let cursor = null;
-        while (true) {
-            const q = cursor
-                ? baseQuery.startAfter(cursor).limit(499)
-                : baseQuery.limit(499);
-            const snap = await q.get();
-            if (snap.empty) break;
-            const batch = db.batch();
-            snap.docs.forEach(d => batch.update(d.ref, updateData));
-            await batch.commit();
-            if (snap.size < 499) break;
-            cursor = snap.docs[snap.docs.length - 1];
+    let lockAcquired = false;
+    for (let attempt = 0; attempt < LOCK_ACQUIRE_ATTEMPTS && !lockAcquired; attempt++) {
+        if (attempt > 0) {
+            await new Promise((resolve) => setTimeout(resolve, Math.min(400 * attempt, 2000)));
         }
+        lockAcquired = await db.runTransaction(async (tx) => {
+            const snap = await tx.get(lockRef);
+            const now = Timestamp.now();
+            if (snap.exists) {
+                const data = snap.data();
+                const expired = !data.leaseExpiresAt || data.leaseExpiresAt.toMillis() <= now.toMillis();
+                const sameOwner = data.ownerOperationId === deletionOperationId;
+                if (!expired && !sameOwner) return false;
+            }
+            tx.set(lockRef, {
+                ownerOperationId: deletionOperationId,
+                acquiredAt: now,
+                leaseExpiresAt: Timestamp.fromMillis(now.toMillis() + LOCK_LEASE_MS),
+            });
+            return true;
+        });
+    }
+    if (!lockAcquired) {
+        throw new HttpsError('aborted', 'Another admin-role operation is in progress; please retry.');
     }
 
-    // ── Required step executor ────────────────────────────────────────────────
-    // All personal-data cleanup is required. If any step fails, Auth is NOT deleted
-    // and the job state is set to 'failed' (retryable). Already-done steps are skipped
-    // on retry. Error messages are sanitized before being written to the job document.
-    async function step(name, fn) {
-        if (doneSteps[name] === 'done') return; // idempotent resume after 'failed'
+    try {
+        // Fresh Auth read, inside the lock, before any destructive work at all.
+        let targetUser;
+        try {
+            targetUser = await getAuth().getUser(uid);
+        } catch (err) {
+            if (err.code === 'auth/user-not-found') {
+                // Already gone (e.g. a prior attempt's Auth deletion succeeded but
+                // the job document was never marked completed) — nothing left to
+                // protect or delete.
+                return { success: true };
+            }
+            throw new HttpsError('internal', 'Could not load account; retry.');
+        }
+
+        if (targetUser.customClaims?.role === 'admin') {
+            // Exhaustive paginated scan — same policy as setStaffRole and
+            // reconcileLegacyAdminSingleton: disabled accounts excluded (can't
+            // authenticate, can't act as admin), target excluded (checking
+            // whether anyone ELSE remains). Runs BEFORE any destructive step
+            // below — Firestore profile, username, Storage, and Auth all remain
+            // completely untouched if this rejects.
+            let otherActiveAdmins = 0;
+            let pageToken;
+            do {
+                const page = await getAuth().listUsers(1000, pageToken);
+                for (const u of page.users) {
+                    if (u.uid !== uid && !u.disabled && u.customClaims?.role === 'admin') otherActiveAdmins++;
+                }
+                pageToken = page.pageToken;
+            } while (pageToken);
+
+            if (otherActiveAdmins === 0) {
+                await jobRef.update({
+                    state: 'failed',
+                    currentStep: null,
+                    lastError: 'adminSafetyCheck: cannot delete the last active administrator',
+                }).catch(() => {});
+                throw new HttpsError(
+                    'failed-precondition',
+                    'You are the last active administrator. Add or promote another administrator before deleting this account.'
+                );
+            }
+        }
+
+        // ── True cursor-based paginated delete ────────────────────────────────
+        // Does NOT load the entire result set into memory. Uses startAfter cursor to
+        // page through results in chunks of 499 (below the Firestore 500-write limit).
+        async function paginatedDelete(baseQuery) {
+            let cursor = null;
+            while (true) {
+                const q = cursor
+                    ? baseQuery.startAfter(cursor).limit(499)
+                    : baseQuery.limit(499);
+                const snap = await q.get();
+                if (snap.empty) break;
+                const batch = db.batch();
+                snap.docs.forEach(d => batch.delete(d.ref));
+                await batch.commit();
+                if (snap.size < 499) break;
+                cursor = snap.docs[snap.docs.length - 1];
+            }
+        }
+
+        // ── True cursor-based paginated update ────────────────────────────────
+        async function paginatedUpdate(baseQuery, updateData) {
+            let cursor = null;
+            while (true) {
+                const q = cursor
+                    ? baseQuery.startAfter(cursor).limit(499)
+                    : baseQuery.limit(499);
+                const snap = await q.get();
+                if (snap.empty) break;
+                const batch = db.batch();
+                snap.docs.forEach(d => batch.update(d.ref, updateData));
+                await batch.commit();
+                if (snap.size < 499) break;
+                cursor = snap.docs[snap.docs.length - 1];
+            }
+        }
+
+        // ── Required step executor ──────────────────────────────────────────────
+        // All personal-data cleanup is required. If any step fails, Auth is NOT deleted
+        // and the job state is set to 'failed' (retryable). Already-done steps are skipped
+        // on retry. Error messages are sanitized before being written to the job document.
+        async function step(name, fn) {
+            if (doneSteps[name] === 'done') return; // idempotent resume after 'failed'
+
+            try {
+                // Refresh lease timestamp on each step so long-running jobs don't expire
+                await jobRef.update({ currentStep: name, leaseAt: Timestamp.now() });
+                await fn();
+                await jobRef.update({ [`steps.${name}`]: 'done', currentStep: null });
+                doneSteps[name] = 'done';
+            } catch (err) {
+                // Strip PII from error payloads before writing to Firestore
+                const safe = (err.message || 'error')
+                    .replace(/\S+@\S+\.\S+/g, '[email]')
+                    .replace(/\+?[0-9]{10,}/g, '[phone]')
+                    .substring(0, 200);
+                await jobRef.update({
+                    state: 'failed',
+                    currentStep: null,
+                    lastError: `${name}: ${safe}`,
+                    [`steps.${name}`]: 'error',
+                }).catch(() => {});
+                console.error(`[deleteAccount] ${maskedUid} step=${name} failed`);
+                throw new HttpsError(
+                    'internal',
+                    `Deletion paused at "${name}". Your data is safe — retry or contact support.`
+                );
+            }
+        }
+
+        // ── Cleanup steps — all required; Auth is not deleted until all pass ────
+
+        // Location cache — top-level collection, not covered by userDoc recursiveDelete
+        await step('userLocations', () => db.doc(`userLocations/${uid}`).delete());
+
+        // User document tree — recursiveDelete covers private/* and processedTrustEvents/*
+        await step('userDoc', () => db.recursiveDelete(db.doc(`users/${uid}`)));
+
+        // Username reservation record
+        await step('usernames', () =>
+            paginatedDelete(db.collection('usernames').where('uid', '==', uid))
+        );
+
+        // Path-keyed singleton documents — absence is success (idempotent delete)
+        await step('parkingSessions',
+            () => db.doc(`parkingSessions/${uid}`).delete());
+        await step('avatarModeration',
+            () => db.doc(`avatarModeration/${uid}`).delete());
+        await step('emailVerificationCodes',
+            () => db.doc(`emailVerificationCodes/${uid}`).delete());
+
+        // spotFeedback submitted by user as driver
+        await step('spotFeedbackAsDriver', () =>
+            paginatedDelete(db.collection('spotFeedback').where('userId', '==', uid))
+        );
+
+        // spotFeedback where user was the finder — anonymize, retain for other party
+        await step('spotFeedbackAsFinder', () =>
+            paginatedUpdate(
+                db.collection('spotFeedback').where('finderId', '==', uid),
+                { finderId: FieldValue.delete(), address: '[removed]' }
+            )
+        );
+
+        // Spot notifications in user's inbox
+        await step('spotNotifications', () =>
+            paginatedDelete(db.collection('spotNotifications').where('targetUserId', '==', uid))
+        );
+
+        // Spots posted as finder
+        await step('spotsAsFinder', () =>
+            paginatedDelete(db.collection('spots').where('finderId', '==', uid))
+        );
+
+        // Active Pings being claimed — release back to available
+        await step('spotsAsClaimer', () =>
+            paginatedUpdate(
+                db.collection('spots').where('interestedUserId', '==', uid),
+                {
+                    interestedUserId: FieldValue.delete(),
+                    interestedUserName: FieldValue.delete(),
+                    interestedUserVehicleColor: FieldValue.delete(),
+                    interestedUserVehicleType: FieldValue.delete(),
+                    interestedUserVehicleBrand: FieldValue.delete(),
+                    interestedUserTitle: FieldValue.delete(),
+                    status: 'available',
+                }
+            )
+        );
+
+        // Chats — paginated to avoid loading all IDs into memory;
+        // recursiveDelete on each chat covers its messages subcollection.
+        await step('chats', async () => {
+            let cursor = null;
+            while (true) {
+                const baseQ = db.collection('chats').where('participants', 'array-contains', uid);
+                const q = cursor ? baseQ.startAfter(cursor).limit(50) : baseQ.limit(50);
+                const snap = await q.get();
+                if (snap.empty) break;
+                for (const chatDoc of snap.docs) {
+                    await db.recursiveDelete(chatDoc.ref);
+                }
+                if (snap.size < 50) break;
+                cursor = snap.docs[snap.docs.length - 1];
+            }
+        });
+
+        // Reports filed by user — anonymize reporter; retain doc for compliance
+        await step('reports', () =>
+            paginatedUpdate(
+                db.collection('reports').where('reporterId', '==', uid),
+                { reporterId: '[deleted]', reporterDeletedAt: Timestamp.now() }
+            )
+        );
+
+        // Moderation log — anonymize content; retain for safety review
+        // LEGAL: retention period requires legal sign-off before converting to deletion
+        await step('moderationLog', () =>
+            paginatedUpdate(
+                db.collection('moderationLog').where('userId', '==', uid),
+                { userId: '[deleted]', text: '[removed]' }
+            )
+        );
+
+        // Storage — clean up all three path families; absence is success (idempotent).
+        await step('storageUploads',   () => getStorage().bucket().deleteFiles({ prefix: `avatarUploads/${uid}/`   }).catch(() => {}));
+        await step('storageCandidates',() => getStorage().bucket().deleteFiles({ prefix: `avatarCandidates/${uid}/` }).catch(() => {}));
+        await step('storagePublished', () => getStorage().bucket().deleteFiles({ prefix: `avatars/${uid}`           }).catch(() => {}));
+
+        // ── Auth deletion — only reached after every required step passes ───────
+        // Revalidate lock ownership immediately before the one irreversible step,
+        // mirroring setStaffRole's own pre-mutation renewal — belt-and-suspenders
+        // on top of the acquisition-time 120s margin, self-verifying at the point
+        // of use. Nothing in the admin population could actually have changed
+        // since the check above (this lock has been held continuously since
+        // before that check), so this is ownership/lease verification only, not
+        // a second full re-scan.
+        await renewLockOrThrow();
+
+        // Best-effort: bounds exposure to the current ID token's remaining
+        // lifetime rather than persisting indefinitely via silent refresh, for
+        // the brief window before deleteUser() itself removes the account
+        // entirely. Does NOT invalidate an already-issued, unexpired ID token in
+        // flight; a transient failure here must not block the deletion itself.
+        await getAuth().revokeRefreshTokens(uid).catch(() => {});
 
         try {
-            // Refresh lease timestamp on each step so long-running jobs don't expire
-            await jobRef.update({ currentStep: name, leaseAt: Timestamp.now() });
-            await fn();
-            await jobRef.update({ [`steps.${name}`]: 'done', currentStep: null });
-            doneSteps[name] = 'done';
-        } catch (err) {
-            // Strip PII from error payloads before writing to Firestore
-            const safe = (err.message || 'error')
-                .replace(/\S+@\S+\.\S+/g, '[email]')
-                .replace(/\+?[0-9]{10,}/g, '[phone]')
-                .substring(0, 200);
-            await jobRef.update({
-                state: 'failed',
-                currentStep: null,
-                lastError: `${name}: ${safe}`,
-                [`steps.${name}`]: 'error',
-            }).catch(() => {});
-            console.error(`[deleteAccount] ${maskedUid} step=${name} failed`);
-            throw new HttpsError(
-                'internal',
-                `Deletion paused at "${name}". Your data is safe — retry or contact support.`
-            );
-        }
-    }
-
-    // ── Cleanup steps — all required; Auth is not deleted until all pass ──────
-
-    // Location cache — top-level collection, not covered by userDoc recursiveDelete
-    await step('userLocations', () => db.doc(`userLocations/${uid}`).delete());
-
-    // User document tree — recursiveDelete covers private/* and processedTrustEvents/*
-    await step('userDoc', () => db.recursiveDelete(db.doc(`users/${uid}`)));
-
-    // Username reservation record
-    await step('usernames', () =>
-        paginatedDelete(db.collection('usernames').where('uid', '==', uid))
-    );
-
-    // Path-keyed singleton documents — absence is success (idempotent delete)
-    await step('parkingSessions',
-        () => db.doc(`parkingSessions/${uid}`).delete());
-    await step('avatarModeration',
-        () => db.doc(`avatarModeration/${uid}`).delete());
-    await step('emailVerificationCodes',
-        () => db.doc(`emailVerificationCodes/${uid}`).delete());
-
-    // spotFeedback submitted by user as driver
-    await step('spotFeedbackAsDriver', () =>
-        paginatedDelete(db.collection('spotFeedback').where('userId', '==', uid))
-    );
-
-    // spotFeedback where user was the finder — anonymize, retain for other party
-    await step('spotFeedbackAsFinder', () =>
-        paginatedUpdate(
-            db.collection('spotFeedback').where('finderId', '==', uid),
-            { finderId: FieldValue.delete(), address: '[removed]' }
-        )
-    );
-
-    // Spot notifications in user's inbox
-    await step('spotNotifications', () =>
-        paginatedDelete(db.collection('spotNotifications').where('targetUserId', '==', uid))
-    );
-
-    // Spots posted as finder
-    await step('spotsAsFinder', () =>
-        paginatedDelete(db.collection('spots').where('finderId', '==', uid))
-    );
-
-    // Active Pings being claimed — release back to available
-    await step('spotsAsClaimer', () =>
-        paginatedUpdate(
-            db.collection('spots').where('interestedUserId', '==', uid),
-            {
-                interestedUserId: FieldValue.delete(),
-                interestedUserName: FieldValue.delete(),
-                interestedUserVehicleColor: FieldValue.delete(),
-                interestedUserVehicleType: FieldValue.delete(),
-                interestedUserVehicleBrand: FieldValue.delete(),
-                interestedUserTitle: FieldValue.delete(),
-                status: 'available',
-            }
-        )
-    );
-
-    // Chats — paginated to avoid loading all IDs into memory;
-    // recursiveDelete on each chat covers its messages subcollection.
-    await step('chats', async () => {
-        let cursor = null;
-        while (true) {
-            const baseQ = db.collection('chats').where('participants', 'array-contains', uid);
-            const q = cursor ? baseQ.startAfter(cursor).limit(50) : baseQ.limit(50);
-            const snap = await q.get();
-            if (snap.empty) break;
-            for (const chatDoc of snap.docs) {
-                await db.recursiveDelete(chatDoc.ref);
-            }
-            if (snap.size < 50) break;
-            cursor = snap.docs[snap.docs.length - 1];
-        }
-    });
-
-    // Reports filed by user — anonymize reporter; retain doc for compliance
-    await step('reports', () =>
-        paginatedUpdate(
-            db.collection('reports').where('reporterId', '==', uid),
-            { reporterId: '[deleted]', reporterDeletedAt: Timestamp.now() }
-        )
-    );
-
-    // Moderation log — anonymize content; retain for safety review
-    // LEGAL: retention period requires legal sign-off before converting to deletion
-    await step('moderationLog', () =>
-        paginatedUpdate(
-            db.collection('moderationLog').where('userId', '==', uid),
-            { userId: '[deleted]', text: '[removed]' }
-        )
-    );
-
-    // Storage — clean up all three path families; absence is success (idempotent).
-    await step('storageUploads',   () => getStorage().bucket().deleteFiles({ prefix: `avatarUploads/${uid}/`   }).catch(() => {}));
-    await step('storageCandidates',() => getStorage().bucket().deleteFiles({ prefix: `avatarCandidates/${uid}/` }).catch(() => {}));
-    await step('storagePublished', () => getStorage().bucket().deleteFiles({ prefix: `avatars/${uid}`           }).catch(() => {}));
-
-    // ── Auth deletion — only reached after every required step passes ─────────
-    try {
-        await getAuth().deleteUser(uid);
-        await jobRef.update({
-            state: 'completed',
-            completedAt: Timestamp.now(),
-            currentStep: null,
-            'steps.authUser': 'done',
-        });
-    } catch (err) {
-        if (err.code === 'auth/user-not-found') {
-            // Auth was already deleted on a previous attempt — mark complete
+            await getAuth().deleteUser(uid);
             await jobRef.update({
                 state: 'completed',
                 completedAt: Timestamp.now(),
                 currentStep: null,
                 'steps.authUser': 'done',
             });
-            return { success: true };
+        } catch (err) {
+            if (err.code === 'auth/user-not-found') {
+                // Auth was already deleted on a previous attempt — mark complete
+                await jobRef.update({
+                    state: 'completed',
+                    completedAt: Timestamp.now(),
+                    currentStep: null,
+                    'steps.authUser': 'done',
+                });
+                return { success: true };
+            }
+            await jobRef.update({
+                state: 'failed',
+                lastError: 'authUser: deletion failed (check function logs)',
+                'steps.authUser': 'error',
+            }).catch(() => {});
+            console.error(`[deleteAccount] ${maskedUid} authUser deletion failed`);
+            throw new HttpsError('internal', 'Data deleted; Auth cleanup failed. Contact support to complete removal.');
         }
-        await jobRef.update({
-            state: 'failed',
-            lastError: 'authUser: deletion failed (check function logs)',
-            'steps.authUser': 'error',
-        }).catch(() => {});
-        console.error(`[deleteAccount] ${maskedUid} authUser deletion failed`);
-        throw new HttpsError('internal', 'Data deleted; Auth cleanup failed. Contact support to complete removal.');
-    }
 
-    return { success: true };
+        return { success: true };
+    } finally {
+        // Fencing: only release if this operation still owns the lock — a
+        // stale/crashed invocation whose lease already expired and was stolen
+        // by a newer operation must never release that newer operation's lock.
+        await db.runTransaction(async (tx) => {
+            const snap = await tx.get(lockRef);
+            if (!snap.exists) return;
+            if (snap.data().ownerOperationId !== deletionOperationId) return;
+            tx.delete(lockRef);
+        }).catch(() => {});
+    }
 });
 
 // 11) Trust: record successful handoff for the finder
