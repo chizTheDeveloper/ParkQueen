@@ -61,6 +61,26 @@
  *   SR-38: bootstrap singleton remains untouched across lock/journal-heavy activity
  *   SR-39: client cannot forge operation journal/lock state via request.data
  *   SR-40: logs contain no sensitive identity during concurrent/lock activity
+ *
+ * Lease-safety and originalPreviousRole hardening (integration review round 2):
+ * the lease was raised from 30s to 120s — 2x this Function's own 60s timeout —
+ * because a lease shorter than the maximum invocation lifetime cannot
+ * structurally guarantee serialization (a still-live invocation could reach
+ * the Auth mutation after its own lease was stolen). The journal's captured
+ * "previous role" was renamed to originalPreviousRole to make explicit that
+ * it is written once, before the first Auth mutation, and never recomputed
+ * from a fresh Auth read on resume — otherwise a resume after "Auth
+ * succeeded, audit failed" could misrecord e.g. admin->staff as a false
+ * staff->staff no-op.
+ *   SR-41: a lease still valid past the old 30s boundary correctly blocks a second operation from reaching Auth
+ *   SR-42: an operation completes correctly despite starting with a nearly-expired same-owner lease (renewal path exercised)
+ *   SR-43: a stale operation cannot reach Auth once ownership has genuinely transferred to a newer operation
+ *   SR-44: a crashed invocation becomes recoverable once the full 120s lease genuinely expires
+ *   SR-45: admin -> staff mutation succeeded, audit never landed — retry truthfully records admin -> staff, not staff -> staff
+ *   SR-46: admin -> null mutation succeeded, audit never landed — retry preserves the original admin -> null transition
+ *   SR-47: staff -> admin succeeded and audited, finalization never completed — retry preserves staff -> admin, no duplicate audit
+ *   SR-48: a brand-new same-role confirmation is a distinct audited event from a retry of a completed mutation
+ *   SR-49: originalPreviousRole cannot be altered by client data or by a later retry
  */
 
 const { initializeApp, getApps } = require('firebase-admin/app');
@@ -400,11 +420,15 @@ describe('setStaffRole — emulator behavioral tests', () => {
             db.doc(`adminAuditLog/roleOp_${opA}`).get(),
             db.doc(`adminAuditLog/roleOp_${opB}`).get(),
         ]);
-        // Whichever ran first observed the ORIGINAL role ('staff'); whichever ran
-        // second observed the FIRST one's result as its own previousRole — proof
-        // of true serialization rather than two independent stale reads.
-        const first = docA.data().metadata.previousRole === 'staff' ? docA : docB;
-        const second = first === docA ? docB : docA;
+        // Order by createdAt (not by previousRole value — opB requests the
+        // SAME role the target already has, so if opB happens to run first
+        // its own previousRole is trivially 'staff' too, same as whichever
+        // ran first; the role value alone can't disambiguate). Whichever
+        // audit record was created second must show the FIRST one's
+        // resulting role as its own previousRole — proof of true
+        // serialization rather than two independent stale reads.
+        const [first, second] = docA.data().createdAt.toMillis() <= docB.data().createdAt.toMillis()
+            ? [docA, docB] : [docB, docA];
         expect(second.data().metadata.previousRole).toBe(first.data().metadata.role);
     });
 
@@ -638,7 +662,7 @@ describe('setStaffRole — emulator behavioral tests', () => {
         await adminAuth.setCustomUserClaims(targetUid, { role: 'staff' });
         await db.doc(`adminRoleOperations/${op}`).set({
             operationId: op, actorUid: callerUid, targetUid, requestedRole: 'staff',
-            previousRole: null, status: 'pending', createdAt: Timestamp.now(),
+            originalPreviousRole: null, status: 'pending', createdAt: Timestamp.now(),
         });
 
         const { result, error } = await call(callerUid, 'admin', { uid: targetUid, role: 'staff', operationId: op });
@@ -811,14 +835,14 @@ describe('setStaffRole — emulator behavioral tests', () => {
         const { result, error } = await call(callerUid, 'admin', {
             uid: targetUid, role: 'staff', operationId: op,
             status: 'completed', result: { success: true, previousRole: 'admin', role: 'admin' },
-            previousRole: 'admin', ownerOperationId: 'forged-owner',
+            previousRole: 'admin', originalPreviousRole: 'admin', ownerOperationId: 'forged-owner',
         });
         expect(error).toBeUndefined();
         expect(result.previousRole).toBeNull();
         expect(result.role).toBe('staff');
 
         const opDoc = await db.doc(`adminRoleOperations/${op}`).get();
-        expect(opDoc.data().previousRole).toBeNull();
+        expect(opDoc.data().originalPreviousRole).toBeNull();
         expect(opDoc.data().status).toBe('completed');
     });
 
@@ -852,5 +876,247 @@ describe('setStaffRole — emulator behavioral tests', () => {
 
         await nukeUser(a);
         await nukeUser(b);
+    });
+
+    // ─── Lease safety and originalPreviousRole coverage (review round 2) ──
+
+    it('SR-41: a lease still valid past the old 30s boundary correctly blocks a second operation from reaching Auth', async () => {
+        if (!setStaffRole) return;
+        await adminAuth.createUser({ uid: callerUid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(callerUid, { role: 'admin' });
+        await adminAuth.createUser({ uid: targetUid }).catch(() => {});
+        const claimsBefore = (await adminAuth.getUser(targetUid)).customClaims;
+
+        // Simulate operation A having acquired the lock 40s ago under the
+        // current 120s lease (so ~80s remain) — well past where a 30s-lease
+        // design would already have let it expire and be stolen.
+        await db.doc('adminRoleLock/singleton').set({
+            ownerOperationId: 'still-alive-op',
+            acquiredAt: Timestamp.fromMillis(Date.now() - 40000),
+            leaseExpiresAt: Timestamp.fromMillis(Date.now() + 80000),
+        });
+
+        const { error } = await call(callerUid, 'admin', { uid: targetUid, role: 'staff', operationId: opId('u') });
+        expect(error.code).toBe('aborted');
+
+        const claimsAfter = (await adminAuth.getUser(targetUid)).customClaims;
+        expect(claimsAfter).toEqual(claimsBefore);
+
+        await db.doc('adminRoleLock/singleton').delete();
+    }, 20000);
+
+    it('SR-42: an operation completes correctly despite starting with a nearly-expired same-owner lease', async () => {
+        if (!setStaffRole) return;
+        await adminAuth.createUser({ uid: callerUid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(callerUid, { role: 'admin' });
+        await adminAuth.createUser({ uid: targetUid }).catch(() => {});
+
+        const op = opId('near-expiry');
+        // Pre-seed the lock as already owned by THIS operationId, but with
+        // only a sliver of lease life left — simulating resuming right at
+        // the edge. Both the acquire step (same-owner refresh) and the
+        // pre-mutation renewal must extend it well past this operation's
+        // own execution time for the mutation to land.
+        await db.doc('adminRoleLock/singleton').set({
+            ownerOperationId: op,
+            acquiredAt: Timestamp.fromMillis(Date.now() - 1000),
+            leaseExpiresAt: Timestamp.fromMillis(Date.now() + 500),
+        });
+
+        const { result, error } = await call(callerUid, 'admin', { uid: targetUid, role: 'staff', operationId: op });
+        expect(error).toBeUndefined();
+        expect(result.success).toBe(true);
+
+        const user = await adminAuth.getUser(targetUid);
+        expect(user.customClaims?.role).toBe('staff');
+    });
+
+    it('SR-43: a stale operation cannot reach Auth once ownership has genuinely transferred to a newer operation', async () => {
+        if (!setStaffRole) return;
+        await adminAuth.createUser({ uid: callerUid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(callerUid, { role: 'admin' });
+        await adminAuth.createUser({ uid: targetUid }).catch(() => {});
+
+        const staleOp = opId('stale');
+        // The stale operation got as far as creating its journal before
+        // crashing; ownership of the lock has since genuinely moved to a
+        // different, newer operationId with a fresh valid lease.
+        await db.doc(`adminRoleOperations/${staleOp}`).set({
+            operationId: staleOp, actorUid: callerUid, targetUid, requestedRole: 'staff',
+            originalPreviousRole: null, status: 'pending', createdAt: Timestamp.now(),
+        });
+        await db.doc('adminRoleLock/singleton').set({
+            ownerOperationId: 'newer-op-has-it-now',
+            acquiredAt: Timestamp.now(),
+            leaseExpiresAt: Timestamp.fromMillis(Date.now() + 100000),
+        });
+
+        const { error } = await call(callerUid, 'admin', { uid: targetUid, role: 'staff', operationId: staleOp });
+        expect(error.code).toBe('aborted');
+
+        const user = await adminAuth.getUser(targetUid);
+        expect(user.customClaims?.role).toBeUndefined();
+
+        await db.doc('adminRoleLock/singleton').delete();
+        await db.doc(`adminRoleOperations/${staleOp}`).delete();
+    }, 20000);
+
+    it('SR-44: a crashed invocation becomes recoverable once the full 120s lease genuinely expires', async () => {
+        if (!setStaffRole) return;
+        await adminAuth.createUser({ uid: callerUid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(callerUid, { role: 'admin' });
+        await adminAuth.createUser({ uid: targetUid }).catch(() => {});
+
+        await db.doc('adminRoleLock/singleton').set({
+            ownerOperationId: 'long-dead-op',
+            acquiredAt: Timestamp.fromMillis(Date.now() - 130000),
+            leaseExpiresAt: Timestamp.fromMillis(Date.now() - 10000),
+        });
+
+        const { result, error } = await call(callerUid, 'admin', { uid: targetUid, role: 'staff', operationId: opId('recover') });
+        expect(error).toBeUndefined();
+        expect(result.success).toBe(true);
+
+        const lock = await db.doc('adminRoleLock/singleton').get();
+        expect(lock.exists).toBe(false);
+    });
+
+    it('SR-45: admin -> staff mutation succeeded, audit never landed — retry truthfully records admin -> staff, not staff -> staff', async () => {
+        if (!setStaffRole) return;
+        const op = opId('crash-admin-staff');
+        const otherAdmin = testUid('otherAdmin2');
+        await adminAuth.createUser({ uid: callerUid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(callerUid, { role: 'admin' });
+        await adminAuth.createUser({ uid: otherAdmin }).catch(() => {});
+        await adminAuth.setCustomUserClaims(otherAdmin, { role: 'admin' }); // so the last-admin re-scan on retry doesn't block
+        await adminAuth.createUser({ uid: targetUid }).catch(() => {});
+        // Target originally had role 'admin'; the Auth mutation to 'staff'
+        // already landed; the journal correctly still records the TRUE
+        // original role, not the post-mutation one.
+        await adminAuth.setCustomUserClaims(targetUid, { role: 'staff' });
+        await db.doc(`adminRoleOperations/${op}`).set({
+            operationId: op, actorUid: callerUid, targetUid, requestedRole: 'staff',
+            originalPreviousRole: 'admin', status: 'pending', createdAt: Timestamp.now(),
+        });
+
+        const { result, error } = await call(callerUid, 'admin', { uid: targetUid, role: 'staff', operationId: op });
+        expect(error).toBeUndefined();
+        expect(result.previousRole).toBe('admin');
+        expect(result.role).toBe('staff');
+
+        const auditSnap = await db.collection('adminAuditLog').where('metadata.operationId', '==', op).get();
+        expect(auditSnap.size).toBe(1);
+        expect(auditSnap.docs[0].data().metadata.previousRole).toBe('admin');
+        expect(auditSnap.docs[0].data().metadata.role).toBe('staff');
+        expect(auditSnap.docs[0].data().metadata.noop).toBe(false);
+
+        await nukeUser(otherAdmin);
+    });
+
+    it('SR-46: admin -> null mutation succeeded, audit never landed — retry preserves the original admin -> null transition', async () => {
+        if (!setStaffRole) return;
+        const op = opId('crash-admin-null');
+        const otherAdmin = testUid('otherAdmin3');
+        await adminAuth.createUser({ uid: callerUid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(callerUid, { role: 'admin' });
+        await adminAuth.createUser({ uid: otherAdmin }).catch(() => {});
+        await adminAuth.setCustomUserClaims(otherAdmin, { role: 'admin' });
+        await adminAuth.createUser({ uid: targetUid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(targetUid, {}); // role already removed, simulating post-mutation state
+        await db.doc(`adminRoleOperations/${op}`).set({
+            operationId: op, actorUid: callerUid, targetUid, requestedRole: null,
+            originalPreviousRole: 'admin', status: 'pending', createdAt: Timestamp.now(),
+        });
+
+        const { result, error } = await call(callerUid, 'admin', { uid: targetUid, role: null, operationId: op });
+        expect(error).toBeUndefined();
+        expect(result.previousRole).toBe('admin');
+        expect(result.role).toBeNull();
+
+        const auditSnap = await db.collection('adminAuditLog').where('metadata.operationId', '==', op).get();
+        expect(auditSnap.size).toBe(1);
+        expect(auditSnap.docs[0].data().metadata.previousRole).toBe('admin');
+        expect(auditSnap.docs[0].data().metadata.role).toBeNull();
+
+        await nukeUser(otherAdmin);
+    });
+
+    it('SR-47: staff -> admin succeeded and audited, finalization never completed — retry preserves staff -> admin, no duplicate audit', async () => {
+        if (!setStaffRole) return;
+        const op = opId('crash-finalize');
+        await adminAuth.createUser({ uid: callerUid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(callerUid, { role: 'admin' });
+        await adminAuth.createUser({ uid: targetUid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(targetUid, { role: 'admin' }); // mutation already landed
+        await db.doc(`adminRoleOperations/${op}`).set({
+            operationId: op, actorUid: callerUid, targetUid, requestedRole: 'admin',
+            originalPreviousRole: 'staff', status: 'pending', createdAt: Timestamp.now(),
+        });
+        // Simulate the audit already having been written, but the journal
+        // never advanced to 'completed' before the crash.
+        await db.doc(`adminAuditLog/roleOp_${op}`).set({
+            action: 'user.set_role', targetType: 'user', targetId: targetUid, targetUserId: targetUid,
+            adminId: callerUid, metadata: { previousRole: 'staff', role: 'admin', noop: false, operationId: op },
+            createdAt: Timestamp.now(), targetUid, adminUid: callerUid, performedAt: Timestamp.now(),
+        });
+
+        const { result, error } = await call(callerUid, 'admin', { uid: targetUid, role: 'admin', operationId: op });
+        expect(error).toBeUndefined();
+        expect(result.previousRole).toBe('staff');
+        expect(result.role).toBe('admin');
+
+        const auditSnap = await db.collection('adminAuditLog').where('metadata.operationId', '==', op).get();
+        expect(auditSnap.size).toBe(1);
+        const opDoc = await db.doc(`adminRoleOperations/${op}`).get();
+        expect(opDoc.data().status).toBe('completed');
+    });
+
+    it('SR-48: a brand-new same-role confirmation is a distinct audited event from a retry of a completed mutation', async () => {
+        if (!setStaffRole) return;
+        await adminAuth.createUser({ uid: callerUid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(callerUid, { role: 'admin' });
+        await adminAuth.createUser({ uid: targetUid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(targetUid, { role: 'staff' });
+
+        const opConfirm1 = opId('confirm1');
+        const first = await call(callerUid, 'admin', { uid: targetUid, role: 'staff', operationId: opConfirm1 });
+        expect(first.result.success).toBe(true);
+
+        // Retry of the SAME operationId — resumes, does not create a new audit.
+        const retry = await call(callerUid, 'admin', { uid: targetUid, role: 'staff', operationId: opConfirm1 });
+        expect(retry.result).toEqual(first.result);
+
+        // A genuinely NEW intentional confirmation — different operationId —
+        // is its own distinct, separately audited event.
+        const opConfirm2 = opId('confirm2');
+        const second = await call(callerUid, 'admin', { uid: targetUid, role: 'staff', operationId: opConfirm2 });
+        expect(second.result.success).toBe(true);
+
+        const auditSnap = await db.collection('adminAuditLog').where('targetUid', '==', targetUid).get();
+        expect(auditSnap.size).toBe(2); // one per distinct operationId, not three
+        auditSnap.docs.forEach(d => expect(d.data().metadata.noop).toBe(true));
+    });
+
+    it('SR-49: originalPreviousRole cannot be altered by client data or by a later retry', async () => {
+        if (!setStaffRole) return;
+        const op = opId('immutable-original');
+        await adminAuth.createUser({ uid: callerUid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(callerUid, { role: 'admin' });
+        await adminAuth.createUser({ uid: targetUid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(targetUid, { role: 'staff' });
+
+        const first = await call(callerUid, 'admin', { uid: targetUid, role: 'admin', operationId: op });
+        expect(first.result.previousRole).toBe('staff');
+
+        const opDocBefore = await db.doc(`adminRoleOperations/${op}`).get();
+        expect(opDocBefore.data().originalPreviousRole).toBe('staff');
+
+        const retry = await call(callerUid, 'admin', {
+            uid: targetUid, role: 'admin', operationId: op, originalPreviousRole: 'admin',
+        });
+        expect(retry.result.previousRole).toBe('staff');
+
+        const opDocAfter = await db.doc(`adminRoleOperations/${op}`).get();
+        expect(opDocAfter.data().originalPreviousRole).toBe('staff');
     });
 });

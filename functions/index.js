@@ -1813,12 +1813,23 @@ exports.setStaffRole = onCall(
     const lockRef = db.doc('adminRoleLock/singleton');
     const opRef = db.doc(`adminRoleOperations/${operationId}`);
 
-    // Bounded lease: recovers a crashed invocation without wedging role
-    // management permanently. Bounded acquire retry: a few seconds of
-    // backoff comfortably covers legitimate contention between two
-    // near-simultaneous admin actions without requiring the client to
-    // implement its own polling loop.
-    const LEASE_MS = 30000;
+    // Lease duration: this Function's own timeout is 60s (Cloud Functions v2
+    // default, unchanged). A lease shorter than that would not structurally
+    // guarantee serialization — a still-live invocation could reach the Auth
+    // mutation after its own lease was stolen out from under it, since there
+    // is no fencing token Firebase Auth itself can check. 120s (2x the
+    // Function timeout) is chosen so that ANY lease acquired or renewed at
+    // ANY point during this invocation's lifetime necessarily outlives the
+    // latest possible moment Cloud Functions could forcibly kill it: if
+    // acquisition/renewal happens at time R and the invocation started at
+    // T0, then R <= T0+60s and the hard kill happens by T0+60s at the very
+    // latest — so leaseExpiresAt = R+120s is always > T0+60s >= kill time.
+    // The tradeoff is that a genuinely crashed invocation can block role
+    // management for up to 120s before a new operation can steal the lock —
+    // acceptable for this low-volume, backend-only administrative Function,
+    // where correctness (never letting two invocations both reach the Auth
+    // mutation) matters far more than that bounded recovery latency.
+    const LEASE_MS = 120000;
     const ACQUIRE_ATTEMPTS = 6;
     let acquired = false;
     for (let attempt = 0; attempt < ACQUIRE_ATTEMPTS && !acquired; attempt++) {
@@ -1846,11 +1857,41 @@ exports.setStaffRole = onCall(
       throw new HttpsError('aborted', 'Another role operation is in progress; please retry.');
     }
 
+    // Transactionally re-verify ownership and renew the lease to a fresh
+    // full LEASE_MS immediately before any irreversible Auth mutation —
+    // belt-and-suspenders on top of the acquisition-time margin above, so
+    // the invariant is self-verifying at the point of use rather than
+    // resting solely on a proof that holds at a distance. If ownership was
+    // somehow already lost (should be unreachable given the margin, but
+    // never assume), fail closed rather than proceed to mutate Auth.
+    async function renewLockOrThrow() {
+      const stillOwned = await db.runTransaction(async (tx) => {
+        const snap = await tx.get(lockRef);
+        if (!snap.exists || snap.data().ownerOperationId !== operationId) return false;
+        const now = Timestamp.now();
+        tx.set(lockRef, {
+          ownerOperationId: operationId,
+          acquiredAt: snap.data().acquiredAt,
+          leaseExpiresAt: Timestamp.fromMillis(now.toMillis() + LEASE_MS),
+        });
+        return true;
+      });
+      if (!stillOwned) {
+        throw new HttpsError('aborted', 'Lock ownership lost before Auth mutation; retry.');
+      }
+    }
+
     try {
       // Bind (or resume) the operation journal. actor/target/requestedRole
-      // and the observed previousRole are immutable once the journal is
-      // created — a resume always re-derives fresh Auth state for the actual
-      // mutation, but truthfully reports what THIS operation originally saw.
+      // and originalPreviousRole are immutable once the journal is created —
+      // written exactly once, before the first Auth mutation, and never
+      // recomputed on resume. This matters specifically for audit
+      // truthfulness: if a retry re-derived "previous role" from Auth's
+      // CURRENT state, a resume after "Auth succeeded, audit failed" would
+      // see the NEW role already applied and could misrecord e.g. an
+      // admin->staff transition as a false staff->staff no-op. A resume may
+      // still re-read CURRENT Auth state freely for merge-safety and
+      // recovery decisions — only the audited originalPreviousRole is frozen.
       let opSnap = await opRef.get();
       if (!opSnap.exists) {
         let targetUser;
@@ -1865,7 +1906,7 @@ exports.setStaffRole = onCall(
           actorUid,
           targetUid: uid,
           requestedRole: role,
-          previousRole: targetUser.customClaims?.role || null,
+          originalPreviousRole: targetUser.customClaims?.role || null,
           status: 'pending',
           createdAt: Timestamp.now(),
         });
@@ -1881,7 +1922,7 @@ exports.setStaffRole = onCall(
         return op.result;
       }
 
-      const removingAdmin = op.previousRole === 'admin' && op.requestedRole !== 'admin';
+      const removingAdmin = op.originalPreviousRole === 'admin' && op.requestedRole !== 'admin';
 
       if (removingAdmin) {
         // Re-run fresh on every attempt, including resumes after a crash —
@@ -1911,7 +1952,7 @@ exports.setStaffRole = onCall(
       // claim the account happened to carry. Only the role key is ever
       // touched, and unrelated claims are re-read fresh (not cached from
       // journal creation) so a resume reflects the current reality.
-      if (op.previousRole !== op.requestedRole) {
+      if (op.originalPreviousRole !== op.requestedRole) {
         let currentTarget;
         try {
           currentTarget = await getAuth().getUser(uid);
@@ -1921,6 +1962,7 @@ exports.setStaffRole = onCall(
         }
         const { role: _oldRole, ...unrelatedClaims } = currentTarget.customClaims || {};
         const nextClaims = op.requestedRole ? { ...unrelatedClaims, role: op.requestedRole } : unrelatedClaims;
+        await renewLockOrThrow();
         try {
           await getAuth().setCustomUserClaims(uid, nextClaims);
         } catch (err) {
@@ -1939,7 +1981,7 @@ exports.setStaffRole = onCall(
         await opRef.set({ authMutatedAt: Timestamp.now() }, { merge: true });
       }
 
-      const result = { success: true, previousRole: op.previousRole, role: op.requestedRole };
+      const result = { success: true, previousRole: op.originalPreviousRole, role: op.requestedRole };
 
       // Deterministic id keyed to operationId, not .add() — exactly one
       // logical successful mutation produces exactly one successful audit
@@ -1952,9 +1994,9 @@ exports.setStaffRole = onCall(
         targetUserId: uid,
         adminId: actorUid,
         metadata: {
-          previousRole: op.previousRole,
+          previousRole: op.originalPreviousRole,
           role: op.requestedRole,
-          noop: op.previousRole === op.requestedRole,
+          noop: op.originalPreviousRole === op.requestedRole,
           operationId,
         },
         createdAt: Timestamp.now(),
