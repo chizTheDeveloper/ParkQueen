@@ -384,10 +384,17 @@ describe('reconcileLegacyAdminSingleton — emulator behavioral tests', () => {
         if (!reconcileLegacyAdminSingleton) return;
         // The token is the only place asserting 'admin' here (e.g. stale/forged) —
         // Auth-side reality (no customClaims set) must be what actually decides.
+        // Now migrated to requireCurrentAdmin (true-revocation hardening pass):
+        // the fresh current-role check catches this BEFORE the function's own
+        // exhaustive listUsers scan is ever reached, so the error is
+        // permission-denied (requireCurrentAdmin) rather than
+        // failed-precondition (the function's own ambiguity check) — both are
+        // fail-closed, but requireCurrentAdmin is now the earlier, more
+        // general gate that fires first.
         await adminAuth.createUser({ uid }).catch(() => {});
 
         const { error } = await callReconcile(uid, 'admin');
-        expect(error.code).toBe('failed-precondition');
+        expect(error.code).toBe('permission-denied');
 
         const singleton = await db.doc('adminBootstrap/singleton').get();
         expect(singleton.exists).toBe(false);
@@ -400,8 +407,12 @@ describe('reconcileLegacyAdminSingleton — emulator behavioral tests', () => {
         await adminAuth.setCustomUserClaims(realAdminUid, { role: 'admin' });
         await adminAuth.createUser({ uid }).catch(() => {});
 
+        // Now migrated to requireCurrentAdmin: uid's own current role isn't
+        // admin, so requireCurrentAdmin rejects before the function's own
+        // exhaustive scan (which would have separately rejected with
+        // failed-precondition) is ever reached. See RA-15.
         const { error } = await callReconcile(uid, 'admin');
-        expect(error.code).toBe('failed-precondition');
+        expect(error.code).toBe('permission-denied');
 
         const singleton = await db.doc('adminBootstrap/singleton').get();
         expect(singleton.exists).toBe(false);

@@ -20,16 +20,19 @@
  * sign-in and calls the Functions emulator over HTTP, matching
  * deleteAccount.integration.test.js's signInUser/callDeleteAccount pattern.
  *
- * NOT implemented/tested here: true revoked-token enforcement via
- * getAuth().verifyIdToken(token, checkRevoked=true). That primitive is real
- * and correct against the production Firebase Auth backend, but a direct
- * diagnostic against the Firebase Auth EMULATOR confirmed a revoked token is
- * still accepted by verifyIdToken(token, true) locally — the emulator does
- * not enforce tokensValidAfterTime. Since this property cannot be exercised
- * in this repository's test environment, it is intentionally left out of
- * this branch rather than shipped unverified — see functions/adminAuth.js
- * for the full reasoning. The fresh getUser()-based check fully closes the
- * confirmed vulnerability (stale role/deleted/disabled caller) on its own.
+ * True revoked-token enforcement (an operator explicitly calling
+ * revokeRefreshTokens on a still-existing, still-enabled, still-admin
+ * account) is NOT tested in this file — see
+ * functions/adminAuth.revocation.integration.test.js instead. That property could not
+ * be exercised via getAuth().verifyIdToken(token, checkRevoked=true)
+ * against the Firebase Auth EMULATOR (a direct diagnostic confirmed the
+ * emulator does not enforce tokensValidAfterTime through that primitive),
+ * but requireCurrentAdmin now implements the same comparison itself
+ * (mirroring firebase-admin's own algorithm exactly — see
+ * functions/adminAuth.js) using getUser().tokensValidAfterTime, which IS
+ * reliably reported by the emulator — empirically confirmed, not assumed.
+ * The fresh getUser()-based checks in this file (deleted/disabled/demoted
+ * caller) remain independently sufficient on their own regardless.
  *
  * What is proven:
  *   AS-1:  unauthenticated privileged callable rejected
@@ -50,8 +53,9 @@
  *   AS-16: no raw identity is logged across rejection paths
  *   AS-17: bootstrapAdmin remains usable per its own non-admin bootstrap contract
  *   AS-18: bootstrapAdmin is not accidentally wrapped by requireCurrentAdmin (source contract)
- *   AS-19: reconcileLegacyAdminSingleton is not accidentally wrapped either (source contract)
- *   AS-22: exactly the expected 13 callables use requireCurrentAdmin, exactly 1 documented exception remains (source contract)
+ *   AS-19: reconcileLegacyAdminSingleton now uses requireCurrentAdmin (source contract)
+ *   AS-20: bootstrapAdmin uses requireCurrentAuthenticatedUser (source contract)
+ *   AS-22: exactly the expected callables use requireCurrentAdmin, zero token-only exceptions remain (source contract)
  *
  * AS-20/21 (setStaffRole SR-1..49 and deleteAccount FN/DA suites unaffected)
  * are verified by the full functions-gate run, not as cases in this file.
@@ -409,35 +413,50 @@ describe('requireCurrentAdmin — session revocation / stale admin token hardeni
         expect(body).not.toMatch(/requireCurrentAdmin\(request\)/);
     });
 
-    it('AS-19: reconcileLegacyAdminSingleton is not accidentally wrapped by requireCurrentAdmin (source contract)', () => {
+    it('AS-19: reconcileLegacyAdminSingleton now uses requireCurrentAdmin (revocation-aware migration — source contract)', () => {
         const src = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
         const fnStart = src.indexOf('exports.reconcileLegacyAdminSingleton = onCall(');
         const fnEnd = src.indexOf('exports.setStaffRole = onCall(');
         expect(fnStart).toBeGreaterThan(-1);
         expect(fnEnd).toBeGreaterThan(fnStart);
         const body = src.slice(fnStart, fnEnd);
-        expect(body).not.toMatch(/requireCurrentAdmin\(request\)/);
-        expect(body).toMatch(/request\.auth\.token\.role !== 'admin'/); // still its own explicit check
+        expect(body).toMatch(/await requireCurrentAdmin\(request\);/);
+        // The old token-only exception is gone — its own additional
+        // exhaustive listUsers scan remains, as defense in depth, not a
+        // substitute for session validity.
+        expect(body).not.toMatch(/request\.auth\.token\.role !== 'admin'/);
     });
 
-    it('AS-22: exactly the expected privileged callables use requireCurrentAdmin; exactly one documented exception remains', () => {
+    it('AS-22: exactly the expected privileged callables use requireCurrentAdmin; zero token-only exceptions remain', () => {
         const src = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
         const migratedCount = (src.match(/await requireCurrentAdmin\(request\);/g) || []).length;
         // 13 from the original session-revocation hardening pass +
-        // adminBackfillStreetIntelligence (coordinated Functions/Rules/client
-        // write remediation — see functions/adminBackfill.integration.test.js
-        // AB-15) + adminReadView (coordinated Functions/Rules/client READ
-        // remediation — see functions/adminReadViews.integration.test.js AR-18).
-        expect(migratedCount).toBe(15);
+        // adminBackfillStreetIntelligence + adminReadView (coordinated
+        // Functions/Rules/client write/read remediation) +
+        // reconcileLegacyAdminSingleton (true-revocation hardening pass —
+        // see functions/adminAuth.revocation.integration.test.js RV-18/RV-19).
+        expect(migratedCount).toBe(16);
 
-        // Only reconcileLegacyAdminSingleton may still use the raw token-only
-        // pattern — if this count ever exceeds 1, a newly added admin
-        // callable regressed to copy-pasting the old, stale-token-vulnerable
-        // check instead of using requireCurrentAdmin.
+        // No privileged callable may use the raw token-only pattern anymore —
+        // bootstrapAdmin uses requireCurrentAuthenticatedUser (see AS-18/
+        // AS-20) instead of a raw check, and reconcileLegacyAdminSingleton is
+        // now migrated above. If this count is ever nonzero again, a newly
+        // added admin callable regressed to copy-pasting the old,
+        // stale-token-vulnerable check instead of using requireCurrentAdmin.
         const rawPatternCount =
             (src.match(/request\.auth\?\.token\?\.role !== 'admin'/g) || []).length +
             (src.match(/request\.auth\.token\.role !== 'admin'/g) || []).length;
-        expect(rawPatternCount).toBe(1);
+        expect(rawPatternCount).toBe(0);
+    });
+
+    it('AS-20: bootstrapAdmin uses requireCurrentAuthenticatedUser (revocation-aware, non-role-requiring session check — source contract)', () => {
+        const src = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+        const fnStart = src.indexOf('exports.bootstrapAdmin = onCall(');
+        const fnEnd = src.indexOf('exports.reconcileLegacyAdminSingleton = onCall(');
+        expect(fnStart).toBeGreaterThan(-1);
+        expect(fnEnd).toBeGreaterThan(fnStart);
+        const body = src.slice(fnStart, fnEnd);
+        expect(body).toMatch(/await requireCurrentAuthenticatedUser\(request\);/);
     });
 
     // AS-23/24/25 (true checkRevoked-based revocation enforcement) are
