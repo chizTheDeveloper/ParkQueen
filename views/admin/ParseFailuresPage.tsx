@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../../firebase';
-import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getApp } from 'firebase/app';
+import { fetchParseFailuresList } from '../../utils/adminReadService';
 import { AlertCircle, CheckCircle, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -250,15 +249,21 @@ function FailureRow({ failure, onUpdated }: { failure: ParseFailure; onUpdated: 
 export function ParseFailuresPage() {
   const [failures, setFailures] = useState<ParseFailure[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterMode>('unresolved');
   const [sort, setSort] = useState<SortMode>('frequent');
 
   const load = async () => {
     setLoading(true);
-    const snap = await getDocs(query(collection(db!, 'parseFailures'), orderBy('count', 'desc'), limit(100)));
-    const docs = snap.docs.map(d => ({ id: d.id, ...d.data() } as ParseFailure));
-    setFailures(docs);
-    setLoading(false);
+    setError(null);
+    try {
+      const data = await fetchParseFailuresList();
+      setFailures(data.failures as ParseFailure[]);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to load parse failures.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { load(); }, []);
@@ -344,10 +349,17 @@ export function ParseFailuresPage() {
         </span>
       </div>
 
+      {error && (
+        <div className="flex items-center gap-2 text-red-600 text-sm bg-red-50 border border-red-200 rounded-xl p-4 mb-4">
+          <AlertCircle size={16} />
+          {error}
+        </div>
+      )}
+
       {/* List */}
       {loading ? (
         <p className="text-sm text-gray-400">Loading failures…</p>
-      ) : sorted.length === 0 ? (
+      ) : error ? null : sorted.length === 0 ? (
         <div className="text-center py-10 text-gray-400">
           <CheckCircle size={28} className="mx-auto mb-2 text-green-400" />
           <p className="text-sm font-medium">

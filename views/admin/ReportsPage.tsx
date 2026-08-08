@@ -1,10 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../../firebase';
-import {
-  collection, query, where, orderBy, getDocs, doc, getDoc, Timestamp,
-} from 'firebase/firestore';
+import type { Timestamp } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getApp } from 'firebase/app';
+import { fetchReportsList } from '../../utils/adminReadService';
 import { ShieldAlert, ChevronDown, ChevronUp, AlertCircle, RefreshCw } from 'lucide-react';
 
 type StatusFilter = 'pending' | 'reviewed' | 'dismissed' | 'all';
@@ -249,23 +247,9 @@ export const ReportsPage = () => {
     setLoading(true);
     setError(null);
     try {
-      const q = f === 'all'
-        ? query(collection(db, 'reports'), orderBy('createdAt', 'desc'))
-        : query(collection(db, 'reports'), where('status', '==', f), orderBy('createdAt', 'desc'));
-
-      const snap = await getDocs(q);
-      const docs = snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<Report, 'id'>) }));
-      setReports(docs);
-
-      const uids = [...new Set(docs.flatMap(r => [r.reporterId, r.reportedUserId]))];
-      const results = await Promise.allSettled(uids.map(uid => getDoc(doc(db, 'users', uid))));
-      const map: Record<string, UserInfo> = {};
-      results.forEach((res, i) => {
-        if (res.status === 'fulfilled' && res.value.exists()) {
-          map[uids[i]] = res.value.data() as UserInfo;
-        }
-      });
-      setUserMap(map);
+      const data = await fetchReportsList(f);
+      setReports(data.reports as Report[]);
+      setUserMap(data.userMap as Record<string, UserInfo>);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load reports');
     } finally {

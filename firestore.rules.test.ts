@@ -293,17 +293,20 @@ describe('spots — missing optional fields do not cause errors', () => {
 // ═══════════════════════════════════════════════════════════════════════════════
 // SPOTS — ADMIN
 // ═══════════════════════════════════════════════════════════════════════════════
-describe('spots — admin access', () => {
+describe('spots — admin access (coordinated read remediation — direct admin read removed)', () => {
     // 14
-    it('S14: admin can read any spot regardless of status', async () => {
+    it('S14: admin token can no longer directly read another user\'s occupied/history spot (moved to adminReadView pingsList callable)', async () => {
         await seed('spots', 'spot-occ-admin', { ...occupiedSpot, finderId: OTHER_UID });
-        await assertSucceeds(getDoc(doc(adminDb(), 'spots', 'spot-occ-admin')));
+        await assertFails(getDoc(doc(adminDb(), 'spots', 'spot-occ-admin')));
     });
 
-    it('S14b: admin can run unfiltered list', async () => {
+    it('S14b: admin token can no longer directly run an unfiltered spots list (owner/claimer-only spots still denied)', async () => {
         await seed('spots', 'spot-avail', availableSpot);
         await seed('spots', 'spot-occ', occupiedSpot);
-        await assertSucceeds(getDocs(collection(adminDb(), 'spots')));
+        // The available spot is still readable by anyone signed in (public Ping
+        // feed); the occupied one (owned by neither adminDb's uid) is not —
+        // proving the query no longer succeeds unfiltered for an admin token.
+        await assertFails(getDocs(collection(adminDb(), 'spots')));
     });
 });
 
@@ -390,6 +393,10 @@ describe('spotFeedback', () => {
     // 18
     it('F3: different user direct read denied', async () => {
         await assertFails(getDoc(doc(otherDb(), 'spotFeedback', FB_ID)));
+    });
+
+    it('F3b: admin token can no longer directly read another user\'s spotFeedback (coordinated remediation — never consumed by any admin client code)', async () => {
+        await assertFails(getDoc(doc(adminDb(), 'spotFeedback', FB_ID)));
     });
 
     // 19
@@ -1183,6 +1190,10 @@ describe('parkingSessions', () => {
             setDoc(doc(otherDb(), 'parkingSessions', OWNER_UID), { active: false })
         );
     });
+
+    it('P6: admin token can no longer directly read another user\'s session (coordinated remediation — moved to adminReadView userDetail/dashboardCounts callable)', async () => {
+        await assertFails(getDoc(doc(adminDb(), 'parkingSessions', OWNER_UID)));
+    });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1252,8 +1263,8 @@ describe('users/private/profile', () => {
     });
 
     // 39
-    it('PP9: admin can read any private profile', async () => {
-        await assertSucceeds(getDoc(doc(adminDb(), 'users', OWNER_UID, 'private', 'profile')));
+    it('PP9: admin token can no longer directly read another user\'s private profile (coordinated read remediation — never consumed by any admin client code)', async () => {
+        await assertFails(getDoc(doc(adminDb(), 'users', OWNER_UID, 'private', 'profile')));
     });
 
     // 40
@@ -1417,6 +1428,27 @@ describe('users/{uid} public doc — private field denylist', () => {
     it('PD19: unauthenticated user cannot read users/{uid}/private/account', async () => {
         await assertFails(getDoc(doc(anonDb(), 'users', OWNER_UID, 'private', 'account')));
     });
+
+    it('PD20: admin token can no longer directly read users/{uid}/private/account (coordinated remediation — never consumed by any admin client code)', async () => {
+        await assertFails(getDoc(doc(adminDb(), 'users', OWNER_UID, 'private', 'account')));
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Coordinated admin session hardening — remaining isAdmin()-gated reads with
+// no prior test coverage (adminAuditLog, stats): confirmed unused by any
+// client, direct admin read now denied outright.
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('adminAuditLog/stats — admin direct read blocked (coordinated remediation)', () => {
+    it('AL-1: admin token can no longer directly read adminAuditLog (moved to adminReadView auditLogList/userDetail callable)', async () => {
+        await seed('adminAuditLog', 'entry-1', { action: 'user.suspend', adminId: ADMIN_UID, createdAt: Timestamp.now() });
+        await assertFails(getDoc(doc(adminDb(), 'adminAuditLog', 'entry-1')));
+    });
+
+    it('ST-1: admin token can no longer directly read stats (never consumed by any client)', async () => {
+        await seed('stats', 'global', { totalUsers: 100 });
+        await assertFails(getDoc(doc(adminDb(), 'stats', 'global')));
+    });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1457,6 +1489,11 @@ describe('users — update allowlist (TM-11)', () => {
     it('TM11-F: other user cannot update another user\'s profile fields', async () => {
         const { updateDoc: upd } = await import('firebase/firestore');
         await assertFails(upd(doc(otherDb(), 'users', OWNER_UID), { fullName: 'Hacked' }));
+    });
+
+    it('TM11-G: admin token can no longer bypass the allowlist directly (coordinated remediation — direct admin writes removed)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(adminDb(), 'users', OWNER_UID), { crowns: 999999 }));
     });
 });
 
@@ -1629,6 +1666,106 @@ describe('parseFailures — update allowlist (TM-09)', () => {
             upd(doc(ownerDb(), 'parseFailures', 'failure-1'), { injected: true })
         );
     });
+
+    it('TM09-D: admin token can no longer bypass the allowlist directly (coordinated remediation — direct admin writes removed)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(
+            upd(doc(adminDb(), 'parseFailures', 'failure-1'), { resolvedAt: Timestamp.now() })
+        );
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Coordinated admin session hardening — streetSegments/streetRules direct
+// client mutation removed. views/admin/StreetSegmentsPage.tsx's Data
+// Maintenance panel used to call utils/backfill.ts's
+// backfillStreetIntelligence() directly against the client Firestore SDK,
+// authorized only by isAdmin() — a token-only check Rules cannot re-verify
+// against current server-side Auth state. A demoted/deleted/disabled
+// admin's stale token could keep writing directly until the token expired.
+// adminBackfillStreetIntelligence (functions/index.js, requireCurrentAdmin-
+// gated) is now the only way to perform this mutation.
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('streetSegments/streetRules — direct client mutation blocked (coordinated remediation)', () => {
+    beforeEach(async () => {
+        await seed('streetSegments', 'seg-1', { streetName: 'Test St', status: 'active' });
+        await seed('streetSegments/seg-1/streetRules', 'rule-1', { schedules: [] });
+    });
+
+    it('SS-1: admin token can still read streetSegments directly (dashboard listing unaffected)', async () => {
+        await assertSucceeds(getDoc(doc(adminDb(), 'streetSegments', 'seg-1')));
+    });
+
+    it('SS-2: admin token can no longer directly create a streetSegment', async () => {
+        await assertFails(
+            setDoc(doc(adminDb(), 'streetSegments', 'seg-new'), { streetName: 'New St' })
+        );
+    });
+
+    it('SS-3: admin token can no longer directly update a streetSegment (the confirmed backfill.ts exploit path)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(
+            upd(doc(adminDb(), 'streetSegments', 'seg-1'), { source: 'admin' })
+        );
+    });
+
+    it('SS-4: admin token can no longer directly delete a streetSegment', async () => {
+        const { deleteDoc } = await import('firebase/firestore');
+        await assertFails(deleteDoc(doc(adminDb(), 'streetSegments', 'seg-1')));
+    });
+
+    it('SS-5: admin token can still read streetRules directly (dashboard listing unaffected)', async () => {
+        await assertSucceeds(getDoc(doc(adminDb(), 'streetSegments/seg-1/streetRules', 'rule-1')));
+    });
+
+    it('SS-6: admin token can no longer directly update a streetRule (the confirmed backfill.ts exploit path)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(
+            upd(doc(adminDb(), 'streetSegments/seg-1/streetRules', 'rule-1'), { editedBy: 'hack' })
+        );
+    });
+
+    it('SS-7: admin token can no longer directly delete a streetRule', async () => {
+        const { deleteDoc } = await import('firebase/firestore');
+        await assertFails(deleteDoc(doc(adminDb(), 'streetSegments/seg-1/streetRules', 'rule-1')));
+    });
+
+    it('SS-8: public/unauthenticated read access to streetSegments/streetRules is unchanged (Street Parking view depends on it)', async () => {
+        await assertSucceeds(getDoc(doc(anonDb(), 'streetSegments', 'seg-1')));
+        await assertSucceeds(getDoc(doc(anonDb(), 'streetSegments/seg-1/streetRules', 'rule-1')));
+    });
+});
+
+describe('suspensions — admin direct write blocked (coordinated remediation)', () => {
+    it('SU-1: admin token can still read suspensions directly (dashboard listing unaffected)', async () => {
+        await seed('suspensions', 'susp-1', { date: '2026-01-01', label: 'Test', type: 'holiday' });
+        await assertSucceeds(getDoc(doc(adminDb(), 'suspensions', 'susp-1')));
+    });
+
+    it('SU-2: admin token can no longer directly create a suspension (adminAddSuspension callable is the only path now)', async () => {
+        await assertFails(
+            setDoc(doc(adminDb(), 'suspensions', 'susp-new'), { date: '2026-01-01', label: 'Test', type: 'holiday' })
+        );
+    });
+});
+
+describe('reports — admin direct read/update blocked (coordinated remediation)', () => {
+    it('RP-1: admin token can no longer directly read reports (moved to adminReadView reportsList/userDetail callable)', async () => {
+        await seed('reports', 'report-1', {
+            reporterId: OTHER_UID, reportedUserId: OWNER_UID, type: 'spam',
+            reason: 'test', status: 'pending', createdAt: Timestamp.now(),
+        });
+        await assertFails(getDoc(doc(adminDb(), 'reports', 'report-1')));
+    });
+
+    it('RP-2: admin token can no longer directly update a report (adminUpdateReport callable is the only path now)', async () => {
+        await seed('reports', 'report-1', {
+            reporterId: OTHER_UID, reportedUserId: OWNER_UID, type: 'spam',
+            reason: 'test', status: 'pending', createdAt: Timestamp.now(),
+        });
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(adminDb(), 'reports', 'report-1'), { status: 'reviewed' }));
+    });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1647,8 +1784,8 @@ describe('adminBootstrap — client writes blocked (TM-14)', () => {
         );
     });
 
-    it('TM14-C: admin can read adminBootstrap/singleton', async () => {
-        await assertSucceeds(getDoc(doc(adminDb(), 'adminBootstrap', 'singleton')));
+    it('TM14-C: admin token can no longer directly read adminBootstrap/singleton (coordinated remediation — never read by any client; bootstrapAdmin uses the Admin SDK, which bypasses Rules)', async () => {
+        await assertFails(getDoc(doc(adminDb(), 'adminBootstrap', 'singleton')));
     });
 });
 

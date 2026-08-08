@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Users, AlertTriangle, MapPin, Activity, Car, FileWarning, ShieldAlert, CheckCircle } from 'lucide-react';
-import { db } from '../firebase';
-import { collection, query, onSnapshot, getCountFromServer, where, orderBy, limit, Timestamp } from 'firebase/firestore';
+import { Users, AlertTriangle, MapPin, Activity, Car, FileWarning, ShieldAlert, CheckCircle, RefreshCw } from 'lucide-react';
+import { fetchDashboardCounts } from '../utils/adminReadService';
 
 interface MetricCardProps {
   icon: React.ReactNode;
@@ -46,39 +45,30 @@ export const DashboardPage = ({ onNavigate }: { onNavigate: (page: string) => vo
   const [counts, setCounts] = useState<Counts>(EMPTY_COUNTS);
   const [loadingCounts, setLoadingCounts] = useState(true);
   const [recentUsers, setRecentUsers] = useState<any[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!db) return;
-
-    const now = Timestamp.now();
-
-    Promise.allSettled([
-      getCountFromServer(collection(db, 'users')),
-      getCountFromServer(query(collection(db, 'spots'), where('expiresAt', '>', now))),
-      getCountFromServer(query(collection(db, 'parkingSessions'), where('active', '==', true))),
-      getCountFromServer(query(collection(db, 'parseFailures'), where('resolvedAt', '==', null))),
-      getCountFromServer(query(collection(db, 'streetSegments'), where('status', '==', 'needs_review'))),
-      getCountFromServer(query(collection(db, 'reports'), where('status', '==', 'pending'))),
-    ]).then(([users, pings, sessions, failures, review, reports]) => {
+  const load = async () => {
+    setLoadingCounts(true);
+    setError(null);
+    try {
+      const data = await fetchDashboardCounts();
       setCounts({
-        totalUsers:     users.status    === 'fulfilled' ? users.value.data().count    : 0,
-        activePings:    pings.status    === 'fulfilled' ? pings.value.data().count    : 0,
-        activeSessions: sessions.status === 'fulfilled' ? sessions.value.data().count : 0,
-        parseFailures:  failures.status === 'fulfilled' ? failures.value.data().count : 0,
-        needsReview:    review.status   === 'fulfilled' ? review.value.data().count   : 0,
-        reports:        reports.status  === 'fulfilled' ? reports.value.data().count  : 0,
+        totalUsers: data.totalUsers,
+        activePings: data.activePings,
+        activeSessions: data.activeSessions,
+        parseFailures: data.parseFailures,
+        needsReview: data.needsReview,
+        reports: data.reports,
       });
+      setRecentUsers(data.recentUsers);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to load dashboard.');
+    } finally {
       setLoadingCounts(false);
-    });
+    }
+  };
 
-    const unsubUsers = onSnapshot(
-      query(collection(db, 'users'), orderBy('createdAt', 'desc'), limit(5)),
-      (snap) => setRecentUsers(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
-      (e) => console.error('Recent users error:', e),
-    );
-
-    return () => unsubUsers();
-  }, []);
+  useEffect(() => { load(); }, []);
 
   const attentionItems: { label: string; page?: string }[] = [
     counts.parseFailures > 0  && { label: `${counts.parseFailures} unresolved parse failure${counts.parseFailures !== 1 ? 's' : ''}`, page: 'Streets' },
@@ -92,8 +82,21 @@ export const DashboardPage = ({ onNavigate }: { onNavigate: (page: string) => vo
     <div>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-3xl font-bold text-gray-800">Operations Overview</h1>
-        <span className="text-xs text-gray-400">Live counts · refreshes on load</span>
+        <button
+          onClick={load}
+          className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-100"
+        >
+          <RefreshCw size={14} />
+          Refresh
+        </button>
       </div>
+
+      {error && (
+        <div className="mb-4 flex items-center gap-2 text-red-600 text-sm bg-red-50 border border-red-200 rounded-xl p-4">
+          <AlertTriangle size={16} />
+          {error}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
         <MetricCard

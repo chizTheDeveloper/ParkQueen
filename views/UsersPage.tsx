@@ -1,14 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../firebase';
-import {
-  collection, onSnapshot, query, where, doc, getDoc,
-  getDocs, orderBy, limit, Timestamp,
-} from 'firebase/firestore';
+import type { Timestamp } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getApp } from 'firebase/app';
+import { fetchAllUsers, fetchUserDetail } from '../utils/adminReadService';
 import {
   MoreVertical, Search, X, ShieldCheck, ShieldAlert, AlertTriangle,
-  Info, Car, MapPin, Flag, ClipboardList,
+  Info, Car, MapPin, Flag, ClipboardList, RefreshCw,
 } from 'lucide-react';
 
 // ── Local types ───────────────────────────────────────────────────────────────
@@ -179,10 +176,6 @@ const reportStatusClass = (status: string) => {
   return 'bg-gray-100 text-gray-400';
 };
 
-// Returns effective timestamp for an audit entry (prefers createdAt, falls back to performedAt)
-const auditTs = (e: AuditEntry): number =>
-  (e.createdAt ?? e.performedAt)?.toDate().getTime() ?? 0;
-
 // True if the entry only has legacy fields (no standard targetType/targetId/adminId)
 const isLegacyEntry = (e: AuditEntry): boolean =>
   !e.targetType && !e.adminId;
@@ -284,86 +277,29 @@ const UserDetailsModal = ({
     setLoading(true);
     const uid = user.id;
 
-    Promise.allSettled([
-      // 0 — trust events
-      getDocs(query(
-        collection(db, 'users', uid, 'processedTrustEvents'),
-        orderBy('processedAt', 'desc'), limit(20),
-      )),
-      // 1 — parking session doc keyed by uid
-      getDoc(doc(db, 'parkingSessions', uid)),
-      // 2 — recent pings (composite index: finderId + reportedAt desc)
-      getDocs(query(
-        collection(db, 'spots'),
-        where('finderId', '==', uid),
-        orderBy('reportedAt', 'desc'),
-        limit(5),
-      )),
-      // 3 — reports against this user
-      getDocs(query(collection(db, 'reports'), where('reportedUserId', '==', uid), limit(20))),
-      // 4 — reports filed by this user
-      getDocs(query(collection(db, 'reports'), where('reporterId', '==', uid), limit(20))),
-      // 5 — standard audit entries (new schema: targetUserId == uid)
-      getDocs(query(collection(db, 'adminAuditLog'), where('targetUserId', '==', uid), limit(20))),
-      // 6 — legacy audit entries (old spot-deletion schema: finderId == uid)
-      getDocs(query(collection(db, 'adminAuditLog'), where('finderId', '==', uid), limit(20))),
-    ]).then(([trustRes, sessionRes, pingsRes, againstRes, filedRes, auditNewRes, auditLegacyRes]) => {
+    // Single bundled server-side read (adminReadView('userDetail'),
+    // requireCurrentAdmin-gated) replaces the 7 direct Firestore queries this
+    // modal used to fire individually. Per-section failures are still
+    // tolerated (mirrors the previous Promise.allSettled UX), but error text
+    // is now a generic sanitized message — never a raw Admin SDK error.
+    fetchUserDetail(uid).then((data) => {
+      setTrustEvents(data.trustEvents as TrustEvent[]);
+      setSession(data.session as ParkingSessionData | null);
+      setRecentPings(data.recentPings as UserPing[]);
+      setReportsAgainst(data.reportsAgainst as UserReport[]);
+      setReportsFiled(data.reportsFiled as UserReport[]);
+      setAuditEntries(data.auditEntries as AuditEntry[]);
+
       const errs: Record<string, string> = {};
-
-      if (trustRes.status === 'fulfilled')
-        setTrustEvents(trustRes.value.docs.map(d => ({
-          id: d.id, ...(d.data() as Omit<TrustEvent, 'id'>),
-        })));
-      else errs.trust = trustRes.reason?.message ?? 'Failed';
-
-      if (sessionRes.status === 'fulfilled')
-        setSession(sessionRes.value.exists()
-          ? (sessionRes.value.data() as ParkingSessionData)
-          : null);
-      else errs.session = sessionRes.reason?.message ?? 'Failed';
-
-      if (pingsRes.status === 'fulfilled')
-        setRecentPings(pingsRes.value.docs.map(d => ({
-          id: d.id, ...(d.data() as Omit<UserPing, 'id'>),
-        })));
-      else errs.pings = pingsRes.reason?.message ?? 'Failed';
-
-      if (againstRes.status === 'fulfilled')
-        setReportsAgainst(
-          againstRes.value.docs
-            .map(d => ({ id: d.id, ...(d.data() as Omit<UserReport, 'id'>) }))
-            .sort((a, b) => (b.createdAt?.toDate().getTime() ?? 0) - (a.createdAt?.toDate().getTime() ?? 0)),
-        );
-      else errs.reportsAgainst = againstRes.reason?.message ?? 'Failed';
-
-      if (filedRes.status === 'fulfilled')
-        setReportsFiled(
-          filedRes.value.docs
-            .map(d => ({ id: d.id, ...(d.data() as Omit<UserReport, 'id'>) }))
-            .sort((a, b) => (b.createdAt?.toDate().getTime() ?? 0) - (a.createdAt?.toDate().getTime() ?? 0)),
-        );
-      else errs.reportsFiled = filedRes.reason?.message ?? 'Failed';
-
-      // Merge new + legacy audit entries, deduplicate by id
-      const newEntries: AuditEntry[] = auditNewRes.status === 'fulfilled'
-        ? auditNewRes.value.docs.map(d => ({ id: d.id, ...(d.data() as Omit<AuditEntry, 'id'>) }))
-        : [];
-      if (auditNewRes.status === 'rejected') errs.audit = auditNewRes.reason?.message ?? 'Failed';
-
-      const legacyEntries: AuditEntry[] = auditLegacyRes.status === 'fulfilled'
-        ? auditLegacyRes.value.docs.map(d => ({ id: d.id, ...(d.data() as Omit<AuditEntry, 'id'>) }))
-        : [];
-      if (auditLegacyRes.status === 'rejected') errs.audit = auditLegacyRes.reason?.message ?? 'Failed';
-
-      const seenIds = new Set(newEntries.map(e => e.id));
-      const merged = [
-        ...newEntries,
-        ...legacyEntries.filter(e => !seenIds.has(e.id)),
-      ].sort((a, b) => auditTs(b) - auditTs(a));
-
-      setAuditEntries(merged);
+      for (const key of Object.keys(data.errors || {})) {
+        errs[key] = 'Failed to load.';
+      }
       setErrors(errs);
       setLoading(false);
+    }).catch((e: unknown) => {
+      setErrors({ trust: 'Failed to load.', session: 'Failed to load.', pings: 'Failed to load.', reportsAgainst: 'Failed to load.', reportsFiled: 'Failed to load.', audit: 'Failed to load.' });
+      setLoading(false);
+      console.error('User detail load failed:', e instanceof Error ? e.message : e);
     });
   }, [isOpen, user?.id]);
 
@@ -688,18 +624,22 @@ export const UsersPage = () => {
   const [isViewOpen, setViewOpen]       = useState(false);
   const [isSuspendOpen, setSuspendOpen] = useState(false);
   const [actionError, setActionError]   = useState<string | null>(null);
+  const [loadError, setLoadError]       = useState<string | null>(null);
 
-  useEffect(() => {
-    const unsubscribe = onSnapshot(
-      query(collection(db, 'users')),
-      (snap) => {
-        setUsers(snap.docs.map(d => ({ id: d.id, ...(d.data() as Omit<UserDoc, 'id'>) })));
-        setLoading(false);
-      },
-      (err) => { console.error('Users error:', err); setLoading(false); },
-    );
-    return () => unsubscribe();
-  }, []);
+  const loadUsers = async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const docs = await fetchAllUsers();
+      setUsers(docs as UserDoc[]);
+    } catch (e: unknown) {
+      setLoadError(e instanceof Error ? e.message : 'Failed to load users.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadUsers(); }, []);
 
   const filteredUsers = users.filter(user => {
     const term = searchTerm.toLowerCase();
@@ -731,6 +671,7 @@ export const UsersPage = () => {
     try {
       const fn = httpsCallable(getFunctions(getApp(), 'us-central1'), 'adminSuspendUser');
       await fn({ userId: selectedUser.id, reason });
+      await loadUsers();
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : 'Failed to suspend user.');
     }
@@ -741,6 +682,7 @@ export const UsersPage = () => {
     try {
       const fn = httpsCallable(getFunctions(getApp(), 'us-central1'), 'adminUnsuspendUser');
       await fn({ userId: user.id });
+      await loadUsers();
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : 'Failed to unsuspend user.');
     }
@@ -750,7 +692,22 @@ export const UsersPage = () => {
 
   return (
     <div>
-      <h1 className="text-3xl font-bold text-gray-800 mb-6">User Management</h1>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold text-gray-800">User Management</h1>
+        <button
+          onClick={loadUsers}
+          className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-100"
+        >
+          <RefreshCw size={14} />
+          Refresh
+        </button>
+      </div>
+
+      {loadError && (
+        <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-start gap-2">
+          <span className="font-semibold">Error:</span> {loadError}
+        </div>
+      )}
 
       {actionError && (
         <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-start gap-2">

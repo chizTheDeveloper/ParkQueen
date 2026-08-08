@@ -6,7 +6,6 @@ import {
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getApp } from 'firebase/app';
 import { MapPin, Plus, Trash2, ChevronDown, ChevronUp, AlertCircle, CheckCircle, Wrench, Flag, RotateCcw } from 'lucide-react';
-import { backfillStreetIntelligence, type BackfillResult } from '../../utils/backfill';
 import { ParseFailuresPage } from './ParseFailuresPage';
 import { StreetIntelligenceHealthPage } from './StreetIntelligenceHealthPage';
 import {
@@ -453,6 +452,43 @@ function SuspensionsPanel() {
 
 // ── Data Maintenance Panel ────────────────────────────────────────────────────
 
+interface BackfillResult {
+  segmentsScanned: number;
+  segmentsUpdated: number;
+  rulesScanned: number;
+  rulesUpdated: number;
+  dryRun: boolean;
+}
+
+interface BackfillPageResult extends BackfillResult {
+  nextCursor: string | null;
+  done: boolean;
+}
+
+// Calls the adminBackfillStreetIntelligence callable (requireCurrentAdmin-gated;
+// see functions/index.js) repeatedly until it reports done:true, accumulating
+// totals across pages. Replaces the old direct-Firestore-write implementation
+// that used to live in utils/backfill.ts — that path was authorized only by
+// firestore.rules' token-only isAdmin() check, which a stale admin token
+// could still pass after demotion/deletion/disablement.
+async function runBackfill(dryRun: boolean): Promise<BackfillResult> {
+  const fn = httpsCallable(getFunctions(getApp(), 'us-central1'), 'adminBackfillStreetIntelligence');
+  const totals: BackfillResult = { segmentsScanned: 0, segmentsUpdated: 0, rulesScanned: 0, rulesUpdated: 0, dryRun };
+  let cursor: string | null = null;
+  let done = false;
+  while (!done) {
+    const res = await fn({ dryRun, cursor });
+    const page = res.data as BackfillPageResult;
+    totals.segmentsScanned += page.segmentsScanned;
+    totals.segmentsUpdated += page.segmentsUpdated;
+    totals.rulesScanned += page.rulesScanned;
+    totals.rulesUpdated += page.rulesUpdated;
+    cursor = page.nextCursor;
+    done = page.done;
+  }
+  return totals;
+}
+
 function DataMaintenancePanel() {
   const [open, setOpen] = useState(false);
   const [running, setRunning] = useState(false);
@@ -466,7 +502,7 @@ function DataMaintenancePanel() {
     setPreview(null);
     setApplied(false);
     try {
-      const result = await backfillStreetIntelligence(db!, true);
+      const result = await runBackfill(true);
       setPreview(result);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Dry run failed.');
@@ -480,7 +516,7 @@ function DataMaintenancePanel() {
     setRunning(true);
     setError(null);
     try {
-      const result = await backfillStreetIntelligence(db!, false);
+      const result = await runBackfill(false);
       setPreview(result);
       setApplied(true);
     } catch (e: unknown) {

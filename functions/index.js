@@ -20,6 +20,9 @@ const emailRateLimitPepper = defineSecret("EMAIL_RATE_LIMIT_PEPPER");
 const { osmNameToDOT, streetNameToLikePattern, dotSideToCardinal, BOROUGH_CODE_TO_NAME, nycOdSegmentDocId, selectBlockFace } = require('./nycOpenDataNormalizer');
 const { redactForLog, sanitizeError } = require('./redactForLog');
 const { checkRateLimit } = require('./rateLimiter');
+const { requireCurrentAdmin } = require('./adminAuth');
+const { isSweepNYCData, computeSegmentUpdate, computeRuleUpdate } = require('./backfillLogic');
+const { ADMIN_READ_VIEWS } = require('./adminReadViews');
 const { haversineDistMiles, filterCandidates, buildMessages, collectStaleTokens, MAX_CANDIDATES, FCM_BATCH } = require('./notifyFanout');
 const { createHash, createHmac, randomInt: secureRandomInt, randomUUID, timingSafeEqual } = require('crypto');
 
@@ -1567,9 +1570,7 @@ exports.awardCrowns = onDocumentCreated(
 exports.adminDeleteSpot = onCall(
   { region: 'us-central1' },
   async (request) => {
-    if (request.auth?.token?.role !== 'admin') {
-      throw new HttpsError('permission-denied', 'Admin only.');
-    }
+    await requireCurrentAdmin(request);
 
     const { spotId, reason } = request.data || {};
     if (!spotId || typeof spotId !== 'string') {
@@ -1611,6 +1612,10 @@ exports.adminDeleteSpot = onCall(
 );
 
 // 14) One-time admin bootstrap — any @parqueen.app account can claim admin if none exists yet.
+// Deliberately NOT gated by requireCurrentAdmin (functions/adminAuth.js): by
+// design the caller is NOT yet an admin — that is the entire bootstrap
+// contract. Its own singleton-transaction gate is the correct, distinct
+// authorization model here, not a stale-token gap.
 exports.bootstrapAdmin = onCall(
   { region: 'us-central1' },
   async (request) => {
@@ -1681,6 +1686,15 @@ exports.bootstrapAdmin = onCall(
 // a full listUsers scan is safe here specifically because this path is admin-gated and
 // not part of any hot/public request flow — do not copy this pattern into a callable
 // reachable by ordinary users. Never touches custom claims; the claim is already correct.
+//
+// Deliberately NOT migrated to requireCurrentAdmin (see functions/adminAuth.js):
+// its own exhaustive listUsers scan a few lines below already independently
+// re-derives current Auth-wide admin state (and requires it be unambiguous —
+// exactly one admin, matching the caller), which is a strictly stronger,
+// fresher guarantee than requireCurrentAdmin's single getUser() check. Its
+// one-time purpose is complete and its eventual removal is a separate,
+// already-tracked cleanup item; touching it further here would only widen
+// that future diff for no additional safety.
 exports.reconcileLegacyAdminSingleton = onCall(
   { region: 'us-central1' },
   async (request) => {
@@ -1796,9 +1810,7 @@ exports.reconcileLegacyAdminSingleton = onCall(
 exports.setStaffRole = onCall(
   { region: 'us-central1' },
   async (request) => {
-    if (request.auth?.token?.role !== 'admin') {
-      throw new HttpsError('permission-denied', 'Admin only.');
-    }
+    await requireCurrentAdmin(request);
 
     const { uid, role, operationId } = request.data || {};
     if (!uid || typeof uid !== 'string') throw new HttpsError('invalid-argument', 'uid required.');
@@ -2032,9 +2044,7 @@ exports.setStaffRole = onCall(
 exports.adminSuspendUser = onCall(
   { region: 'us-central1' },
   async (request) => {
-    if (request.auth?.token?.role !== 'admin') {
-      throw new HttpsError('permission-denied', 'Admin only.');
-    }
+    await requireCurrentAdmin(request);
     const { userId, reason } = request.data || {};
     if (!userId || typeof userId !== 'string') throw new HttpsError('invalid-argument', 'userId required.');
     if (!reason || typeof reason !== 'string' || !reason.trim()) throw new HttpsError('invalid-argument', 'reason required.');
@@ -2068,9 +2078,7 @@ exports.adminSuspendUser = onCall(
 exports.adminUnsuspendUser = onCall(
   { region: 'us-central1' },
   async (request) => {
-    if (request.auth?.token?.role !== 'admin') {
-      throw new HttpsError('permission-denied', 'Admin only.');
-    }
+    await requireCurrentAdmin(request);
     const { userId } = request.data || {};
     if (!userId || typeof userId !== 'string') throw new HttpsError('invalid-argument', 'userId required.');
 
@@ -2102,9 +2110,7 @@ exports.adminUnsuspendUser = onCall(
 exports.adminUpdateReport = onCall(
   { region: 'us-central1' },
   async (request) => {
-    if (request.auth?.token?.role !== 'admin') {
-      throw new HttpsError('permission-denied', 'Admin only.');
-    }
+    await requireCurrentAdmin(request);
     const { reportId, status, adminNote } = request.data || {};
     if (!reportId || typeof reportId !== 'string') throw new HttpsError('invalid-argument', 'reportId required.');
     const allowed = ['reviewed', 'dismissed', 'pending'];
@@ -2159,9 +2165,7 @@ exports.adminUpdateReport = onCall(
 exports.adminUpdateSegmentStatus = onCall(
   { region: 'us-central1' },
   async (request) => {
-    if (request.auth?.token?.role !== 'admin') {
-      throw new HttpsError('permission-denied', 'Admin only.');
-    }
+    await requireCurrentAdmin(request);
     const { segmentId, status, reason } = request.data || {};
     if (!segmentId || typeof segmentId !== 'string') throw new HttpsError('invalid-argument', 'segmentId required.');
     const allowed = ['active', 'needs_review', 'archived'];
@@ -2219,9 +2223,7 @@ exports.adminUpdateSegmentStatus = onCall(
 exports.adminArchiveSuspension = onCall(
   { region: 'us-central1' },
   async (request) => {
-    if (request.auth?.token?.role !== 'admin') {
-      throw new HttpsError('permission-denied', 'Admin only.');
-    }
+    await requireCurrentAdmin(request);
     const { suspensionId, reason } = request.data || {};
     if (!suspensionId || typeof suspensionId !== 'string') throw new HttpsError('invalid-argument', 'suspensionId required.');
 
@@ -2754,9 +2756,7 @@ exports.updateTrustOnSpotDelete = onDocumentDeleted(
 exports.adminResolveParseFailure = onCall(
   { region: 'us-central1' },
   async (request) => {
-    if (request.auth?.token?.role !== 'admin') {
-      throw new HttpsError('permission-denied', 'Admin only.');
-    }
+    await requireCurrentAdmin(request);
     const { failureId, resolutionType, resolutionNote } = request.data || {};
     if (!failureId || typeof failureId !== 'string') throw new HttpsError('invalid-argument', 'failureId required.');
     const allowed = ['fixed', 'expected_ignore'];
@@ -2799,9 +2799,7 @@ exports.adminResolveParseFailure = onCall(
 exports.adminReopenParseFailure = onCall(
   { region: 'us-central1' },
   async (request) => {
-    if (request.auth?.token?.role !== 'admin') {
-      throw new HttpsError('permission-denied', 'Admin only.');
-    }
+    await requireCurrentAdmin(request);
     const { failureId } = request.data || {};
     if (!failureId || typeof failureId !== 'string') throw new HttpsError('invalid-argument', 'failureId required.');
 
@@ -2835,9 +2833,7 @@ exports.adminReopenParseFailure = onCall(
 exports.adminAddSegment = onCall(
   { region: 'us-central1' },
   async (request) => {
-    if (request.auth?.token?.role !== 'admin') {
-      throw new HttpsError('permission-denied', 'Admin only.');
-    }
+    await requireCurrentAdmin(request);
     const p = request.data || {};
     const required = ['cityId', 'streetName', 'borough', 'fromLat', 'fromLng', 'toLat', 'toLng', 'centerLat', 'centerLng', 'bearing', 'geohash'];
     for (const field of required) {
@@ -2905,9 +2901,7 @@ exports.adminAddSegment = onCall(
 exports.adminAddCleaningRule = onCall(
   { region: 'us-central1' },
   async (request) => {
-    if (request.auth?.token?.role !== 'admin') {
-      throw new HttpsError('permission-denied', 'Admin only.');
-    }
+    await requireCurrentAdmin(request);
     const { segmentId, side, days, startTime, endTime } = request.data || {};
     if (!segmentId || typeof segmentId !== 'string') throw new HttpsError('invalid-argument', 'segmentId required.');
     if (!side || !['even', 'odd'].includes(side)) throw new HttpsError('invalid-argument', "side must be 'even' or 'odd'.");
@@ -2960,9 +2954,7 @@ exports.adminAddCleaningRule = onCall(
 exports.adminSupersedeRule = onCall(
   { region: 'us-central1' },
   async (request) => {
-    if (request.auth?.token?.role !== 'admin') {
-      throw new HttpsError('permission-denied', 'Admin only.');
-    }
+    await requireCurrentAdmin(request);
     const { segmentId, ruleId, reason } = request.data || {};
     if (!segmentId || typeof segmentId !== 'string') throw new HttpsError('invalid-argument', 'segmentId required.');
     if (!ruleId || typeof ruleId !== 'string') throw new HttpsError('invalid-argument', 'ruleId required.');
@@ -3007,9 +2999,7 @@ exports.adminSupersedeRule = onCall(
 exports.adminAddSuspension = onCall(
   { region: 'us-central1' },
   async (request) => {
-    if (request.auth?.token?.role !== 'admin') {
-      throw new HttpsError('permission-denied', 'Admin only.');
-    }
+    await requireCurrentAdmin(request);
     const { date, label, type } = request.data || {};
     if (!date || typeof date !== 'string') throw new HttpsError('invalid-argument', 'date required (YYYY-MM-DD).');
     if (!label || typeof label !== 'string' || !label.trim()) throw new HttpsError('invalid-argument', 'label required.');
@@ -3049,7 +3039,143 @@ exports.adminAddSuspension = onCall(
   }
 );
 
-// 27) Create segment from SweepNYC with NYC Open Data fallback.
+// 27) Admin backfill street intelligence schema — server-side replacement for
+// the direct client Firestore writes formerly performed by
+// utils/backfill.ts's backfillStreetIntelligence() from
+// views/admin/StreetSegmentsPage.tsx's Data Maintenance panel. That path was
+// authorized only by firestore.rules' token-only isAdmin() check, so a
+// demoted/deleted/disabled admin's stale token could still invoke it — the
+// same vulnerability class requireCurrentAdmin closes for callables, but
+// Rules cannot re-check current server-side Auth state. firestore.rules now
+// denies direct client writes to streetSegments/streetRules; this callable
+// is the only way to perform the backfill going forward.
+//
+// Paginated (fixed page of streetSegments per call, walking each segment's
+// streetRules subcollection inline) to stay well within the callable
+// timeout regardless of collection size — the client repeatedly calls with
+// the returned cursor until done:true. Idempotent: only ever fills in
+// currently-missing fields, so a resumed/re-run page is harmless.
+exports.adminBackfillStreetIntelligence = onCall(
+  { region: 'us-central1' },
+  async (request) => {
+    await requireCurrentAdmin(request);
+    const p = request.data || {};
+
+    // Strict, narrow parameter schema — this callable encodes exactly one
+    // fixed administrative operation on exactly two fixed collections. The
+    // client cannot select a different collection, path, or set of fields;
+    // any such extra data in the payload is simply ignored, never read.
+    if (p.dryRun !== undefined && typeof p.dryRun !== 'boolean') {
+      throw new HttpsError('invalid-argument', 'dryRun must be a boolean.');
+    }
+    if (p.cursor !== undefined && p.cursor !== null && (typeof p.cursor !== 'string' || p.cursor.length === 0)) {
+      throw new HttpsError('invalid-argument', 'cursor must be a non-empty string or null.');
+    }
+    if (p.limit !== undefined && (!Number.isInteger(p.limit) || p.limit <= 0 || p.limit > 200)) {
+      throw new HttpsError('invalid-argument', 'limit must be an integer between 1 and 200.');
+    }
+
+    const dryRun = p.dryRun === true;
+    const cursorId = typeof p.cursor === 'string' && p.cursor ? p.cursor : null;
+    const pageLimit = Number.isInteger(p.limit) ? p.limit : 50;
+
+    let segQuery = db.collection('streetSegments').orderBy('__name__').limit(pageLimit);
+    if (cursorId) {
+      const cursorSnap = await db.collection('streetSegments').doc(cursorId).get();
+      if (cursorSnap.exists) segQuery = segQuery.startAfter(cursorSnap);
+    }
+    const segmentsSnap = await segQuery.get();
+
+    const result = {
+      segmentsScanned: 0, segmentsUpdated: 0,
+      rulesScanned: 0, rulesUpdated: 0,
+      dryRun, nextCursor: null, done: true,
+    };
+
+    for (const segDoc of segmentsSnap.docs) {
+      result.segmentsScanned++;
+      const data = segDoc.data();
+      const isSwNYC = isSweepNYCData(data);
+      const segUpdate = computeSegmentUpdate(data);
+
+      if (Object.keys(segUpdate).length > 0) {
+        if (data.updatedAt == null) segUpdate.updatedAt = Timestamp.now();
+        result.segmentsUpdated++;
+        if (!dryRun) await segDoc.ref.update(segUpdate);
+      }
+
+      const rulesSnap = await segDoc.ref.collection('streetRules').get();
+      for (const ruleDoc of rulesSnap.docs) {
+        result.rulesScanned++;
+        const ruleUpdate = computeRuleUpdate(ruleDoc.data(), isSwNYC);
+        if (Object.keys(ruleUpdate).length > 0) {
+          result.rulesUpdated++;
+          if (!dryRun) await ruleDoc.ref.update(ruleUpdate);
+        }
+      }
+    }
+
+    if (segmentsSnap.size === pageLimit) {
+      result.nextCursor = segmentsSnap.docs[segmentsSnap.docs.length - 1].id;
+      result.done = false;
+    }
+
+    if (!dryRun && (result.segmentsUpdated > 0 || result.rulesUpdated > 0)) {
+      await db.collection('adminAuditLog').add({
+        action: 'streetIntelligence.backfill',
+        targetType: 'streetSegments',
+        targetId: null,
+        adminId: request.auth.uid,
+        adminEmail: request.auth.token?.email || null,
+        metadata: {
+          segmentsScanned: result.segmentsScanned,
+          segmentsUpdated: result.segmentsUpdated,
+          rulesScanned: result.rulesScanned,
+          rulesUpdated: result.rulesUpdated,
+          cursor: cursorId,
+          nextCursor: result.nextCursor,
+        },
+        createdAt: Timestamp.now(),
+      });
+    }
+
+    return result;
+  }
+);
+
+// 27) Admin read views — coordinated read-side session hardening. Closes the
+// same class of vulnerability as adminBackfillStreetIntelligence, but for
+// READS: the Admin Dashboard used to query users/reports/adminAuditLog/
+// parkingSessions/parseFailures/spots directly against the client Firestore
+// SDK, authorized only by firestore.rules' token-only isAdmin() check. A
+// demoted/deleted/disabled admin's stale token could keep reading that data
+// until the token expired, regardless of how hardened the write path was.
+// firestore.rules now denies direct client reads for these paths; this is
+// the only way to read them. See functions/adminReadViews.js for the
+// per-view query logic, field selection, and bounds. Deliberately NOT a
+// generic adminReadCollection(collection, query) proxy — the client selects
+// only a fixed view name; every collection/field/filter/limit is
+// server-owned.
+exports.adminReadView = onCall(
+  { region: 'us-central1' },
+  async (request) => {
+    await requireCurrentAdmin(request);
+    const p = request.data || {};
+    if (typeof p.view !== 'string' || !Object.prototype.hasOwnProperty.call(ADMIN_READ_VIEWS, p.view)) {
+      throw new HttpsError('invalid-argument', 'Unknown view.');
+    }
+    const params = (p.params && typeof p.params === 'object' && !Array.isArray(p.params)) ? p.params : {};
+    try {
+      return await ADMIN_READ_VIEWS[p.view](db, params, { Timestamp });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      console.warn(`[admin-read] view failed: ${p.view}`);
+      throw new HttpsError('internal', 'Read failed.');
+    }
+  }
+);
+
+// 28) Create segment from SweepNYC with NYC Open Data fallback.
 // Called when the client finds no Firestore segment within 80m.
 // Tries SweepNYC first; falls back to NYC Open Data when SweepNYC has no usable data.
 

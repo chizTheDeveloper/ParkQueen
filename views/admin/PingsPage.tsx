@@ -1,10 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../../firebase';
-import {
-  collection, query, where, orderBy, limit, getDocs, doc, getDoc, Timestamp,
-} from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getApp } from 'firebase/app';
+import { fetchPingsList } from '../../utils/adminReadService';
 import { MapPin, ChevronDown, ChevronUp, AlertCircle, RefreshCw, Trash2 } from 'lucide-react';
 
 type PingFilter = 'active' | 'claimed' | 'recent' | 'all';
@@ -219,38 +216,9 @@ export const PingsPage = () => {
     setLoading(true);
     setError(null);
     try {
-      const now = Timestamp.now();
-      const yesterday = Timestamp.fromMillis(Date.now() - 24 * 60 * 60 * 1000);
-
-      let q;
-      if (f === 'active' || f === 'claimed') {
-        // Both use the same base query; claimed is filtered client-side
-        q = query(collection(db!, 'spots'), where('expiresAt', '>', now), orderBy('expiresAt', 'asc'));
-      } else if (f === 'recent') {
-        q = query(collection(db!, 'spots'), where('reportedAt', '>', yesterday), orderBy('reportedAt', 'desc'));
-      } else {
-        q = query(collection(db!, 'spots'), orderBy('reportedAt', 'desc'), limit(100));
-      }
-
-      const snap = await getDocs(q);
-      let docs = snap.docs.map(d => ({ id: d.id, ...(d.data() as Record<string, any>) } as Ping));
-
-      if (f === 'claimed') {
-        docs = docs.filter(p => p.status === 'interested' || p.status === 'occupied');
-      }
-
-      setPings(docs);
-
-      // Enrich finder user data
-      const uids = [...new Set(docs.map(p => p.finderId).filter(Boolean) as string[])];
-      const results = await Promise.allSettled(uids.map(uid => getDoc(doc(db!, 'users', uid))));
-      const map: Record<string, UserInfo> = {};
-      results.forEach((res, i) => {
-        if (res.status === 'fulfilled' && res.value.exists()) {
-          map[uids[i]] = res.value.data() as UserInfo;
-        }
-      });
-      setUserMap(map);
+      const data = await fetchPingsList(f);
+      setPings(data.pings as Ping[]);
+      setUserMap(data.userMap as Record<string, UserInfo>);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load pings');
     } finally {
