@@ -16,27 +16,42 @@ async function callAdminReadView<T>(view: string, params: Record<string, unknown
   return res.data as T;
 }
 
-interface UsersListPage {
-  users: Record<string, any>[];
+type UserMap = Record<string, { fullName?: string; username?: string; email?: string }>;
+
+interface ListPage {
   nextCursor: string | null;
   done: boolean;
 }
 
-// Loops the paginated usersList view until done, assembling the full list —
-// preserves UsersPage.tsx's existing client-side search/filter UX exactly
-// (mirrors the adminBackfillStreetIntelligence pagination pattern already
-// established for the backfill callable).
-export async function fetchAllUsers(): Promise<Record<string, any>[]> {
-  const all: Record<string, any>[] = [];
+// Loops a paginated view until done, assembling the full item list and
+// merging any per-page userMap enrichment — reconstructs exactly the same
+// complete result the pre-migration unbounded/single direct Firestore query
+// used to return in one call, while every individual server request stays
+// bounded (mirrors the adminBackfillStreetIntelligence pagination pattern).
+async function fetchAllPages<TPage extends ListPage, TItem>(
+  view: string,
+  baseParams: Record<string, unknown>,
+  itemsKey: string,
+): Promise<{ items: TItem[]; userMap: UserMap }> {
+  const items: TItem[] = [];
+  const userMap: UserMap = {};
   let cursor: string | null = null;
   let done = false;
   while (!done) {
-    const page = await callAdminReadView<UsersListPage>('usersList', { cursor, limit: 200 });
-    all.push(...page.users);
+    const page = await callAdminReadView<TPage & Record<string, any>>(view, { ...baseParams, cursor, limit: 200 });
+    items.push(...page[itemsKey]);
+    Object.assign(userMap, page.userMap ?? {});
     cursor = page.nextCursor;
     done = page.done;
   }
-  return all;
+  return { items, userMap };
+}
+
+// Loops the paginated usersList view until done, assembling the full list —
+// preserves UsersPage.tsx's existing client-side search/filter UX exactly.
+export async function fetchAllUsers(): Promise<Record<string, any>[]> {
+  const { items } = await fetchAllPages<ListPage, Record<string, any>>('usersList', {}, 'users');
+  return items;
 }
 
 export function fetchUserDetail(uid: string): Promise<{
@@ -51,22 +66,33 @@ export function fetchUserDetail(uid: string): Promise<{
   return callAdminReadView('userDetail', { uid });
 }
 
-export function fetchReportsList(status: 'pending' | 'reviewed' | 'dismissed' | 'all'): Promise<{
+// reportsList is cursor-paginated server-side (the pre-migration client
+// query had no limit() at all — see functions/adminReadViews.js); looping
+// here reconstructs the exact old "every matching report" result.
+export async function fetchReportsList(status: 'pending' | 'reviewed' | 'dismissed' | 'all'): Promise<{
   reports: Record<string, any>[];
-  userMap: Record<string, { fullName?: string; username?: string; email?: string }>;
+  userMap: UserMap;
 }> {
-  return callAdminReadView('reportsList', { status });
+  const { items, userMap } = await fetchAllPages<ListPage, Record<string, any>>('reportsList', { status }, 'reports');
+  return { reports: items, userMap };
 }
 
 export function fetchAuditLogList(): Promise<{ entries: Record<string, any>[] }> {
   return callAdminReadView('auditLogList');
 }
 
-export function fetchPingsList(filter: 'active' | 'claimed' | 'recent' | 'all'): Promise<{
+// pingsList's 'active'/'claimed'/'recent' filters are cursor-paginated
+// server-side (the pre-migration client query had no limit() for these —
+// see functions/adminReadViews.js); looping reconstructs the exact old
+// complete result. The 'all' filter is a fixed single bounded page
+// (limit(100), matching the original client exactly) and returns
+// done:true immediately, so this loop still terminates in one call for it.
+export async function fetchPingsList(filter: 'active' | 'claimed' | 'recent' | 'all'): Promise<{
   pings: Record<string, any>[];
-  userMap: Record<string, { fullName?: string; username?: string; email?: string }>;
+  userMap: UserMap;
 }> {
-  return callAdminReadView('pingsList', { filter });
+  const { items, userMap } = await fetchAllPages<ListPage, Record<string, any>>('pingsList', { filter }, 'pings');
+  return { pings: items, userMap };
 }
 
 export function fetchParseFailuresList(): Promise<{ failures: Record<string, any>[] }> {

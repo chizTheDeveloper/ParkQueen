@@ -23,9 +23,44 @@
 
 const { HttpsError } = require('firebase-functions/v2/https');
 
-const USER_LIST_DEFAULT_LIMIT = 200;
-const USER_LIST_MAX_LIMIT = 500;
+const LIST_DEFAULT_LIMIT = 200;
+const LIST_MAX_LIMIT = 500;
 const ENRICH_UID_MAX = 300;
+
+// Shared cursor-pagination helper — same technique as
+// adminBackfillStreetIntelligence's already-reviewed pagination. `baseQuery`
+// must already have its where()/orderBy() applied; this only adds
+// limit()/startAfter(). The cursor is a document ID scoped to
+// `collectionName` — passing a snapshot (not raw field values) to
+// startAfter() lets Firestore resolve correct ordering even for
+// orderBy(createdAt)/orderBy(expiresAt) queries, not just orderBy(__name__).
+// A syntactically-valid but unknown/foreign cursor ID simply fails the
+// `.exists` check below and the query starts from the beginning — it can
+// never resolve to a document outside `collectionName` since the lookup
+// itself is scoped to that collection.
+function validatePagination(params, maxLimit) {
+  if (params.cursor !== undefined && params.cursor !== null && typeof params.cursor !== 'string') {
+    throw new HttpsError('invalid-argument', 'cursor must be a string or null.');
+  }
+  if (params.limit !== undefined && (!Number.isInteger(params.limit) || params.limit <= 0 || params.limit > maxLimit)) {
+    throw new HttpsError('invalid-argument', `limit must be an integer between 1 and ${maxLimit}.`);
+  }
+}
+
+async function paginateQuery(db, collectionName, baseQuery, params, defaultLimit, maxLimit) {
+  validatePagination(params, maxLimit);
+  const pageLimit = Number.isInteger(params.limit) ? params.limit : defaultLimit;
+  const cursorId = typeof params.cursor === 'string' && params.cursor ? params.cursor : null;
+
+  let q = baseQuery.limit(pageLimit);
+  if (cursorId) {
+    const cSnap = await db.collection(collectionName).doc(cursorId).get();
+    if (cSnap.exists) q = q.startAfter(cSnap);
+  }
+  const snap = await q.get();
+  const done = snap.size < pageLimit;
+  return { snap, nextCursor: done ? null : snap.docs[snap.docs.length - 1].id, done };
+}
 
 function pickUserListFields(id, data) {
   return {
@@ -121,24 +156,11 @@ async function dashboardCounts(db, _params, { Timestamp }) {
 // total user count, while the client still assembles the same full list the
 // page's existing client-side search/filter UX depends on.
 async function usersList(db, params) {
-  if (params.cursor !== undefined && params.cursor !== null && typeof params.cursor !== 'string') {
-    throw new HttpsError('invalid-argument', 'cursor must be a string or null.');
-  }
-  if (params.limit !== undefined && (!Number.isInteger(params.limit) || params.limit <= 0 || params.limit > USER_LIST_MAX_LIMIT)) {
-    throw new HttpsError('invalid-argument', `limit must be an integer between 1 and ${USER_LIST_MAX_LIMIT}.`);
-  }
-  const pageLimit = Number.isInteger(params.limit) ? params.limit : USER_LIST_DEFAULT_LIMIT;
-  const cursorId = typeof params.cursor === 'string' && params.cursor ? params.cursor : null;
-
-  let q = db.collection('users').orderBy('__name__').limit(pageLimit);
-  if (cursorId) {
-    const cSnap = await db.collection('users').doc(cursorId).get();
-    if (cSnap.exists) q = q.startAfter(cSnap);
-  }
-  const snap = await q.get();
+  const { snap, nextCursor, done } = await paginateQuery(
+    db, 'users', db.collection('users').orderBy('__name__'), params, LIST_DEFAULT_LIMIT, LIST_MAX_LIMIT,
+  );
   const users = snap.docs.map(d => pickUserListFields(d.id, d.data()));
-  const done = snap.size < pageLimit;
-  return { users, nextCursor: done ? null : snap.docs[snap.docs.length - 1].id, done };
+  return { users, nextCursor, done };
 }
 
 // ─── userDetail — UsersPage.tsx UserDetailsModal ───────────────────────────
@@ -198,18 +220,25 @@ async function userDetail(db, params) {
 }
 
 // ─── reportsList — ReportsPage.tsx ─────────────────────────────────────────
+// The pre-migration client query (orderBy('createdAt','desc'), optionally
+// where('status','==',f)) had NO limit() at all — it fetched every matching
+// report. A flat 500 cap would silently truncate results once a deployment
+// accumulates more than 500 reports in a status bucket. Cursor-paginated
+// instead (same technique as usersList) so the client can reconstruct the
+// exact old "all matching reports" result via ReportsPage's fetchReportsList
+// loop, with no per-request unbounded scan on the server.
 const REPORT_STATUSES = new Set(['pending', 'reviewed', 'dismissed', 'all']);
 async function reportsList(db, params) {
   if (typeof params.status !== 'string' || !REPORT_STATUSES.has(params.status)) {
     throw new HttpsError('invalid-argument', "status must be one of pending/reviewed/dismissed/all.");
   }
-  let q = params.status === 'all'
+  const baseQuery = params.status === 'all'
     ? db.collection('reports').orderBy('createdAt', 'desc')
     : db.collection('reports').where('status', '==', params.status).orderBy('createdAt', 'desc');
-  const snap = await q.limit(500).get();
+  const { snap, nextCursor, done } = await paginateQuery(db, 'reports', baseQuery, params, LIST_DEFAULT_LIMIT, LIST_MAX_LIMIT);
   const reports = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   const userMap = await enrichUsers(db, reports.flatMap(r => [r.reporterId, r.reportedUserId]));
-  return { reports, userMap };
+  return { reports, userMap, nextCursor, done };
 }
 
 // ─── auditLogList — AuditLogPage.tsx ───────────────────────────────────────
@@ -226,30 +255,42 @@ async function auditLogList(db) {
 }
 
 // ─── pingsList — PingsPage.tsx ─────────────────────────────────────────────
+// The pre-migration client had two shapes: 'all' explicitly capped at
+// limit(100) (preserved exactly below — parity, not a regression), while
+// 'active'/'claimed'/'recent' had NO limit() at all. Those three are now
+// cursor-paginated (same technique as usersList/reportsList) instead of a
+// flat cap, so a busy period with >500 concurrently active pings cannot
+// silently lose results — PingsPage's fetchPingsList loops pages to
+// reconstruct the same complete result set the old unbounded query returned.
 const PING_FILTERS = new Set(['active', 'claimed', 'recent', 'all']);
 async function pingsList(db, params, { Timestamp }) {
   if (typeof params.filter !== 'string' || !PING_FILTERS.has(params.filter)) {
     throw new HttpsError('invalid-argument', 'filter must be one of active/claimed/recent/all.');
   }
-  const now = Timestamp.now();
-  const yesterday = Timestamp.fromMillis(Date.now() - 24 * 60 * 60 * 1000);
 
-  let q;
-  if (params.filter === 'active' || params.filter === 'claimed') {
-    q = db.collection('spots').where('expiresAt', '>', now).orderBy('expiresAt', 'asc').limit(500);
-  } else if (params.filter === 'recent') {
-    q = db.collection('spots').where('reportedAt', '>', yesterday).orderBy('reportedAt', 'desc').limit(500);
-  } else {
-    q = db.collection('spots').orderBy('reportedAt', 'desc').limit(100);
+  if (params.filter === 'all') {
+    // Fixed single bounded page (matches the original client's own
+    // limit(100) exactly) — cursor/limit are simply not meaningful here and
+    // are ignored, consistent with every other fixed-shape view.
+    const snap = await db.collection('spots').orderBy('reportedAt', 'desc').limit(100).get();
+    const pings = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const userMap = await enrichUsers(db, pings.map(p => p.finderId));
+    return { pings, userMap, nextCursor: null, done: true };
   }
 
-  const snap = await q.get();
+  const now = Timestamp.now();
+  const yesterday = Timestamp.fromMillis(Date.now() - 24 * 60 * 60 * 1000);
+  const baseQuery = params.filter === 'recent'
+    ? db.collection('spots').where('reportedAt', '>', yesterday).orderBy('reportedAt', 'desc')
+    : db.collection('spots').where('expiresAt', '>', now).orderBy('expiresAt', 'asc');
+
+  const { snap, nextCursor, done } = await paginateQuery(db, 'spots', baseQuery, params, LIST_DEFAULT_LIMIT, LIST_MAX_LIMIT);
   let pings = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   if (params.filter === 'claimed') {
     pings = pings.filter(p => p.status === 'interested' || p.status === 'occupied');
   }
   const userMap = await enrichUsers(db, pings.map(p => p.finderId));
-  return { pings, userMap };
+  return { pings, userMap, nextCursor, done };
 }
 
 // ─── parseFailuresList — ParseFailuresPage.tsx ─────────────────────────────

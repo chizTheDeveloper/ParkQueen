@@ -33,6 +33,17 @@
  *   AR-16: a garbage/foreign cursor cannot escape the intended collection scope
  *   AR-17: client-requested field lists have no effect — server always returns its fixed minimized shape
  *   AR-18: source-contract — adminReadView is present, requireCurrentAdmin-gated, and the view enum matches
+ *
+ * reportsList/pingsList pagination (added after integration review found the
+ * original flat 500-record cap would have silently truncated results
+ * relative to the pre-migration client, which fetched every matching
+ * document with no limit() at all — see functions/adminReadViews.js):
+ *   AR-19: reportsList first page returns a deterministic nextCursor when more pages exist
+ *   AR-20: reportsList second page continues with no duplicate or skipped record
+ *   AR-21: malformed cursor rejected for reportsList/pingsList (shared pagination helper)
+ *   AR-22: maximum page size enforced for reportsList/pingsList
+ *   AR-23: the status filter remains complete across every page, not just the first
+ *   AR-24: the final page returns done:true and nextCursor:null
  */
 
 const { initializeApp, getApps } = require('firebase-admin/app');
@@ -341,5 +352,141 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         for (const view of ['dashboardCounts', 'usersList', 'userDetail', 'reportsList', 'auditLogList', 'pingsList', 'parseFailuresList']) {
             expect(viewsSrc).toMatch(new RegExp(`\\b${view}\\b`));
         }
+    });
+
+    // ─── reportsList/pingsList pagination ───────────────────────────────
+    // The pre-migration client queries for these two views had NO limit()
+    // at all (see functions/adminReadViews.js's reportsList/pingsList
+    // header comments) — a flat cap would have silently truncated results.
+    // These tests prove the cursor pagination added in response to
+    // integration review reconstructs the complete result set with no
+    // duplicate or skipped record.
+    describe('reportsList/pingsList pagination', () => {
+        let reportIds, spotIds;
+
+        beforeEach(() => { reportIds = []; spotIds = []; });
+
+        afterEach(async () => {
+            for (const id of reportIds) await db.doc(`reports/${id}`).delete().catch(() => {});
+            for (const id of spotIds) await db.doc(`spots/${id}`).delete().catch(() => {});
+        });
+
+        it('AR-19/AR-20/AR-24: reportsList pages through all matching reports with no duplicate or skipped record', async () => {
+            const idToken = await adminIdToken(uid);
+            const marker = testUid('pgmark');
+            for (let i = 0; i < 5; i++) {
+                const id = `${marker}_${i}`;
+                reportIds.push(id);
+                await db.doc(`reports/${id}`).set({
+                    reporterId: testUid('r'), reportedUserId: testUid('rd'), type: 'spam',
+                    reason: marker, status: 'pending',
+                    createdAt: Timestamp.fromMillis(Date.now() - i * 1000), // deterministic distinct order
+                });
+            }
+
+            const page1 = await callView(idToken, 'reportsList', { status: 'pending', limit: 2 });
+            expect(page1.error).toBeUndefined();
+            expect(page1.result.reports.length).toBeLessThanOrEqual(2);
+            expect(page1.result.done).toBe(false); // AR-19: deterministic nextCursor when more pages exist
+            expect(page1.result.nextCursor).toBeTruthy();
+
+            const seen = new Set(page1.result.reports.map(r => r.id));
+            let cursor = page1.result.nextCursor;
+            let done = false;
+            let guard = 0;
+            while (!done && guard++ < 20) {
+                const page = await callView(idToken, 'reportsList', { status: 'pending', limit: 2, cursor });
+                expect(page.error).toBeUndefined();
+                for (const r of page.result.reports) {
+                    expect(seen.has(r.id)).toBe(false); // AR-20: no duplicate across pages
+                    seen.add(r.id);
+                }
+                cursor = page.result.nextCursor;
+                done = page.result.done;
+            }
+            expect(done).toBe(true);
+            expect(cursor).toBeNull(); // AR-24: final page returns done:true/nextCursor:null
+
+            const ourReports = [...seen].filter(id => id.startsWith(marker));
+            expect(ourReports.length).toBe(5); // no skipped record among our 5 seeded reports
+        });
+
+        it('AR-23: reportsList status filter remains complete across every page, not just the first', async () => {
+            const idToken = await adminIdToken(uid);
+            const marker = testUid('filtmark');
+            for (let i = 0; i < 4; i++) {
+                const id = `${marker}_${i}`;
+                reportIds.push(id);
+                await db.doc(`reports/${id}`).set({
+                    reporterId: testUid('r'), reportedUserId: testUid('rd'), type: 'spam',
+                    reason: marker, status: i % 2 === 0 ? 'pending' : 'reviewed',
+                    createdAt: Timestamp.fromMillis(Date.now() - i * 1000),
+                });
+            }
+
+            let cursor = null, done = false, guard = 0;
+            const found = [];
+            while (!done && guard++ < 20) {
+                const page = await callView(idToken, 'reportsList', { status: 'pending', limit: 1, cursor });
+                expect(page.error).toBeUndefined();
+                found.push(...page.result.reports.filter(r => r.reason === marker));
+                cursor = page.result.nextCursor;
+                done = page.result.done;
+            }
+            // Only the 2 'pending' reports among our 4 seeded — 'reviewed' ones
+            // must never appear, on any page, even though pagination interleaves
+            // with other suites' data.
+            expect(found.length).toBe(2);
+            expect(found.every(r => r.status === 'pending')).toBe(true);
+        });
+
+        it('AR-21/AR-22: malformed cursor and oversized limit rejected for pingsList (shared pagination helper)', async () => {
+            const idToken = await adminIdToken(uid);
+            const badCursor = await callView(idToken, 'pingsList', { filter: 'active', cursor: 999 });
+            expect(badCursor.error?.status).toBe('INVALID_ARGUMENT');
+
+            const badLimit = await callView(idToken, 'pingsList', { filter: 'active', limit: 100000 });
+            expect(badLimit.error?.status).toBe('INVALID_ARGUMENT');
+        });
+
+        it('pingsList (active) pages through all matching spots with no duplicate or skipped record', async () => {
+            const idToken = await adminIdToken(uid);
+            const marker = testUid('pingmark');
+            const future = Timestamp.fromMillis(Date.now() + 60 * 60 * 1000);
+            for (let i = 0; i < 3; i++) {
+                const id = `${marker}_${i}`;
+                spotIds.push(id);
+                await db.doc(`spots/${id}`).set({
+                    lat: 40.7, lng: -74.0, type: 'free', status: 'available',
+                    finderId: testUid('f'), finderName: marker,
+                    pingMode: 'now', reportedAt: Timestamp.now(),
+                    expiresAt: Timestamp.fromMillis(future.toMillis() + i * 1000),
+                    geohash: 'dr5ru', address: marker,
+                });
+            }
+
+            // The shared spots collection accumulates 'active' (far-future
+            // expiresAt) fixtures from many other suites across a full test
+            // run — a small page size with a low iteration guard could give
+            // up before reaching our 3 marker-tagged docs. Use a generous
+            // page size (matches AR-7's usersList precedent) so the loop
+            // reliably terminates in a handful of pages regardless of
+            // collection size, while still proving no duplicate is ever seen.
+            let cursor = null, done = false, guard = 0;
+            const seen = new Set();
+            while (!done && guard++ < 50) {
+                const page = await callView(idToken, 'pingsList', { filter: 'active', limit: 200, cursor });
+                expect(page.error).toBeUndefined();
+                for (const p of page.result.pings) {
+                    expect(seen.has(p.id)).toBe(false);
+                    seen.add(p.id);
+                }
+                cursor = page.result.nextCursor;
+                done = page.result.done;
+            }
+            expect(done).toBe(true);
+            const ours = [...seen].filter(id => id.startsWith(marker));
+            expect(ours.length).toBe(3);
+        });
     });
 });
