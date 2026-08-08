@@ -198,15 +198,30 @@ describe('isTokenRevokedForUser — deterministic SDK-mirrored boundary tests (n
 describe('requireCurrentAdmin — true revoked-token enforcement (handler-level)', () => {
     let uid, targetUid;
 
-    beforeEach(() => {
+    // adminBootstrap/singleton is shared, serial-run-wide state (maxWorkers: 1
+    // means all test files run against the same emulator data). RV-18/RV-19
+    // exercise reconcileLegacyAdminSingleton, which is gated on this doc's
+    // exact shape — a stray singleton left by another file's tests (or a
+    // different execution order) would make RV-18's "doesn't exist" assertion
+    // and RV-19's own reconciliation both fail nondeterministically. Clearing
+    // it here matches the established convention in
+    // reconcileLegacyAdminSingleton.integration.test.js's beforeEach/afterEach.
+    async function deleteSingleton() {
+        await db.doc('adminBootstrap/singleton').delete().catch(() => {});
+    }
+
+    beforeEach(async () => {
         uid = testUid('caller');
         targetUid = testUid('target');
+        await deleteSingleton();
     });
 
     afterEach(async () => {
         await nuke(uid);
         await nuke(targetUid);
         await db.doc(`users/${targetUid}`).delete().catch(() => {});
+        await deleteSingleton();
+        await db.doc(`adminAuditLog/legacyReconciliation_${uid}`).delete().catch(() => {});
     });
 
     it('RV-1: current admin + non-revoked token allowed', async () => {
