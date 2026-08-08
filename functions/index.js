@@ -20,7 +20,7 @@ const emailRateLimitPepper = defineSecret("EMAIL_RATE_LIMIT_PEPPER");
 const { osmNameToDOT, streetNameToLikePattern, dotSideToCardinal, BOROUGH_CODE_TO_NAME, nycOdSegmentDocId, selectBlockFace } = require('./nycOpenDataNormalizer');
 const { redactForLog, sanitizeError } = require('./redactForLog');
 const { checkRateLimit } = require('./rateLimiter');
-const { requireCurrentAdmin } = require('./adminAuth');
+const { requireCurrentAdmin, requireCurrentAuthenticatedUser } = require('./adminAuth');
 const { isSweepNYCData, computeSegmentUpdate, computeRuleUpdate } = require('./backfillLogic');
 const { ADMIN_READ_VIEWS } = require('./adminReadViews');
 const { haversineDistMiles, filterCandidates, buildMessages, collectStaleTokens, MAX_CANDIDATES, FCM_BATCH } = require('./notifyFanout');
@@ -1615,11 +1615,37 @@ exports.adminDeleteSpot = onCall(
 // Deliberately NOT gated by requireCurrentAdmin (functions/adminAuth.js): by
 // design the caller is NOT yet an admin — that is the entire bootstrap
 // contract. Its own singleton-transaction gate is the correct, distinct
-// authorization model here, not a stale-token gap.
+// authorization model here, not a stale-token gap. It DOES use
+// requireCurrentAuthenticatedUser (exists, not disabled, refresh tokens not
+// revoked) — a session that is no longer current should not be able to
+// perform this sensitive mutation just because it once held a valid token.
+//
+// Privilege-resurrection fix: the same-owner retry branch (the transaction
+// below) exists so a genuine partial failure — the Firestore singleton
+// claimed, but the process died before the Auth claim below was ever set —
+// can be recovered by calling again, rather than permanently locking the
+// intended admin out. That transaction is unchanged. What used to be
+// missing was any check AFTER the transaction: the claim-granting step
+// below used to run unconditionally whenever current role wasn't already
+// 'admin', with no way to distinguish "the claim genuinely was never
+// applied yet" from "the claim was applied once, and this uid was later
+// intentionally demoted via setStaffRole". Both looked identical (current
+// role simply isn't 'admin' right now), so a demoted historical bootstrap
+// owner could call bootstrapAdmin again and regain admin, completely
+// bypassing setStaffRole. bootstrapComplete (claimsAppliedAt, or the
+// pre-existing reconciledLegacyAdmin marker written by
+// reconcileLegacyAdminSingleton) now distinguishes the two: the claim is
+// only ever (re-)applied while bootstrapComplete is false. Once true, a
+// caller whose current role isn't admin is refused outright — but a caller
+// who is STILL currently admin retrying (BA-E10/BA-E14/BA-E15) skips the
+// grant branch entirely (nothing to grant) and remains a harmless no-op,
+// exactly as before. The production singleton already carries
+// reconciledLegacyAdmin: true, so this closes the gap for the existing
+// singleton immediately, with no data migration required.
 exports.bootstrapAdmin = onCall(
   { region: 'us-central1' },
   async (request) => {
-    if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+    await requireCurrentAuthenticatedUser(request);
 
     const email = request.auth.token.email || '';
     if (!email.endsWith('@parqueen.app')) {
@@ -1661,8 +1687,26 @@ exports.bootstrapAdmin = onCall(
     // read current claims and only touch the role key.
     const currentUser = await getAuth().getUser(uid);
     if (currentUser.customClaims?.role !== 'admin') {
+      const sentinelSnap = await sentinelRef.get();
+      const sentinelData = sentinelSnap.data() || {};
+      const bootstrapComplete = sentinelData.claimsAppliedAt != null || sentinelData.reconciledLegacyAdmin === true;
+      if (bootstrapComplete) {
+        // This singleton already finished granting admin once (possibly to
+        // this very uid); the current role simply isn't 'admin' anymore,
+        // which means an intentional demotion, not an unfinished grant.
+        // Refuse to resurrect — setStaffRole's decision stands.
+        console.warn('[bootstrapAdmin] rejected: resurrection_attempt');
+        throw new HttpsError('already-exists', 'Admin access has already been bootstrapped.');
+      }
       await getAuth().setCustomUserClaims(uid, { ...(currentUser.customClaims || {}), role: 'admin' });
     }
+    // Mark bootstrap fully completed for this singleton — from this point
+    // on, a caller whose current role isn't 'admin' can never have the
+    // claim (re-)applied through this function again, even if this uid is
+    // later demoted. Written unconditionally (not only when
+    // setCustomUserClaims above was actually needed) so a no-op call by an
+    // already-correct admin still closes the gap for next time.
+    await sentinelRef.set({ claimsAppliedAt: Timestamp.now() }, { merge: true });
     // Idempotent by construction, so safe to (re)run on every retry that
     // reaches here: the deterministic audit-log id means a retry updates the
     // same record rather than creating a duplicate.
@@ -1687,21 +1731,25 @@ exports.bootstrapAdmin = onCall(
 // not part of any hot/public request flow — do not copy this pattern into a callable
 // reachable by ordinary users. Never touches custom claims; the claim is already correct.
 //
-// Deliberately NOT migrated to requireCurrentAdmin (see functions/adminAuth.js):
-// its own exhaustive listUsers scan a few lines below already independently
-// re-derives current Auth-wide admin state (and requires it be unambiguous —
-// exactly one admin, matching the caller), which is a strictly stronger,
-// fresher guarantee than requireCurrentAdmin's single getUser() check. Its
-// one-time purpose is complete and its eventual removal is a separate,
-// already-tracked cleanup item; touching it further here would only widen
-// that future diff for no additional safety.
+// Now migrated to requireCurrentAdmin (see functions/adminAuth.js): the
+// exhaustive listUsers scan a few lines below already independently
+// re-derives current Auth-wide admin role state whenever it actually runs
+// (unambiguous — exactly one admin, matching the caller) — but that scan
+// only executes on a FIRST-time reconciliation (`if (!existing.exists)`).
+// The retry branch (singleton already claimed by this uid) skips the scan
+// entirely and falls straight through to an idempotent audit-log write —
+// it never re-derives or re-validates the caller's current role at all in
+// that path. This function never touches custom claims in any branch, so
+// it was never vulnerable to the privilege-resurrection issue fixed in
+// bootstrapAdmin above — but a demoted/deleted/disabled/revoked caller's
+// stale token could still reach the harmless-but-unauthorized retry branch
+// before this change. requireCurrentAdmin closes that gap uniformly; the
+// exhaustive scan below remains as additional, not substitute, defense in
+// depth for the first-time path.
 exports.reconcileLegacyAdminSingleton = onCall(
   { region: 'us-central1' },
   async (request) => {
-    if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
-    if (request.auth.token.role !== 'admin') {
-      throw new HttpsError('permission-denied', 'Admin only.');
-    }
+    await requireCurrentAdmin(request);
 
     const uid = request.auth.uid;
     const sentinelRef = db.doc('adminBootstrap/singleton');

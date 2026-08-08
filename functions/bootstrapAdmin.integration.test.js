@@ -116,6 +116,9 @@ describe('bootstrapAdmin â€” emulator behavioral tests', () => {
 
     it('BA-E2: verified non-@parqueen.app email denied with permission-denied', async () => {
         if (!bootstrapAdmin) return;
+        // requireCurrentAuthenticatedUser now runs first and needs a real
+        // Auth-emulator user to reach the email-domain check being tested.
+        await adminAuth.createUser({ uid }).catch(() => {});
         const { error } = await callDirect(uid, 'admin@gmail.com', true);
         expect(error.code).toBe('permission-denied');
         expect(error.message).toMatch(/parqueen\.app/);
@@ -123,6 +126,7 @@ describe('bootstrapAdmin â€” emulator behavioral tests', () => {
 
     it('BA-E3: @parqueen.app email with email_verified=false denied with permission-denied', async () => {
         if (!bootstrapAdmin) return;
+        await adminAuth.createUser({ uid }).catch(() => {});
         const { error } = await callDirect(uid, 'jay@parqueen.app', false);
         expect(error.code).toBe('permission-denied');
         expect(error.message).toMatch(/verified/i);
@@ -169,6 +173,10 @@ describe('bootstrapAdmin â€” emulator behavioral tests', () => {
 
     it('BA-E7: pre-seeded singleton doc is respected â€” already-exists returned', async () => {
         if (!bootstrapAdmin) return;
+        // requireCurrentAuthenticatedUser now runs first and needs a real
+        // Auth-emulator user for the caller to reach the singleton check
+        // being tested here.
+        await adminAuth.createUser({ uid }).catch(() => {});
         // Simulate a prior bootstrap without going through the function
         await db.doc('adminBootstrap/singleton').set({
             bootstrappedAt: Timestamp.now(),
@@ -385,6 +393,87 @@ describe('bootstrapAdmin â€” emulator behavioral tests', () => {
         // The domain requirement is disclosed generically (it's already public
         // in source), never as "your email X is not Y".
         expect(error.message).not.toContain(uid);
+    });
+
+    // ─── Privilege-resurrection audit (true-revocation hardening pass) ────
+    //
+    // Confirmed exploit prior to this fix: the same-owner retry branch
+    // unconditionally re-applied role:'admin' whenever current role wasn't
+    // already 'admin', with no way to distinguish "genuine partial
+    // failure — the claim was never applied" from "fully bootstrapped once,
+    // then intentionally demoted via setStaffRole". A demoted historical
+    // bootstrap owner could call bootstrapAdmin again and regain admin,
+    // completely bypassing setStaffRole. BA-R2 (partial-bootstrap retry
+    // remains recoverable) is already proven by BA-E9 above — the fix does
+    // not touch that path. BA-R3 (a different uid can never use a claimed
+    // singleton) is already proven by BA-E6/BA-E7/BA-E18/BA-E19 above,
+    // unaffected by this fix (that check lives entirely inside the
+    // transaction, unchanged).
+
+    it('BA-R1: an intentionally demoted historical bootstrap owner cannot regain admin by calling bootstrapAdmin again', async () => {
+        if (!bootstrapAdmin) return;
+        await adminAuth.createUser({ uid }).catch(() => {});
+        const first = await callDirect(uid, 'jay@parqueen.app', true);
+        expect(first.result.success).toBe(true);
+
+        // Intentional demotion — exactly what setStaffRole does to customClaims.
+        await adminAuth.setCustomUserClaims(uid, { role: 'staff' });
+
+        const { result, error } = await callDirect(uid, 'jay@parqueen.app', true);
+        expect(result).toBeUndefined();
+        expect(error.code).toBe('already-exists'); // refused, not re-granted
+
+        const after = await adminAuth.getUser(uid);
+        expect(after.customClaims?.role).toBe('staff'); // still demoted, never resurrected
+    });
+
+    it('BA-R4: a reconciledLegacyAdmin singleton (the exact production shape) cannot be used to resurrect a demoted owner', async () => {
+        if (!bootstrapAdmin) return;
+        await adminAuth.createUser({ uid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(uid, { role: 'admin' });
+        // Simulate the exact shape of the currently-deployed production
+        // adminBootstrap/singleton — created via reconcileLegacyAdminSingleton,
+        // not bootstrapAdmin itself, so it carries reconciledLegacyAdmin:
+        // true and no claimsAppliedAt. This proves the fix protects the
+        // REAL production singleton with no data migration required.
+        await db.doc('adminBootstrap/singleton').set({
+            bootstrappedAt: Timestamp.now(),
+            bootstrappedBy: uid,
+            reconciledLegacyAdmin: true,
+        });
+
+        await adminAuth.setCustomUserClaims(uid, { role: 'staff' }); // demoted
+
+        const { result, error } = await callDirect(uid, 'jay@parqueen.app', true);
+        expect(result).toBeUndefined();
+        expect(error.code).toBe('already-exists');
+
+        const after = await adminAuth.getUser(uid);
+        expect(after.customClaims?.role).toBe('staff');
+    });
+
+    it('BA-R5: a caller whose refresh tokens were revoked cannot invoke bootstrapAdmin at all, even before any grant exists (requireCurrentAuthenticatedUser)', async () => {
+        if (!bootstrapAdmin) return;
+        await adminAuth.createUser({ uid }).catch(() => {});
+        const staleAuthTime = Math.floor(Date.now() / 1000);
+        await new Promise(r => setTimeout(r, 1100));
+        await adminAuth.revokeRefreshTokens(uid);
+
+        const req = {
+            data: {},
+            auth: {
+                uid,
+                token: {
+                    uid, email: 'jay@parqueen.app', email_verified: true,
+                    auth_time: staleAuthTime, iat: staleAuthTime, exp: staleAuthTime + 3600,
+                },
+            },
+            rawRequest: {},
+        };
+        await expect(bootstrapAdmin.run(req)).rejects.toMatchObject({ code: 'permission-denied' });
+
+        const singleton = await db.doc('adminBootstrap/singleton').get();
+        expect(singleton.exists).toBe(false); // never claimed
     });
 });
 
