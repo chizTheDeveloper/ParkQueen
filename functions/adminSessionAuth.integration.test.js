@@ -425,8 +425,10 @@ describe('requireCurrentAdmin — session revocation / stale admin token hardeni
         const migratedCount = (src.match(/await requireCurrentAdmin\(request\);/g) || []).length;
         // 13 from the original session-revocation hardening pass +
         // adminBackfillStreetIntelligence (coordinated Functions/Rules/client
-        // remediation — see functions/adminBackfill.integration.test.js AB-15).
-        expect(migratedCount).toBe(14);
+        // write remediation — see functions/adminBackfill.integration.test.js
+        // AB-15) + adminReadView (coordinated Functions/Rules/client READ
+        // remediation — see functions/adminReadViews.integration.test.js AR-18).
+        expect(migratedCount).toBe(15);
 
         // Only reconcileLegacyAdminSingleton may still use the raw token-only
         // pattern — if this count ever exceeds 1, a newly added admin

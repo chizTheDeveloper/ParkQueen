@@ -5,9 +5,16 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isAdmin() {
-      return signedIn() && request.auth.token.role == 'admin';
-    }
+    // isAdmin() (token-only `request.auth.token.role == 'admin'`) has been
+    // removed entirely. Firestore Rules cannot re-verify current server-side
+    // Auth state, so a token-only admin check can never safely reject a
+    // demoted/deleted/disabled administrator's still-valid ID token — Rules
+    // is structurally the wrong layer for that authorization. Every
+    // admin-only read/write in this file is now either genuinely public
+    // (`true`) or routed through a requireCurrentAdmin-gated Cloud Function
+    // callable (functions/adminAuth.js), which re-derives authorization from
+    // live Auth state on every call. Do not reintroduce a token-only admin
+    // check here — add a callable instead.
 
     // ── Spot update helpers ───────────────────────────────────────────────────
     function isFinder() {
@@ -44,7 +51,15 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if signedIn() || isAdmin();
+      // isAdmin() removed from this OR-chain: it was redundant, not
+      // protective — signedIn() alone already grants read access to every
+      // signed-in user regardless of role (pre-existing, unrelated to admin
+      // session hardening; not a capability change). The Admin Dashboard's
+      // bulk/cross-user consumption of this collection (UsersPage.tsx) now
+      // goes through the requireCurrentAdmin-gated adminReadView callable
+      // instead, which is a genuine hardening improvement over the previous
+      // any-signed-in-user-capable direct query.
+      allow read: if signedIn();
       allow create: if signedIn() && request.auth.uid == userId
         && request.resource.data.keys().hasOnly([
              'id', 'fullName', 'username', 'createdAt', 'crowns', 'title',
@@ -96,7 +111,10 @@ service cloud.firestore {
       // private/account — server-written only (moderationStatus, reportCount, emailVerified)
       match /private/account {
         allow read: if signedIn() && request.auth.uid == userId;
-        allow read: if isAdmin();
+        // Direct admin read removed: no Admin Dashboard component ever read
+        // this document — confirmed via full-repo search. Confidential
+        // moderation data must not remain directly readable by a stale
+        // admin token merely because nothing currently exercises it.
         allow write: if false;
       }
 
@@ -134,7 +152,10 @@ service cloud.firestore {
       // private/profile — owner-only demographic data (dob, gender, homeArea, etc.)
       match /private/profile {
         allow read, write: if signedIn() && request.auth.uid == userId;
-        allow read: if isAdmin();
+        // Direct admin read removed: no Admin Dashboard component ever read
+        // this document — confirmed via full-repo search. Private
+        // demographic data must not remain directly readable by a stale
+        // admin token merely because nothing currently exercises it.
       }
     }
 
@@ -152,14 +173,18 @@ service cloud.firestore {
 
     match /spots/{spotId} {
       // Public-ish: available/interested spots are readable by any signed-in user (live Ping feed).
-      // Occupied/history spots are private: only the finder, active claimer, or admin may read them.
+      // Occupied/history spots are private: only the finder or active claimer may read them directly.
+      // isAdmin() removed: it granted a genuine admin-specific escalation
+      // (reading any other user's private occupied/history spot), consumed
+      // only by PingsPage.tsx's "all pings" view — now the requireCurrentAdmin
+      // -gated adminReadView('pingsList') callable, so a stale admin token no
+      // longer retains this capability directly.
       allow read: if signedIn() && (
         resource.data.status == 'available'
         || resource.data.status == 'interested'
         || resource.data.finderId == request.auth.uid
         || resource.data.get('interestedUserId', null) == request.auth.uid
         || resource.data.get('claimedBy', null) == request.auth.uid
-        || isAdmin()
       );
       allow create: if signedIn()
         && request.resource.data.keys().hasAll([
@@ -302,7 +327,9 @@ service cloud.firestore {
     }
 
     match /stats/{docId} {
-      allow read: if isAdmin();
+      // Direct admin read removed: never read by any client — confirmed via
+      // full-repo search.
+      allow read: if false;
       allow write: if false;
     }
 
@@ -340,7 +367,12 @@ service cloud.firestore {
         && request.resource.data.reason.size() <= 1000
         && request.resource.data.status == 'pending'
         && request.resource.data.createdAt is timestamp;
-      allow read: if isAdmin();
+      // Direct admin read removed: the Admin Dashboard now reads reports
+      // exclusively via the requireCurrentAdmin-gated adminReadView
+      // ('reportsList'/'userDetail') callable — moderation data (reporter/
+      // reported UIDs, free-text reasons) must not remain directly readable
+      // by a stale admin token.
+      allow read: if false;
       // Direct admin writes removed: the Admin Dashboard mutates reports
       // exclusively via the adminUpdateReport callable (requireCurrentAdmin).
       // No client code ever exercised this branch.
@@ -409,7 +441,9 @@ service cloud.firestore {
             && get(/databases/$(database)/documents/spots/$(request.resource.data.spotId)).data
                  .get('interestedUserId', null) == request.resource.data.userId)
         );
-      allow read: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
+      // Direct admin read removed: never read by any Admin Dashboard
+      // component — confirmed via full-repo search. Owner self-read preserved.
+      allow read: if signedIn() && resource.data.userId == request.auth.uid;
       allow update, delete: if false;
     }
 
@@ -423,7 +457,11 @@ service cloud.firestore {
     }
 
     match /adminBootstrap/{docId} {
-      allow read: if isAdmin();
+      // Direct admin read removed: never read by any client — confirmed via
+      // full-repo search. Admin identity/singleton-ownership data must not
+      // remain directly readable by a stale admin token. bootstrapAdmin's own
+      // transaction reads this via the Admin SDK, which bypasses Rules.
+      allow read: if false;
       allow write: if false;
     }
 
@@ -432,17 +470,32 @@ service cloud.firestore {
     }
 
     match /adminAuditLog/{logId} {
-      allow read: if isAdmin();
+      // Direct admin read removed: the Admin Dashboard now reads audit
+      // history exclusively via the requireCurrentAdmin-gated adminReadView
+      // ('auditLogList'/'userDetail') callable — a stale former admin must
+      // not retain read access to privileged audit history.
+      allow read: if false;
       allow write: if false;
     }
 
     match /parkingSessions/{userId} {
-      allow read: if isAdmin() || (signedIn() && request.auth.uid == userId);
+      // Direct admin read removed: it granted a genuine admin-specific
+      // escalation (reading any other user's parking location/timing data),
+      // consumed only by UsersPage.tsx's per-user detail view and
+      // DashboardPage.tsx's active-session count — both now go through the
+      // requireCurrentAdmin-gated adminReadView callable. Owner self-read
+      // preserved.
+      allow read: if signedIn() && request.auth.uid == userId;
       allow write: if signedIn() && request.auth.uid == userId;
     }
 
     match /parseFailures/{failureId} {
-      allow read: if isAdmin();
+      // Direct admin read removed: the Admin Dashboard now reads parse
+      // failures exclusively via the requireCurrentAdmin-gated adminReadView
+      // ('parseFailuresList') callable. resolvedBy carries an admin's UID —
+      // exposing admin identity via a stale token is exactly the class of
+      // exposure this task closes.
+      allow read: if false;
       // Signed-in users may create new failure docs or increment count on existing ones
       allow create: if signedIn();
       // Direct admin writes removed: adminResolveParseFailure/

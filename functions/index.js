@@ -22,6 +22,7 @@ const { redactForLog, sanitizeError } = require('./redactForLog');
 const { checkRateLimit } = require('./rateLimiter');
 const { requireCurrentAdmin } = require('./adminAuth');
 const { isSweepNYCData, computeSegmentUpdate, computeRuleUpdate } = require('./backfillLogic');
+const { ADMIN_READ_VIEWS } = require('./adminReadViews');
 const { haversineDistMiles, filterCandidates, buildMessages, collectStaleTokens, MAX_CANDIDATES, FCM_BATCH } = require('./notifyFanout');
 const { createHash, createHmac, randomInt: secureRandomInt, randomUUID, timingSafeEqual } = require('crypto');
 
@@ -3142,7 +3143,39 @@ exports.adminBackfillStreetIntelligence = onCall(
   }
 );
 
-// 27) Create segment from SweepNYC with NYC Open Data fallback.
+// 27) Admin read views — coordinated read-side session hardening. Closes the
+// same class of vulnerability as adminBackfillStreetIntelligence, but for
+// READS: the Admin Dashboard used to query users/reports/adminAuditLog/
+// parkingSessions/parseFailures/spots directly against the client Firestore
+// SDK, authorized only by firestore.rules' token-only isAdmin() check. A
+// demoted/deleted/disabled admin's stale token could keep reading that data
+// until the token expired, regardless of how hardened the write path was.
+// firestore.rules now denies direct client reads for these paths; this is
+// the only way to read them. See functions/adminReadViews.js for the
+// per-view query logic, field selection, and bounds. Deliberately NOT a
+// generic adminReadCollection(collection, query) proxy — the client selects
+// only a fixed view name; every collection/field/filter/limit is
+// server-owned.
+exports.adminReadView = onCall(
+  { region: 'us-central1' },
+  async (request) => {
+    await requireCurrentAdmin(request);
+    const p = request.data || {};
+    if (typeof p.view !== 'string' || !Object.prototype.hasOwnProperty.call(ADMIN_READ_VIEWS, p.view)) {
+      throw new HttpsError('invalid-argument', 'Unknown view.');
+    }
+    const params = (p.params && typeof p.params === 'object' && !Array.isArray(p.params)) ? p.params : {};
+    try {
+      return await ADMIN_READ_VIEWS[p.view](db, params, { Timestamp });
+    } catch (err) {
+      if (err instanceof HttpsError) throw err;
+      console.warn(`[admin-read] view failed: ${p.view}`);
+      throw new HttpsError('internal', 'Read failed.');
+    }
+  }
+);
+
+// 28) Create segment from SweepNYC with NYC Open Data fallback.
 // Called when the client finds no Firestore segment within 80m.
 // Tries SweepNYC first; falls back to NYC Open Data when SweepNYC has no usable data.
 

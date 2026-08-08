@@ -4,6 +4,7 @@ import {
   collection, collectionGroup, getDocs, getCountFromServer,
   query, where,
 } from 'firebase/firestore';
+import { fetchDashboardCounts } from '../../utils/adminReadService';
 import { RefreshCw, AlertCircle, CheckCircle, AlertTriangle } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -43,10 +44,15 @@ async function loadStats(): Promise<{
   boroughRows: BoroughRow[];
   qualityChecks: QualityCheck[];
 }> {
-  // Fire all count queries + full segment load in parallel
+  // Fire all count queries + full segment load in parallel. streetSegments
+  // reads are public (allow read: if true), so they stay direct client
+  // queries. parseFailures is admin-only and no longer directly client
+  // readable (see firestore.rules) — its unresolved count now comes from
+  // the requireCurrentAdmin-gated adminReadView('dashboardCounts') callable,
+  // which already computes this same aggregate for DashboardPage.tsx.
   const [
     totalSnap, activeSnap, sweepnycSnap, adminSnap,
-    archivedSnap, reviewSnap, rulesSnap, failuresSnap,
+    archivedSnap, reviewSnap, rulesSnap, dashboardCounts,
     segmentDocs,
   ] = await Promise.all([
     getCountFromServer(collection(db!, 'streetSegments')),
@@ -57,8 +63,7 @@ async function loadStats(): Promise<{
     getCountFromServer(query(collection(db!, 'streetSegments'), where('status', '==', 'needs_review'))),
     // Collection group count: all active (not superseded) rules across all segments
     getCountFromServer(query(collectionGroup(db!, 'streetRules'), where('supersededAt', '==', null))),
-    // resolvedAt == null matches both explicit null and missing field
-    getCountFromServer(query(collection(db!, 'parseFailures'), where('resolvedAt', '==', null))),
+    fetchDashboardCounts(),
     getDocs(collection(db!, 'streetSegments')),
   ]);
 
@@ -70,7 +75,7 @@ async function loadStats(): Promise<{
     archivedSegments: archivedSnap.data().count,
     needsReviewSegments: reviewSnap.data().count,
     activeRules: rulesSnap.data().count,
-    unresolvedFailures: failuresSnap.data().count,
+    unresolvedFailures: dashboardCounts.parseFailures,
   };
 
   // Borough breakdown from loaded docs

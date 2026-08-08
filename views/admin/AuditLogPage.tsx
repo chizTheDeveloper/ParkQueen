@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../../firebase';
-import {
-  collection, query, orderBy, limit, getDocs, Timestamp,
-} from 'firebase/firestore';
+import type { Timestamp } from 'firebase/firestore';
+import { fetchAuditLogList } from '../../utils/adminReadService';
 import { ClipboardList, RefreshCw, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
 
 type TargetTypeFilter = 'all' | 'user' | 'spot' | 'report' | 'segment' | 'suspension' | 'system';
@@ -36,9 +34,6 @@ const fmtDateTime = (ts: FsTs | null | undefined) => {
     hour: '2-digit', minute: '2-digit',
   }).format(ts.toDate());
 };
-
-const effectiveTs = (e: AuditEntry): number =>
-  (e.createdAt ?? e.performedAt)?.toDate().getTime() ?? 0;
 
 const isLegacy = (e: AuditEntry) => !e.targetType && !e.adminId;
 
@@ -105,26 +100,8 @@ export const AuditLogPage = () => {
     setLoading(true);
     setError(null);
     try {
-      // Two queries: standard (by createdAt) + legacy (by performedAt)
-      const [newRes, legacyRes] = await Promise.allSettled([
-        getDocs(query(collection(db, 'adminAuditLog'), orderBy('createdAt', 'desc'), limit(80))),
-        getDocs(query(collection(db, 'adminAuditLog'), orderBy('performedAt', 'desc'), limit(20))),
-      ]);
-
-      const newEntries: AuditEntry[] = newRes.status === 'fulfilled'
-        ? newRes.value.docs.map(d => ({ id: d.id, ...(d.data() as Omit<AuditEntry, 'id'>) }))
-        : [];
-      const legacyEntries: AuditEntry[] = legacyRes.status === 'fulfilled'
-        ? legacyRes.value.docs.map(d => ({ id: d.id, ...(d.data() as Omit<AuditEntry, 'id'>) }))
-        : [];
-
-      const seen = new Set(newEntries.map(e => e.id));
-      const merged = [
-        ...newEntries,
-        ...legacyEntries.filter(e => !seen.has(e.id)),
-      ].sort((a, b) => effectiveTs(b) - effectiveTs(a));
-
-      setEntries(merged);
+      const data = await fetchAuditLogList();
+      setEntries(data.entries as AuditEntry[]);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load audit log.');
     } finally {
