@@ -1620,28 +1620,63 @@ exports.adminDeleteSpot = onCall(
 // revoked) — a session that is no longer current should not be able to
 // perform this sensitive mutation just because it once held a valid token.
 //
-// Privilege-resurrection fix: the same-owner retry branch (the transaction
-// below) exists so a genuine partial failure — the Firestore singleton
-// claimed, but the process died before the Auth claim below was ever set —
-// can be recovered by calling again, rather than permanently locking the
-// intended admin out. That transaction is unchanged. What used to be
-// missing was any check AFTER the transaction: the claim-granting step
-// below used to run unconditionally whenever current role wasn't already
-// 'admin', with no way to distinguish "the claim genuinely was never
-// applied yet" from "the claim was applied once, and this uid was later
-// intentionally demoted via setStaffRole". Both looked identical (current
-// role simply isn't 'admin' right now), so a demoted historical bootstrap
-// owner could call bootstrapAdmin again and regain admin, completely
-// bypassing setStaffRole. bootstrapComplete (claimsAppliedAt, or the
-// pre-existing reconciledLegacyAdmin marker written by
-// reconcileLegacyAdminSingleton) now distinguishes the two: the claim is
-// only ever (re-)applied while bootstrapComplete is false. Once true, a
-// caller whose current role isn't admin is refused outright — but a caller
-// who is STILL currently admin retrying (BA-E10/BA-E14/BA-E15) skips the
-// grant branch entirely (nothing to grant) and remains a harmless no-op,
-// exactly as before. The production singleton already carries
-// reconciledLegacyAdmin: true, so this closes the gap for the existing
-// singleton immediately, with no data migration required.
+// Crash-boundary hardening (this pass — see functions/adminAuth.js history
+// for the prior claimsAppliedAt/reconciledLegacyAdmin pass this builds on):
+// that prior pass closed resurrection once a completion marker existed, but
+// left one gap. If the Auth grant (setCustomUserClaims) itself succeeded
+// and the process then crashed BEFORE claimsAppliedAt was written, a
+// same-owner retry could not tell that apart from a genuine "the Auth grant
+// never ran at all" partial failure — both present an IDENTICAL durable
+// footprint (singleton owned by this uid, claimsAppliedAt absent, current
+// role non-admin). If an administrator intentionally demoted the owner in
+// between, that ambiguous retry would resurrect the demoted role. Nothing
+// in adminAuditLog, bootstrappedAt, Auth metadata, or the refresh-token
+// revocation timestamp distinguishes the two histories either — they were
+// checked and none carry independent evidence of whether the Auth mutation
+// ever ran.
+//
+// Fix: the singleton-claiming transaction below now reports whether THIS
+// invocation is the one that transactionally created the singleton
+// (createdFresh) versus found a pre-existing same-owner singleton left by
+// an earlier invocation — the only reliable, durable, server-derived
+// signal available (never trusted from client input; this Function accepts
+// no request.data at all). setCustomUserClaims(role:'admin') is now only
+// ever called on the invocation that just created the singleton — the one
+// moment we can be certain no prior invocation could already have granted
+// and lost that grant to a later demotion. A retry against a PRE-EXISTING
+// singleton either: (a) finds the caller already admin — safe to finalize
+// claimsAppliedAt with no Auth mutation (recovers exactly the
+// grant-succeeded/marker-crashed crash, "State 2"); (b) finds
+// bootstrapComplete already true (claimsAppliedAt or reconciledLegacyAdmin)
+// — refuse, unchanged from the prior pass; or (c) finds the caller
+// non-admin with no completion marker — genuinely ambiguous, and now fails
+// closed with 'failed-precondition' instead of guessing.
+//
+// Tradeoff, taken deliberately: a crash that happens strictly BEFORE the
+// Auth grant (singleton claimed, setCustomUserClaims never attempted) can
+// no longer self-heal through a retry — it is durably indistinguishable
+// from a demoted-owner replay, so automatic recovery is sacrificed in favor
+// of never resurrecting privilege. Recovering that specific state requires
+// manual/operator intervention outside this Function (e.g. a scoped one-off
+// Admin SDK claims fix after confirming via review that no demotion
+// occurred) — bootstrapAdmin itself must not guess. reconcileLegacyAdminSingleton
+// is not repurposed for this: its one-time production purpose (an admin
+// role granted out-of-band before this Function existed) is already
+// complete, and widening it into a general ambiguous-bootstrap recovery
+// path would reintroduce exactly the ambiguity being closed here.
+//
+// Serialization: bootstrapAdmin now participates in the same adminRoleLock/
+// singleton protocol setStaffRole uses below (transactional acquisition,
+// fenced release, 120s lease against this Function's own 60s Cloud
+// Functions v2 timeout, renewed immediately before the one call site that
+// can mutate Auth role state) so the two Functions can never race a
+// conflicting Auth claims mutation against the same account. See
+// setStaffRole's header comment for the full lease-duration proof — the
+// reasoning is identical here. The lock provides in-repository
+// serialization only; it does not make Firebase Auth itself transactional,
+// and an out-of-band Admin SDK writer outside this repo remains outside
+// this guarantee (same residual setStaffRole's own header already
+// documents).
 exports.bootstrapAdmin = onCall(
   { region: 'us-central1' },
   async (request) => {
@@ -1656,68 +1691,165 @@ exports.bootstrapAdmin = onCall(
     }
 
     const uid = request.auth.uid;
-
-    // Atomic singleton check — transaction prevents two concurrent calls both
-    // passing. A sentinel already naming this exact caller ('self') is not
-    // an error: it's either a benign duplicate call, or recovery from a
-    // prior attempt that won the singleton but failed before the Auth claim
-    // was set below (Firestore and Firebase Auth are separate systems and
-    // cannot be updated in one atomic operation — without this, that gap
-    // would permanently lock the intended admin out, since every retry
-    // would otherwise hit the same "already-exists" rejection).
     const sentinelRef = db.doc('adminBootstrap/singleton');
-    try {
-      await db.runTransaction(async (tx) => {
-        const sentinel = await tx.get(sentinelRef);
-        if (sentinel.exists) {
-          if (sentinel.data().bootstrappedBy === uid) return;
-          throw new HttpsError('already-exists', 'Admin access has already been bootstrapped.');
-        }
-        tx.set(sentinelRef, { bootstrappedAt: Timestamp.now(), bootstrappedBy: uid });
-      });
-    } catch (err) {
-      if (err.code === 'already-exists') throw err;
-      throw new HttpsError('internal', 'Bootstrap failed; retry.');
-    }
+    const lockRef = db.doc('adminRoleLock/singleton');
+    // Server-generated, unique per invocation attempt — used only to fence
+    // this invocation's ownership of adminRoleLock/singleton, the same way
+    // setStaffRole's caller-supplied operationId does. Not a client input;
+    // bootstrapAdmin accepts no operationId (or any other field) from
+    // request.data.
+    const lockOperationId = `bootstrap_${randomUUID()}`;
 
-    // Merge rather than replace: setCustomUserClaims overwrites the entire
-    // claims object, so a blind { role: 'admin' } would silently drop any
-    // other claim the account happened to carry. role is the only claim this
-    // codebase ever sets today, but that's not a guarantee for the future —
-    // read current claims and only touch the role key.
-    const currentUser = await getAuth().getUser(uid);
-    if (currentUser.customClaims?.role !== 'admin') {
-      const sentinelSnap = await sentinelRef.get();
-      const sentinelData = sentinelSnap.data() || {};
-      const bootstrapComplete = sentinelData.claimsAppliedAt != null || sentinelData.reconciledLegacyAdmin === true;
-      if (bootstrapComplete) {
-        // This singleton already finished granting admin once (possibly to
-        // this very uid); the current role simply isn't 'admin' anymore,
-        // which means an intentional demotion, not an unfinished grant.
-        // Refuse to resurrect — setStaffRole's decision stands.
-        console.warn('[bootstrapAdmin] rejected: resurrection_attempt');
-        throw new HttpsError('already-exists', 'Admin access has already been bootstrapped.');
+    // Identical acquisition protocol to setStaffRole's lock (same LEASE_MS,
+    // same attempt/backoff schedule) — see that Function's header comment
+    // for the full lease-duration proof.
+    const LEASE_MS = 120000;
+    const ACQUIRE_ATTEMPTS = 6;
+    let acquired = false;
+    for (let attempt = 0; attempt < ACQUIRE_ATTEMPTS && !acquired; attempt++) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, Math.min(400 * attempt, 2000)));
       }
-      await getAuth().setCustomUserClaims(uid, { ...(currentUser.customClaims || {}), role: 'admin' });
+      acquired = await db.runTransaction(async (tx) => {
+        const snap = await tx.get(lockRef);
+        const now = Timestamp.now();
+        if (snap.exists) {
+          const data = snap.data();
+          const expired = !data.leaseExpiresAt || data.leaseExpiresAt.toMillis() <= now.toMillis();
+          const sameOwner = data.ownerOperationId === lockOperationId;
+          if (!expired && !sameOwner) return false;
+        }
+        tx.set(lockRef, {
+          ownerOperationId: lockOperationId,
+          acquiredAt: now,
+          leaseExpiresAt: Timestamp.fromMillis(now.toMillis() + LEASE_MS),
+        });
+        return true;
+      });
     }
-    // Mark bootstrap fully completed for this singleton — from this point
-    // on, a caller whose current role isn't 'admin' can never have the
-    // claim (re-)applied through this function again, even if this uid is
-    // later demoted. Written unconditionally (not only when
-    // setCustomUserClaims above was actually needed) so a no-op call by an
-    // already-correct admin still closes the gap for next time.
-    await sentinelRef.set({ claimsAppliedAt: Timestamp.now() }, { merge: true });
-    // Idempotent by construction, so safe to (re)run on every retry that
-    // reaches here: the deterministic audit-log id means a retry updates the
-    // same record rather than creating a duplicate.
-    await db.doc(`adminAuditLog/bootstrap_${uid}`).set({
-      action: 'bootstrapAdmin',
-      adminUid: uid,
-      email,
-      performedAt: Timestamp.now(),
-    }, { merge: true });
+    if (!acquired) {
+      throw new HttpsError('aborted', 'Another role operation is in progress; please retry.');
+    }
 
-    return { success: true };
+    // Re-verify ownership and renew to a fresh full lease immediately before
+    // the one call site below that can mutate Auth role state — identical
+    // rationale to setStaffRole's own renewLockOrThrow.
+    async function renewLockOrThrow() {
+      const stillOwned = await db.runTransaction(async (tx) => {
+        const snap = await tx.get(lockRef);
+        if (!snap.exists || snap.data().ownerOperationId !== lockOperationId) return false;
+        const now = Timestamp.now();
+        tx.set(lockRef, {
+          ownerOperationId: lockOperationId,
+          acquiredAt: snap.data().acquiredAt,
+          leaseExpiresAt: Timestamp.fromMillis(now.toMillis() + LEASE_MS),
+        });
+        return true;
+      });
+      if (!stillOwned) {
+        throw new HttpsError('aborted', 'Lock ownership lost before Auth mutation; retry.');
+      }
+    }
+
+    try {
+      // Atomic singleton check — transaction prevents two concurrent calls
+      // both passing, and reports (server-derived, not client-trusted)
+      // whether THIS invocation is the one that just created the singleton
+      // versus found a pre-existing same-owner singleton from an earlier
+      // invocation. That boolean is the sole basis for whether a grant may
+      // occur below — see header comment.
+      let createdFresh;
+      try {
+        createdFresh = await db.runTransaction(async (tx) => {
+          const sentinel = await tx.get(sentinelRef);
+          if (sentinel.exists) {
+            if (sentinel.data().bootstrappedBy === uid) return false;
+            throw new HttpsError('already-exists', 'Admin access has already been bootstrapped.');
+          }
+          tx.set(sentinelRef, { bootstrappedAt: Timestamp.now(), bootstrappedBy: uid });
+          return true;
+        });
+      } catch (err) {
+        if (err.code === 'already-exists') throw err;
+        throw new HttpsError('internal', 'Bootstrap failed; retry.');
+      }
+
+      // Merge rather than replace: setCustomUserClaims overwrites the entire
+      // claims object, so a blind { role: 'admin' } would silently drop any
+      // other claim the account happened to carry. role is the only claim
+      // this codebase ever sets today, but that's not a guarantee for the
+      // future — read current claims and only touch the role key.
+      const currentUser = await getAuth().getUser(uid);
+      const alreadyAdmin = currentUser.customClaims?.role === 'admin';
+
+      if (!alreadyAdmin) {
+        if (createdFresh) {
+          // The only invocation in this singleton's history that can ever
+          // reach this branch: no prior invocation could have already
+          // granted and lost the grant to a later demotion, because this
+          // invocation is the one that just transactionally created the
+          // singleton. The sole legitimate first-bootstrap grant path.
+          await renewLockOrThrow();
+          await getAuth().setCustomUserClaims(uid, { ...(currentUser.customClaims || {}), role: 'admin' });
+        } else {
+          // Pre-existing singleton, caller currently non-admin. Cannot
+          // distinguish "the Auth grant never ran" from "the Auth grant
+          // succeeded once and was later intentionally reversed" — both
+          // present identically here (see header). Refuse outright if a
+          // completion marker already exists (unchanged from the prior
+          // pass); otherwise this is genuinely ambiguous and must fail
+          // closed rather than guess.
+          const sentinelSnap = await sentinelRef.get();
+          const sentinelData = sentinelSnap.data() || {};
+          const bootstrapComplete = sentinelData.claimsAppliedAt != null || sentinelData.reconciledLegacyAdmin === true;
+          if (bootstrapComplete) {
+            console.warn('[bootstrapAdmin] rejected: resurrection_attempt');
+            throw new HttpsError('already-exists', 'Admin access has already been bootstrapped.');
+          }
+          console.warn('[bootstrapAdmin] rejected: ambiguous_retry');
+          throw new HttpsError(
+            'failed-precondition',
+            'Bootstrap could not be completed automatically; administrative review required.'
+          );
+        }
+      }
+      // Reached only when this invocation just granted admin (createdFresh)
+      // or the caller was already admin (fresh-singleton idempotent no-op,
+      // or a pre-existing-singleton retry recovering a grant-succeeded/
+      // marker-crashed crash — State 2). The ambiguous and already-refused
+      // branches above both throw before reaching here, so no audit or
+      // completion marker is ever written for them (see Phase 7 policy).
+
+      // Mark bootstrap fully completed for this singleton — from this point
+      // on, a caller whose current role isn't 'admin' can never have the
+      // claim (re-)applied through this function again, even if this uid is
+      // later demoted. Written whenever we reach here (not only when
+      // setCustomUserClaims above was actually needed) so a no-op call by
+      // an already-correct admin still closes the gap for next time.
+      await sentinelRef.set({ claimsAppliedAt: Timestamp.now() }, { merge: true });
+      // Idempotent by construction, so safe to (re)run on every retry that
+      // reaches here: the deterministic audit-log id means a retry updates
+      // the same record rather than creating a duplicate.
+      await db.doc(`adminAuditLog/bootstrap_${uid}`).set({
+        action: 'bootstrapAdmin',
+        adminUid: uid,
+        email,
+        performedAt: Timestamp.now(),
+      }, { merge: true });
+
+      return { success: true };
+    } finally {
+      // Fencing: only release if this invocation still owns the lock — a
+      // stale/crashed invocation whose lease already expired and was stolen
+      // by a newer operation must never release that newer operation's
+      // lock. Identical to setStaffRole's release.
+      await db.runTransaction(async (tx) => {
+        const snap = await tx.get(lockRef);
+        if (!snap.exists) return;
+        if (snap.data().ownerOperationId !== lockOperationId) return;
+        tx.delete(lockRef);
+      }).catch(() => {});
+    }
   }
 );
 
