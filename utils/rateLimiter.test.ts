@@ -154,6 +154,52 @@ describe('TM-13 — Phase J callable rate-limit source assertions', () => {
             expect(body).not.toMatch(/checkRateLimit\(.*'generateListingDescription'/);
             expect(body).not.toMatch(/checkRateLimit\(.*'createSegmentFromSweepNYC'/);
         });
+
+        it('RL-M1: a text length bound is enforced (invalid-argument on violation)', () => {
+            expect(body).toMatch(/text\.length\s*>\s*1000/);
+            const boundIdx = body.search(/text\.length\s*>\s*1000/);
+            const throwIdx = body.indexOf('invalid-argument', boundIdx);
+            expect(throwIdx).toBeGreaterThan(boundIdx);
+        });
+
+        it('RL-M2: the length bound is enforced before checkRateLimit, so an oversized payload never consumes quota', () => {
+            const boundIdx = body.search(/text\.length\s*>\s*1000/);
+            const rlIdx = body.indexOf("checkRateLimit(uid, 'moderateContent'");
+            expect(boundIdx).toBeGreaterThan(-1);
+            expect(boundIdx).toBeLessThan(rlIdx);
+        });
+    });
+
+    describe('claimUsername (5/hr)', () => {
+        const body = extractCallable(INDEX_SRC, 'claimUsername');
+
+        it('RL-U-C1: checkRateLimit is called with operation key "claimUsername"', () => {
+            expect(body).toMatch(/checkRateLimit\(.*'claimUsername'/);
+        });
+
+        it('RL-U-C2: limit is 5 per hour', () => {
+            expect(body).toMatch(/checkRateLimit\(.*'claimUsername'.*\{.*limit:\s*5.*windowSec:\s*3600/s);
+        });
+
+        it('RL-U-C3: checkRateLimit precedes the uniqueness transaction (runTransaction)', () => {
+            const rlIdx = body.indexOf("checkRateLimit(request.auth.uid, 'claimUsername'");
+            const txIdx = body.indexOf('runTransaction');
+            expect(rlIdx).toBeGreaterThan(-1);
+            expect(txIdx).toBeGreaterThan(-1);
+            expect(rlIdx).toBeLessThan(txIdx);
+        });
+
+        it('RL-U-C4: auth guard precedes checkRateLimit', () => {
+            const authIdx = body.indexOf('throw new HttpsError("unauthenticated"');
+            const rlIdx = body.indexOf("checkRateLimit(request.auth.uid, 'claimUsername'");
+            expect(authIdx).toBeGreaterThan(-1);
+            expect(authIdx).toBeLessThan(rlIdx);
+        });
+
+        it('RL-U-C5: unique operation key differs from other callables', () => {
+            expect(body).not.toMatch(/checkRateLimit\(.*'moderateContent'/);
+            expect(body).not.toMatch(/checkRateLimit\(.*'createSegmentFromSweepNYC'/);
+        });
     });
 
     describe('createSegmentFromSweepNYC (30/hr)', () => {

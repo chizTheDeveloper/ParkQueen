@@ -1408,6 +1408,14 @@ exports.moderateContent = onCall(
     if (!request.auth) throw new HttpsError("unauthenticated", "Sign in first.");
     const { text, type } = request.data || {};
     if (!text || !type) throw new HttpsError("invalid-argument", "Text and type required.");
+    // Bound matches firestore.rules chat message text.size() <= 1000 — moderateContent
+    // pre-screens content before it's ever written to that size-bounded field, so
+    // nothing legitimate needs more than what storage itself would eventually allow.
+    // Rejected here (before checkRateLimit) so an oversized/malformed payload doesn't
+    // consume rate-limit quota, mirroring TM-25's generateSmartReplies length bound.
+    if (typeof text !== "string" || text.length > 1000) {
+      throw new HttpsError("invalid-argument", "Text must be 1000 characters or less.");
+    }
 
     const uid = request.auth.uid;
     await checkRateLimit(uid, 'moderateContent', { limit: 60, windowSec: 3600 });
