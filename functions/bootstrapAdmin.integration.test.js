@@ -24,10 +24,12 @@
 const { initializeApp, getApps } = require('firebase-admin/app');
 const { getFirestore, Timestamp } = require('firebase-admin/firestore');
 const { getAuth } = require('firebase-admin/auth');
+const fs = require('fs');
+const path = require('path');
 
-let bootstrapAdmin;
+let bootstrapAdmin, setStaffRole;
 try {
-    ({ bootstrapAdmin } = require('./index.js'));
+    ({ bootstrapAdmin, setStaffRole } = require('./index.js'));
 } catch (e) {
     console.warn('[bootstrapAdmin.integration] Could not load index.js:', e.message);
 }
@@ -79,6 +81,16 @@ async function deleteSingleton() {
     await db.doc('adminBootstrap/singleton').delete().catch(() => {});
 }
 
+// adminRoleLock/singleton is shared, serial-run-wide state (maxWorkers: 1
+// runs every Functions integration test file against one emulator
+// instance). bootstrapAdmin now acquires this lock too — a stale lock left
+// by an earlier test/file would make later acquisitions in this file
+// nondeterministic. Matches the same convention setStaffRole.integration.
+// test.js already uses for its own lock cleanup.
+async function deleteRoleLock() {
+    await db.doc('adminRoleLock/singleton').delete().catch(() => {});
+}
+
 async function deleteAuditLogs(uid) {
     const snap = await db.collection('adminAuditLog')
         .where('adminUid', '==', uid).get();
@@ -92,6 +104,36 @@ async function nukeUser(uid) {
     await adminAuth.deleteUser(uid).catch(() => {});
 }
 
+// Minimal direct-handler request for setStaffRole, matching the same
+// plain-token convention already proven to work against .run() in
+// adminAuth.revocation.integration.test.js — no real sign-in/ID token is
+// needed for a direct-handler call, since requireCurrentAdmin only reads
+// request.auth.token fields.
+function fakeStaffRoleRequest(actorUid, data) {
+    const NOW = Math.floor(Date.now() / 1000);
+    return {
+        data,
+        auth: {
+            uid: actorUid,
+            token: { uid: actorUid, role: 'admin', auth_time: NOW - 30, iat: NOW - 30, exp: NOW + 3600 },
+        },
+        rawRequest: {},
+    };
+}
+
+async function callSetStaffRole(actorUid, data) {
+    if (!setStaffRole) throw new Error('setStaffRole not loaded');
+    try {
+        return { result: await setStaffRole.run(fakeStaffRoleRequest(actorUid, data)) };
+    } catch (err) {
+        return { error: { code: err.code, message: err.message } };
+    }
+}
+
+function opId(label) {
+    return `op_${label}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 // â”€â”€â”€ Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 describe('bootstrapAdmin â€” emulator behavioral tests', () => {
@@ -100,10 +142,12 @@ describe('bootstrapAdmin â€” emulator behavioral tests', () => {
     beforeEach(async () => {
         uid = testUid();
         await deleteSingleton();
+        await deleteRoleLock();
     });
 
     afterEach(async () => {
         await deleteSingleton();
+        await deleteRoleLock();
         await deleteAuditLogs(uid);
         await nukeUser(uid);
     });
@@ -202,7 +246,7 @@ describe('bootstrapAdmin â€” emulator behavioral tests', () => {
         expect(rec.performedAt).toBeTruthy();
     });
 
-    it('BA-E9: recovers from a partial failure — sentinel claimed by this caller but the Auth claim was never set (e.g. the process crashed between the two) — retry completes the grant instead of permanently rejecting', async () => {
+    it('BA-E9: a crash after singleton creation but before the Auth grant is now intentionally NOT auto-recovered — retry fails closed (superseded by the crash-boundary hardening pass; see BC-2)', async () => {
         if (!bootstrapAdmin) return;
         await adminAuth.createUser({ uid }).catch(() => {});
         // Simulate exactly what the transaction would have left behind if the
@@ -214,14 +258,20 @@ describe('bootstrapAdmin â€” emulator behavioral tests', () => {
         const before = await adminAuth.getUser(uid);
         expect(before.customClaims?.role).not.toBe('admin'); // confirms the gap is real
 
+        // This exact durable state (singleton owned by this uid,
+        // claimsAppliedAt absent, current role non-admin) is indistinguishable
+        // from a demoted historical owner replaying bootstrapAdmin (BC-4) —
+        // nothing in Firestore or Auth records whether the Auth grant was
+        // ever attempted. Auto-recovery was deliberately sacrificed to close
+        // that resurrection path: this now fails closed instead of granting.
         const { result, error } = await callDirect(uid, 'jay@parqueen.app', true);
 
-        expect(error).toBeUndefined();
-        expect(result.success).toBe(true);
+        expect(result).toBeUndefined();
+        expect(error.code).toBe('failed-precondition');
         const after = await adminAuth.getUser(uid);
-        expect(after.customClaims?.role).toBe('admin'); // the missing half is now granted
+        expect(after.customClaims?.role).not.toBe('admin'); // never granted
         const snap = await db.collection('adminAuditLog').where('adminUid', '==', uid).get();
-        expect(snap.size).toBe(1); // exactly one audit record, not zero and not two
+        expect(snap.empty).toBe(true); // no success audit for a rejected ambiguous retry
     });
 
     it('BA-E10: an already-fully-bootstrapped admin retrying gets an idempotent success — no duplicate audit record', async () => {
@@ -474,6 +524,416 @@ describe('bootstrapAdmin â€” emulator behavioral tests', () => {
 
         const singleton = await db.doc('adminBootstrap/singleton').get();
         expect(singleton.exists).toBe(false); // never claimed
+    });
+
+    // ─── Crash-boundary hardening (createdFresh state machine + adminRoleLock) ───
+
+    it('BC-1: fresh invocation creates the singleton and grants admin successfully', async () => {
+        if (!bootstrapAdmin) return;
+        await adminAuth.createUser({ uid }).catch(() => {});
+        const { result, error } = await callDirect(uid, 'jay@parqueen.app', true);
+        expect(error).toBeUndefined();
+        expect(result.success).toBe(true);
+
+        const user = await adminAuth.getUser(uid);
+        expect(user.customClaims?.role).toBe('admin');
+
+        const singleton = await db.doc('adminBootstrap/singleton').get();
+        expect(singleton.exists).toBe(true);
+        expect(singleton.data().bootstrappedBy).toBe(uid);
+        expect(singleton.data().claimsAppliedAt).toBeTruthy();
+
+        const lock = await db.doc('adminRoleLock/singleton').get();
+        expect(lock.exists).toBe(false); // released cleanly
+    });
+
+    it('BC-2: crash after singleton creation but before the Auth grant — retry fails closed, no admin grant', async () => {
+        if (!bootstrapAdmin) return;
+        await adminAuth.createUser({ uid }).catch(() => {});
+        // Exactly what the transaction alone would leave behind if the
+        // process died before setCustomUserClaims ever ran.
+        await db.doc('adminBootstrap/singleton').set({ bootstrappedAt: Timestamp.now(), bootstrappedBy: uid });
+
+        const { result, error } = await callDirect(uid, 'jay@parqueen.app', true);
+        expect(result).toBeUndefined();
+        expect(error.code).toBe('failed-precondition');
+
+        const user = await adminAuth.getUser(uid);
+        expect(user.customClaims?.role).not.toBe('admin');
+        const singleton = await db.doc('adminBootstrap/singleton').get();
+        expect(singleton.data().claimsAppliedAt).toBeUndefined();
+        const lock = await db.doc('adminRoleLock/singleton').get();
+        expect(lock.exists).toBe(false);
+    });
+
+    it('BC-3: crash after the Auth grant but before claimsAppliedAt — retry sees current admin and safely finalizes without another grant', async () => {
+        if (!bootstrapAdmin) return;
+        await adminAuth.createUser({ uid }).catch(() => {});
+        await db.doc('adminBootstrap/singleton').set({ bootstrappedAt: Timestamp.now(), bootstrappedBy: uid });
+        await adminAuth.setCustomUserClaims(uid, { role: 'admin' });
+
+        const { result, error } = await callDirect(uid, 'jay@parqueen.app', true);
+        expect(error).toBeUndefined();
+        expect(result.success).toBe(true);
+
+        const user = await adminAuth.getUser(uid);
+        expect(user.customClaims?.role).toBe('admin');
+        const singleton = await db.doc('adminBootstrap/singleton').get();
+        expect(singleton.data().claimsAppliedAt).toBeTruthy();
+        const snap = await db.collection('adminAuditLog').where('adminUid', '==', uid).get();
+        expect(snap.size).toBe(1);
+    });
+
+    it('BC-4: exact confirmed defect — Auth grant succeeds, claimsAppliedAt never written, another admin demotes the owner, owner retries — no re-grant occurs', async () => {
+        if (!bootstrapAdmin) return;
+        await adminAuth.createUser({ uid }).catch(() => {});
+        // Auth grant succeeded, crash before claimsAppliedAt (identical setup to BC-3).
+        await db.doc('adminBootstrap/singleton').set({ bootstrappedAt: Timestamp.now(), bootstrappedBy: uid });
+        await adminAuth.setCustomUserClaims(uid, { role: 'admin' });
+
+        // Another administrator intentionally demotes the owner — exactly
+        // what setStaffRole does to customClaims.
+        await adminAuth.setCustomUserClaims(uid, { role: 'staff' });
+
+        const { result, error } = await callDirect(uid, 'jay@parqueen.app', true);
+        expect(result).toBeUndefined();
+        // Ambiguous, not already-exists — no completion marker exists, so
+        // this is durably indistinguishable from BC-2's genuine partial
+        // failure. Fails closed either way.
+        expect(error.code).toBe('failed-precondition');
+
+        const user = await adminAuth.getUser(uid);
+        expect(user.customClaims?.role).toBe('staff'); // still demoted, never resurrected
+        const snap = await db.collection('adminAuditLog').where('adminUid', '==', uid).get();
+        expect(snap.empty).toBe(true);
+    });
+
+    it('BC-5: completed bootstrap (claimsAppliedAt present) then demoted — no re-grant', async () => {
+        if (!bootstrapAdmin) return;
+        await adminAuth.createUser({ uid }).catch(() => {});
+        const first = await callDirect(uid, 'jay@parqueen.app', true);
+        expect(first.result.success).toBe(true);
+
+        await adminAuth.setCustomUserClaims(uid, { role: 'staff' });
+
+        const { result, error } = await callDirect(uid, 'jay@parqueen.app', true);
+        expect(result).toBeUndefined();
+        expect(error.code).toBe('already-exists');
+
+        const user = await adminAuth.getUser(uid);
+        expect(user.customClaims?.role).toBe('staff');
+    });
+
+    it('BC-6: reconciledLegacyAdmin singleton then demoted — no re-grant', async () => {
+        if (!bootstrapAdmin) return;
+        await adminAuth.createUser({ uid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(uid, { role: 'admin' });
+        await db.doc('adminBootstrap/singleton').set({
+            bootstrappedAt: Timestamp.now(),
+            bootstrappedBy: uid,
+            reconciledLegacyAdmin: true,
+        });
+        await adminAuth.setCustomUserClaims(uid, { role: 'staff' });
+
+        const { result, error } = await callDirect(uid, 'jay@parqueen.app', true);
+        expect(result).toBeUndefined();
+        expect(error.code).toBe('already-exists');
+
+        const user = await adminAuth.getUser(uid);
+        expect(user.customClaims?.role).toBe('staff');
+    });
+
+    it('BC-7: a different uid cannot use a claimed singleton', async () => {
+        if (!bootstrapAdmin) return;
+        await adminAuth.createUser({ uid }).catch(() => {});
+        const first = await callDirect(uid, 'jay@parqueen.app', true);
+        expect(first.result.success).toBe(true);
+
+        const otherUid = testUid();
+        await adminAuth.createUser({ uid: otherUid }).catch(() => {});
+        const { error } = await callDirect(otherUid, 'ops@parqueen.app', true);
+        expect(error.code).toBe('already-exists');
+
+        const otherUser = await adminAuth.getUser(otherUid);
+        expect(otherUser.customClaims?.role).not.toBe('admin');
+
+        await nukeUser(otherUid);
+    });
+
+    it('BC-8: an ambiguous retry creates no success audit record and does not write claimsAppliedAt', async () => {
+        if (!bootstrapAdmin) return;
+        await adminAuth.createUser({ uid }).catch(() => {});
+        await db.doc('adminBootstrap/singleton').set({ bootstrappedAt: Timestamp.now(), bootstrappedBy: uid });
+
+        const { error } = await callDirect(uid, 'jay@parqueen.app', true);
+        expect(error.code).toBe('failed-precondition');
+
+        const snap = await db.collection('adminAuditLog').where('adminUid', '==', uid).get();
+        expect(snap.empty).toBe(true);
+        const singleton = await db.doc('adminBootstrap/singleton').get();
+        expect(singleton.data().claimsAppliedAt).toBeUndefined();
+    });
+
+    it('BC-9: source contract — setCustomUserClaims(role: "admin") is reachable only from the createdFresh branch', () => {
+        const src = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+        const start = src.indexOf('exports.bootstrapAdmin = onCall(');
+        expect(start).toBeGreaterThan(-1);
+        const end = src.indexOf('exports.reconcileLegacyAdminSingleton', start);
+        expect(end).toBeGreaterThan(start);
+        const body = src.slice(start, end);
+
+        const matches = body.match(/setCustomUserClaims\(uid,/g) || [];
+        expect(matches).toHaveLength(1); // exactly one grant call site in this Function
+
+        const grantIndex = body.indexOf('setCustomUserClaims(uid,');
+        const guardIndex = body.indexOf('if (createdFresh)');
+        expect(guardIndex).toBeGreaterThan(-1);
+        expect(guardIndex).toBeLessThan(grantIndex); // the guard textually wraps the call
+
+        // The sibling else branch (pre-existing singleton) must never reach
+        // a grant call — it can only throw.
+        const elseIndex = body.indexOf('} else {', guardIndex);
+        expect(elseIndex).toBeGreaterThan(-1);
+        expect(elseIndex).toBeGreaterThan(grantIndex); // else branch follows the grant call, not before it
+        const elseBranchEnd = body.indexOf('\n        }\n', elseIndex);
+        const elseBranch = body.slice(elseIndex, elseBranchEnd > -1 ? elseBranchEnd : undefined);
+        expect(elseBranch).not.toMatch(/setCustomUserClaims\(uid,/);
+        expect(elseBranch).toMatch(/failed-precondition/);
+    });
+
+    it('BC-10: bootstrapAdmin and setStaffRole serialize through the same adminRoleLock — no corrupted concurrent write', async () => {
+        if (!bootstrapAdmin || !setStaffRole) return;
+        const actorAdmin = testUid('actor');
+        await adminAuth.createUser({ uid: actorAdmin }).catch(() => {});
+        await adminAuth.setCustomUserClaims(actorAdmin, { role: 'admin' });
+        await adminAuth.createUser({ uid }).catch(() => {});
+
+        const [bootstrapOutcome, staffOutcome] = await Promise.all([
+            callDirect(uid, 'jay@parqueen.app', true),
+            callSetStaffRole(actorAdmin, { uid, role: 'staff', operationId: opId('race') }),
+        ]);
+
+        // Both must resolve cleanly — proves the shared lock serializes the
+        // two critical sections rather than deadlocking or corrupting
+        // either one.
+        expect(bootstrapOutcome.error).toBeUndefined();
+        expect(bootstrapOutcome.result.success).toBe(true);
+        expect(staffOutcome.error).toBeUndefined();
+        expect(staffOutcome.result.success).toBe(true);
+
+        const user = await adminAuth.getUser(uid);
+        // Whichever operation's Auth mutation landed last determines the
+        // final role — both are legitimate outcomes of a genuine race —
+        // but it must be a single, clean value, never a torn/undefined claim.
+        expect(['admin', 'staff']).toContain(user.customClaims?.role);
+
+        const lock = await db.doc('adminRoleLock/singleton').get();
+        expect(lock.exists).toBe(false); // both released cleanly, no leaked lock
+
+        await nukeUser(actorAdmin);
+        await deleteAuditLogs(actorAdmin);
+    });
+
+    it('BC-11: setStaffRole holding the lock blocks a concurrent bootstrap attempt; bootstrap observes the resulting safe state after release', async () => {
+        if (!bootstrapAdmin) return;
+        await adminAuth.createUser({ uid }).catch(() => {});
+
+        // Simulate setStaffRole actively holding the shared lock.
+        await db.doc('adminRoleLock/singleton').set({
+            ownerOperationId: opId('staffrole-active'),
+            acquiredAt: Timestamp.now(),
+            leaseExpiresAt: Timestamp.fromMillis(Date.now() + 25000),
+        });
+
+        const { error } = await callDirect(uid, 'jay@parqueen.app', true);
+        expect(error.code).toBe('aborted'); // could not acquire while setStaffRole holds it
+
+        const user = await adminAuth.getUser(uid);
+        expect(user.customClaims?.role).not.toBe('admin'); // no mutation was possible
+        const singleton = await db.doc('adminBootstrap/singleton').get();
+        expect(singleton.exists).toBe(false); // transaction never reached
+
+        // setStaffRole finishes and releases.
+        await db.doc('adminRoleLock/singleton').delete();
+
+        // Bootstrap now observes the lock free and proceeds normally.
+        const retry = await callDirect(uid, 'jay@parqueen.app', true);
+        expect(retry.error).toBeUndefined();
+        expect(retry.result.success).toBe(true);
+        const after = await adminAuth.getUser(uid);
+        expect(after.customClaims?.role).toBe('admin');
+    }, 20000);
+
+    it('BC-12: a bootstrap-held lock blocks a concurrent setStaffRole attempt; setStaffRole applies safely once bootstrap releases', async () => {
+        if (!setStaffRole) return;
+        const actorAdmin = testUid('actor2');
+        await adminAuth.createUser({ uid: actorAdmin }).catch(() => {});
+        await adminAuth.setCustomUserClaims(actorAdmin, { role: 'admin' });
+        const target = testUid('target2');
+        await adminAuth.createUser({ uid: target }).catch(() => {});
+
+        // Simulate bootstrapAdmin actively holding the shared lock.
+        await db.doc('adminRoleLock/singleton').set({
+            ownerOperationId: `bootstrap_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            acquiredAt: Timestamp.now(),
+            leaseExpiresAt: Timestamp.fromMillis(Date.now() + 25000),
+        });
+
+        const { error } = await callSetStaffRole(actorAdmin, { uid: target, role: 'staff', operationId: opId('blocked') });
+        expect(error.code).toBe('aborted'); // could not acquire while bootstrap holds it
+
+        const targetUser = await adminAuth.getUser(target);
+        expect(targetUser.customClaims?.role).not.toBe('staff'); // no mutation was possible
+
+        // bootstrapAdmin finishes and releases.
+        await db.doc('adminRoleLock/singleton').delete();
+
+        // setStaffRole now observes the lock free and applies safely.
+        const retry = await callSetStaffRole(actorAdmin, { uid: target, role: 'staff', operationId: opId('retry') });
+        expect(retry.error).toBeUndefined();
+        expect(retry.result.success).toBe(true);
+        const after = await adminAuth.getUser(target);
+        expect(after.customClaims?.role).toBe('staff');
+
+        await nukeUser(actorAdmin);
+        await nukeUser(target);
+        await deleteAuditLogs(actorAdmin);
+    }, 20000);
+
+    it('BC-13: an expired bootstrap-held lock is recoverable by a new operation', async () => {
+        if (!bootstrapAdmin) return;
+        await adminAuth.createUser({ uid }).catch(() => {});
+        await db.doc('adminRoleLock/singleton').set({
+            ownerOperationId: 'bootstrap_crashed-op',
+            acquiredAt: Timestamp.fromMillis(Date.now() - 200000),
+            leaseExpiresAt: Timestamp.fromMillis(Date.now() - 30000),
+        });
+
+        const { result, error } = await callDirect(uid, 'jay@parqueen.app', true);
+        expect(error).toBeUndefined();
+        expect(result.success).toBe(true);
+
+        const lock = await db.doc('adminRoleLock/singleton').get();
+        expect(lock.exists).toBe(false);
+    });
+
+    it('BC-14: a stale/expired lock owner cannot release a newer operation\'s active lock (fencing)', async () => {
+        // Simulate a newer operation now legitimately owning the lock.
+        await db.doc('adminRoleLock/singleton').set({
+            ownerOperationId: 'bootstrap_newer-real-op',
+            acquiredAt: Timestamp.now(),
+            leaseExpiresAt: Timestamp.fromMillis(Date.now() + 60000),
+        });
+
+        // Exactly the fenced-release transaction shape bootstrapAdmin's own
+        // finally block runs, invoked here with a DIFFERENT (stale) owner id.
+        const lockRef = db.doc('adminRoleLock/singleton');
+        await db.runTransaction(async (tx) => {
+            const snap = await tx.get(lockRef);
+            if (!snap.exists) return;
+            if (snap.data().ownerOperationId !== 'bootstrap_stale-crashed-op') return;
+            tx.delete(lockRef);
+        });
+
+        const lock = await db.doc('adminRoleLock/singleton').get();
+        expect(lock.exists).toBe(true);
+        expect(lock.data().ownerOperationId).toBe('bootstrap_newer-real-op'); // untouched
+
+        await db.doc('adminRoleLock/singleton').delete();
+    });
+
+    it('BC-15: lock ownership loss is detected before any Auth mutation would occur (fencing)', async () => {
+        // Exactly the renewal-check transaction shape bootstrapAdmin runs
+        // immediately before its one setCustomUserClaims call site — proves
+        // that when ownership no longer matches (stolen by a newer
+        // operation, or expired-and-reclaimed), the check correctly reports
+        // "not owned", which is what makes the real code throw 'aborted'
+        // rather than proceed to mutate Auth.
+        const lockRef = db.doc('adminRoleLock/singleton');
+        await lockRef.set({
+            ownerOperationId: 'bootstrap_someone-elses-op',
+            acquiredAt: Timestamp.now(),
+            leaseExpiresAt: Timestamp.fromMillis(Date.now() + 60000),
+        });
+
+        const stillOwned = await db.runTransaction(async (tx) => {
+            const snap = await tx.get(lockRef);
+            if (!snap.exists || snap.data().ownerOperationId !== 'bootstrap_my-op') return false;
+            return true;
+        });
+        expect(stillOwned).toBe(false);
+
+        await lockRef.delete();
+    });
+
+    it('BC-16: a production-shaped reconciled singleton requires no new field and remains permanently closed against resurrection', async () => {
+        if (!bootstrapAdmin) return;
+        await adminAuth.createUser({ uid }).catch(() => {});
+        await adminAuth.setCustomUserClaims(uid, { role: 'admin' });
+        await db.doc('adminBootstrap/singleton').set({
+            bootstrappedAt: Timestamp.now(),
+            bootstrappedBy: uid,
+            reconciledLegacyAdmin: true,
+        });
+        const beforeFields = (await db.doc('adminBootstrap/singleton').get()).data();
+        expect(Object.keys(beforeFields).sort()).toEqual(['bootstrappedAt', 'bootstrappedBy', 'reconciledLegacyAdmin']);
+
+        await adminAuth.setCustomUserClaims(uid, { role: 'staff' });
+
+        const { error } = await callDirect(uid, 'jay@parqueen.app', true);
+        expect(error.code).toBe('already-exists');
+
+        const user = await adminAuth.getUser(uid);
+        expect(user.customClaims?.role).toBe('staff');
+        // No migration required: the production field shape alone (no
+        // claimsAppliedAt, no createdFresh-related field) is sufficient.
+        const afterFields = (await db.doc('adminBootstrap/singleton').get()).data();
+        expect(afterFields.reconciledLegacyAdmin).toBe(true);
+        expect(afterFields.claimsAppliedAt).toBeUndefined(); // rejected retry never writes it
+    });
+
+    it('BC-17: a revoked caller is still denied before any lock acquisition or singleton mutation', async () => {
+        if (!bootstrapAdmin) return;
+        await adminAuth.createUser({ uid }).catch(() => {});
+        const staleAuthTime = Math.floor(Date.now() / 1000);
+        await new Promise(r => setTimeout(r, 1100));
+        await adminAuth.revokeRefreshTokens(uid);
+
+        const req = {
+            data: {},
+            auth: {
+                uid,
+                token: {
+                    uid, email: 'jay@parqueen.app', email_verified: true,
+                    auth_time: staleAuthTime, iat: staleAuthTime, exp: staleAuthTime + 3600,
+                },
+            },
+            rawRequest: {},
+        };
+        await expect(bootstrapAdmin.run(req)).rejects.toMatchObject({ code: 'permission-denied' });
+
+        const singleton = await db.doc('adminBootstrap/singleton').get();
+        expect(singleton.exists).toBe(false);
+        const lock = await db.doc('adminRoleLock/singleton').get();
+        expect(lock.exists).toBe(false); // never even attempted acquisition
+    });
+
+    it('BC-18: a disabled or deleted bootstrap caller is still denied', async () => {
+        if (!bootstrapAdmin) return;
+        // Disabled caller
+        await adminAuth.createUser({ uid }).catch(() => {});
+        await adminAuth.updateUser(uid, { disabled: true });
+        const { error: disabledError } = await callDirect(uid, 'jay@parqueen.app', true);
+        expect(disabledError.code).toBe('permission-denied');
+        let singleton = await db.doc('adminBootstrap/singleton').get();
+        expect(singleton.exists).toBe(false);
+
+        // Deleted / never-existed caller
+        const deletedUid = testUid();
+        const { error: deletedError } = await callDirect(deletedUid, 'jay@parqueen.app', true);
+        expect(deletedError.code).toBe('permission-denied');
+        singleton = await db.doc('adminBootstrap/singleton').get();
+        expect(singleton.exists).toBe(false);
     });
 });
 
