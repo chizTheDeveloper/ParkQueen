@@ -183,6 +183,52 @@ describe('RL-B moderateContent â€” callable behavioral tests', () => {
         const after = (await db.collection('moderationLog').where('userId', '==', uid).get()).size;
         expect(after).toBe(before); // no new log entry from an exhausted caller
     });
+
+    it('RL-M5: oversized text (>1000 chars) is rejected with invalid-argument before consuming rate-limit quota', async () => {
+        if (!indexModule) return;
+        const oversized = 'a'.repeat(1001);
+        const { error } = await callDirect(indexModule.moderateContent, uid, {}, { text: oversized, type: 'message' });
+        expect(error.code).toBe('invalid-argument');
+        const wk = currentWindowKey(WIN);
+        const counter = await db.collection('rateLimits').doc(`${OP}_${wk}_${uid}`).get();
+        expect(counter.exists).toBe(false); // rejected before checkRateLimit ever ran
+        const logSnap = await db.collection('moderationLog').where('userId', '==', uid).get();
+        expect(logSnap.empty).toBe(true); // no expensive work (log write) occurred either
+    });
+
+    it('RL-M5b: exactly 1000 chars is allowed, 1001 is not (boundary)', async () => {
+        if (!indexModule) return;
+        const exact = 'a'.repeat(1000);
+        const { result, error } = await callDirect(indexModule.moderateContent, uid, {}, { text: exact, type: 'message' });
+        expect(error).toBeUndefined();
+        expect(result.allowed).toBe(true);
+    });
+
+    it('RL-M4: a genuine concurrent burst through the full callable cannot exceed the configured limit (Promise.all, not sequential)', async () => {
+        if (!indexModule) return;
+        // Seed 2 below the real 60/hr limit so a burst of 5 concurrent calls
+        // straddles the boundary: exactly 2 must succeed, 3 must be rejected —
+        // proving atomicity through the FULL callable (auth, validation,
+        // moderation, log write), not just the bare checkRateLimit helper
+        // (already proven in isolation by rateLimiter.integration.test.js
+        // RL-17/RL-18).
+        seededDocId = await seedCounter(OP, uid, WIN, LIMIT - 2);
+        const BURST = 5;
+        const results = await Promise.allSettled(
+            Array.from({ length: BURST }, () =>
+                callDirect(indexModule.moderateContent, uid, {}, { text: 'burst test', type: 'message' }),
+            ),
+        );
+        const outcomes = results.map(r => r.value);
+        const succeeded = outcomes.filter(o => o.error === undefined).length;
+        const exhausted = outcomes.filter(o => o.error?.code === 'resource-exhausted').length;
+        expect(succeeded).toBe(2);
+        expect(exhausted).toBe(BURST - 2);
+        const counterSnap = await db.collection('rateLimits').doc(seededDocId).get();
+        expect(counterSnap.data().count).toBe(LIMIT); // exact boundary, no overshoot from the race
+        const logSnap = await db.collection('moderationLog').where('userId', '==', uid).get();
+        expect(logSnap.size).toBe(2); // only the 2 that actually passed wrote a log entry
+    });
 });
 
 // â”€â”€â”€ createSegmentFromSweepNYC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -263,6 +309,29 @@ describe('RL-C createSegmentFromSweepNYC â€” callable behavioral tests', ()
         expect(error.code).toBe('invalid-argument');
         expect(providerCalled).toBe(false);
     });
+
+    it('RL-S4: a genuine concurrent burst through the full callable cannot exceed the configured limit (Promise.all, not sequential)', async () => {
+        if (!indexModule) return;
+        indexModule._callableHooks.sweepNYCResult = async () => ({ success: true, segmentId: `seg-${Math.random()}` });
+        // Seed 2 below the real 30/hr limit so a burst of 5 concurrent calls
+        // straddles the boundary — proves atomicity through the full callable
+        // (auth, coordinate validation, provider call, checkRateLimit), not
+        // just the bare checkRateLimit helper.
+        seededDocId = await seedCounter(OP, uid, WIN, LIMIT - 2);
+        const BURST = 5;
+        const results = await Promise.allSettled(
+            Array.from({ length: BURST }, () =>
+                callDirect(indexModule.createSegmentFromSweepNYC, uid, {}, { lat: NYC_LAT, lng: NYC_LNG }),
+            ),
+        );
+        const outcomes = results.map(r => r.value);
+        const succeeded = outcomes.filter(o => o.error === undefined).length;
+        const exhausted = outcomes.filter(o => o.error?.code === 'resource-exhausted').length;
+        expect(succeeded).toBe(2);
+        expect(exhausted).toBe(BURST - 2);
+        const counterSnap = await db.collection('rateLimits').doc(seededDocId).get();
+        expect(counterSnap.data().count).toBe(LIMIT); // exact boundary, no overshoot from the race
+    });
 });
 
 // â”€â”€â”€ generateListingDescription â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -342,6 +411,155 @@ describe('RL-D generateListingDescription â€” callable behavioral tests', (
         const { error } = await callDirect(indexModule.generateListingDescription, uid, {}, { features: 'not-array' });
         expect(error.code).toBe('invalid-argument');
         expect(geminiCalled).toBe(false);
+    });
+});
+
+// ── claimUsername ─────────────────────────────────────────────────────────
+// No prior dedicated rate-limit/abuse coverage existed for this callable
+// (moderateContent/createSegmentFromSweepNYC/generateListingDescription were
+// covered above under TM-13 Phase J; claimUsername's own 5/hr limit existed
+// in source but was untested here). claimUsername never calls getAuth(), so
+// no Auth-emulator user is needed — only Firestore state.
+
+describe('RL-U claimUsername — callable behavioral tests', () => {
+    const OP = 'claimUsername';
+    const LIMIT = 5;
+    const WIN = 3600;
+    let uid;
+    let seededDocId;
+
+    beforeEach(() => {
+        uid = `rl_usr_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        seededDocId = null;
+    });
+
+    afterEach(async () => {
+        if (seededDocId) await deleteCounter(seededDocId);
+        const un = await db.collection('usernames').where('uid', '==', uid).get();
+        const b1 = db.batch(); un.docs.forEach(d => b1.delete(d.ref)); if (!un.empty) await b1.commit();
+        await db.collection('users').doc(uid).delete().catch(() => {});
+    });
+
+    it('RL-U1: unauthenticated request denied', async () => {
+        if (!indexModule) return;
+        const { error } = await callDirect(indexModule.claimUsername, null, {}, { username: 'someName' });
+        expect(error.code).toBe('unauthenticated');
+    });
+
+    it('RL-U2: normal first claim succeeds', async () => {
+        if (!indexModule) return;
+        const name = `rlu2_${Date.now()}`.slice(0, 20);
+        const { result, error } = await callDirect(indexModule.claimUsername, uid, {}, { username: name });
+        expect(error).toBeUndefined();
+        expect(result.success).toBe(true);
+        const doc = await db.collection('usernames').doc(name.toLowerCase()).get();
+        expect(doc.exists).toBe(true);
+        expect(doc.data().uid).toBe(uid);
+        await db.collection('usernames').doc(name.toLowerCase()).delete();
+    });
+
+    it('RL-U3: same-UID idempotent retry on an orphaned reservation succeeds without triggering cooldown', async () => {
+        if (!indexModule) return;
+        const name = `rlu3_${Date.now()}`.slice(0, 20);
+        const normalized = name.toLowerCase();
+        // Simulate a reservation this exact uid already owns (e.g. from a
+        // failed saveUserProfile) — no users/{uid} doc exists yet.
+        await db.collection('usernames').doc(normalized).set({ uid, claimedAt: Timestamp.now() });
+        const { result, error } = await callDirect(indexModule.claimUsername, uid, {}, { username: name });
+        expect(error).toBeUndefined();
+        expect(result.success).toBe(true);
+        await db.collection('usernames').doc(normalized).delete();
+    });
+
+    it('RL-U4: rapid claim attempts are eventually rate-limited', async () => {
+        if (!indexModule) return;
+        seededDocId = await seedCounter(OP, uid, WIN, LIMIT);
+        const { error } = await callDirect(indexModule.claimUsername, uid, {}, { username: 'anyName' });
+        expect(error.code).toBe('resource-exhausted');
+    });
+
+    it('RL-U5: a genuine concurrent burst cannot bypass the limit (Promise.all, not sequential)', async () => {
+        if (!indexModule) return;
+        seededDocId = await seedCounter(OP, uid, WIN, LIMIT - 2);
+        const BURST = 5;
+        const results = await Promise.allSettled(
+            Array.from({ length: BURST }, (_, i) =>
+                callDirect(indexModule.claimUsername, uid, {}, { username: `burst${i}_${Date.now()}`.slice(0, 20) }),
+            ),
+        );
+        const outcomes = results.map(r => r.value);
+        const notExhausted = outcomes.filter(o => o.error?.code !== 'resource-exhausted').length;
+        const exhausted = outcomes.filter(o => o.error?.code === 'resource-exhausted').length;
+        expect(notExhausted).toBe(2); // exactly 2 slots were available
+        expect(exhausted).toBe(BURST - 2);
+        const counterSnap = await db.collection('rateLimits').doc(seededDocId).get();
+        expect(counterSnap.data().count).toBe(LIMIT); // exact boundary, no overshoot
+        // Cleanup whichever username(s) actually succeeded.
+        const un = await db.collection('usernames').where('uid', '==', uid).get();
+        const b = db.batch(); un.docs.forEach(d => b.delete(d.ref)); if (!un.empty) await b.commit();
+    });
+
+    it('RL-U6: an unavailable (already-taken) username attempt still consumes rate-limit quota', async () => {
+        if (!indexModule) return;
+        const name = `rlu6_${Date.now()}`.slice(0, 20);
+        const normalized = name.toLowerCase();
+        await db.collection('usernames').doc(normalized).set({ uid: 'someone-else', claimedAt: Timestamp.now() });
+        const { error } = await callDirect(indexModule.claimUsername, uid, {}, { username: name });
+        expect(error.code).toBe('already-exists');
+        const wk = currentWindowKey(WIN);
+        const counter = await db.collection('rateLimits').doc(`${OP}_${wk}_${uid}`).get();
+        expect(counter.exists).toBe(true);
+        expect(counter.data().count).toBe(1); // the failed attempt still cost one slot
+        seededDocId = `${OP}_${wk}_${uid}`;
+        await db.collection('usernames').doc(normalized).delete();
+    });
+
+    it('RL-U7: a banned/reserved username is rejected before the expensive uniqueness transaction runs', async () => {
+        if (!indexModule) return;
+        const { error } = await callDirect(indexModule.claimUsername, uid, {}, { username: 'fuckoff' });
+        expect(error.code).toBe('invalid-argument');
+        const doc = await db.collection('usernames').doc('fuckoff').get();
+        expect(doc.exists).toBe(false); // the uniqueness transaction never ran
+    });
+
+    it('RL-U8: the username uniqueness transaction remains correct — a different UID cannot steal a claimed name', async () => {
+        if (!indexModule) return;
+        const name = `rlu8_${Date.now()}`.slice(0, 20);
+        const normalized = name.toLowerCase();
+        const first = await callDirect(indexModule.claimUsername, uid, {}, { username: name });
+        expect(first.result.success).toBe(true);
+
+        const otherUid = `${uid}_other`;
+        const { error } = await callDirect(indexModule.claimUsername, otherUid, {}, { username: name });
+        expect(error.code).toBe('already-exists');
+
+        const doc = await db.collection('usernames').doc(normalized).get();
+        expect(doc.data().uid).toBe(uid); // ownership unchanged
+        await db.collection('usernames').doc(normalized).delete();
+        const wk = currentWindowKey(WIN);
+        await db.collection('rateLimits').doc(`${OP}_${wk}_${otherUid}`).delete().catch(() => {});
+    });
+
+    it('RL-U9: the 30-day rename cooldown is preserved and is independent of the rate limiter', async () => {
+        if (!indexModule) return;
+        const oldName = `rlu9old_${Date.now()}`.slice(0, 20);
+        await db.collection('usernames').doc(oldName.toLowerCase()).set({ uid, claimedAt: Timestamp.now() });
+        await db.collection('users').doc(uid).set({
+            username: oldName,
+            usernameChangedAt: Timestamp.fromMillis(Date.now() - 5 * 24 * 60 * 60 * 1000), // 5 days ago
+        });
+        const { error } = await callDirect(indexModule.claimUsername, uid, {}, { username: `rlu9new_${Date.now()}`.slice(0, 20) });
+        expect(error.code).toBe('failed-precondition');
+        expect(error.message).toMatch(/\d+ days/);
+        await db.collection('usernames').doc(oldName.toLowerCase()).delete();
+    });
+
+    it('RL-U10: exhausting the rate limit never creates a stray usernames document', async () => {
+        if (!indexModule) return;
+        seededDocId = await seedCounter(OP, uid, WIN, LIMIT);
+        await callDirect(indexModule.claimUsername, uid, {}, { username: `rlu10_${Date.now()}`.slice(0, 20) });
+        const un = await db.collection('usernames').where('uid', '==', uid).get();
+        expect(un.empty).toBe(true); // no partial/orphaned reservation from a rejected attempt
     });
 });
 
