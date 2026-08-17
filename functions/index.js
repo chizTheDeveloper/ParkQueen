@@ -805,6 +805,8 @@ exports._hooks = _hooks;
 const _callableHooks = {
   sweepNYCResult: null,  // (lat, lng) => Promise<result> — replaces SweepNYC + fallback
   geminiResponse: null,  // (features) => Promise<{text}> — replaces GoogleGenAI call
+  analyzeSignResponse: null,  // (imageBase64, mimeType) => Promise<{text}> — replaces GoogleGenAI vision call
+  smartRepliesResponse: null,  // (lastMessage, context) => Promise<{text}> — replaces GoogleGenAI call
 };
 exports._callableHooks = _callableHooks;
 
@@ -4177,6 +4179,20 @@ async function _logParseFailure(rawNotes, sweepNYCObjectId, rawSignText, lat, ln
 
 const GEMINI_MODEL = "gemini-3.5-flash";
 
+// Narrow image-format allowlist for analyzeSign — checked against the decoded
+// byte prefix (not the client-asserted MIME, which the client never sends)
+// so a non-image payload can't reach the paid vision API at all. JPEG/PNG/WEBP
+// cover camera + gallery uploads; SVG and other application/* are rejected by omission.
+const JPEG_MAGIC = [0xff, 0xd8, 0xff];
+const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+function detectImageMimeType(base64) {
+  const header = Buffer.from(base64.slice(0, 32), "base64");
+  if (header.length >= PNG_MAGIC.length && PNG_MAGIC.every((b, i) => header[i] === b)) return "image/png";
+  if (header.length >= JPEG_MAGIC.length && JPEG_MAGIC.every((b, i) => header[i] === b)) return "image/jpeg";
+  if (header.length >= 12 && header.toString("ascii", 0, 4) === "RIFF" && header.toString("ascii", 8, 12) === "WEBP") return "image/webp";
+  return null;
+}
+
 function classifyGeminiError(fn, err) {
   const status = err?.status ?? err?.error?.code;
   const grpcStatus = err?.error?.status ?? "";
@@ -4208,8 +4224,7 @@ exports.analyzeSign = onCall(
   { secrets: [geminiApiKey], enforceAppCheck: false },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Must be signed in.");
-    await checkRateLimit(request.auth.uid, 'analyzeSign', { limit: 30, windowSec: 3600 });
-    const { imageBase64 } = request.data;
+    const { imageBase64 } = request.data || {};
     if (typeof imageBase64 !== "string" || imageBase64.length === 0) {
       throw new HttpsError("invalid-argument", "imageBase64 is required.");
     }
@@ -4217,16 +4232,26 @@ exports.analyzeSign = onCall(
     if (imageBase64.length > 5_500_000) {
       throw new HttpsError("invalid-argument", "Image too large. Maximum 4 MB.");
     }
+    const mimeType = detectImageMimeType(imageBase64);
+    if (!mimeType) {
+      throw new HttpsError("invalid-argument", "Unsupported image format. Use JPEG, PNG, or WEBP.");
+    }
+    // Validation above is O(1)/bounded-prefix only, so it's cheap to run before
+    // spending a rate-limit slot — mirrors moderateContent's ordering.
+    await checkRateLimit(request.auth.uid, 'analyzeSign', { limit: 30, windowSec: 3600 });
     let response;
     try {
-      const ai = new GoogleGenAI({ apiKey: geminiApiKey.value() });
-      response = await ai.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: {
-          parts: [
-            { inlineData: { mimeType: "image/jpeg", data: imageBase64 } },
-            {
-              text: `You are a NYC parking expert. Analyze this parking sign image.
+      if (_callableHooks.analyzeSignResponse) {
+        response = await _callableHooks.analyzeSignResponse(imageBase64, mimeType);
+      } else {
+        const ai = new GoogleGenAI({ apiKey: geminiApiKey.value() });
+        response = await ai.models.generateContent({
+          model: GEMINI_MODEL,
+          contents: {
+            parts: [
+              { inlineData: { mimeType, data: imageBase64 } },
+              {
+                text: `You are a NYC parking expert. Analyze this parking sign image.
 Crucially, there may be MULTIPLE stacked signs on this pole. Read all of them carefully. Resolve any conflicting rules (e.g. temporary construction signs override permanent signs).
 Respond strictly in JSON format with the following structure:
 {
@@ -4237,19 +4262,33 @@ Respond strictly in JSON format with the following structure:
   "actionableAdvice": "Short advice, e.g., 'Move car by 4 PM'"
 }
 Do not include Markdown formatting. Just output the raw JSON object.`,
-            },
-          ],
-        },
-      });
+              },
+            ],
+          },
+          config: { maxOutputTokens: 300, responseMimeType: "application/json" },
+        });
+      }
     } catch (err) {
       classifyGeminiError("analyzeSign", err);
     }
     const text = (response.text || "{}").replace(/```json/g, "").replace(/```/g, "").trim();
+    let parsed;
     try {
-      return JSON.parse(text);
+      parsed = JSON.parse(text);
     } catch {
       return { status: "ERROR", explanation: "Could not parse sign analysis response." };
     }
+    // Bound/allowlist the parsed fields — model output is untrusted data, not a
+    // pass-through payload, regardless of how well-formed the JSON is.
+    const ALLOWED_STATUS = new Set(["YES", "NO", "CONDITIONAL"]);
+    const boundStr = (v, max) => (typeof v === "string" ? v.slice(0, max) : null);
+    return {
+      status: ALLOWED_STATUS.has(parsed?.status) ? parsed.status : "ERROR",
+      explanation: boundStr(parsed?.explanation, 300) || "",
+      restrictionStartsAt: boundStr(parsed?.restrictionStartsAt, 40),
+      restrictionEndsAt: boundStr(parsed?.restrictionEndsAt, 40),
+      actionableAdvice: boundStr(parsed?.actionableAdvice, 150),
+    };
   }
 );
 
@@ -4257,8 +4296,7 @@ exports.generateSmartReplies = onCall(
   { secrets: [geminiApiKey], enforceAppCheck: false },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Must be signed in.");
-    await checkRateLimit(request.auth.uid, 'generateSmartReplies', { limit: 20, windowSec: 3600 });
-    const { lastMessage, context } = request.data;
+    const { lastMessage, context } = request.data || {};
     if (typeof lastMessage !== "string" || lastMessage.length === 0) {
       throw new HttpsError("invalid-argument", "lastMessage is required.");
     }
@@ -4268,24 +4306,35 @@ exports.generateSmartReplies = onCall(
     if (context !== undefined && typeof context !== "string") {
       throw new HttpsError("invalid-argument", "context must be a string.");
     }
-    const safeMessage = lastMessage.slice(0, 500);
-    const safeContext = (typeof context === "string" ? context : "").slice(0, 2000);
+    if (typeof context === "string" && context.length > 2000) {
+      throw new HttpsError("invalid-argument", "context must be 2000 characters or fewer.");
+    }
+    // Validation above is O(1) string-length work, cheap before a rate-limit slot.
+    await checkRateLimit(request.auth.uid, 'generateSmartReplies', { limit: 20, windowSec: 3600 });
+    const safeMessage = lastMessage;
+    const safeContext = typeof context === "string" ? context : "";
     let response;
     try {
-      const ai = new GoogleGenAI({ apiKey: geminiApiKey.value() });
-      response = await ai.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: `You are an AI assistant in a parking app called ParQueen.
+      if (_callableHooks.smartRepliesResponse) {
+        response = await _callableHooks.smartRepliesResponse(safeMessage, safeContext);
+      } else {
+        const ai = new GoogleGenAI({ apiKey: geminiApiKey.value() });
+        response = await ai.models.generateContent({
+          model: GEMINI_MODEL,
+          contents: `You are an AI assistant in a parking app called ParQueen.
 The user just received this message: "${safeMessage}".
 Context: ${safeContext}.
 Generate 3 short, natural, polite responses (max 5 words each) that the user might want to send back.
 Return them as a comma-separated list.`,
-      });
+          config: { maxOutputTokens: 60 },
+        });
+      }
     } catch (err) {
       classifyGeminiError("generateSmartReplies", err);
     }
     const text = response.text || "";
-    return { replies: text.split(",").map((s) => s.trim()).slice(0, 3) };
+    const MAX_REPLY_LENGTH = 80;
+    return { replies: text.split(",").map((s) => s.trim().slice(0, MAX_REPLY_LENGTH)).slice(0, 3) };
   }
 );
 
@@ -4293,11 +4342,21 @@ exports.generateListingDescription = onCall(
   { secrets: [geminiApiKey], enforceAppCheck: false },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Must be signed in.");
-    await checkRateLimit(request.auth.uid, 'generateListingDescription', { limit: 20, windowSec: 3600 });
-    const { features } = request.data;
-    if (!Array.isArray(features)) {
+    const { features } = request.data || {};
+    const MAX_FEATURES = 10;
+    const MAX_FEATURE_LENGTH = 60;
+    if (!Array.isArray(features) || features.length === 0) {
       throw new HttpsError("invalid-argument", "features array is required.");
     }
+    if (features.length > MAX_FEATURES) {
+      throw new HttpsError("invalid-argument", `features must contain ${MAX_FEATURES} items or fewer.`);
+    }
+    if (!features.every((f) => typeof f === "string" && f.length > 0 && f.length <= MAX_FEATURE_LENGTH)) {
+      throw new HttpsError("invalid-argument", `Each feature must be a non-empty string of ${MAX_FEATURE_LENGTH} characters or fewer.`);
+    }
+    // Validation above is O(MAX_FEATURES) at most (count checked first), cheap
+    // before a rate-limit slot.
+    await checkRateLimit(request.auth.uid, 'generateListingDescription', { limit: 20, windowSec: 3600 });
     let response;
     try {
       if (_callableHooks.geminiResponse) {
@@ -4307,11 +4366,14 @@ exports.generateListingDescription = onCall(
         response = await ai.models.generateContent({
           model: GEMINI_MODEL,
           contents: `Write a catchy, short marketing description (max 2 sentences) for a parking spot in NYC with these features: ${features.join(", ")}. Use a premium, trustworthy tone.`,
+          config: { maxOutputTokens: 120 },
         });
       }
     } catch (err) {
       classifyGeminiError("generateListingDescription", err);
     }
-    return { description: response.text || "A great parking spot in the heart of the city." };
+    const MAX_DESCRIPTION_LENGTH = 400;
+    const description = (response.text || "A great parking spot in the heart of the city.").slice(0, MAX_DESCRIPTION_LENGTH);
+    return { description };
   }
 );
