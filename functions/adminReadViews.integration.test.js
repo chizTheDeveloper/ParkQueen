@@ -33,6 +33,27 @@
  *   AR-16: a garbage/foreign cursor cannot escape the intended collection scope
  *   AR-17: client-requested field lists have no effect — server always returns its fixed minimized shape
  *   AR-18: source-contract — adminReadView is present, requireCurrentAdmin-gated, and the view enum matches
+ *   AR-25: App Check canary (Stage 4A) config-contract — adminReadView is the ONLY callable with enforceAppCheck:true; consumeAppCheckToken is unused
+ *   AR-26: App Check canary — HTTP-level: a request with a valid admin ID token but no App Check token is rejected before the handler runs (proves Layer 1; missing App Check is testable against the emulator without reaching a real attestation provider — INVALID-token verification is not, since that requires the real App Check backend)
+ *
+ * Stage 4A note (AR-1 through AR-24, AR-19 through AR-24): as of the App
+ * Check canary, adminReadView enforces App Check (functions/index.js,
+ * enforceAppCheck:true) and the Firebase Local Emulator Suite has no App
+ * Check emulator — a raw HTTP call from these tests can never supply a
+ * token the emulator will accept, so it would be rejected by the transport
+ * gate before ever reaching requireCurrentAdmin. These 24 scenarios test
+ * Layer 2 (ParQueen's own admin authorization) and were changed from raw
+ * HTTP calls to direct invocations of the exported `_adminReadViewHandler`
+ * (functions/index.js) — the exact same handler function `onCall` wraps in
+ * production, unchanged, including requireCurrentAdmin and live Auth-state
+ * revalidation. `request.auth` is built via a small test-local JWT payload
+ * decode (decodeEmulatorIdTokenPayload below — no Firebase internal/private
+ * API, no signature verification, no production Auth calls) rather than a
+ * full verifyIdToken(), for a reason specific to this suite — see that
+ * function's comment. This is a handler-level emulator integration test,
+ * not a transport-level HTTP test — documented here rather than left
+ * implicit. AR-26 is the one test that stays at the HTTP layer,
+ * specifically to prove the transport gate itself.
  *
  * reportsList/pingsList pagination (added after integration review found the
  * original flat 500-record cap would have silently truncated results
@@ -49,8 +70,46 @@
 const { initializeApp, getApps } = require('firebase-admin/app');
 const { getFirestore, Timestamp } = require('firebase-admin/firestore');
 const { getAuth } = require('firebase-admin/auth');
+const { HttpsError } = require('firebase-functions/v2/https');
 const fs = require('fs');
 const path = require('path');
+
+// Test-local JWT payload decoder — NOT a Firebase internal/private import.
+// Reconstructs the callable-style request.auth = { uid, token } from a
+// genuine Auth-emulator-issued ID token (minted by signInUser below) for
+// direct handler invocation. Decodes only; performs no verification, no
+// production Auth calls, no token minting, and no authorization decision —
+// requireCurrentAdmin (inside _adminReadViewHandler) is the sole authority
+// on whether the caller is actually an admin, unchanged and unmocked.
+//
+// Deliberately not the SDK's own verifyIdToken(): the Auth EMULATOR's
+// verifyIdToken (unlike real Firebase Auth, confirmed empirically) rejects a
+// deleted user's still-well-formed token outright, which would make every
+// scenario below observe UNAUTHENTICATED instead of the actual
+// PERMISSION_DENIED the live requireCurrentAuthenticatedUser check inside
+// the handler is responsible for producing. Decoding the payload locally —
+// the same "trust the emulator-issued token's claims, let the handler's own
+// live checks decide" approach the real Functions emulator uses internally
+// for its own debug-mode auth population — avoids that emulator-specific
+// false rejection without touching Firebase's private APIs.
+function decodeEmulatorIdTokenPayload(idToken) {
+    const segments = String(idToken).split('.');
+    if (segments.length !== 3) {
+        throw new Error(`decodeEmulatorIdTokenPayload: expected a 3-segment JWT, got ${segments.length} segment(s).`);
+    }
+    let payload;
+    try {
+        payload = JSON.parse(Buffer.from(segments[1], 'base64url').toString('utf8'));
+    } catch (err) {
+        throw new Error(`decodeEmulatorIdTokenPayload: token payload segment is not valid JSON (${err.message}).`);
+    }
+    const uid = payload.sub || payload.user_id || payload.uid;
+    if (!uid || typeof uid !== 'string') {
+        throw new Error('decodeEmulatorIdTokenPayload: could not derive uid from token payload (no sub/user_id/uid claim).');
+    }
+    payload.uid = uid; // mirrors DecodedIdToken's uid convenience alias for sub
+    return payload;
+}
 
 const PROJECT_ID = 'parkqueen-46475363-ccf36';
 const REGION = 'us-central1';
@@ -64,8 +123,17 @@ const testApp =
 const db = getFirestore(testApp);
 const adminAuth = getAuth(testApp);
 
+// index.js calls initializeApp() (default app) at module load — safe here
+// because this file only ever creates the separately-named `testApp` above,
+// so requiring index.js's default-app init doesn't collide with it.
+const { _adminReadViewHandler } = require('./index.js');
+
 // ─── Helpers (mirrors adminSessionAuth/adminBackfill integration conventions) ─
 
+// Raw HTTP call to the emulator's callable endpoint — used only by AR-26 to
+// prove the enforceAppCheck:true transport gate itself. Every other test
+// below goes through callView/callViaHandler instead; see the Stage 4A note
+// in the header comment for why.
 async function callFn(name, idToken, data = {}) {
     const res = await fetch(`${FUNCTIONS_BASE}/${name}`, {
         method: 'POST',
@@ -78,8 +146,30 @@ async function callFn(name, idToken, data = {}) {
     return res.json();
 }
 
+// Invokes the production adminReadView handler directly, bypassing the
+// onCall/App-Check HTTP wrapper. request.auth is built from the local JWT
+// payload decode above — see its comment for why. This is not a mock of
+// requireCurrentAdmin: the token's claims are real (minted by the real Auth
+// emulator via signInUser), and requireCurrentAdmin's own live-state checks
+// (role claim, then a real requireCurrentAuthenticatedUser → getUser(uid)
+// round-trip for disabled/deleted/revoked) run completely unchanged.
+async function callViaHandler(idToken, data = {}) {
+    let auth;
+    if (idToken) {
+        const token = decodeEmulatorIdTokenPayload(idToken);
+        auth = { uid: token.uid, token };
+    }
+    try {
+        const result = await _adminReadViewHandler({ auth, data });
+        return { result };
+    } catch (err) {
+        if (err instanceof HttpsError) return { error: err.toJSON() }; // same shape the HTTP layer serializes
+        throw err;
+    }
+}
+
 function callView(idToken, view, params = {}) {
-    return callFn('adminReadView', idToken, { view, params });
+    return callViaHandler(idToken, { view, params });
 }
 
 async function signInUser(uid) {
@@ -342,16 +432,50 @@ describe('adminReadView — coordinated read-side session hardening', () => {
 
     it('AR-18: source-contract — adminReadView is present, requireCurrentAdmin-gated, and the view enum matches', () => {
         const indexSrc = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
-        const fnStart = indexSrc.indexOf('exports.adminReadView = onCall(');
+        // requireCurrentAdmin lives in adminReadViewHandler (Stage 4A extracted
+        // it from the inline onCall callback so it can be tested directly —
+        // see AR-25/AR-26 and the handler's own comment in index.js).
+        const fnStart = indexSrc.indexOf('async function adminReadViewHandler(request)');
         expect(fnStart).toBeGreaterThan(-1);
         const body = indexSrc.slice(fnStart, fnStart + 1200);
         expect(body).toMatch(/await requireCurrentAdmin\(request\);/);
         expect(body).not.toMatch(/collection\(p\.collection\)/); // no client-supplied collection
 
+        const exportStart = indexSrc.indexOf('exports.adminReadView = onCall(');
+        expect(exportStart).toBeGreaterThan(-1);
+        expect(indexSrc.slice(exportStart, exportStart + 700)).toMatch(/adminReadViewHandler/); // wired to the same handler
+
         const viewsSrc = fs.readFileSync(path.join(__dirname, 'adminReadViews.js'), 'utf8');
         for (const view of ['dashboardCounts', 'usersList', 'userDetail', 'reportsList', 'auditLogList', 'pingsList', 'parseFailuresList']) {
             expect(viewsSrc).toMatch(new RegExp(`\\b${view}\\b`));
         }
+    });
+
+    it('AR-25: App Check canary config-contract — adminReadView is the ONLY enforced callable; no replay protection', () => {
+        const indexSrc = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+
+        const enforceTrueMatches = indexSrc.match(/enforceAppCheck:\s*true/g) || [];
+        expect(enforceTrueMatches.length).toBe(1);
+
+        const adminReadViewCallStart = indexSrc.indexOf('exports.adminReadView = onCall(');
+        expect(adminReadViewCallStart).toBeGreaterThan(-1);
+        const optionsSlice = indexSrc.slice(adminReadViewCallStart, adminReadViewCallStart + 600);
+        expect(optionsSlice).toMatch(/enforceAppCheck:\s*true/);
+        expect(optionsSlice).not.toMatch(/consumeAppCheckToken/);
+
+        expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
+    });
+
+    it('AR-26: App Check canary HTTP boundary — valid admin ID token but no App Check token is rejected before the handler runs', async () => {
+        const idToken = await adminIdToken(uid);
+        // Raw HTTP call (not callView/callViaHandler): the onCall wrapper's
+        // enforceAppCheck:true gate only exists at the transport layer.
+        // Auth alone (a real, valid, current-admin token) is not enough —
+        // if this returned a successful admin response, App Check would not
+        // actually be gating this callable.
+        const resp = await callFn('adminReadView', idToken, { view: 'usersList', params: {} });
+        expect(resp.error?.status).toBe('UNAUTHENTICATED');
+        expect(resp.result).toBeUndefined();
     });
 
     // ─── reportsList/pingsList pagination ───────────────────────────────
