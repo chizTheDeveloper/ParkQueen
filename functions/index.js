@@ -3346,23 +3346,41 @@ exports.adminBackfillStreetIntelligence = onCall(
 // generic adminReadCollection(collection, query) proxy — the client selects
 // only a fixed view name; every collection/field/filter/limit is
 // server-owned.
-exports.adminReadView = onCall(
-  { region: 'us-central1' },
-  async (request) => {
-    await requireCurrentAdmin(request);
-    const p = request.data || {};
-    if (typeof p.view !== 'string' || !Object.prototype.hasOwnProperty.call(ADMIN_READ_VIEWS, p.view)) {
-      throw new HttpsError('invalid-argument', 'Unknown view.');
-    }
-    const params = (p.params && typeof p.params === 'object' && !Array.isArray(p.params)) ? p.params : {};
-    try {
-      return await ADMIN_READ_VIEWS[p.view](db, params, { Timestamp });
-    } catch (err) {
-      if (err instanceof HttpsError) throw err;
-      console.warn(`[admin-read] view failed: ${p.view}`);
-      throw new HttpsError('internal', 'Read failed.');
-    }
+// Handler extracted from the onCall wrapper below so integration tests can
+// exercise requireCurrentAdmin and the real dispatch logic directly, without
+// going through the App Check enforcement HTTP gate (the Functions emulator
+// has no App Check emulator, so a raw-HTTP test can't supply a valid token —
+// see functions/adminReadViews.integration.test.js's header comment for the
+// full rationale). Not itself a Cloud Function: `firebase deploy` only scans
+// onCall/onRequest-wrapped exports of this file, so a bare async function
+// export is invisible to function discovery, same as the existing
+// _callableHooks seam above.
+async function adminReadViewHandler(request) {
+  await requireCurrentAdmin(request);
+  const p = request.data || {};
+  if (typeof p.view !== 'string' || !Object.prototype.hasOwnProperty.call(ADMIN_READ_VIEWS, p.view)) {
+    throw new HttpsError('invalid-argument', 'Unknown view.');
   }
+  const params = (p.params && typeof p.params === 'object' && !Array.isArray(p.params)) ? p.params : {};
+  try {
+    return await ADMIN_READ_VIEWS[p.view](db, params, { Timestamp });
+  } catch (err) {
+    if (err instanceof HttpsError) throw err;
+    console.warn(`[admin-read] view failed: ${p.view}`);
+    throw new HttpsError('internal', 'Read failed.');
+  }
+}
+exports._adminReadViewHandler = adminReadViewHandler;
+
+exports.adminReadView = onCall(
+  // App Check canary (Stage 4A): first callable to enforce App Check. Chosen
+  // because it's admin-only, read-only, and observed 6/6 VALID in production
+  // before this change — see docs/APP_CHECK_ROLLOUT.md. Independent of
+  // requireCurrentAdmin inside the handler: App Check verifies the calling
+  // app instance, requireCurrentAdmin verifies the calling user's live admin
+  // role. Neither substitutes for the other.
+  { region: 'us-central1', enforceAppCheck: true },
+  adminReadViewHandler
 );
 
 // 28) Create segment from SweepNYC with NYC Open Data fallback.
