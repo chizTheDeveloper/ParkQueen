@@ -19,6 +19,18 @@ const DIST_DIR = path.resolve(__dirname, '../dist');
 const distExists = fs.existsSync(DIST_DIR);
 const SRC_CONFIG = path.resolve(__dirname, '../firebaseConfig.ts');
 
+// Once App Check survives production tree-shaking, the official Firebase App
+// Check SDK's own compiled runtime legitimately contains the bare identifier
+// FIREBASE_APPCHECK_DEBUG_TOKEN — it's how the SDK checks whether a developer
+// manually set the global in devtools (typeof x.FIREBASE_APPCHECK_DEBUG_TOKEN
+// == "string" / !== true). That passive read is not a leak. An ASSIGNMENT to
+// that global — `= ` not part of `==`/`===`/`!==` — is what would indicate
+// ParQueen's own DEV-only debug wiring (or equivalent) escaped its
+// `import.meta.env.DEV` guard. These two regexes test for the write, not mere
+// presence of the name.
+const DEBUG_TOKEN_ASSIGNMENT = /FIREBASE_APPCHECK_DEBUG_TOKEN\s*=(?!=)/;
+const DEBUG_TOKEN_PROPERTY_ASSIGNMENT = /\.FIREBASE_APPCHECK_DEBUG_TOKEN\s*=(?!=)/;
+
 /** Scan all .js and .html files under dir; return lines matching pattern. */
 function scanDist(pattern: RegExp): string[] {
     const hits: string[] = [];
@@ -38,8 +50,10 @@ function scanDist(pattern: RegExp): string[] {
 }
 
 describe('§6 — App Check prod bundle assertions', () => {
-    it.skipIf(!distExists)('AC-1: dist/ does not contain FIREBASE_APPCHECK_DEBUG_TOKEN', () => {
-        expect(scanDist(/FIREBASE_APPCHECK_DEBUG_TOKEN/)).toHaveLength(0);
+    it.skipIf(!distExists)('AC-1: dist/ does not assign a value to FIREBASE_APPCHECK_DEBUG_TOKEN', () => {
+        // Bare presence of the identifier is expected once App Check is active —
+        // see the SDK-passive-read comment above. Only a write is unsafe.
+        expect(scanDist(DEBUG_TOKEN_ASSIGNMENT)).toHaveLength(0);
     });
 
     it.skipIf(!distExists)('AC-2: dist/ does not contain VITE_APPCHECK_DEBUG_TOKEN', () => {
@@ -146,8 +160,48 @@ describe('§6 — App Check prod bundle assertions', () => {
 
     it.skipIf(!distExists)('AC-12: dist/ does not contain the App Check debug-token self.assignment', () => {
         // The debug token is injected via `self.FIREBASE_APPCHECK_DEBUG_TOKEN = value`.
-        // AC-1 checks the env ref; this checks the assignment pattern itself.
-        // Distinct from AC-1: catches any path that writes the global directly.
-        expect(scanDist(/FIREBASE_APPCHECK_DEBUG_TOKEN\s*=/)).toHaveLength(0);
+        // Narrower than AC-1: specifically the property-assignment shape
+        // (`<obj>.FIREBASE_APPCHECK_DEBUG_TOKEN = value`) that ParQueen's own
+        // `(self as any).FIREBASE_APPCHECK_DEBUG_TOKEN = debugToken` line compiles to.
+        expect(scanDist(DEBUG_TOKEN_PROPERTY_ASSIGNMENT)).toHaveLength(0);
+    });
+
+    describe('AC-1/AC-12 matcher regression coverage', () => {
+        it('accepts the SDK\'s own passive debug-token reads (must NOT match either regex)', () => {
+            const sdkReads = [
+                'typeof t.FIREBASE_APPCHECK_DEBUG_TOKEN=="string"',
+                't.FIREBASE_APPCHECK_DEBUG_TOKEN!==!0',
+                'n.resolve(t.FIREBASE_APPCHECK_DEBUG_TOKEN)',
+                'typeof t.FIREBASE_APPCHECK_DEBUG_TOKEN!="string"&&t.FIREBASE_APPCHECK_DEBUG_TOKEN!==!0',
+            ];
+            for (const line of sdkReads) {
+                expect(DEBUG_TOKEN_ASSIGNMENT.test(line), `should not flag read: ${line}`).toBe(false);
+                expect(DEBUG_TOKEN_PROPERTY_ASSIGNMENT.test(line), `should not flag read: ${line}`).toBe(false);
+            }
+        });
+
+        it('rejects an assigned boolean debug-token override (must match both regexes)', () => {
+            const line = 'self.FIREBASE_APPCHECK_DEBUG_TOKEN = true';
+            expect(DEBUG_TOKEN_ASSIGNMENT.test(line)).toBe(true);
+            expect(DEBUG_TOKEN_PROPERTY_ASSIGNMENT.test(line)).toBe(true);
+        });
+
+        it('rejects an assigned string debug-token value (must match both regexes)', () => {
+            const line = 'self.FIREBASE_APPCHECK_DEBUG_TOKEN = "abc123token"';
+            expect(DEBUG_TOKEN_ASSIGNMENT.test(line)).toBe(true);
+            expect(DEBUG_TOKEN_PROPERTY_ASSIGNMENT.test(line)).toBe(true);
+        });
+
+        it('rejects a minified variable-sourced assignment — the shape a leaked VITE_APPCHECK_DEBUG_TOKEN would compile to (must match both regexes)', () => {
+            const line = 't.FIREBASE_APPCHECK_DEBUG_TOKEN=n';
+            expect(DEBUG_TOKEN_ASSIGNMENT.test(line)).toBe(true);
+            expect(DEBUG_TOKEN_PROPERTY_ASSIGNMENT.test(line)).toBe(true);
+        });
+
+        it('AC-1 is strictly broader than AC-12: a bare (non-property) assignment matches AC-1 only', () => {
+            const line = 'FIREBASE_APPCHECK_DEBUG_TOKEN=x';
+            expect(DEBUG_TOKEN_ASSIGNMENT.test(line)).toBe(true);
+            expect(DEBUG_TOKEN_PROPERTY_ASSIGNMENT.test(line)).toBe(false);
+        });
     });
 });
