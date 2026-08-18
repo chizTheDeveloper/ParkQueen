@@ -35,6 +35,7 @@
  *   AR-18: source-contract — adminReadView is present, requireCurrentAdmin-gated, and the view enum matches
  *   AR-25: App Check canary (Stage 4A) config-contract — adminReadView is the ONLY callable with enforceAppCheck:true; consumeAppCheckToken is unused
  *   AR-26: App Check canary — HTTP-level: a request with a valid admin ID token but no App Check token is rejected before the handler runs (proves Layer 1; missing App Check is testable against the emulator without reaching a real attestation provider — INVALID-token verification is not, since that requires the real App Check backend)
+ *   AR-27: Runtime-IAM canary config-contract — adminReadView's onCall options declare serviceAccount: parqueen-admin-read@..., and enforceAppCheck/consumeAppCheckToken remain exactly as AR-25 requires alongside it
  *
  * Stage 4A note (AR-1 through AR-24, AR-19 through AR-24): as of the App
  * Check canary, adminReadView enforces App Check (functions/index.js,
@@ -443,7 +444,7 @@ describe('adminReadView — coordinated read-side session hardening', () => {
 
         const exportStart = indexSrc.indexOf('exports.adminReadView = onCall(');
         expect(exportStart).toBeGreaterThan(-1);
-        expect(indexSrc.slice(exportStart, exportStart + 700)).toMatch(/adminReadViewHandler/); // wired to the same handler
+        expect(indexSrc.slice(exportStart, exportStart + 1200)).toMatch(/adminReadViewHandler/); // wired to the same handler
 
         const viewsSrc = fs.readFileSync(path.join(__dirname, 'adminReadViews.js'), 'utf8');
         for (const view of ['dashboardCounts', 'usersList', 'userDetail', 'reportsList', 'auditLogList', 'pingsList', 'parseFailuresList']) {
@@ -459,11 +460,30 @@ describe('adminReadView — coordinated read-side session hardening', () => {
 
         const adminReadViewCallStart = indexSrc.indexOf('exports.adminReadView = onCall(');
         expect(adminReadViewCallStart).toBeGreaterThan(-1);
-        const optionsSlice = indexSrc.slice(adminReadViewCallStart, adminReadViewCallStart + 600);
+        const optionsSlice = indexSrc.slice(adminReadViewCallStart, adminReadViewCallStart + 1200);
         expect(optionsSlice).toMatch(/enforceAppCheck:\s*true/);
         expect(optionsSlice).not.toMatch(/consumeAppCheckToken/);
 
         expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
+    });
+
+    it("AR-27: Runtime-IAM canary config-contract — adminReadView's serviceAccount is the dedicated admin-read identity", () => {
+        const indexSrc = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+        const adminReadViewCallStart = indexSrc.indexOf('exports.adminReadView = onCall(');
+        expect(adminReadViewCallStart).toBeGreaterThan(-1);
+        const optionsSlice = indexSrc.slice(adminReadViewCallStart, adminReadViewCallStart + 1200);
+
+        expect(optionsSlice).toMatch(/serviceAccount:\s*'parqueen-admin-read@parkqueen-46475363-ccf36\.iam\.gserviceaccount\.com'/);
+        // Still enforced and still the only one — a serviceAccount edit must not
+        // accidentally touch the App Check config sitting right next to it.
+        expect(optionsSlice).toMatch(/enforceAppCheck:\s*true/);
+        expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(1);
+        expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
+
+        // No other callable/trigger in the file should carry a serviceAccount
+        // override yet — this migration is adminReadView-only.
+        const allServiceAccountMatches = indexSrc.match(/serviceAccount:\s*'[^']+'/g) || [];
+        expect(allServiceAccountMatches).toHaveLength(1);
     });
 
     it('AR-26: App Check canary HTTP boundary — valid admin ID token but no App Check token is rejected before the handler runs', async () => {
