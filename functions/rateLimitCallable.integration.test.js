@@ -19,6 +19,8 @@
 
 const { initializeApp, getApps } = require('firebase-admin/app');
 const { getFirestore, Timestamp } = require('firebase-admin/firestore');
+const fs = require('fs');
+const path = require('path');
 
 let indexModule;
 try {
@@ -933,6 +935,116 @@ describe('RL-U claimUsername — callable behavioral tests', () => {
         await callDirect(indexModule.claimUsername, uid, {}, { username: `rlu10_${Date.now()}`.slice(0, 20) });
         const un = await db.collection('usernames').where('uid', '==', uid).get();
         expect(un.empty).toBe(true); // no partial/orphaned reservation from a rejected attempt
+    });
+
+    // ─── Profile-identity hardening: claimUsername now atomically owns
+    // account bootstrap (PI-10/11/12/13/22 from the profile-identity task —
+    // PI-01..09/14..19 are already covered above by RL-U1..RL-U9's existing
+    // auth/malformed/banned/impersonation/rename/concurrency/uid coverage,
+    // unchanged by this task) ─────────────────────────────────────────────
+
+    it("PI-10/11: a brand-new account's first claim atomically creates the reservation, the users/{uid} doc, and its private/social + private/preferences siblings", async () => {
+        if (!indexModule) return;
+        const name = `pi10_${Date.now()}`.slice(0, 20);
+        const { result, error } = await callDirect(indexModule.claimUsername, uid, {}, { username: name });
+        expect(error).toBeUndefined();
+        expect(result.success).toBe(true);
+
+        const userDoc = await db.collection('users').doc(uid).get();
+        expect(userDoc.exists).toBe(true);
+        expect(userDoc.data()).toEqual({
+            id: uid, username: name, createdAt: expect.anything(),
+            crowns: 0, title: 'Newcomer',
+        });
+
+        const socialDoc = await db.collection('users').doc(uid).collection('private').doc('social').get();
+        expect(socialDoc.exists).toBe(true);
+        expect(socialDoc.data()).toEqual({ blockedUsers: [] });
+
+        const prefsDoc = await db.collection('users').doc(uid).collection('private').doc('preferences').get();
+        expect(prefsDoc.exists).toBe(true);
+        expect(prefsDoc.data()).toEqual({ notificationRadius: 1 });
+
+        const reservation = await db.collection('usernames').doc(name.toLowerCase()).get();
+        expect(reservation.exists).toBe(true);
+        expect(reservation.data().uid).toBe(uid);
+
+        await db.collection('users').doc(uid).collection('private').doc('social').delete();
+        await db.collection('users').doc(uid).collection('private').doc('preferences').delete();
+        await db.collection('users').doc(uid).delete();
+    });
+
+    it('PI-12: bootstrap is atomic — no partial state (reservation without account, or account without private docs) is ever observable', async () => {
+        if (!indexModule) return;
+        const name = `pi12_${Date.now()}`.slice(0, 20);
+        await callDirect(indexModule.claimUsername, uid, {}, { username: name });
+        const [userDoc, socialDoc, prefsDoc, reservation] = await Promise.all([
+            db.collection('users').doc(uid).get(),
+            db.collection('users').doc(uid).collection('private').doc('social').get(),
+            db.collection('users').doc(uid).collection('private').doc('preferences').get(),
+            db.collection('usernames').doc(name.toLowerCase()).get(),
+        ]);
+        // All four either all exist (success path) or none do (rejection path) —
+        // this call is expected to succeed, so all four must be present together.
+        expect([userDoc.exists, socialDoc.exists, prefsDoc.exists, reservation.exists]).toEqual([true, true, true, true]);
+
+        await db.collection('users').doc(uid).collection('private').doc('social').delete();
+        await db.collection('users').doc(uid).collection('private').doc('preferences').delete();
+        await db.collection('users').doc(uid).delete();
+    });
+
+    it('PI-13/self-heal: a reservation orphaned before an account doc was ever created is idempotently self-healed on retry, not left permanently stuck', async () => {
+        if (!indexModule) return;
+        const name = `pi13_${Date.now()}`.slice(0, 20);
+        // Simulate the pre-migration orphaned state found in the production
+        // data audit: a reservation exists for this uid, but no users/{uid}
+        // doc was ever created (e.g. an interruption before this callable
+        // became responsible for atomic bootstrap).
+        await db.collection('usernames').doc(name.toLowerCase()).set({ uid, claimedAt: Timestamp.now() });
+
+        const { result, error } = await callDirect(indexModule.claimUsername, uid, {}, { username: name });
+        expect(error).toBeUndefined();
+        expect(result.success).toBe(true);
+
+        const userDoc = await db.collection('users').doc(uid).get();
+        expect(userDoc.exists).toBe(true); // previously would have stayed permanently missing
+        expect(userDoc.data().username).toBe(name);
+        const socialDoc = await db.collection('users').doc(uid).collection('private').doc('social').get();
+        expect(socialDoc.exists).toBe(true);
+
+        await db.collection('users').doc(uid).collection('private').doc('social').delete();
+        await db.collection('users').doc(uid).collection('private').doc('preferences').delete();
+        await db.collection('users').doc(uid).delete();
+        await db.collection('usernames').doc(name.toLowerCase()).delete();
+    });
+
+    it('PI-22: a rejected brand-new-account claim (banned word) creates no reservation, no account doc, and no private docs', async () => {
+        if (!indexModule) return;
+        const { error } = await callDirect(indexModule.claimUsername, uid, {}, { username: 'fuckoff' });
+        expect(error.code).toBe('invalid-argument');
+        const [userDoc, reservation] = await Promise.all([
+            db.collection('users').doc(uid).get(),
+            db.collection('usernames').doc('fuckoff').get(),
+        ]);
+        expect(userDoc.exists).toBe(false);
+        expect(reservation.exists).toBe(false);
+    });
+
+    it("PI-20: Runtime-IAM canary config-contract — claimUsername's serviceAccount is the dedicated parqueen-user identity", () => {
+        const indexSrc = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+        const callStart = indexSrc.indexOf('exports.claimUsername = onCall(');
+        expect(callStart).toBeGreaterThan(-1);
+        const optionsSlice = indexSrc.slice(callStart, callStart + 400);
+        expect(optionsSlice).toMatch(/serviceAccount:\s*'parqueen-user@parkqueen-46475363-ccf36\.iam\.gserviceaccount\.com'/);
+    });
+
+    it("PI-21: App Check contract — claimUsername deliberately does NOT enforce App Check (documented decision: real traffic showed App Check MISSING, insufficient evidence to enforce safely)", () => {
+        const indexSrc = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+        const callStart = indexSrc.indexOf('exports.claimUsername = onCall(');
+        expect(callStart).toBeGreaterThan(-1);
+        const optionsSlice = indexSrc.slice(callStart, callStart + 400);
+        expect(optionsSlice).not.toMatch(/enforceAppCheck/);
+        expect(optionsSlice).not.toMatch(/consumeAppCheckToken/);
     });
 });
 

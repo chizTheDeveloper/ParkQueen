@@ -119,8 +119,10 @@ export const NameEntryView: React.FC<NameEntryViewProps> = ({ onComplete }) => {
         try {
             const functions = getFunctions(getApp(), 'us-central1');
             await httpsCallable(functions, 'claimUsername')({ username: trimmed });
-            // claimUsername reserves usernames/{normalized}. For new users the user doc does
-            // not yet exist, so the CF skips the users/{uid} write — saveUserProfile creates it.
+            // claimUsername atomically reserves usernames/{normalized} AND, for a
+            // brand-new account, creates the full users/{uid} doc (plus its
+            // private/social and private/preferences siblings) — no separate
+            // client-side account-creation step is needed.
             onComplete(trimmed);
         } catch (e: any) {
             const code: string = e?.code ?? '';

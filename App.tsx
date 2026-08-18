@@ -41,13 +41,15 @@ import { getLang, setLang, t } from './i18n';
 import { getLanguageHydrationAction } from './utils/languageHydration';
 import { ChevronLeft } from 'lucide-react';
 import ErrorBoundary from './ErrorBoundary';
-import { saveUserProfile, logoutUser, deleteUser, unlinkFcmTokenBeforeDeletion } from './database';
+import { logoutUser, deleteUser, unlinkFcmTokenBeforeDeletion } from './database';
 import { ConfirmationResult, RecaptchaVerifier, reauthenticateWithPhoneNumber, signOut } from 'firebase/auth';
 import { maskPhoneNumber, verifyUidUnchanged } from './utils/reauthBeforeDelete';
 import { auth, db } from './firebaseConfig';
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, onSnapshot, getDoc, updateDoc, setDoc, collection, query, where, getDocs } from "firebase/firestore";
+import { doc, onSnapshot, getDoc, setDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { getToken, deleteToken, onMessage } from 'firebase/messaging';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { getApp } from 'firebase/app';
 import { getFCM } from './firebaseConfig';
 import { clearRecaptchaVerifier, replaceRecaptchaVerifier } from './utils/recaptchaLifecycle';
 
@@ -333,10 +335,14 @@ export default function App() {
   };
 
   const handleNameComplete = async (username: string) => {
-    // phone is canonical E.164 — store directly
+    // claimUsername (server) is now the sole authoritative writer of both
+    // the username reservation and the initial users/{uid} account doc
+    // (including its private/social and private/preferences siblings) for
+    // a brand-new account — no separate client-side profile-creation step
+    // is needed; fullName is collected later via updateDisplayName.
     try {
-      // Only write the fields this step owns — fullName is collected later
-      await saveUserProfile({ username });
+      const functions = getFunctions(getApp(), 'us-central1');
+      await httpsCallable(functions, 'claimUsername')({ username });
       setVehicleOnboarding(true);
       setCurrentView(AppView.EDIT_VEHICLE);
     } catch (error: any) {
@@ -349,12 +355,12 @@ export default function App() {
     try {
       const uid = auth.currentUser?.uid;
       if (!uid) throw new Error("Not authenticated");
-      const { doc: fsDoc, updateDoc, setDoc } = await import("firebase/firestore");
-      // Public fields only — demographics and contact info go to private subcollections
-      await updateDoc(fsDoc(db, 'users', uid), {
-        fullName: profileData.fullName,
-      });
+      // fullName is authoritative-server-owned — direct client writes to
+      // users/{uid}.fullName are denied by firestore.rules.
+      const functions = getFunctions(getApp(), 'us-central1');
+      await httpsCallable(functions, 'updateDisplayName')({ fullName: profileData.fullName });
       // dob and gender are private — write to owner-only subcollection
+      const { doc: fsDoc, setDoc } = await import("firebase/firestore");
       const privateUpdates: Record<string, string> = {};
       if (profileData.dob)    privateUpdates.dob    = profileData.dob;
       if (profileData.gender) privateUpdates.gender = profileData.gender;
