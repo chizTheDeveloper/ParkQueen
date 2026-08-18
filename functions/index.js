@@ -1512,8 +1512,26 @@ exports.sendMessage = onCall(
   sendMessageHandler
 );
 
+// Authoritative username mutation — closes the direct-write bypass found in
+// the profile-identity audit: users/{uid}.username was writable directly by
+// the client (Rules validated only size/type, never content), letting a
+// modified client skip this callable's moderation/uniqueness checks
+// entirely. claimUsername now atomically owns BOTH the usernames/{normalized}
+// registry AND users/{uid}.username — including creating the initial
+// users/{uid} doc (plus its private/social and private/preferences seed
+// docs) when this is the very first write for a brand-new account, a
+// responsibility formerly split out to the client's now-retired
+// saveUserProfile(). See docs/PROFILE_IDENTITY_HARDENING.md.
+//
+// Runtime-IAM canary (continued): parqueen-user@... (roles/datastore.user
+// only) — already production-validated by real sendMessage traffic. No
+// enforceAppCheck: real production traffic for this existing callable
+// (sampled over the last 30 days) showed App Check MISSING on every
+// request, predating the client's current App-Check-active bundle, with
+// zero fresh samples since — insufficient evidence to safely enforce
+// without risking the account-creation path for real users.
 exports.claimUsername = onCall(
-  { region: "us-central1" },
+  { region: "us-central1", serviceAccount: 'parqueen-user@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Sign in first.");
     await checkRateLimit(request.auth.uid, 'claimUsername', { limit: 5, windowSec: 3600 });
@@ -1540,6 +1558,24 @@ exports.claimUsername = onCall(
     const usernameRef = db.collection("usernames").doc(normalized);
     const userRef = db.collection("users").doc(uid);
 
+    // Atomically bootstraps a brand-new account (same defaults the retired
+    // client-side saveUserProfile() used to establish via a separate,
+    // non-atomic Promise.all) — called only from within the transaction
+    // below, both on the normal first-claim path and to self-heal a
+    // reservation left orphaned by an interruption before this callable
+    // became responsible for atomic account creation.
+    function bootstrapAccount(tx, forUid, forUsername) {
+      tx.set(db.collection('users').doc(forUid), {
+        id: forUid,
+        username: forUsername,
+        createdAt: Timestamp.now(),
+        crowns: 0,
+        title: 'Newcomer',
+      });
+      tx.set(db.collection('users').doc(forUid).collection('private').doc('social'), { blockedUsers: [] });
+      tx.set(db.collection('users').doc(forUid).collection('private').doc('preferences'), { notificationRadius: 1 });
+    }
+
     try {
       await db.runTransaction(async (tx) => {
         const existing = await tx.get(usernameRef);
@@ -1548,10 +1584,13 @@ exports.claimUsername = onCall(
             // Belongs to a different user — reject normally
             throw new HttpsError("already-exists", "Username is already taken.");
           }
-          // Same UID: reservation already belongs to this user (orphaned from a failed
-          // saveUserProfile). Treat as idempotent — the user doc will be created or
-          // updated by the client's saveUserProfile call. No cooldown applies here
-          // because this isn't a username change, just completing an interrupted claim.
+          // Same UID: reservation already belongs to this user (orphaned from
+          // an interrupted earlier claim). Idempotent — no cooldown, no old-
+          // reservation release, since this isn't a rename. Self-heal a
+          // missing account doc if the interruption happened before the
+          // account itself was ever created.
+          const userDoc = await tx.get(userRef);
+          if (!userDoc.exists) bootstrapAccount(tx, uid, trimmed);
           return;
         }
 
@@ -1574,13 +1613,15 @@ exports.claimUsername = onCall(
         }
 
         tx.set(usernameRef, { uid, claimedAt: Timestamp.now() });
-        // Only update an existing user doc. New users don't have a doc yet —
-        // saveUserProfile (client) will create it under the CREATE rule, which
-        // allows all fields. Writing here on a missing doc would create a
-        // partial stub, turning the subsequent setDoc into an UPDATE and
-        // triggering the blocked-fields restriction.
         if (userDoc.exists) {
           tx.set(userRef, { username: trimmed, usernameChangedAt: Timestamp.now() }, { merge: true });
+        } else {
+          // First write for a brand-new account — atomically bootstrap the
+          // full account shape in the same transaction as the reservation,
+          // so there is no window where the registry and profile can
+          // disagree, and no partial-creation risk if one write failed
+          // independently of the others.
+          bootstrapAccount(tx, uid, trimmed);
         }
       });
     } catch (e) {
@@ -1591,6 +1632,73 @@ exports.claimUsername = onCall(
 
     return { success: true, username: trimmed };
   }
+);
+
+// Authoritative display-name mutation — closes the same class of bypass as
+// claimUsername above, for users/{uid}.fullName: the client's
+// moderateDisplayName() is UX-only, and the client wrote fullName directly
+// to Firestore with no server-side re-check. Deliberately narrow (fullName
+// only) rather than a generic profile-update endpoint — every other
+// owner-editable field continues through direct Firestore writes under
+// firestore.rules' unrelated-field allowlist, unaffected by this change.
+//
+// Runtime-IAM canary (continued): parqueen-user@... (roles/datastore.user
+// only) — already production-validated by real sendMessage traffic.
+// App Check is enforced from first release — a brand-new callable with no
+// legacy caller to break; the production client already initializes App
+// Check (see adminReadView/sendMessage's already-verified canaries).
+const UPDATE_DISPLAY_NAME_MAX_LEN = 100;
+
+async function updateDisplayNameHandler(request) {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+
+  const { fullName } = request.data || {};
+  if (typeof fullName !== 'string') {
+    throw new HttpsError('invalid-argument', 'fullName is required.');
+  }
+  const trimmed = fullName.trim();
+  if (trimmed.length === 0) {
+    throw new HttpsError('invalid-argument', 'Display name cannot be empty.');
+  }
+  // Bound matches firestore.rules' pre-existing fullName.size() <= 100 —
+  // preserving current policy, not introducing a new one.
+  if (trimmed.length > UPDATE_DISPLAY_NAME_MAX_LEN) {
+    throw new HttpsError('invalid-argument', 'Display name must be 100 characters or less.');
+  }
+
+  const uid = request.auth.uid;
+  // 5/hour — display-name changes are a low-frequency operation; matches
+  // claimUsername's existing rate for the same class of identity-field edit.
+  await checkRateLimit(uid, 'updateDisplayName', { limit: 5, windowSec: 3600 });
+
+  // Mirrors moderateDisplayName()'s exact current checks (impersonation +
+  // banned words) — preserving existing display-name policy, not broadening it.
+  if (checkImpersonation(trimmed)) {
+    throw new HttpsError('invalid-argument', "That name can't be used. Please choose another.");
+  }
+  if (checkBannedWords(trimmed)) {
+    throw new HttpsError('invalid-argument', "That name can't be used. Please choose another.");
+  }
+
+  try {
+    await db.collection('users').doc(uid).update({ fullName: trimmed });
+  } catch (e) {
+    console.error('Display name update error:', sanitizeError(e));
+    throw new HttpsError('internal', 'Failed to update display name.');
+  }
+
+  return { success: true, fullName: trimmed };
+}
+
+exports._updateDisplayNameHandler = updateDisplayNameHandler;
+
+exports.updateDisplayName = onCall(
+  {
+    region: 'us-central1',
+    enforceAppCheck: true,
+    serviceAccount: 'parqueen-user@parkqueen-46475363-ccf36.iam.gserviceaccount.com',
+  },
+  updateDisplayNameHandler
 );
 
 // 10) Award crowns on successful parking handoff

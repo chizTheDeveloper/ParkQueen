@@ -1353,10 +1353,11 @@ describe('users/{uid} public doc — private field denylist', () => {
         );
     });
 
-    // 47
-    it('PD7: legitimate display-name update still succeeds', async () => {
+    // 47 — profile-identity hardening: fullName is now authoritative-server-owned
+    // (updateDisplayName). A direct client update is denied even for the owner.
+    it('PD7: direct fullName update is now denied — authoritative only via updateDisplayName', async () => {
         const { updateDoc: upd } = await import('firebase/firestore');
-        await assertSucceeds(upd(doc(ownerDb(), 'users', OWNER_UID), { fullName: 'Jay Updated' }));
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { fullName: 'Jay Updated' }));
     });
 
     // 48 — notificationRadius moved to private/preferences; root write now blocked (TM-04)
@@ -1365,11 +1366,12 @@ describe('users/{uid} public doc — private field denylist', () => {
         await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { notificationRadius: 2 }));
     });
 
-    // 49
-    it('PD9: owner can create a clean user doc without private fields', async () => {
-        // Only public fields — private fields must go to subcollections
+    // 49 — profile-identity hardening: direct client CREATE of users/{uid} is
+    // now denied unconditionally. claimUsername (Admin SDK) is the sole
+    // authoritative writer of the initial account doc.
+    it('PD9: owner cannot create a user doc directly at all, even with an otherwise-clean payload', async () => {
         const newUid = 'pd9-clean-create-uid-' + Date.now();
-        await assertSucceeds(
+        await assertFails(
             setDoc(
                 doc(testEnv.authenticatedContext(newUid).firestore(), 'users', newUid),
                 { fullName: 'New User', username: 'newuser', crowns: 0, title: 'Newcomer' }
@@ -1479,9 +1481,11 @@ describe('users — update allowlist (TM-11)', () => {
         await seed('users', OWNER_UID, publicUserData);
     });
 
-    it('TM11-A: owner can update an explicitly allowed field (fullName)', async () => {
+    // Profile-identity hardening: fullName moved OUT of the direct-update
+    // allowlist — it is now authoritative-server-owned via updateDisplayName.
+    it('TM11-A: owner cannot update fullName directly — authoritative only via updateDisplayName', async () => {
         const { updateDoc: upd } = await import('firebase/firestore');
-        await assertSucceeds(upd(doc(ownerDb(), 'users', OWNER_UID), { fullName: 'Alice B.' }));
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { fullName: 'Alice B.' }));
     });
 
     it('TM11-B: owner cannot update fcmToken on root doc (moved to private/preferences)', async () => {
@@ -2128,15 +2132,87 @@ describe('§4 — users/{uid} vehicle and avatar allowlists', () => {
         await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { createdAt: Timestamp.now() }));
     });
 
-    // ── create allowlist: vehicle fields ──────────────────────────────────────
+    // ── create: profile-identity hardening denies ALL direct client create ──
 
-    it('SC-8: owner can create user doc with vehicleBrand and vehicleColor', async () => {
+    it('SC-8: owner cannot create a user doc directly, even with otherwise-legitimate vehicle fields', async () => {
         const newUid = 'sc8-uid-' + Date.now();
-        await assertSucceeds(
+        await assertFails(
             setDoc(
                 doc(testEnv.authenticatedContext(newUid).firestore(), 'users', newUid),
                 { fullName: 'Car User', username: 'caruser', vehicleBrand: 'Toyota', vehicleColor: 'blue' }
             )
+        );
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PROFILE IDENTITY HARDENING — username/fullName authoritative write paths.
+// claimUsername/updateDisplayName (Admin SDK) are now the sole writers of
+// these two fields; direct client mutation is denied. See
+// docs/PROFILE_IDENTITY_HARDENING.md.
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('profile identity hardening — username/fullName authoritative write paths', () => {
+    const baseDoc = { fullName: 'Jay Castro', username: 'jayc_pi', crowns: 0, title: 'Newcomer' };
+
+    beforeEach(async () => {
+        await seed('users', OWNER_UID, baseDoc);
+    });
+
+    it('PR-01: authenticated owner direct username UPDATE is DENIED', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { username: 'newname' }));
+    });
+
+    it('PR-02: authenticated owner direct fullName UPDATE is DENIED', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { fullName: 'New Name' }));
+    });
+
+    it('PR-03: direct UPDATE of username and fullName together is DENIED', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { username: 'newname', fullName: 'New Name' }));
+    });
+
+    it('PR-04: another authenticated user attempting identity-field mutation is DENIED', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(otherDb(), 'users', OWNER_UID), { username: 'stolen' }));
+        await assertFails(upd(doc(otherDb(), 'users', OWNER_UID), { fullName: 'Hacked' }));
+    });
+
+    it('PR-05: direct write to the usernames/{normalized} registry remains DENIED', async () => {
+        await assertFails(setDoc(doc(ownerDb(), 'usernames', 'jayc_pi'), { uid: OWNER_UID, claimedAt: Timestamp.now() }));
+    });
+
+    it('PR-06: a legitimate unrelated owner profile update (vehicleType) remains ALLOWED', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertSucceeds(upd(doc(ownerDb(), 'users', OWNER_UID), { vehicleType: 'sedan' }));
+    });
+
+    it('PR-07: profile read behavior is unchanged — any signed-in user can still read the doc', async () => {
+        await assertSucceeds(getDoc(doc(otherDb(), 'users', OWNER_UID)));
+    });
+
+    it('PR-08: a server-created account (Admin SDK, simulating claimUsername) is created successfully and remains normally readable/editable by its owner', async () => {
+        const newUid = 'pr08-uid-' + Date.now();
+        await testEnv.withSecurityRulesDisabled(async ctx => {
+            await setDoc(doc(ctx.firestore(), 'users', newUid), { id: newUid, username: 'pr08user', crowns: 0, title: 'Newcomer' });
+        });
+        await assertSucceeds(getDoc(doc(testEnv.authenticatedContext(newUid).firestore(), 'users', newUid)));
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertSucceeds(upd(doc(testEnv.authenticatedContext(newUid).firestore(), 'users', newUid), { vehicleType: 'suv' }));
+    });
+
+    it('PR-09: a stale client attempting the old direct identity-mutation pattern is DENIED after the lock (no grandfathering)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        // Exactly the pre-migration legitimate pattern (schema-valid, correct
+        // owner, single field) — still denied outright now.
+        await assertFails(upd(doc(ownerDb(), 'users', OWNER_UID), { username: 'still_taken_by_old_client' }));
+    });
+
+    it('PR-10: a malformed direct create attempt (arbitrary schema, no valid shape) is DENIED', async () => {
+        const newUid = 'pr10-uid-' + Date.now();
+        await assertFails(
+            setDoc(doc(testEnv.authenticatedContext(newUid).firestore(), 'users', newUid), { anything: 'goes', username: 'x' })
         );
     });
 });

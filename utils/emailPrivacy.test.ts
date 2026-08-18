@@ -23,12 +23,16 @@ describe('handleSaveProfile — no unauthorised email writes', () => {
     expect(appTsx).not.toContain('"private", "account"), { email');
   });
 
-  it('the root doc updateDoc call does not include an email key', () => {
-    // Verify the full pattern of the root-doc write: only fullName is updated.
-    // A regex captures the updateDoc block; email must not appear inside it.
-    const rootWriteMatch = appTsx.match(/await updateDoc\(fsDoc\(db, 'users', uid\),([\s\S]*?)\);/);
-    expect(rootWriteMatch).not.toBeNull();
-    expect(rootWriteMatch![1]).not.toContain('email');
+  it('fullName is written only via the authoritative updateDisplayName callable, never a direct root-doc write, and never with an email key', () => {
+    // Profile-identity hardening: fullName moved from a direct client
+    // updateDoc(fsDoc(db,'users',uid), {...}) to the server-authoritative
+    // updateDisplayName callable, which accepts only fullName. Verify the
+    // call site's argument object does not include an email key, and that
+    // the old direct-write pattern is gone entirely.
+    expect(appTsx).not.toContain("updateDoc(fsDoc(db, 'users', uid)");
+    const callMatch = appTsx.match(/await httpsCallable\(functions, 'updateDisplayName'\)\(([\s\S]*?)\);/);
+    expect(callMatch).not.toBeNull();
+    expect(callMatch![1]).not.toContain('email');
   });
 });
 

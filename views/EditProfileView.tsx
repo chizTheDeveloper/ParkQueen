@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getApp } from 'firebase/app';
 import { db } from '../firebase';
@@ -144,14 +144,16 @@ export const EditProfileView = ({ onBack }: { onBack: () => void }) => {
     if (nameError) { setSaveError(nameError); return; }
     setSaving(true); setSaveError('');
     try {
+      const functions = getFunctions(getApp(), 'us-central1');
       if (usernameDirty) {
-        const functions = getFunctions(getApp(), 'us-central1');
         await httpsCallable(functions, 'claimUsername')({ username: username.trim() });
       }
       const pubUpdates = buildPublicProfileUpdates(currentDraft, initial);
       const privUpdates = buildPrivateProfileUpdates(currentDraft, initial, ageRangeTouched);
-      if (Object.keys(pubUpdates).length > 0) {
-        await updateDoc(doc(db, 'users', uid), pubUpdates);
+      // fullName is authoritative-server-owned — direct client writes to
+      // users/{uid}.fullName are denied by firestore.rules.
+      if (pubUpdates.fullName) {
+        await httpsCallable(functions, 'updateDisplayName')({ fullName: pubUpdates.fullName });
       }
       if (Object.keys(privUpdates).length > 0) {
         await setDoc(doc(db, 'users', uid, 'private', 'profile'), privUpdates, { merge: true });

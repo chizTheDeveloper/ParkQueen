@@ -60,31 +60,30 @@ service cloud.firestore {
       // instead, which is a genuine hardening improvement over the previous
       // any-signed-in-user-capable direct query.
       allow read: if signedIn();
-      allow create: if signedIn() && request.auth.uid == userId
-        && request.resource.data.keys().hasOnly([
-             'id', 'fullName', 'username', 'createdAt', 'crowns', 'title',
-             'vehicleType', 'vehicleBrand', 'vehicleColor',
-             'avatarUrl', 'avatarManifestId', 'avatarAgeGroup', 'avatarUpdatedAt'])
-        && (!('id' in request.resource.data) || request.resource.data.id == userId)
-        && (!('crowns' in request.resource.data) || request.resource.data.crowns == 0)
-        && (!('fullName' in request.resource.data)
-             || (request.resource.data.fullName is string
-                 && request.resource.data.fullName.size() <= 100))
-        && (!('username' in request.resource.data)
-             || (request.resource.data.username is string
-                 && request.resource.data.username.size() >= 2
-                 && request.resource.data.username.size() <= 30));
+      // Direct client CREATE disabled — claimUsername (functions/index.js) is
+      // now the sole authoritative writer of the initial users/{uid} doc
+      // (including its private/social and private/preferences siblings),
+      // atomically with the username reservation. No client path creates
+      // this document directly anymore (confirmed by repo-wide audit — the
+      // former saveUserProfile() create path has been retired). See
+      // docs/PROFILE_IDENTITY_HARDENING.md.
+      allow create: if false;
       // Direct admin writes removed: no admin client code ever exercised this
       // branch (all admin mutations of user state go through callables —
       // setStaffRole, adminSuspendUser/adminUnsuspendUser), and Rules cannot
       // re-verify current server-side Auth state the way requireCurrentAdmin
       // does, so an unrestricted isAdmin() write here would let a stale
       // admin token mutate any field (including crowns/title) directly.
+      //
+      // username/fullName removed from this allowlist — claimUsername and
+      // updateDisplayName are now the sole authoritative writers of those
+      // two identity fields (Admin SDK writes bypass these Rules entirely).
+      // An ordinary owner update touching either field is denied outright,
+      // even alongside otherwise-legitimate unrelated field changes.
       allow update: if signedIn() && request.auth.uid == userId
             && request.resource.data.diff(resource.data).affectedKeys()
                  .hasOnly([
-                   // Display and vehicle
-                   'fullName', 'username',
+                   // Vehicle
                    'vehicleType', 'vehicleBrand', 'vehicleColor',
                    // Avatar
                    'avatarUrl', 'avatarManifestId', 'avatarAgeGroup', 'avatarUpdatedAt',

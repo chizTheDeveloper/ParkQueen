@@ -33,7 +33,7 @@
  *   AR-16: a garbage/foreign cursor cannot escape the intended collection scope
  *   AR-17: client-requested field lists have no effect — server always returns its fixed minimized shape
  *   AR-18: source-contract — adminReadView is present, requireCurrentAdmin-gated, and the view enum matches
- *   AR-25: App Check canary (Stage 4A) config-contract — adminReadView is the ONLY callable with enforceAppCheck:true; consumeAppCheckToken is unused
+ *   AR-25: App Check canary (Stage 4A) config-contract — adminReadView, sendMessage, and updateDisplayName are the ONLY callables with enforceAppCheck:true (claimUsername deliberately excluded — see docs/PROFILE_IDENTITY_HARDENING.md); consumeAppCheckToken is unused
  *   AR-26: App Check canary — HTTP-level: a request with a valid admin ID token but no App Check token is rejected before the handler runs (proves Layer 1; missing App Check is testable against the emulator without reaching a real attestation provider — INVALID-token verification is not, since that requires the real App Check backend)
  *   AR-27: Runtime-IAM canary config-contract — adminReadView's onCall options declare serviceAccount: parqueen-admin-read@..., and enforceAppCheck/consumeAppCheckToken remain exactly as AR-25 requires alongside it
  *   AR-28: Runtime-IAM Phase 2A public-callable canary config-contract — moderateContent's onCall options declare serviceAccount: parqueen-user@..., with no enforceAppCheck/consumeAppCheckToken side effect and AR-25's fleet-wide App Check invariants unchanged
@@ -453,14 +453,18 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         }
     });
 
-    it('AR-25: App Check canary config-contract — adminReadView and sendMessage are the ONLY enforced callables; no replay protection', () => {
+    it('AR-25: App Check canary config-contract — adminReadView, sendMessage, and updateDisplayName are the ONLY enforced callables; no replay protection', () => {
         const indexSrc = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
 
         // adminReadView (Stage 4A) + sendMessage (chat write-path hardening)
-        // are the two enforced callables. Any further growth of this count
-        // must be a deliberate, reviewed enforcement decision.
+        // + updateDisplayName (profile-identity hardening) are the three
+        // enforced callables. claimUsername deliberately is NOT enforced —
+        // real production traffic showed App Check MISSING on every sample,
+        // insufficient evidence to enforce safely (see
+        // docs/PROFILE_IDENTITY_HARDENING.md). Any further growth of this
+        // count must be a deliberate, reviewed enforcement decision.
         const enforceTrueMatches = indexSrc.match(/enforceAppCheck:\s*true/g) || [];
-        expect(enforceTrueMatches.length).toBe(2);
+        expect(enforceTrueMatches.length).toBe(3);
 
         const adminReadViewCallStart = indexSrc.indexOf('exports.adminReadView = onCall(');
         expect(adminReadViewCallStart).toBeGreaterThan(-1);
@@ -479,19 +483,21 @@ describe('adminReadView — coordinated read-side session hardening', () => {
 
         expect(optionsSlice).toMatch(/serviceAccount:\s*'parqueen-admin-read@parkqueen-46475363-ccf36\.iam\.gserviceaccount\.com'/);
         // Still enforced — a serviceAccount edit must not accidentally touch
-        // the App Check config sitting right next to it. (sendMessage is now
-        // also enforced; see AR-25 for the fleet-wide count.)
+        // the App Check config sitting right next to it. (sendMessage and
+        // updateDisplayName are now also enforced; see AR-25 for the
+        // fleet-wide count.)
         expect(optionsSlice).toMatch(/enforceAppCheck:\s*true/);
-        expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(2);
+        expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(3);
         expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
 
-        // Exactly the three Phase 1/2A canaries should carry a serviceAccount
-        // override — adminReadView (admin-only), moderateContent (public/
-        // authenticated, uncalled), and sendMessage (public/authenticated,
-        // authoritative chat write path). No other callable/trigger has been
-        // migrated yet.
+        // Exactly the five Phase 1/2A/profile-identity canaries should carry
+        // a serviceAccount override — adminReadView (admin-only),
+        // moderateContent (public/authenticated, uncalled), sendMessage
+        // (authoritative chat write path), claimUsername, and
+        // updateDisplayName (both authoritative profile-identity write
+        // paths). No other callable/trigger has been migrated yet.
         const allServiceAccountMatches = indexSrc.match(/serviceAccount:\s*'[^']+'/g) || [];
-        expect(allServiceAccountMatches).toHaveLength(3);
+        expect(allServiceAccountMatches).toHaveLength(5);
     });
 
     it("AR-28: Runtime-IAM canary config-contract — moderateContent's serviceAccount is the dedicated parqueen-user identity, App Check invariants unaffected", () => {
@@ -506,7 +512,7 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         // this change; adminReadView remains the sole App-Check-enforced callable.
         expect(optionsSlice).not.toMatch(/enforceAppCheck/);
         expect(optionsSlice).not.toMatch(/consumeAppCheckToken/);
-        expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(2);
+        expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(3);
         expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
     });
 
