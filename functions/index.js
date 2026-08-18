@@ -1330,31 +1330,10 @@ const STRONG_RESERVED = [
 // Tier 2: exact token match only — avoids blocking "modernDriver", "devonParks", "steam"
 const SHORT_RESERVED = ['mod', 'dev', 'api', 'team', 'help'];
 
-const BANNED_WORDS = new Set([
-  // English profanity
-  "fuck","shit","asshole","bitch","dick","pussy","cunt","damn","bastard","piss",
-  "cock","tits","boobs","arse","bollocks","bugger","wanker","twat","prick","slut",
-  "whore","skank","hoe","thot",
-  // Slurs & hate speech
-  "nigger","nigga","nigg","negro","chink","spic","wetback","kike","gook","raghead",
-  "towelhead","cracker","honky","gringo","beaner","coon","darkie","jap","paki",
-  "faggot","fag","dyke","tranny","shemale","retard","retarded","tard",
-  // Sexual/explicit
-  "porn","porno","xxx","nsfw","hentai","milf","dildo","blowjob","handjob",
-  "cumshot","orgasm","penis","vagina","clitoris","anus","anal","fellatio",
-  // Violence
-  "killyou","killyourself","kys","rape","molest","murder","terrorist","bomb",
-  // Spanish profanity (NYC relevance)
-  "puta","mierda","coño","verga","pendejo","cabron","chingada","culero","maricon",
-]);
-
-function normalizeText(str) {
-  return str.toLowerCase()
-    .replace(/@/g, 'a').replace(/0/g, 'o').replace(/1/g, 'i').replace(/!/g, 'i')
-    .replace(/3/g, 'e').replace(/\$/g, 's').replace(/5/g, 's').replace(/7/g, 't')
-    .replace(/4/g, 'a').replace(/8/g, 'b').replace(/9/g, 'g')
-    .replace(/[_\-.\s]/g, '');
-}
+// BANNED_WORDS/CONTACT_PATTERNS/normalizeText/checkBannedWords/checkContactInfo
+// live in ./moderation.js — shared with sendMessage, so there's exactly one
+// server-side implementation instead of a third independent copy.
+const { checkBannedWords, checkContactInfo, normalizeText, moderateMessageServer } = require('./moderation');
 
 function tokenize(str) {
   return str.toLowerCase().split(/[_\-.\s]+/).filter(Boolean);
@@ -1371,34 +1350,6 @@ function checkImpersonation(text) {
   const tokens = tokenize(text);
   for (const term of SHORT_RESERVED) {
     if (tokens.includes(term)) return true;
-  }
-  return false;
-}
-
-const CONTACT_PATTERNS = [
-  /\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b/,  // phone numbers
-  /\b\d{7,}\b/,                            // 7+ consecutive digits
-  /\b[\w.+-]+@[\w-]+\.[\w.]+\b/,          // email
-  /https?:\/\/\S+/i,                       // URLs
-  /\bwww\.\S+/i,                           // www links
-  /\b\S+\.(com|net|org|io|co|app|me|info)\b/i,  // bare domains
-  /\b(instagram|snapchat|tiktok|whatsapp|telegram|signal|venmo|cashapp|zelle|paypal)\b/i,  // platform names
-  /\b(my\s*(ig|insta|snap|tik\s*tok|number|cell|phone))\b/i,  // "my ig/snap" patterns
-  /\b(add\s*me|hit\s*me\s*up|dm\s*me|text\s*me|call\s*me)\b/i,  // solicitation patterns
-];
-
-function checkBannedWords(text) {
-  const normalized = normalizeText(text);
-  // Check each banned word as a substring of the normalized text
-  for (const word of BANNED_WORDS) {
-    if (normalized.includes(word)) return true;
-  }
-  return false;
-}
-
-function checkContactInfo(text) {
-  for (const pattern of CONTACT_PATTERNS) {
-    if (pattern.test(text)) return true;
   }
   return false;
 }
@@ -1462,6 +1413,103 @@ exports.moderateContent = onCall(
 
     return { allowed: !blocked };
   }
+);
+
+// Authoritative server-side chat message write path — closes the direct-
+// Firestore-write moderation bypass found in the dead-callable audit: the
+// client's local moderateMessage() (utils/moderation.ts) is UX-only and was
+// never a security boundary, since any authenticated client using the
+// Firestore SDK directly could skip it and satisfy firestore.rules' schema/
+// size/ownership checks with unmoderated text. sendMessage re-derives sender
+// identity from request.auth.uid (never a client-supplied senderId),
+// re-verifies chat membership and runs the same banned-word/contact-info
+// check moderateContent already applies for type: 'message' (see
+// ./moderation.js), then performs the Firestore write itself via the Admin
+// SDK — which Rules cannot see or gate, so every condition Rules currently
+// enforce for a legitimate client create (membership, schema, senderId,
+// size) is re-verified here first.
+//
+// Runtime-IAM canary (Phase 2A, continued): same minimal identity as
+// moderateContent — roles/datastore.user only. No Auth read/write (sender
+// identity comes from the already-verified callable token, not a getUser()
+// call), no Storage, no Secret Manager, no FCM (no message-creation trigger
+// exists to feed), no deploy/IAM/Scheduler/App-Check-admin capability.
+//
+// App Check is enforced from first release — a brand-new callable with no
+// legacy caller to break; the production client already initializes App
+// Check (see adminReadView's already-verified Stage 4A canary).
+const SEND_MESSAGE_ID_RE = /^[A-Za-z0-9_-]{1,100}$/;
+
+async function sendMessageHandler(request) {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+
+  const { chatId, clientRequestId, text } = request.data || {};
+  if (
+    typeof chatId !== 'string' || chatId.length === 0 || chatId.length > 200 ||
+    typeof clientRequestId !== 'string' || !SEND_MESSAGE_ID_RE.test(clientRequestId) ||
+    typeof text !== 'string'
+  ) {
+    throw new HttpsError('invalid-argument', 'chatId, clientRequestId, and text are required.');
+  }
+  const trimmedText = text.trim();
+  if (trimmedText.length === 0) {
+    throw new HttpsError('invalid-argument', 'Message text cannot be empty.');
+  }
+  // Bound matches firestore.rules chat message text.size() <= 1000.
+  if (trimmedText.length > 1000) {
+    throw new HttpsError('invalid-argument', 'Text must be 1000 characters or less.');
+  }
+
+  const uid = request.auth.uid;
+  // 30/min: generous headroom over realistic human-typed conversation bursts
+  // (well beyond 1 message every 2s sustained for a full minute) while still
+  // bounding a scripted sender to a fixed ceiling per account.
+  await checkRateLimit(uid, 'sendMessage', { limit: 30, windowSec: 60 });
+
+  const moderation = moderateMessageServer(trimmedText);
+  if (!moderation.allowed) {
+    throw new HttpsError('invalid-argument', "This message couldn't be sent. Please revise and try again.");
+  }
+
+  const chatRef = db.collection('chats').doc(chatId);
+  const messageRef = chatRef.collection('messages').doc(clientRequestId);
+
+  const result = await db.runTransaction(async (tx) => {
+    const [chatSnap, existingMsgSnap] = await Promise.all([tx.get(chatRef), tx.get(messageRef)]);
+    if (!chatSnap.exists) {
+      throw new HttpsError('not-found', 'Chat not found.');
+    }
+    const chatData = chatSnap.data();
+    if (!Array.isArray(chatData.participants) || !chatData.participants.includes(uid)) {
+      throw new HttpsError('permission-denied', 'Not a participant in this chat.');
+    }
+    if (existingMsgSnap.exists) {
+      // Idempotent retry (double-click / network retry with the same
+      // clientRequestId) — return the already-created message; do not
+      // duplicate the write or re-touch chat metadata.
+      return { id: messageRef.id };
+    }
+    tx.set(messageRef, { senderId: uid, text: trimmedText, timestamp: FieldValue.serverTimestamp() });
+    tx.set(chatRef, {
+      lastMessage: trimmedText,
+      lastMessageTimestamp: FieldValue.serverTimestamp(),
+      lastSenderId: uid,
+    }, { merge: true });
+    return { id: messageRef.id };
+  });
+
+  return { id: result.id, success: true };
+}
+
+exports._sendMessageHandler = sendMessageHandler;
+
+exports.sendMessage = onCall(
+  {
+    region: 'us-central1',
+    enforceAppCheck: true,
+    serviceAccount: 'parqueen-user@parkqueen-46475363-ccf36.iam.gserviceaccount.com',
+  },
+  sendMessageHandler
 );
 
 exports.claimUsername = onCall(

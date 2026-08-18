@@ -536,22 +536,40 @@ describe('chats and messages — participant isolation', () => {
         );
     });
 
-    it('C5: message sender must match the authenticated participant', async () => {
+    // C5/C6/C8 — chat message write-path hardening: sendMessage (functions/
+    // index.js) is now the sole authoritative writer via the Admin SDK,
+    // which these Rules cannot see or gate. Direct client CREATE is denied
+    // unconditionally, regardless of how well-formed/correctly-attributed
+    // the attempted write is — this is the acceptance boundary the
+    // migration is verified against. (Pre-migration, C5 asserted failure
+    // for a mismatched senderId and C6 asserted success for a correctly
+    // attributed one; both are now denied for the same unconditional reason.)
+    it('C5: a participant cannot directly create a message, even with a fully valid, correctly-attributed schema', async () => {
         await assertFails(
             addDoc(collection(ownerDb(), 'chats', CHAT_ID, 'messages'), {
-                senderId: OTHER_UID,
+                senderId: OWNER_UID,
+                text: 'Leaving now',
+                timestamp: Timestamp.now(),
+            })
+        );
+    });
+
+    it('C6: a non-participant cannot directly create a message either', async () => {
+        await assertFails(
+            addDoc(collection(thirdDb(), 'chats', CHAT_ID, 'messages'), {
+                senderId: THIRD_UID,
                 text: 'spoofed',
                 timestamp: Timestamp.now(),
             })
         );
     });
 
-    it('C6: participant can send a correctly attributed message', async () => {
-        await assertSucceeds(
+    it('C8: a malformed direct create (spoofed senderId, missing required field) is also denied', async () => {
+        await assertFails(
             addDoc(collection(ownerDb(), 'chats', CHAT_ID, 'messages'), {
-                senderId: OWNER_UID,
-                text: 'Leaving now',
-                timestamp: Timestamp.now(),
+                senderId: OTHER_UID,
+                text: 'spoofed',
+                // timestamp intentionally omitted
             })
         );
     });

@@ -14,6 +14,7 @@ export default defineConfig({
       'functions/rateLimiter.integration.test.js',
       'functions/moderateAvatarUpload.integration.test.js',
       'functions/rateLimitCallable.integration.test.js',
+      'functions/sendMessage.integration.test.js',
       'functions/bootstrapAdmin.integration.test.js',
       'functions/reconcileLegacyAdminSingleton.integration.test.js',
       'functions/setStaffRole.integration.test.js',
