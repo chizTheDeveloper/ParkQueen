@@ -1404,8 +1404,16 @@ function checkContactInfo(text) {
 }
 
 // Shared moderation callable
+//
+// Runtime-IAM canary (Phase 2A): first public/authenticated-user callable to
+// move off the shared Editor-privileged compute default service account.
+// This identity has only roles/datastore.user — the exact permission
+// checkRateLimit's transaction and the moderationLog write need. No Auth
+// read/write, no Storage, no Secret Manager, no FCM, no deploy/IAM/
+// Scheduler/App-Check-admin capability. See adminReadView above for the
+// first (admin-only) canary in this same migration.
 exports.moderateContent = onCall(
-  { region: "us-central1" },
+  { region: "us-central1", serviceAccount: 'parqueen-user@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Sign in first.");
     const { text, type } = request.data || {};
