@@ -36,6 +36,7 @@
  *   AR-25: App Check canary (Stage 4A) config-contract — adminReadView is the ONLY callable with enforceAppCheck:true; consumeAppCheckToken is unused
  *   AR-26: App Check canary — HTTP-level: a request with a valid admin ID token but no App Check token is rejected before the handler runs (proves Layer 1; missing App Check is testable against the emulator without reaching a real attestation provider — INVALID-token verification is not, since that requires the real App Check backend)
  *   AR-27: Runtime-IAM canary config-contract — adminReadView's onCall options declare serviceAccount: parqueen-admin-read@..., and enforceAppCheck/consumeAppCheckToken remain exactly as AR-25 requires alongside it
+ *   AR-28: Runtime-IAM Phase 2A public-callable canary config-contract — moderateContent's onCall options declare serviceAccount: parqueen-user@..., with no enforceAppCheck/consumeAppCheckToken side effect and AR-25's fleet-wide App Check invariants unchanged
  *
  * Stage 4A note (AR-1 through AR-24, AR-19 through AR-24): as of the App
  * Check canary, adminReadView enforces App Check (functions/index.js,
@@ -480,10 +481,27 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(1);
         expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
 
-        // No other callable/trigger in the file should carry a serviceAccount
-        // override yet — this migration is adminReadView-only.
+        // Exactly the two Phase 1/2A canaries should carry a serviceAccount
+        // override — adminReadView (admin-only) and moderateContent (public/
+        // authenticated). No other callable/trigger has been migrated yet.
         const allServiceAccountMatches = indexSrc.match(/serviceAccount:\s*'[^']+'/g) || [];
-        expect(allServiceAccountMatches).toHaveLength(1);
+        expect(allServiceAccountMatches).toHaveLength(2);
+    });
+
+    it("AR-28: Runtime-IAM canary config-contract — moderateContent's serviceAccount is the dedicated parqueen-user identity, App Check invariants unaffected", () => {
+        const indexSrc = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+        const moderateContentCallStart = indexSrc.indexOf('exports.moderateContent = onCall(');
+        expect(moderateContentCallStart).toBeGreaterThan(-1);
+        const optionsSlice = indexSrc.slice(moderateContentCallStart, moderateContentCallStart + 1200);
+
+        expect(optionsSlice).toMatch(/serviceAccount:\s*'parqueen-user@parkqueen-46475363-ccf36\.iam\.gserviceaccount\.com'/);
+        // moderateContent is a Phase 2A (non-App-Check) canary — it must not
+        // acquire enforceAppCheck/consumeAppCheckToken as a side effect of
+        // this change; adminReadView remains the sole App-Check-enforced callable.
+        expect(optionsSlice).not.toMatch(/enforceAppCheck/);
+        expect(optionsSlice).not.toMatch(/consumeAppCheckToken/);
+        expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(1);
+        expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
     });
 
     it('AR-26: App Check canary HTTP boundary — valid admin ID token but no App Check token is rejected before the handler runs', async () => {
