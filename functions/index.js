@@ -3379,7 +3379,18 @@ exports.adminReadView = onCall(
   // requireCurrentAdmin inside the handler: App Check verifies the calling
   // app instance, requireCurrentAdmin verifies the calling user's live admin
   // role. Neither substitutes for the other.
-  { region: 'us-central1', enforceAppCheck: true },
+  //
+  // Runtime-IAM canary: also the first callable to move off the shared
+  // Editor-privileged compute default service account. This identity has
+  // only roles/datastore.user + roles/firebaseauth.viewer — the exact set
+  // requireCurrentAdmin's getUser() call and the ADMIN_READ_VIEWS Firestore
+  // queries need, nothing else (no secret access, no Auth write, no
+  // Storage, no deploy/IAM/Scheduler/App-Check-admin capability).
+  {
+    region: 'us-central1',
+    enforceAppCheck: true,
+    serviceAccount: 'parqueen-admin-read@parkqueen-46475363-ccf36.iam.gserviceaccount.com',
+  },
   adminReadViewHandler
 );
 
