@@ -568,16 +568,15 @@ service cloud.firestore {
         allow read: if chatParticipant(
           get(/databases/$(database)/documents/chats/$(chatId)).data
         );
-        allow create: if chatParticipant(
-            get(/databases/$(database)/documents/chats/$(chatId)).data
-          )
-          && request.resource.data.keys().hasAll(['senderId', 'text', 'timestamp'])
-          && request.resource.data.keys().hasOnly(['senderId', 'text', 'timestamp'])
-          && request.resource.data.senderId == request.auth.uid
-          && request.resource.data.text is string
-          && request.resource.data.text.size() > 0
-          && request.resource.data.text.size() <= 1000
-          && request.resource.data.timestamp is timestamp;
+        // Direct client create disabled — sendMessage (functions/index.js)
+        // is now the sole authoritative write path: it re-verifies
+        // membership and runs server-side moderation before writing via the
+        // Admin SDK, which these Rules cannot see or gate. A client-side-
+        // only check (the old rule below, and the still-present UX-only
+        // moderateMessage()) is not a security boundary. NOT YET DEPLOYED —
+        // staged here per the migration's compatibility-safe rollout order;
+        // see docs/CHAT_MESSAGE_HARDENING.md Step D.
+        allow create: if false;
         allow update: if false;
         allow delete: if chatParticipant(
           get(/databases/$(database)/documents/chats/$(chatId)).data

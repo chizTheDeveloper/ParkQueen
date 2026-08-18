@@ -453,11 +453,14 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         }
     });
 
-    it('AR-25: App Check canary config-contract — adminReadView is the ONLY enforced callable; no replay protection', () => {
+    it('AR-25: App Check canary config-contract — adminReadView and sendMessage are the ONLY enforced callables; no replay protection', () => {
         const indexSrc = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
 
+        // adminReadView (Stage 4A) + sendMessage (chat write-path hardening)
+        // are the two enforced callables. Any further growth of this count
+        // must be a deliberate, reviewed enforcement decision.
         const enforceTrueMatches = indexSrc.match(/enforceAppCheck:\s*true/g) || [];
-        expect(enforceTrueMatches.length).toBe(1);
+        expect(enforceTrueMatches.length).toBe(2);
 
         const adminReadViewCallStart = indexSrc.indexOf('exports.adminReadView = onCall(');
         expect(adminReadViewCallStart).toBeGreaterThan(-1);
@@ -475,17 +478,20 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         const optionsSlice = indexSrc.slice(adminReadViewCallStart, adminReadViewCallStart + 1200);
 
         expect(optionsSlice).toMatch(/serviceAccount:\s*'parqueen-admin-read@parkqueen-46475363-ccf36\.iam\.gserviceaccount\.com'/);
-        // Still enforced and still the only one — a serviceAccount edit must not
-        // accidentally touch the App Check config sitting right next to it.
+        // Still enforced — a serviceAccount edit must not accidentally touch
+        // the App Check config sitting right next to it. (sendMessage is now
+        // also enforced; see AR-25 for the fleet-wide count.)
         expect(optionsSlice).toMatch(/enforceAppCheck:\s*true/);
-        expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(1);
+        expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(2);
         expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
 
-        // Exactly the two Phase 1/2A canaries should carry a serviceAccount
-        // override — adminReadView (admin-only) and moderateContent (public/
-        // authenticated). No other callable/trigger has been migrated yet.
+        // Exactly the three Phase 1/2A canaries should carry a serviceAccount
+        // override — adminReadView (admin-only), moderateContent (public/
+        // authenticated, uncalled), and sendMessage (public/authenticated,
+        // authoritative chat write path). No other callable/trigger has been
+        // migrated yet.
         const allServiceAccountMatches = indexSrc.match(/serviceAccount:\s*'[^']+'/g) || [];
-        expect(allServiceAccountMatches).toHaveLength(2);
+        expect(allServiceAccountMatches).toHaveLength(3);
     });
 
     it("AR-28: Runtime-IAM canary config-contract — moderateContent's serviceAccount is the dedicated parqueen-user identity, App Check invariants unaffected", () => {
@@ -500,7 +506,7 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         // this change; adminReadView remains the sole App-Check-enforced callable.
         expect(optionsSlice).not.toMatch(/enforceAppCheck/);
         expect(optionsSlice).not.toMatch(/consumeAppCheckToken/);
-        expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(1);
+        expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(2);
         expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
     });
 

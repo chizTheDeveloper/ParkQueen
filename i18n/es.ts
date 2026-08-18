@@ -792,6 +792,8 @@ const es: Record<string, string> = {
     'messages.report_scam': 'Estafa o fraude',
     'messages.report_other': 'Otro',
     'messages.toast_delete_failed': 'No se pudo eliminar la conversación.',
+    'messages.toast_send_failed': 'No se pudo enviar el mensaje. Inténtalo de nuevo.',
+    'messages.rate_limited': 'Estás enviando mensajes demasiado rápido. Espera un momento.',
     'messages.toast_blocked': 'Usuario bloqueado',
     'messages.toast_block_failed': 'No se pudo bloquear al usuario',
     'messages.toast_reported': 'Reporte enviado. Gracias.',

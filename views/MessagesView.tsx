@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Send, ChevronLeft, MoreVertical, Sparkles, ArrowLeft, MapPin, MessageSquare } from 'lucide-react';
 import { generateSmartReplies, createSmartReplyRequestKey } from '../services/geminiService';
 import { collection, query, where, onSnapshot, addDoc, doc, setDoc, orderBy, serverTimestamp, getDocs, getDoc, writeBatch, updateDoc } from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { getApp } from 'firebase/app';
 import { db } from '../firebase';
 import { moderateMessage } from '../utils/moderation';
 import { t, useLang } from '../i18n';
@@ -21,6 +23,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
   const [messages, setMessages] = useState<any[]>([]);
   const [inputText, setInputText] = useState('');
   const [moderationError, setModerationError] = useState('');
+  const [sending, setSending] = useState(false);
   const [smartReplies, setSmartReplies] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastSmartReplyKey = useRef<string | null>(null);
@@ -283,9 +286,12 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
 
   // 5. Send message
   const handleSend = async (text: string) => {
-    if (!text.trim() || !activeConversationId || !user || !db) return;
+    if (!text.trim() || !activeConversationId || !user || !db || sending) return;
     setModerationError('');
 
+    // UX-only pre-check for instant feedback — NOT a security boundary.
+    // sendMessage independently re-runs the authoritative check server-side;
+    // a client that skipped this call entirely would gain no bypass.
     const blocked = moderateMessage(text.trim());
     if (blocked) {
         setModerationError(blocked);
@@ -293,28 +299,38 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
         return;
     }
 
-    localStorage.setItem(`lastReadChat_${activeConversationId}`, Date.now().toString());
-    const chatRef = doc(db, "chats", activeConversationId);
-    const messagesRef = collection(db, "chats", activeConversationId, "messages");
-
-    const messageData = {
-        senderId: user.id,
-        text: text.trim(),
-        timestamp: serverTimestamp()
-    };
-
-    setInputText('');
-    setSmartReplies([]);
-
+    const trimmed = text.trim();
+    setSending(true);
     try {
-        await addDoc(messagesRef, messageData);
-        await setDoc(chatRef, {
-            lastMessage: text.trim(),
-            lastMessageTimestamp: serverTimestamp(),
-            lastSenderId: user.id
-        }, { merge: true });
-    } catch (e) {
-        console.error("Error sending message", e);
+        const functions = getFunctions(getApp(), 'us-central1');
+        const clientRequestId =
+            typeof crypto !== 'undefined' && crypto.randomUUID
+                ? crypto.randomUUID()
+                : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        await httpsCallable(functions, 'sendMessage')({
+            chatId: activeConversationId,
+            clientRequestId,
+            text: trimmed,
+        });
+        localStorage.setItem(`lastReadChat_${activeConversationId}`, Date.now().toString());
+        setInputText('');
+        setSmartReplies([]);
+    } catch (e: any) {
+        const code: string = e?.code ?? '';
+        if (code === 'functions/invalid-argument') {
+            // Server-side moderation rejection — same banner UX as the
+            // client-side pre-check above, same non-localized copy for parity.
+            setModerationError(e?.message || "This message couldn't be sent. Please revise and try again.");
+            setTimeout(() => setModerationError(''), 4000);
+        } else if (code === 'functions/resource-exhausted') {
+            setModerationError(t('messages.rate_limited'));
+            setTimeout(() => setModerationError(''), 4000);
+        } else {
+            console.error("Error sending message", e);
+            showToast(t('messages.toast_send_failed'));
+        }
+    } finally {
+        setSending(false);
     }
   };
 
@@ -477,7 +493,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
             />
             <button
               onClick={() => handleSend(inputText)}
-              disabled={!inputText.trim()}
+              disabled={!inputText.trim() || sending}
               className="p-2 bg-queen-600 rounded-full text-white disabled:opacity-50 disabled:bg-[var(--color-surface)]"
             >
               <Send size={16} />
