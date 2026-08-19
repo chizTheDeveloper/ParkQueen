@@ -536,6 +536,81 @@ describe('chats and messages — participant isolation', () => {
         );
     });
 
+    // Chat metadata hardening — lastMessage/lastMessageTimestamp/lastSenderId
+    // are authoritative-server-owned (sendMessage, via the Admin SDK, which
+    // these Rules cannot see or gate). A direct client write is denied even
+    // for a legitimate participant setting their own uid as sender.
+    it('CM-10: a participant cannot directly set lastMessage', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'chats', CHAT_ID), { lastMessage: 'forged preview' }));
+    });
+
+    it('CM-11: a participant cannot directly set lastMessageTimestamp', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'chats', CHAT_ID), { lastMessageTimestamp: Timestamp.now() }));
+    });
+
+    it('CM-12: a participant cannot directly set lastSenderId to a different value', async () => {
+        // chatData seeds lastSenderId: OWNER_UID already — must change it to a
+        // genuinely different value, or Firestore's diff() sees no change at
+        // all and onlyChanges() trivially (and correctly) passes on an empty
+        // affected-keys set, which would prove nothing about the Rules.
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'chats', CHAT_ID), { lastSenderId: OTHER_UID }));
+    });
+
+    it('CM-13: all three server-owned fields together, alongside an otherwise-legitimate field, is still denied', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'chats', CHAT_ID), {
+            lastMessage: 'forged', lastMessageTimestamp: Timestamp.now(), lastSenderId: OWNER_UID,
+            relatedSpotTitle: 'Still a valid field',
+        }));
+    });
+
+    it('CM-14: a legitimate participant-owned field (participantNames, relatedSpotTitle) remains editable', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertSucceeds(upd(doc(ownerDb(), 'chats', CHAT_ID), {
+            participantNames: { ...chatData.participantNames, [OWNER_UID]: 'Updated Name' },
+        }));
+        await assertSucceeds(upd(doc(ownerDb(), 'chats', CHAT_ID), { relatedSpotTitle: 'New Spot Title' }));
+    });
+
+    it('CM-15: the initChat re-navigation pattern (idempotent shell re-write, no metadata fields) remains allowed', async () => {
+        await assertSucceeds(
+            setDoc(doc(ownerDb(), 'chats', CHAT_ID), {
+                id: CHAT_ID,
+                participants: chatData.participants,
+                participantNames: chatData.participantNames,
+                relatedSpotTitle: chatData.relatedSpotTitle,
+            }, { merge: true } as any)
+        );
+    });
+
+    it('CM-16: a brand-new chat can be created with the shell schema only (no lastMessage/lastMessageTimestamp/lastSenderId)', async () => {
+        const newChatId = `${OWNER_UID}_${THIRD_UID}`;
+        await assertSucceeds(
+            setDoc(doc(ownerDb(), 'chats', newChatId), {
+                id: newChatId,
+                participants: [OWNER_UID, THIRD_UID],
+                participantNames: { [OWNER_UID]: 'Owner', [THIRD_UID]: 'Third' },
+            })
+        );
+    });
+
+    it('CM-17: creating a new chat with a lastMessage field included is denied (legacy shape no longer accepted)', async () => {
+        const newChatId = `${OWNER_UID}_${THIRD_UID}_legacy`;
+        await assertFails(
+            setDoc(doc(ownerDb(), 'chats', newChatId), {
+                id: newChatId,
+                participants: [OWNER_UID, THIRD_UID],
+                participantNames: { [OWNER_UID]: 'Owner', [THIRD_UID]: 'Third' },
+                lastMessage: 'forged at create',
+                lastMessageTimestamp: Timestamp.now(),
+                lastSenderId: OWNER_UID,
+            })
+        );
+    });
+
     // C5/C6/C8 — chat message write-path hardening: sendMessage (functions/
     // index.js) is now the sole authoritative writer via the Admin SDK,
     // which these Rules cannot see or gate. Direct client CREATE is denied

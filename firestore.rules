@@ -543,24 +543,28 @@ service cloud.firestore {
 
     match /chats/{chatId} {
       allow read: if chatParticipant(resource.data);
+      // lastMessage/lastMessageTimestamp/lastSenderId removed from the
+      // client-writable schema entirely — sendMessage (functions/index.js)
+      // is the sole authoritative writer of these three fields, atomically
+      // with the message it derives them from (Admin SDK writes bypass
+      // these Rules, same pattern as the messages subcollection below).
+      // The client (MessagesView.tsx's initChat()) still legitimately
+      // creates/re-touches the chat "shell" (participants/participantNames/
+      // relatedSpotTitle) before any message exists, but no longer sends a
+      // fabricated placeholder preview. See docs/CHAT_METADATA_HARDENING.md.
       allow create: if signedIn()
         && request.resource.data.keys().hasAll(
-             ['id', 'participants', 'participantNames', 'lastMessage',
-              'lastMessageTimestamp', 'lastSenderId'])
+             ['id', 'participants', 'participantNames'])
         && request.resource.data.keys().hasOnly(
-             ['id', 'participants', 'participantNames', 'relatedSpotTitle',
-              'lastMessage', 'lastMessageTimestamp', 'lastSenderId'])
+             ['id', 'participants', 'participantNames', 'relatedSpotTitle'])
         && request.resource.data.id == chatId
         && request.resource.data.participants is list
         && request.resource.data.participants.size() == 2
-        && request.auth.uid in request.resource.data.participants
-        && request.resource.data.lastSenderId == request.auth.uid;
+        && request.auth.uid in request.resource.data.participants;
       allow update: if chatParticipant(resource.data)
         && request.resource.data.participants == resource.data.participants
         && request.resource.data.id == resource.data.id
-        && request.resource.data.lastSenderId == request.auth.uid
-        && onlyChanges(['participantNames', 'relatedSpotTitle', 'lastMessage',
-                        'lastMessageTimestamp', 'lastSenderId']);
+        && onlyChanges(['participantNames', 'relatedSpotTitle']);
       allow delete: if chatParticipant(resource.data);
       
       match /messages/{messageId} {

@@ -204,6 +204,13 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
         console.warn("Failed to get other user name", e);
       }
 
+      // lastMessage/lastMessageTimestamp/lastSenderId intentionally omitted —
+      // those are authoritative-server-owned (sendMessage sets them
+      // atomically with the first real message; see firestore.rules and
+      // docs/CHAT_METADATA_HARDENING.md). Previously this wrote a
+      // fabricated "Conversation started" placeholder, which — on
+      // re-navigating to an existing conversation — would also silently
+      // clobber the real last-message preview back to that placeholder.
       await setDoc(chatRef, {
         id: chatId,
         participants: [user.id, activeChatContext.userId],
@@ -212,9 +219,6 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
           [activeChatContext.userId]: otherUserName
         },
         relatedSpotTitle: activeChatContext.context || "Street Spot",
-        lastMessage: "Conversation started",
-        lastMessageTimestamp: serverTimestamp(),
-        lastSenderId: user.id
       }, { merge: true });
 
       setActiveConversationId(chatId);
