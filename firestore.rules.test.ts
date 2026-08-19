@@ -1623,6 +1623,12 @@ describe('spots — create schema (TM-10)', () => {
         address: '123 Main St, New York, NY',
     };
 
+    // Spot identity-display authority: finderName must match the caller's
+    // own live profile (see firestore.rules' matchesFinderIdentity).
+    beforeEach(async () => {
+        await seed('users', OWNER_UID, { id: OWNER_UID, username: 'Alice', crowns: 0, title: 'Newcomer' });
+    });
+
     it('TM10-A: valid spot create succeeds', async () => {
         await assertSucceeds(addDoc(collection(ownerDb(), 'spots'), validSpot));
     });
@@ -1664,6 +1670,143 @@ describe('spots — create schema (TM-10)', () => {
 
     it('TM10-H: unauthenticated create denied', async () => {
         await assertFails(addDoc(collection(anonDb(), 'spots'), validSpot));
+    });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SPOT IDENTITY-DISPLAY AUTHORITY — finderName/finderTitle/finderVehicle*
+// (and interestedUser*/holdRequestedByName equivalents) must match the
+// caller's own live profile at write time. See docs/SPOT_METADATA_HARDENING.md.
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('spots — identity-display authority (SP)', () => {
+    const finderProfile = { id: OWNER_UID, username: 'finderowner', crowns: 60, vehicleColor: 'blue', vehicleType: 'sedan', vehicleBrand: 'Honda' };
+    const claimerProfile = { id: OTHER_UID, username: 'claimerother', crowns: 5, vehicleColor: 'red', vehicleType: 'suv', vehicleBrand: 'Toyota' };
+    // getTitleForCrowns(60) -> 'Street Scout' (>=50), getTitleForCrowns(5) -> 'Newcomer' (<10)
+    const FINDER_TITLE = 'Street Scout';
+    const CLAIMER_TITLE = 'Newcomer';
+
+    const baseSpot = {
+        finderId: OWNER_UID,
+        finderName: 'finderowner',
+        finderTitle: FINDER_TITLE,
+        finderVehicleColor: 'blue',
+        finderVehicleType: 'sedan',
+        finderVehicleBrand: 'Honda',
+        address: '1 Identity Test St',
+        lat: 40.71, lng: -74.01,
+        type: 'free', status: 'available',
+        geohash: 'dr5rv', pingMode: 'now',
+        reportedAt: Timestamp.now(), expiresAt: FUTURE,
+    };
+    const SPOT_ID = 'sp-identity-spot';
+
+    beforeEach(async () => {
+        await seed('users', OWNER_UID, finderProfile);
+        await seed('users', OTHER_UID, claimerProfile);
+    });
+
+    it('SP-01: create with a finderName that does not match the caller\'s own profile is denied, even with the correct finderId', async () => {
+        await assertFails(
+            setDoc(doc(ownerDb(), 'spots', SPOT_ID), { ...baseSpot, finderName: 'Someone Else' })
+        );
+    });
+
+    it('SP-05: legitimate spot creation (finderName/Title/Vehicle* all matching the caller\'s live profile) succeeds', async () => {
+        await assertSucceeds(setDoc(doc(ownerDb(), 'spots', SPOT_ID), baseSpot));
+    });
+
+    it('SP-07: create with a forged finderTitle (crown-tier) is denied even when finderName matches', async () => {
+        await assertFails(
+            setDoc(doc(ownerDb(), 'spots', SPOT_ID), { ...baseSpot, finderTitle: 'Urban Legend' })
+        );
+    });
+
+    it('SP-08: create with a forged finderVehicleColor is denied even when finderName matches', async () => {
+        await assertFails(
+            setDoc(doc(ownerDb(), 'spots', SPOT_ID), { ...baseSpot, finderVehicleColor: 'invisible' })
+        );
+    });
+
+    it('SP-11: omitting optional identity fields entirely (no vehicle set) still succeeds', async () => {
+        const { finderVehicleColor: _c, finderVehicleType: _t, finderVehicleBrand: _b, finderTitle: _ti, ...minimal } = baseSpot;
+        await assertSucceeds(setDoc(doc(ownerDb(), 'spots', SPOT_ID + '-minimal'), minimal));
+    });
+
+    describe('claim (Arm 1) and hold-request (Arm 9)', () => {
+        beforeEach(async () => {
+            await seed('spots', SPOT_ID, baseSpot);
+        });
+
+        it('SP-03: a legitimate claim with interestedUserName/Title/Vehicle* matching the claimer\'s live profile succeeds', async () => {
+            const { updateDoc: upd } = await import('firebase/firestore');
+            await assertSucceeds(upd(doc(otherDb(), 'spots', SPOT_ID), {
+                status: 'interested',
+                interestedUserId: OTHER_UID,
+                interestedUserName: 'claimerother',
+                interestedUserTitle: CLAIMER_TITLE,
+                interestedUserVehicleColor: 'red',
+                interestedUserVehicleType: 'suv',
+                interestedUserVehicleBrand: 'Toyota',
+            }));
+        });
+
+        it('SP-04: a claim with a forged interestedUserName is denied, even with the correct interestedUserId', async () => {
+            const { updateDoc: upd } = await import('firebase/firestore');
+            await assertFails(upd(doc(otherDb(), 'spots', SPOT_ID), {
+                status: 'interested',
+                interestedUserId: OTHER_UID,
+                interestedUserName: 'Impersonated Name',
+            }));
+        });
+
+        it('SP-04b: a claim with a forged interestedUserTitle (crown-tier) is denied', async () => {
+            const { updateDoc: upd } = await import('firebase/firestore');
+            await assertFails(upd(doc(otherDb(), 'spots', SPOT_ID), {
+                status: 'interested',
+                interestedUserId: OTHER_UID,
+                interestedUserName: 'claimerother',
+                interestedUserTitle: 'Urban Legend',
+            }));
+        });
+
+        it('SP-05b: a legitimate hold request with holdRequestedByName matching the requester\'s live profile succeeds', async () => {
+            const { updateDoc: upd } = await import('firebase/firestore');
+            await assertSucceeds(upd(doc(otherDb(), 'spots', SPOT_ID), {
+                holdRequestedBy: OTHER_UID,
+                holdRequestStatus: 'pending',
+                holdRequestedByName: 'claimerother',
+            }));
+        });
+
+        it('SP-06: a hold request with a forged holdRequestedByName is denied, even with the correct holdRequestedBy', async () => {
+            const { updateDoc: upd } = await import('firebase/firestore');
+            await assertFails(upd(doc(otherDb(), 'spots', SPOT_ID), {
+                holdRequestedBy: OTHER_UID,
+                holdRequestStatus: 'pending',
+                holdRequestedByName: 'Impersonated Name',
+            }));
+        });
+
+        it('SP-09: a direct attempt to change finderName via update (outside of create) is denied', async () => {
+            const { updateDoc: upd } = await import('firebase/firestore');
+            await assertFails(upd(doc(ownerDb(), 'spots', SPOT_ID), { finderName: 'finderowner-renamed' }));
+        });
+
+        it('SP-10: a legitimate claimer cancellation (clearing interestedUser* fields to null) still succeeds unaffected', async () => {
+            const { updateDoc: upd } = await import('firebase/firestore');
+            await upd(doc(otherDb(), 'spots', SPOT_ID), {
+                status: 'interested', interestedUserId: OTHER_UID, interestedUserName: 'claimerother',
+            });
+            await assertSucceeds(upd(doc(otherDb(), 'spots', SPOT_ID), {
+                status: 'available',
+                interestedUserId: null,
+                interestedUserName: null,
+                interestedUserVehicleColor: null,
+                interestedUserVehicleType: null,
+                interestedUserVehicleBrand: null,
+                interestedUserTitle: null,
+            }));
+        });
     });
 });
 
@@ -2406,10 +2549,12 @@ describe('§9 — Two-user workflow: finder ↔ claimer lifecycle', () => {
     // ── Ping lifecycle ─────────────────────────────────────────────────────────
 
     it('WF-05: OWNER can create a valid available Ping', async () => {
+        // finderName must match the beforeEach-seeded profile's username
+        // ('alice') — spot identity-display authority (matchesFinderIdentity).
         await assertSucceeds(
             setDoc(doc(ownerDb(), 'spots', 'wf-spot-new'), {
                 finderId:   OWNER_UID,
-                finderName: 'Workflow Alice',
+                finderName: 'alice',
                 address:    '2 Workflow St',
                 lat:        40.72,
                 lng:        -74.02,
