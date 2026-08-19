@@ -6,8 +6,6 @@ import { getDistance, formatTimeLeft } from './utils';
 import { getVehicleHex, VehicleIcon } from '../../utils/vehicleIcon';
 import { getTierForTitle, TIER_VISUALS } from '../../utils/crowns';
 import { CrownBadge } from '../../utils/CrownBadge';
-import { db } from '../../firebase';
-import { doc, setDoc, addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { derivePingLifecycle, timestampToMillis } from '../../utils/pingLifecycle';
 
 // QUICK_REPLIES moved inside SpotDetailsCardInner so they re-resolve on language change
@@ -74,12 +72,6 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
     interestError, estDriveMinutes, isWithinArrivalRange, maxEtaMinutes, manageMode = false, nowMs = Date.now(),
 }) => {
     useLang();
-    const quickReplies = [
-        t('claim_flow.quick_reply_1'),
-        t('claim_flow.quick_reply_2'),
-        t('claim_flow.quick_reply_3'),
-        t('claim_flow.quick_reply_4'),
-    ];
     const claimerCancelReasons = [
         { key: 'found_other', label: t('claim_flow.cancel_reason_found_other'), value: 'Found parking elsewhere' },
         { key: 'traffic',     label: t('claim_flow.cancel_reason_traffic'),     value: 'Traffic is too heavy' },
@@ -89,8 +81,6 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
         { key: 'cant_wait',  label: t('claim_flow.cancel_reason_cant_wait'), value: "Can't wait anymore" },
         { key: 'spot_gone',  label: t('claim_flow.cancel_reason_spot_gone'), value: 'Spot no longer available' },
     ];
-    const [showQuickReplies, setShowQuickReplies] = useState(false);
-    const [messageSent, setMessageSent] = useState(false);
     const [showClaimerReasons, setShowClaimerReasons] = useState(false);
     const [showFinderReasons, setShowFinderReasons] = useState(false);
     const distanceVal = userLocation ? getDistance(userLocation[1], userLocation[0], selectedItem.lat, selectedItem.lng) : null;
@@ -119,28 +109,6 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
     else if (isInterestedUser && spotStatus === 'interested') state = 'my_claim';
     else if (spotStatus === 'available') state = 'available';
     else state = 'third_party';
-
-    const sendQuickReply = async (text: string) => {
-        if (!user || !selectedItem.interestedUserId) return;
-        const otherUserId = selectedItem.interestedUserId;
-        const chatId = [user.id, otherUserId].sort().join('_');
-        const chatRef = doc(db, 'chats', chatId);
-        await setDoc(chatRef, {
-            id: chatId,
-            participants: [user.id, otherUserId],
-            participantNames: { [user.id]: user.fullName || 'Driver', [otherUserId]: selectedItem.interestedUserName || 'Driver' },
-            relatedSpotTitle: selectedItem.title || spotAddress || 'Street Spot',
-            lastMessage: text,
-            lastMessageTimestamp: serverTimestamp(),
-            lastSenderId: user.id,
-        }, { merge: true });
-        await addDoc(collection(db, 'chats', chatId, 'messages'), {
-            senderId: user.id, text, timestamp: serverTimestamp(),
-        });
-        setShowQuickReplies(false);
-        setMessageSent(true);
-        setTimeout(() => setMessageSent(false), 2000);
-    };
 
     // For the finder's own ping, read vehicle info from the live user object (always current).
     // For others, read from the denormalized spot fields (written at ping creation time).

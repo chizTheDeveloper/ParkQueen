@@ -301,6 +301,58 @@ describe('sendMessage — authoritative chat message write path', () => {
         expect(after.lastSenderId).toBe(before.lastSenderId);
     });
 
+    // ─── Chat metadata hardening (chats/{chatId} authoritative fields) ────
+
+    it('CM-03: chats/{chatId}.lastMessage equals the exact stored, already-approved message text', async () => {
+        const clientRequestId = testId('m');
+        await callDirect(uidA, { chatId, clientRequestId, text: 'preview parity check' });
+        const msgDoc = await db.collection('chats').doc(chatId).collection('messages').doc(clientRequestId).get();
+        const chatDoc = await db.collection('chats').doc(chatId).get();
+        expect(chatDoc.data().lastMessage).toBe(msgDoc.data().text);
+    });
+
+    it('CM-04: chats/{chatId}.lastSenderId is authoritative — a client-supplied lastSenderId in the request is ignored', async () => {
+        const clientRequestId = testId('m');
+        await callDirect(uidA, { chatId, clientRequestId, text: 'hi', lastSenderId: 'attacker-supplied-uid' });
+        const chatDoc = await db.collection('chats').doc(chatId).get();
+        expect(chatDoc.data().lastSenderId).toBe(uidA);
+        expect(chatDoc.data().lastSenderId).not.toBe('attacker-supplied-uid');
+    });
+
+    it('CM-05: chats/{chatId}.lastMessageTimestamp is server-derived, never a client-supplied value', async () => {
+        const clientRequestId = testId('m');
+        const before = Date.now();
+        await callDirect(uidA, { chatId, clientRequestId, text: 'hi', lastMessageTimestamp: 'bogus' });
+        const chatDoc = await db.collection('chats').doc(chatId).get();
+        const ts = chatDoc.data().lastMessageTimestamp;
+        expect(ts).toBeInstanceOf(Timestamp);
+        expect(ts.toMillis()).toBeGreaterThanOrEqual(before - 1000);
+        expect(ts.toMillis()).toBeLessThanOrEqual(Date.now() + 1000);
+    });
+
+    it('CM-08: a non-participant sender changes neither the message nor chat metadata', async () => {
+        const outsider = testUid('cm-outsider');
+        const before = (await db.collection('chats').doc(chatId).get()).data();
+        const { error } = await callDirect(outsider, { chatId, clientRequestId: testId('m'), text: 'hi' });
+        expect(error.code).toBe('permission-denied');
+        const after = (await db.collection('chats').doc(chatId).get()).data();
+        expect(after.lastMessage).toBe(before.lastMessage);
+        expect(after.lastSenderId).toBe(before.lastSenderId);
+        await deleteRateLimitCounter(outsider);
+    });
+
+    it('CM-09: a rate-limited send changes neither the message nor chat metadata', async () => {
+        await seedRateLimitCounter(uidA, 30);
+        const before = (await db.collection('chats').doc(chatId).get()).data();
+        const clientRequestId = testId('m');
+        const { error } = await callDirect(uidA, { chatId, clientRequestId, text: 'hi' });
+        expect(error.code).toBe('resource-exhausted');
+        const after = (await db.collection('chats').doc(chatId).get()).data();
+        expect(after.lastMessage).toBe(before.lastMessage);
+        const msgDoc = await db.collection('chats').doc(chatId).collection('messages').doc(clientRequestId).get();
+        expect(msgDoc.exists).toBe(false);
+    });
+
     it("SM-19: Runtime-IAM canary config-contract — sendMessage's serviceAccount is the dedicated parqueen-user identity; test seam is nondeployable", () => {
         const indexSrc = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
         const callStart = indexSrc.indexOf('exports.sendMessage = onCall(');
