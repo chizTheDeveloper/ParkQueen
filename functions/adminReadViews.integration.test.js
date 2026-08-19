@@ -37,6 +37,7 @@
  *   AR-26: App Check canary — HTTP-level: a request with a valid admin ID token but no App Check token is rejected before the handler runs (proves Layer 1; missing App Check is testable against the emulator without reaching a real attestation provider — INVALID-token verification is not, since that requires the real App Check backend)
  *   AR-27: Runtime-IAM canary config-contract — adminReadView's onCall options declare serviceAccount: parqueen-admin-read@..., and enforceAppCheck/consumeAppCheckToken remain exactly as AR-25 requires alongside it
  *   AR-28: Runtime-IAM Phase 2A public-callable canary config-contract — moderateContent's onCall options declare serviceAccount: parqueen-user@..., with no enforceAppCheck/consumeAppCheckToken side effect and AR-25's fleet-wide App Check invariants unchanged
+ *   AR-29: Runtime-IAM canary config-contract — moderateAvatarUpload's onObjectFinalized options declare serviceAccount: parqueen-avatar-moderator@..., with region/memory/retry unaffected and AR-25's fleet-wide App Check invariants unchanged
  *
  * Stage 4A note (AR-1 through AR-24, AR-19 through AR-24): as of the App
  * Check canary, adminReadView enforces App Check (functions/index.js,
@@ -490,14 +491,15 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(3);
         expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
 
-        // Exactly the five Phase 1/2A/profile-identity canaries should carry
-        // a serviceAccount override — adminReadView (admin-only),
+        // Exactly the six Phase 1/2A/profile-identity/avatar-runtime canaries
+        // should carry a serviceAccount override — adminReadView (admin-only),
         // moderateContent (public/authenticated, uncalled), sendMessage
-        // (authoritative chat write path), claimUsername, and
-        // updateDisplayName (both authoritative profile-identity write
-        // paths). No other callable/trigger has been migrated yet.
+        // (authoritative chat write path), claimUsername, updateDisplayName
+        // (both authoritative profile-identity write paths), and
+        // moderateAvatarUpload (dedicated avatar-moderation Storage-trigger
+        // runtime — see AR-29). No other callable/trigger has been migrated yet.
         const allServiceAccountMatches = indexSrc.match(/serviceAccount:\s*'[^']+'/g) || [];
-        expect(allServiceAccountMatches).toHaveLength(5);
+        expect(allServiceAccountMatches).toHaveLength(6);
     });
 
     it("AR-28: Runtime-IAM canary config-contract — moderateContent's serviceAccount is the dedicated parqueen-user identity, App Check invariants unaffected", () => {
@@ -512,6 +514,24 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         // this change; adminReadView remains the sole App-Check-enforced callable.
         expect(optionsSlice).not.toMatch(/enforceAppCheck/);
         expect(optionsSlice).not.toMatch(/consumeAppCheckToken/);
+        expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(3);
+        expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
+    });
+
+    it("AR-29: Runtime-IAM canary config-contract — moderateAvatarUpload's serviceAccount is the dedicated avatar-moderator identity, Storage-trigger config unaffected", () => {
+        const indexSrc = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+        const moderateAvatarUploadCallStart = indexSrc.indexOf('exports.moderateAvatarUpload = onObjectFinalized(');
+        expect(moderateAvatarUploadCallStart).toBeGreaterThan(-1);
+        const optionsSlice = indexSrc.slice(moderateAvatarUploadCallStart, moderateAvatarUploadCallStart + 400);
+
+        expect(optionsSlice).toMatch(/serviceAccount:\s*'parqueen-avatar-moderator@parkqueen-46475363-ccf36\.iam\.gserviceaccount\.com'/);
+        // A serviceAccount edit must not accidentally touch the trigger's other
+        // options — this is a Storage finalize trigger, not a callable, so it
+        // carries no App Check config to protect, but region/memory/retry must
+        // survive the edit unchanged.
+        expect(optionsSlice).toMatch(/region:\s*"us-central1"/);
+        expect(optionsSlice).toMatch(/memory:\s*"512MiB"/);
+        expect(optionsSlice).toMatch(/retry:\s*true/);
         expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(3);
         expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
     });
