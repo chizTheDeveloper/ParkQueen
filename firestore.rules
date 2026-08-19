@@ -45,6 +45,66 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
     }
 
+    // Spot identity-display authority: finderName/finderTitle/finderVehicle*
+    // (and the interestedUser/holdRequestedBy equivalents) are cached copies
+    // of the caller's own profile, written directly by the client at
+    // create/claim/hold-request time with no live re-fetch on render — unlike
+    // chats/{chatId}'s (now-removed) participantNames, nothing corrects a
+    // forged value later. These helpers require every such field to exactly
+    // match the caller's own CURRENT profile at write time, closing the
+    // forgery/impersonation gap while keeping every legitimate write
+    // (which already derives these values from the live profile) unaffected.
+    // See docs/SPOT_METADATA_HARDENING.md.
+    function expectedDisplayName(profile) {
+      return profile.get('username', null) != null
+        ? profile.username
+        : (profile.get('fullName', null) != null ? profile.fullName : 'Anonymous');
+    }
+
+    // Mirrors utils/crowns.ts's TITLE_THRESHOLDS/getTitleForCrowns exactly —
+    // keep in sync if those thresholds ever change.
+    function titleForCrowns(crowns) {
+      return crowns >= 3000 ? 'Urban Legend'
+        : crowns >= 1500 ? 'Parking Veteran'
+        : crowns >= 750 ? 'Block Captain'
+        : crowns >= 400 ? 'Parking Expert'
+        : crowns >= 150 ? 'Neighborhood Guide'
+        : crowns >= 50 ? 'Street Scout'
+        : crowns >= 10 ? 'Trusted Driver'
+        : 'Newcomer';
+    }
+
+    // finderTitle/finderVehicle* (and their interestedUser/holdRequestedBy
+    // equivalents below) are OPTIONAL create/update fields — a legitimate
+    // write may omit any of them entirely (e.g. a user with no vehicle set
+    // sends no finderVehicleColor key at all, not a null value). Each check
+    // is therefore "if present, must match the live profile" rather than
+    // "must always be present" — required fields (finderName etc.) are
+    // required by the surrounding hasAll()/onlyChanges() checks already,
+    // not by these helpers.
+    function matchesFinderIdentity(data) {
+      let profile = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return (!('finderName' in data) || data.finderName == expectedDisplayName(profile))
+        && (!('finderTitle' in data) || data.finderTitle == titleForCrowns(profile.get('crowns', 0)))
+        && (!('finderVehicleColor' in data) || data.finderVehicleColor == profile.get('vehicleColor', null))
+        && (!('finderVehicleType' in data) || data.finderVehicleType == profile.get('vehicleType', null))
+        && (!('finderVehicleBrand' in data) || data.finderVehicleBrand == profile.get('vehicleBrand', null));
+    }
+
+    function matchesInterestedUserIdentity(data) {
+      let profile = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return (!('interestedUserName' in data) || data.interestedUserName == expectedDisplayName(profile))
+        && (!('interestedUserTitle' in data) || data.interestedUserTitle == titleForCrowns(profile.get('crowns', 0)))
+        && (!('interestedUserVehicleColor' in data) || data.interestedUserVehicleColor == profile.get('vehicleColor', null))
+        && (!('interestedUserVehicleType' in data) || data.interestedUserVehicleType == profile.get('vehicleType', null))
+        && (!('interestedUserVehicleBrand' in data) || data.interestedUserVehicleBrand == profile.get('vehicleBrand', null));
+    }
+
+    function matchesHoldRequesterIdentity(data) {
+      let profile = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return !('holdRequestedByName' in data) || data.holdRequestedByName == expectedDisplayName(profile);
+    }
+
     function chatParticipant(chatData) {
       return signedIn()
         && request.auth.uid in chatData.participants;
@@ -207,7 +267,8 @@ service cloud.firestore {
         && request.resource.data.lng is number
         && request.resource.data.lng >= -180 && request.resource.data.lng <= 180
         && request.resource.data.expiresAt is timestamp
-        && request.resource.data.expiresAt > request.time;
+        && request.resource.data.expiresAt > request.time
+        && matchesFinderIdentity(request.resource.data);
       allow delete: if signedIn() && resource.data.finderId == request.auth.uid;
       allow update: if signedIn() && (
 
@@ -215,6 +276,7 @@ service cloud.firestore {
         (isAvailableForClaim()
           && request.resource.data.interestedUserId == request.auth.uid
           && request.resource.data.status == 'interested'
+          && matchesInterestedUserIdentity(request.resource.data)
           && onlyChanges(['status', 'claimState', 'ownerLeavingNow', 'ownerLeavingNowAt',
                           'interestedUserId', 'interestedUserName',
                           'interestedUserVehicleColor', 'interestedUserVehicleType',
@@ -300,6 +362,7 @@ service cloud.firestore {
         || (isAvailableForHold()
           && request.resource.data.holdRequestedBy == request.auth.uid
           && request.resource.data.holdRequestStatus == 'pending'
+          && matchesHoldRequesterIdentity(request.resource.data)
           && onlyChanges(['holdRequestedBy', 'holdRequestedByName',
                           'holdRequestStatus', 'holdRequestExpiresAt']))
 
