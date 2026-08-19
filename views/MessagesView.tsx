@@ -152,8 +152,9 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
       const list = snap.docs.map(docSnap => {
         const data = docSnap.data();
         const otherUserId = data.participants.find((p: string) => p !== user.id) || '';
-        // Store raw name (empty string if missing); translate fallback at render time
-        const otherUserName = data.participantNames?.[otherUserId] || '';
+        // Display name always comes from the live users/{uid}.fullName
+        // lookup (userProfilesCache, populated by the effect below) —
+        // participantNames no longer exists in the schema.
 
         let timestampDate = new Date();
         if (data.lastMessageTimestamp) {
@@ -167,7 +168,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
         return {
           ...data,
           id: docSnap.id,
-          otherUser: { id: otherUserId, name: otherUserName },
+          otherUser: { id: otherUserId },
           lastMessage: data.lastMessage || '',
           lastMessageTimestamp: timestampDate,
           unreadCount: 0,
@@ -192,34 +193,22 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
       const chatId = [user.id, activeChatContext.userId].sort().join("_");
       const chatRef = doc(db, "chats", chatId);
 
-      // These values go to Firestore — keep as English
-      let otherUserName = "User";
-      try {
-        const userDocRef = doc(db, "users", activeChatContext.userId);
-        const userDocSnap = await getDoc(userDocRef);
-        if (userDocSnap.exists()) {
-          otherUserName = userDocSnap.data().fullName || "User";
-        }
-      } catch (e) {
-        console.warn("Failed to get other user name", e);
+      // Chat shell (id/participants/relatedSpotTitle) is create-once — the
+      // chats/{chatId} Rules deny direct client update entirely, so a
+      // re-navigation to an already-existing conversation must not attempt
+      // to write anything at all. participantNames is no longer part of the
+      // schema: display names are always sourced live from users/{uid}.
+      // fullName (see the conversation-list effect below), so there is
+      // nothing left for this function to fetch or cache. See
+      // docs/CHAT_SHELL_METADATA_HARDENING.md.
+      const existing = await getDoc(chatRef);
+      if (!existing.exists()) {
+        await setDoc(chatRef, {
+          id: chatId,
+          participants: [user.id, activeChatContext.userId],
+          relatedSpotTitle: activeChatContext.context || "Street Spot",
+        });
       }
-
-      // lastMessage/lastMessageTimestamp/lastSenderId intentionally omitted —
-      // those are authoritative-server-owned (sendMessage sets them
-      // atomically with the first real message; see firestore.rules and
-      // docs/CHAT_METADATA_HARDENING.md). Previously this wrote a
-      // fabricated "Conversation started" placeholder, which — on
-      // re-navigating to an existing conversation — would also silently
-      // clobber the real last-message preview back to that placeholder.
-      await setDoc(chatRef, {
-        id: chatId,
-        participants: [user.id, activeChatContext.userId],
-        participantNames: {
-          [user.id]: user.fullName || "Me",
-          [activeChatContext.userId]: otherUserName
-        },
-        relatedSpotTitle: activeChatContext.context || "Street Spot",
-      }, { merge: true });
 
       setActiveConversationId(chatId);
     };
@@ -340,7 +329,6 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
 
   if (activeConversationId && activeConversation) {
     const displayName = userProfilesCache[activeConversation.otherUser.id]?.name
-      || activeConversation.otherUser.name
       || t('messages.anonymous');
 
     return (
@@ -547,7 +535,6 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
               const lastReadTime = lastReadStr ? parseInt(lastReadStr, 10) : 0;
               const hasUnread = conv.lastMessageTimestamp.getTime() > lastReadTime && conv.lastSenderId !== user.id;
               const convDisplayName = userProfilesCache[conv.otherUser.id]?.name
-                || conv.otherUser.name
                 || t('messages.anonymous');
               const initial = convDisplayName.charAt(0).toUpperCase();
               const avatarBg = avatarGradients[initial.charCodeAt(0) % avatarGradients.length];

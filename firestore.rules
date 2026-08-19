@@ -543,28 +543,36 @@ service cloud.firestore {
 
     match /chats/{chatId} {
       allow read: if chatParticipant(resource.data);
-      // lastMessage/lastMessageTimestamp/lastSenderId removed from the
-      // client-writable schema entirely — sendMessage (functions/index.js)
-      // is the sole authoritative writer of these three fields, atomically
-      // with the message it derives them from (Admin SDK writes bypass
-      // these Rules, same pattern as the messages subcollection below).
-      // The client (MessagesView.tsx's initChat()) still legitimately
-      // creates/re-touches the chat "shell" (participants/participantNames/
-      // relatedSpotTitle) before any message exists, but no longer sends a
-      // fabricated placeholder preview. See docs/CHAT_METADATA_HARDENING.md.
+      // lastMessage/lastMessageTimestamp/lastSenderId: authoritative-server-
+      // owned via sendMessage (Admin SDK writes bypass these Rules).
+      //
+      // participantNames: REMOVED from the schema entirely. It was a
+      // forgeable cache of the other participant's display name; the client
+      // already does a live, always-overriding lookup of users/{uid}.
+      // fullName (itself authoritative — see updateDisplayName) for every
+      // conversation, so the cache was pure redundant attack surface with
+      // no remaining purpose. See docs/CHAT_SHELL_METADATA_HARDENING.md.
+      //
+      // relatedSpotTitle: CREATE-ONCE. Legitimate app-generated context
+      // (e.g. "Spot pinged by X") set once by the participant who starts
+      // the conversation; no live source exists to re-derive it from later
+      // (the originating spot may since have expired/been deleted), so it
+      // is client-supplied at creation but immutable thereafter — never a
+      // participant-editable field.
+      //
+      // Net effect: no field on an existing chats/{chatId} doc is directly
+      // client-updatable at all anymore. initChat() (MessagesView.tsx) only
+      // writes on first creation; re-navigating to an existing conversation
+      // performs no write.
       allow create: if signedIn()
-        && request.resource.data.keys().hasAll(
-             ['id', 'participants', 'participantNames'])
+        && request.resource.data.keys().hasAll(['id', 'participants'])
         && request.resource.data.keys().hasOnly(
-             ['id', 'participants', 'participantNames', 'relatedSpotTitle'])
+             ['id', 'participants', 'relatedSpotTitle'])
         && request.resource.data.id == chatId
         && request.resource.data.participants is list
         && request.resource.data.participants.size() == 2
         && request.auth.uid in request.resource.data.participants;
-      allow update: if chatParticipant(resource.data)
-        && request.resource.data.participants == resource.data.participants
-        && request.resource.data.id == resource.data.id
-        && onlyChanges(['participantNames', 'relatedSpotTitle']);
+      allow update: if false;
       allow delete: if chatParticipant(resource.data);
       
       match /messages/{messageId} {

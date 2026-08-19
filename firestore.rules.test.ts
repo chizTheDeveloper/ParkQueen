@@ -489,10 +489,6 @@ describe('chats and messages — participant isolation', () => {
     const chatData = {
         id: CHAT_ID,
         participants: [OWNER_UID, OTHER_UID],
-        participantNames: {
-            [OWNER_UID]: 'Owner',
-            [OTHER_UID]: 'Other',
-        },
         relatedSpotTitle: 'Street Spot',
         lastMessage: 'Conversation started',
         lastMessageTimestamp: Timestamp.now(),
@@ -559,36 +555,52 @@ describe('chats and messages — participant isolation', () => {
         await assertFails(upd(doc(ownerDb(), 'chats', CHAT_ID), { lastSenderId: OTHER_UID }));
     });
 
-    it('CM-13: all three server-owned fields together, alongside an otherwise-legitimate field, is still denied', async () => {
+    it('CM-13: all three server-owned fields together is still denied', async () => {
         const { updateDoc: upd } = await import('firebase/firestore');
         await assertFails(upd(doc(ownerDb(), 'chats', CHAT_ID), {
             lastMessage: 'forged', lastMessageTimestamp: Timestamp.now(), lastSenderId: OWNER_UID,
-            relatedSpotTitle: 'Still a valid field',
         }));
     });
 
-    it('CM-14: a legitimate participant-owned field (participantNames, relatedSpotTitle) remains editable', async () => {
+    // Chat SHELL metadata hardening (participantNames REMOVED entirely;
+    // relatedSpotTitle CREATE-ONCE) — no field on an existing chats/{chatId}
+    // doc is directly client-updatable at all anymore.
+    it('CM-18: participantNames is no longer part of the schema — a direct write is denied', async () => {
         const { updateDoc: upd } = await import('firebase/firestore');
-        await assertSucceeds(upd(doc(ownerDb(), 'chats', CHAT_ID), {
-            participantNames: { ...chatData.participantNames, [OWNER_UID]: 'Updated Name' },
+        await assertFails(upd(doc(ownerDb(), 'chats', CHAT_ID), {
+            participantNames: { [OWNER_UID]: 'Forged Name' },
         }));
-        await assertSucceeds(upd(doc(ownerDb(), 'chats', CHAT_ID), { relatedSpotTitle: 'New Spot Title' }));
     });
 
-    it('CM-15: the initChat re-navigation pattern (idempotent shell re-write, no metadata fields) remains allowed', async () => {
-        await assertSucceeds(
+    it('CM-19: relatedSpotTitle cannot be mutated after chat creation (create-once)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'chats', CHAT_ID), { relatedSpotTitle: 'New Spot Title' }));
+    });
+
+    it('CM-20: the initChat re-navigation pattern (idempotent shell re-write) is now denied by Rules — the client must skip the write entirely for an existing chat, which it does', async () => {
+        await assertFails(
             setDoc(doc(ownerDb(), 'chats', CHAT_ID), {
                 id: CHAT_ID,
                 participants: chatData.participants,
-                participantNames: chatData.participantNames,
                 relatedSpotTitle: chatData.relatedSpotTitle,
             }, { merge: true } as any)
         );
     });
 
-    it('CM-16: a brand-new chat can be created with the shell schema only (no lastMessage/lastMessageTimestamp/lastSenderId)', async () => {
+    it('CM-16: a brand-new chat can be created with the shell schema only (id, participants, relatedSpotTitle — no participantNames, no lastMessage/lastMessageTimestamp/lastSenderId)', async () => {
         const newChatId = `${OWNER_UID}_${THIRD_UID}`;
         await assertSucceeds(
+            setDoc(doc(ownerDb(), 'chats', newChatId), {
+                id: newChatId,
+                participants: [OWNER_UID, THIRD_UID],
+                relatedSpotTitle: 'Street Spot',
+            })
+        );
+    });
+
+    it('CM-16b: creating a new chat with a participantNames field included is denied (removed from schema)', async () => {
+        const newChatId = `${OWNER_UID}_${THIRD_UID}_pn`;
+        await assertFails(
             setDoc(doc(ownerDb(), 'chats', newChatId), {
                 id: newChatId,
                 participants: [OWNER_UID, THIRD_UID],
@@ -603,7 +615,6 @@ describe('chats and messages — participant isolation', () => {
             setDoc(doc(ownerDb(), 'chats', newChatId), {
                 id: newChatId,
                 participants: [OWNER_UID, THIRD_UID],
-                participantNames: { [OWNER_UID]: 'Owner', [THIRD_UID]: 'Third' },
                 lastMessage: 'forged at create',
                 lastMessageTimestamp: Timestamp.now(),
                 lastSenderId: OWNER_UID,
