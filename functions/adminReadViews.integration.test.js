@@ -39,6 +39,9 @@
  *   AR-29: Runtime-IAM canary config-contract — moderateAvatarUpload's onObjectFinalized options declare serviceAccount: parqueen-avatar-moderator@..., with region/memory/retry unaffected and AR-25's fleet-wide App Check invariants unchanged
  *   AR-30: Runtime-IAM canary config-contract — cleanAvatarOrphans's onSchedule options declare serviceAccount: parqueen-avatar@..., with region/schedule/memory unaffected and AR-25's fleet-wide App Check invariants unchanged
  *   AR-31: Runtime-IAM canary config-contract — deleteAccount's onCall options declare serviceAccount: parqueen-account@..., with no enforceAppCheck/consumeAppCheckToken side effect and AR-25's fleet-wide App Check invariants unchanged
+ *   AR-32: Runtime-IAM canary config-contract — bootstrapAdmin's onCall options declare serviceAccount: parqueen-admin-auth@..., with no enforceAppCheck/consumeAppCheckToken side effect and AR-25's fleet-wide App Check invariants unchanged
+ *   AR-33: Runtime-IAM canary config-contract — reconcileLegacyAdminSingleton's onCall options declare serviceAccount: parqueen-admin-auth@..., with no enforceAppCheck/consumeAppCheckToken side effect and AR-25's fleet-wide App Check invariants unchanged
+ *   AR-34: Runtime-IAM canary config-contract — setStaffRole's onCall options declare serviceAccount: parqueen-admin-auth@..., with no enforceAppCheck/consumeAppCheckToken side effect and AR-25's fleet-wide App Check invariants unchanged
  *
  * Stage 4A note (AR-1 through AR-24, AR-19 through AR-24): as of the App
  * Check canary, adminReadView enforces App Check (functions/index.js,
@@ -492,19 +495,20 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(3);
         expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
 
-        // Exactly six Phase 1/profile-identity/avatar-runtime canaries plus
-        // deleteAccount should carry a serviceAccount override — adminReadView
+        // Ten canaries should carry a serviceAccount override — adminReadView
         // (admin-only), sendMessage (authoritative chat write path),
         // claimUsername, updateDisplayName (both authoritative
         // profile-identity write paths), moderateAvatarUpload (dedicated
         // avatar-moderation Storage-trigger runtime — see AR-29),
         // cleanAvatarOrphans (dedicated orphan-cleanup scheduled-trigger
-        // runtime — see AR-30), and deleteAccount (dedicated account-deletion
-        // runtime — see AR-31). moderateContent was retired (uncalled since
-        // deployment; see docs/CHAT_MESSAGE_HARDENING.md) and no longer
-        // exists. No other callable/trigger has been migrated yet.
+        // runtime — see AR-30), deleteAccount (dedicated account-deletion
+        // runtime — see AR-31), and bootstrapAdmin/reconcileLegacyAdminSingleton/
+        // setStaffRole (Wave 1 admin-auth-runtime migration — see AR-32/33/34).
+        // moderateContent was retired (uncalled since deployment; see
+        // docs/CHAT_MESSAGE_HARDENING.md) and no longer exists. No other
+        // callable/trigger has been migrated yet.
         const allServiceAccountMatches = indexSrc.match(/serviceAccount:\s*'[^']+'/g) || [];
-        expect(allServiceAccountMatches).toHaveLength(7);
+        expect(allServiceAccountMatches).toHaveLength(10);
     });
 
     it("AR-29: Runtime-IAM canary config-contract — moderateAvatarUpload's serviceAccount is the dedicated avatar-moderator identity, Storage-trigger config unaffected", () => {
@@ -551,6 +555,48 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         // deleteAccount is not an App-Check-enforced canary — a serviceAccount
         // edit must not acquire enforceAppCheck/consumeAppCheckToken as a side
         // effect, and region must survive unchanged.
+        expect(optionsSlice).toMatch(/region:\s*'us-central1'/);
+        expect(optionsSlice).not.toMatch(/enforceAppCheck/);
+        expect(optionsSlice).not.toMatch(/consumeAppCheckToken/);
+        expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(3);
+        expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
+    });
+
+    it("AR-32: Runtime-IAM canary config-contract — bootstrapAdmin's serviceAccount is the dedicated admin-auth identity, App Check invariants unaffected", () => {
+        const indexSrc = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+        const callStart = indexSrc.indexOf("exports.bootstrapAdmin = onCall(");
+        expect(callStart).toBeGreaterThan(-1);
+        const optionsSlice = indexSrc.slice(callStart, callStart + 400);
+
+        expect(optionsSlice).toMatch(/serviceAccount:\s*'parqueen-admin-auth@parkqueen-46475363-ccf36\.iam\.gserviceaccount\.com'/);
+        expect(optionsSlice).toMatch(/region:\s*'us-central1'/);
+        expect(optionsSlice).not.toMatch(/enforceAppCheck/);
+        expect(optionsSlice).not.toMatch(/consumeAppCheckToken/);
+        expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(3);
+        expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
+    });
+
+    it("AR-33: Runtime-IAM canary config-contract — reconcileLegacyAdminSingleton's serviceAccount is the dedicated admin-auth identity, App Check invariants unaffected", () => {
+        const indexSrc = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+        const callStart = indexSrc.indexOf("exports.reconcileLegacyAdminSingleton = onCall(");
+        expect(callStart).toBeGreaterThan(-1);
+        const optionsSlice = indexSrc.slice(callStart, callStart + 400);
+
+        expect(optionsSlice).toMatch(/serviceAccount:\s*'parqueen-admin-auth@parkqueen-46475363-ccf36\.iam\.gserviceaccount\.com'/);
+        expect(optionsSlice).toMatch(/region:\s*'us-central1'/);
+        expect(optionsSlice).not.toMatch(/enforceAppCheck/);
+        expect(optionsSlice).not.toMatch(/consumeAppCheckToken/);
+        expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(3);
+        expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
+    });
+
+    it("AR-34: Runtime-IAM canary config-contract — setStaffRole's serviceAccount is the dedicated admin-auth identity, App Check invariants unaffected", () => {
+        const indexSrc = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+        const callStart = indexSrc.indexOf("exports.setStaffRole = onCall(");
+        expect(callStart).toBeGreaterThan(-1);
+        const optionsSlice = indexSrc.slice(callStart, callStart + 400);
+
+        expect(optionsSlice).toMatch(/serviceAccount:\s*'parqueen-admin-auth@parkqueen-46475363-ccf36\.iam\.gserviceaccount\.com'/);
         expect(optionsSlice).toMatch(/region:\s*'us-central1'/);
         expect(optionsSlice).not.toMatch(/enforceAppCheck/);
         expect(optionsSlice).not.toMatch(/consumeAppCheckToken/);
