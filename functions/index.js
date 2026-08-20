@@ -4362,7 +4362,7 @@ function classifyGeminiError(fn, err) {
 }
 
 exports.analyzeSign = onCall(
-  { secrets: [geminiApiKey], enforceAppCheck: false },
+  { secrets: [geminiApiKey], enforceAppCheck: false, serviceAccount: 'parqueen-ai@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Must be signed in.");
     const { imageBase64 } = request.data || {};
@@ -4434,7 +4434,7 @@ Do not include Markdown formatting. Just output the raw JSON object.`,
 );
 
 exports.generateSmartReplies = onCall(
-  { secrets: [geminiApiKey], enforceAppCheck: false },
+  { secrets: [geminiApiKey], enforceAppCheck: false, serviceAccount: 'parqueen-ai@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Must be signed in.");
     const { lastMessage, context } = request.data || {};
@@ -4480,7 +4480,7 @@ Return them as a comma-separated list.`,
 );
 
 exports.generateListingDescription = onCall(
-  { secrets: [geminiApiKey], enforceAppCheck: false },
+  { secrets: [geminiApiKey], enforceAppCheck: false, serviceAccount: 'parqueen-ai@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Must be signed in.");
     const { features } = request.data || {};
