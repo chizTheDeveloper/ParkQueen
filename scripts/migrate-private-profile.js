@@ -83,12 +83,7 @@ if (dryRun && verify) {
 if (dryRun)  console.log('[migrate] DRY-RUN mode — no writes will be performed');
 if (verify)  console.log('[migrate] VERIFY mode — read-only scan for residual legacy fields');
 
-let admin;
-try {
-  admin = require('../functions/node_modules/firebase-admin');
-} catch (_) {
-  admin = require('firebase-admin');
-}
+const admin = require('firebase-admin');
 
 if (!admin.apps.length) {
   admin.initializeApp();
