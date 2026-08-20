@@ -492,17 +492,18 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(3);
         expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
 
-        // Exactly the six Phase 1/2A/profile-identity/avatar-runtime canaries
-        // should carry a serviceAccount override — adminReadView (admin-only),
-        // moderateContent (public/authenticated, uncalled), sendMessage
-        // (authoritative chat write path), claimUsername, updateDisplayName
-        // (both authoritative profile-identity write paths), and
+        // Exactly the seven Phase 1/2A/profile-identity/avatar-runtime canaries
+        // plus deleteAccount should carry a serviceAccount override —
+        // adminReadView (admin-only), moderateContent (public/authenticated,
+        // uncalled), sendMessage (authoritative chat write path), claimUsername,
+        // updateDisplayName (both authoritative profile-identity write paths),
         // moderateAvatarUpload (dedicated avatar-moderation Storage-trigger
-        // runtime — see AR-29), and cleanAvatarOrphans (dedicated orphan-cleanup
-        // scheduled-trigger runtime — see AR-30). No other callable/trigger has
+        // runtime — see AR-29), cleanAvatarOrphans (dedicated orphan-cleanup
+        // scheduled-trigger runtime — see AR-30), and deleteAccount (dedicated
+        // account-deletion runtime — see AR-31). No other callable/trigger has
         // been migrated yet.
         const allServiceAccountMatches = indexSrc.match(/serviceAccount:\s*'[^']+'/g) || [];
-        expect(allServiceAccountMatches).toHaveLength(7);
+        expect(allServiceAccountMatches).toHaveLength(8);
     });
 
     it("AR-28: Runtime-IAM canary config-contract — moderateContent's serviceAccount is the dedicated parqueen-user identity, App Check invariants unaffected", () => {
@@ -551,6 +552,23 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         expect(optionsSlice).toMatch(/region:\s*"us-central1"/);
         expect(optionsSlice).toMatch(/schedule:\s*"every 24 hours"/);
         expect(optionsSlice).toMatch(/memory:\s*"256MiB"/);
+        expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(3);
+        expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
+    });
+
+    it("AR-31: Runtime-IAM canary config-contract — deleteAccount's serviceAccount is the dedicated account-deletion identity, App Check invariants unaffected", () => {
+        const indexSrc = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+        const deleteAccountCallStart = indexSrc.indexOf("exports.deleteAccount = onCall(");
+        expect(deleteAccountCallStart).toBeGreaterThan(-1);
+        const optionsSlice = indexSrc.slice(deleteAccountCallStart, deleteAccountCallStart + 400);
+
+        expect(optionsSlice).toMatch(/serviceAccount:\s*'parqueen-account@parkqueen-46475363-ccf36\.iam\.gserviceaccount\.com'/);
+        // deleteAccount is not an App-Check-enforced canary — a serviceAccount
+        // edit must not acquire enforceAppCheck/consumeAppCheckToken as a side
+        // effect, and region must survive unchanged.
+        expect(optionsSlice).toMatch(/region:\s*'us-central1'/);
+        expect(optionsSlice).not.toMatch(/enforceAppCheck/);
+        expect(optionsSlice).not.toMatch(/consumeAppCheckToken/);
         expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(3);
         expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
     });
