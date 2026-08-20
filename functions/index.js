@@ -1307,7 +1307,7 @@ exports._acquireOrphanLease             = _acquireOrphanLease;
 exports._isInvalidStoragePageTokenError = _isInvalidStoragePageTokenError;
 
 exports.cleanAvatarOrphans = onSchedule(
-  { region: "us-central1", schedule: "every 24 hours", memory: "256MiB" },
+  { region: "us-central1", schedule: "every 24 hours", memory: "256MiB", serviceAccount: 'parqueen-avatar@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async () => {
     const { randomUUID } = require("crypto");
     return _cleanOrphanedAvatarObjects(
