@@ -2618,7 +2618,7 @@ exports.adminArchiveSuspension = onCall(
 // Job document at accountDeletionJobs/{uid} tracks state: running → failed | completed.
 // A 'running' lease (< 10 min old) blocks concurrent callers. A stale lease or 'failed'
 // state allows retry. Completed steps are skipped on retry. Auth is deleted last.
-exports.deleteAccount = onCall({ region: 'us-central1' }, async (request) => {
+exports.deleteAccount = onCall({ region: 'us-central1', serviceAccount: 'parqueen-account@parkqueen-46475363-ccf36.iam.gserviceaccount.com' }, async (request) => {
     const uid = request.auth?.uid;
     if (!uid) throw new HttpsError('unauthenticated', 'Must be signed in.');
 
