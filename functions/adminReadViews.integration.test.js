@@ -36,9 +36,9 @@
  *   AR-25: App Check canary (Stage 4A) config-contract — adminReadView, sendMessage, and updateDisplayName are the ONLY callables with enforceAppCheck:true (claimUsername deliberately excluded — see docs/PROFILE_IDENTITY_HARDENING.md); consumeAppCheckToken is unused
  *   AR-26: App Check canary — HTTP-level: a request with a valid admin ID token but no App Check token is rejected before the handler runs (proves Layer 1; missing App Check is testable against the emulator without reaching a real attestation provider — INVALID-token verification is not, since that requires the real App Check backend)
  *   AR-27: Runtime-IAM canary config-contract — adminReadView's onCall options declare serviceAccount: parqueen-admin-read@..., and enforceAppCheck/consumeAppCheckToken remain exactly as AR-25 requires alongside it
- *   AR-28: Runtime-IAM Phase 2A public-callable canary config-contract — moderateContent's onCall options declare serviceAccount: parqueen-user@..., with no enforceAppCheck/consumeAppCheckToken side effect and AR-25's fleet-wide App Check invariants unchanged
  *   AR-29: Runtime-IAM canary config-contract — moderateAvatarUpload's onObjectFinalized options declare serviceAccount: parqueen-avatar-moderator@..., with region/memory/retry unaffected and AR-25's fleet-wide App Check invariants unchanged
  *   AR-30: Runtime-IAM canary config-contract — cleanAvatarOrphans's onSchedule options declare serviceAccount: parqueen-avatar@..., with region/schedule/memory unaffected and AR-25's fleet-wide App Check invariants unchanged
+ *   AR-31: Runtime-IAM canary config-contract — deleteAccount's onCall options declare serviceAccount: parqueen-account@..., with no enforceAppCheck/consumeAppCheckToken side effect and AR-25's fleet-wide App Check invariants unchanged
  *
  * Stage 4A note (AR-1 through AR-24, AR-19 through AR-24): as of the App
  * Check canary, adminReadView enforces App Check (functions/index.js,
@@ -492,34 +492,19 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(3);
         expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
 
-        // Exactly the seven Phase 1/2A/profile-identity/avatar-runtime canaries
-        // plus deleteAccount should carry a serviceAccount override —
-        // adminReadView (admin-only), moderateContent (public/authenticated,
-        // uncalled), sendMessage (authoritative chat write path), claimUsername,
-        // updateDisplayName (both authoritative profile-identity write paths),
-        // moderateAvatarUpload (dedicated avatar-moderation Storage-trigger
-        // runtime — see AR-29), cleanAvatarOrphans (dedicated orphan-cleanup
-        // scheduled-trigger runtime — see AR-30), and deleteAccount (dedicated
-        // account-deletion runtime — see AR-31). No other callable/trigger has
-        // been migrated yet.
+        // Exactly six Phase 1/profile-identity/avatar-runtime canaries plus
+        // deleteAccount should carry a serviceAccount override — adminReadView
+        // (admin-only), sendMessage (authoritative chat write path),
+        // claimUsername, updateDisplayName (both authoritative
+        // profile-identity write paths), moderateAvatarUpload (dedicated
+        // avatar-moderation Storage-trigger runtime — see AR-29),
+        // cleanAvatarOrphans (dedicated orphan-cleanup scheduled-trigger
+        // runtime — see AR-30), and deleteAccount (dedicated account-deletion
+        // runtime — see AR-31). moderateContent was retired (uncalled since
+        // deployment; see docs/CHAT_MESSAGE_HARDENING.md) and no longer
+        // exists. No other callable/trigger has been migrated yet.
         const allServiceAccountMatches = indexSrc.match(/serviceAccount:\s*'[^']+'/g) || [];
-        expect(allServiceAccountMatches).toHaveLength(8);
-    });
-
-    it("AR-28: Runtime-IAM canary config-contract — moderateContent's serviceAccount is the dedicated parqueen-user identity, App Check invariants unaffected", () => {
-        const indexSrc = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
-        const moderateContentCallStart = indexSrc.indexOf('exports.moderateContent = onCall(');
-        expect(moderateContentCallStart).toBeGreaterThan(-1);
-        const optionsSlice = indexSrc.slice(moderateContentCallStart, moderateContentCallStart + 1200);
-
-        expect(optionsSlice).toMatch(/serviceAccount:\s*'parqueen-user@parkqueen-46475363-ccf36\.iam\.gserviceaccount\.com'/);
-        // moderateContent is a Phase 2A (non-App-Check) canary — it must not
-        // acquire enforceAppCheck/consumeAppCheckToken as a side effect of
-        // this change; adminReadView remains the sole App-Check-enforced callable.
-        expect(optionsSlice).not.toMatch(/enforceAppCheck/);
-        expect(optionsSlice).not.toMatch(/consumeAppCheckToken/);
-        expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(3);
-        expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
+        expect(allServiceAccountMatches).toHaveLength(7);
     });
 
     it("AR-29: Runtime-IAM canary config-contract — moderateAvatarUpload's serviceAccount is the dedicated avatar-moderator identity, Storage-trigger config unaffected", () => {

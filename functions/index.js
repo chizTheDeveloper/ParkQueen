@@ -1363,58 +1363,6 @@ function checkImpersonation(text) {
 // read/write, no Storage, no Secret Manager, no FCM, no deploy/IAM/
 // Scheduler/App-Check-admin capability. See adminReadView above for the
 // first (admin-only) canary in this same migration.
-exports.moderateContent = onCall(
-  { region: "us-central1", serviceAccount: 'parqueen-user@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
-  async (request) => {
-    if (!request.auth) throw new HttpsError("unauthenticated", "Sign in first.");
-    const { text, type } = request.data || {};
-    if (!text || !type) throw new HttpsError("invalid-argument", "Text and type required.");
-    // Bound matches firestore.rules chat message text.size() <= 1000 — moderateContent
-    // pre-screens content before it's ever written to that size-bounded field, so
-    // nothing legitimate needs more than what storage itself would eventually allow.
-    // Rejected here (before checkRateLimit) so an oversized/malformed payload doesn't
-    // consume rate-limit quota, mirroring TM-25's generateSmartReplies length bound.
-    if (typeof text !== "string" || text.length > 1000) {
-      throw new HttpsError("invalid-argument", "Text must be 1000 characters or less.");
-    }
-
-    const uid = request.auth.uid;
-    await checkRateLimit(uid, 'moderateContent', { limit: 60, windowSec: 3600 });
-    let blocked = false;
-    let reason = null;
-
-    // Banned words check (both usernames and messages)
-    if (checkBannedWords(text)) {
-      blocked = true;
-      reason = 'inappropriate_content';
-    }
-
-    // Contact info check (messages only)
-    if (!blocked && type === 'message' && checkContactInfo(text)) {
-      blocked = true;
-      reason = 'contact_info';
-    }
-
-    // Impersonation check (usernames only — brand + internal term two-tier match)
-    if (!blocked && type === 'username' && checkImpersonation(text)) {
-      blocked = true;
-      reason = 'reserved';
-    }
-
-    // Log moderation check
-    await db.collection("moderationLog").add({
-      userId: uid,
-      text: text.substring(0, 200),
-      type,
-      blocked,
-      reason,
-      timestamp: Timestamp.now(),
-    });
-
-    return { allowed: !blocked };
-  }
-);
-
 // Authoritative server-side chat message write path — closes the direct-
 // Firestore-write moderation bypass found in the dead-callable audit: the
 // client's local moderateMessage() (utils/moderation.ts) is UX-only and was
