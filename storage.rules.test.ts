@@ -59,7 +59,7 @@ function uploadPath(uid = OWNER_UID, uploadId = UPLOAD_ID) {
 
 // ── avatarUploads/ — client write rules ───────────────────────────────────────
 
-describe('ST-01 – ST-09: avatarUploads/ write rules', () => {
+describe('ST-01 – ST-09, ST-23: avatarUploads/ write rules', () => {
     // Each test uses a unique uploadId so the operation is a CREATE, not an UPDATE.
     // The rules use `allow create` (no overwrites); writing to an existing path fails.
 
@@ -115,6 +115,17 @@ describe('ST-01 – ST-09: avatarUploads/ write rules', () => {
         const oversized = new Uint8Array(5 * 1024 * 1024 + 1);
         await assertFails(
             uploadBytes(ref(ownerStorage(), uploadPath()), oversized, IMAGE_META),
+        );
+    });
+
+    // Regression coverage for the production 403: uploadBytes(ref, file) called
+    // with no metadata argument leaves Content-Type to fall back to
+    // application/octet-stream (or blank), which the rule correctly rejects.
+    // The fix is client-side (utils/avatarUploadValidation.ts passes an explicit,
+    // verified contentType) — this test guards the rule side of that contract.
+    it('ST-23: blank/application/octet-stream contentType is rejected — not in allowlist', async () => {
+        await assertFails(
+            uploadBytes(ref(ownerStorage(), uploadPath()), JPEG_DATA, { contentType: 'application/octet-stream' }),
         );
     });
 });

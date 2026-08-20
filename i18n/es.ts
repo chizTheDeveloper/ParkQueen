@@ -645,6 +645,8 @@ const es: Record<string, string> = {
     'profile.uploading': 'Subiendo...',
     'profile.reviewing_photo': 'Revisando foto — esto puede tomar un momento',
     'profile.photo_timed_out': 'Tiempo de espera agotado — intenta de nuevo.',
+    'profile.avatar_too_large': 'La imagen debe ser menor de 5 MB.',
+    'profile.avatar_unsupported_format': 'Elige una imagen JPEG, PNG o WebP.',
     'profile.photo_rejected': 'No se pudo usar esa foto. Elige una diferente.',
     'profile.upload_failed': 'Error al subir — intenta de nuevo.',
     'profile.section_progress': 'PROGRESO EN LA COMUNIDAD',

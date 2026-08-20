@@ -8,6 +8,7 @@ import { VehicleIcon } from '../utils/vehicleIcon';
 import { AppView } from '../types';
 import { getNextTitle, getTierForCrowns, TIER_VISUALS, getProgressPct } from '../utils/crowns';
 import { getInitials } from '../utils/profileAvatar';
+import { validateAvatarUpload } from '../utils/avatarUploadValidation';
 import { deriveImpactCounts } from '../utils/profileImpact';
 import { t, useLang, getLang } from '../i18n';
 
@@ -111,6 +112,19 @@ export const ProfileView = ({ user, onBack, setView }) => {
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file && user) {
+      // Reject too-large/unsupported files before any Firebase request — the
+      // rule enforces the same limits server-side, but failing fast here
+      // avoids a generic Storage 403 and gives the user an actionable reason.
+      const validation = await validateAvatarUpload(file);
+      if ('reason' in validation) {
+        setUploadError(true);
+        setUploadStatus(validation.reason === 'too_large'
+          ? t('profile.avatar_too_large')
+          : t('profile.avatar_unsupported_format'));
+        setTimeout(() => setUploadStatus(''), 4000);
+        return;
+      }
+
       setIsUploading(true);
       setUploadError(false);
       setUploadStatus(t('profile.uploading'));
@@ -128,7 +142,10 @@ export const ProfileView = ({ user, onBack, setView }) => {
           pendingUploadId: uploadId,
           requestedAt: serverTimestamp(),
         });
-        await uploadBytes(storageRef, file);
+        // Explicit contentType — File.type is not trusted; validateAvatarUpload
+        // already verified it (or the magic-byte fallback) against the same
+        // allowlist storage.rules enforces server-side.
+        await uploadBytes(storageRef, file, { contentType: validation.contentType });
         setUploadStatus(t('profile.reviewing_photo'));
 
         const moderationRef = doc(db, 'avatarModeration', user.id);
@@ -258,7 +275,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
                     </div>
                   </button>
 
-                  <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" className="hidden" />
+                  <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/jpeg,image/png,image/webp" className="hidden" />
                 </div>
 
                 {/* Identity text */}
