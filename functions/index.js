@@ -380,6 +380,7 @@ exports.processScheduledClaims = onSchedule(
     timeZone: "America/Toronto",
     region: "us-central1",
     memory: "256MiB",
+    serviceAccount: 'parqueen-messaging@parkqueen-46475363-ccf36.iam.gserviceaccount.com',
   },
   async () => {
     const now = Timestamp.now();
@@ -584,6 +585,7 @@ exports.notifyNearbyUsers = onDocumentCreated(
   {
     document: "spots/{spotId}",
     region: "us-central1",
+    serviceAccount: 'parqueen-messaging@parkqueen-46475363-ccf36.iam.gserviceaccount.com',
   },
   async (event) => {
     const spotData = event.data.data();
@@ -3000,7 +3002,7 @@ exports.updateTrustOnFeedback = onDocumentCreated(
 // Only penalizes if status === 'interested' at deletion time — not for normal spot removal.
 // eventId: spotId + ':finder-cancel' is deterministic and unique for this transition.
 exports.scheduleCleaningReminders = onSchedule(
-  { schedule: 'every 15 minutes', region: 'us-central1' },
+  { schedule: 'every 15 minutes', region: 'us-central1', serviceAccount: 'parqueen-messaging@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async () => {
     const snap = await db.collection('parkingSessions')
       .where('active', '==', true)

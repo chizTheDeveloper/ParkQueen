@@ -47,6 +47,20 @@
  *   AR-37: Runtime-IAM canary config-contract — generateListingDescription's onCall options declare serviceAccount: parqueen-ai@..., with secrets/enforceAppCheck:false unaffected and AR-25's fleet-wide App Check invariants unchanged
  *   AR-38: Runtime-IAM canary config-contract — generateEmailOTP's onCall options declare serviceAccount: parqueen-email@..., with both secrets (SendGrid + pepper) unaffected and AR-25's fleet-wide App Check invariants unchanged
  *   AR-39: Runtime-IAM canary config-contract — verifyEmailOTP's onCall options declare serviceAccount: parqueen-user@... and NO secrets declaration at all (capability-based split from generateEmailOTP, not shared by product grouping) — AR-25's fleet-wide App Check invariants unchanged
+ *   AR-40: Runtime-IAM canary config-contract — notifyNearbyUsers's onDocumentCreated options declare serviceAccount: parqueen-messaging@..., with document path/region unaffected
+ *   AR-41: Runtime-IAM canary config-contract — processScheduledClaims's onSchedule options declare serviceAccount: parqueen-messaging@..., with schedule/timeZone/memory unaffected
+ *   AR-42: Runtime-IAM canary config-contract — scheduleCleaningReminders's onSchedule options declare serviceAccount: parqueen-messaging@..., with schedule unaffected
+ *
+ *   Wave 4 FCM permission note: parqueen-messaging's exact required FCM
+ *   permission is cloudmessaging.messages.create (verified live via
+ *   `gcloud iam list-testable-permissions` — GA stage, custom-role
+ *   supported; also the sole message-send permission actually included in
+ *   the previously-bound predefined roles/firebasecloudmessaging.admin,
+ *   which additionally carries 5 topicSubscriptions.* permissions and
+ *   fcmdata.deliverydata.list that none of the three messaging functions
+ *   use — see the custom role projects/parkqueen-46475363-ccf36/roles/
+ *   parqueenMessagingSender). All three call only getMessaging().send()/
+ *   .sendEach() — no topic subscribe/unsubscribe, no delivery-data reads.
  *
  * Stage 4A note (AR-1 through AR-24, AR-19 through AR-24): as of the App
  * Check canary, adminReadView enforces App Check (functions/index.js,
@@ -500,7 +514,7 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(3);
         expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
 
-        // Fifteen canaries should carry a serviceAccount override — adminReadView
+        // Eighteen canaries should carry a serviceAccount override — adminReadView
         // (admin-only), sendMessage (authoritative chat write path),
         // claimUsername, updateDisplayName (both authoritative
         // profile-identity write paths), moderateAvatarUpload (dedicated
@@ -510,14 +524,16 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         // runtime — see AR-31), bootstrapAdmin/reconcileLegacyAdminSingleton/
         // setStaffRole (Wave 1 admin-auth-runtime migration — see AR-32/33/34),
         // analyzeSign/generateSmartReplies/generateListingDescription
-        // (Wave 2 AI-runtime migration — see AR-35/36/37), and
+        // (Wave 2 AI-runtime migration — see AR-35/36/37),
         // generateEmailOTP/verifyEmailOTP (Wave 3 email-runtime migration,
-        // split across two capability identities — see AR-38/39).
+        // split across two capability identities — see AR-38/39), and
+        // notifyNearbyUsers/processScheduledClaims/scheduleCleaningReminders
+        // (Wave 4 messaging-runtime migration — see AR-40/41/42).
         // moderateContent was retired (uncalled since deployment; see
         // docs/CHAT_MESSAGE_HARDENING.md) and no longer exists. No other
         // callable/trigger has been migrated yet.
         const allServiceAccountMatches = indexSrc.match(/serviceAccount:\s*'[^']+'/g) || [];
-        expect(allServiceAccountMatches).toHaveLength(15);
+        expect(allServiceAccountMatches).toHaveLength(18);
     });
 
     it("AR-29: Runtime-IAM canary config-contract — moderateAvatarUpload's serviceAccount is the dedicated avatar-moderator identity, Storage-trigger config unaffected", () => {
@@ -689,6 +705,47 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         expect(optionsSlice).not.toMatch(/emailRateLimitPepper/);
         expect(optionsSlice).not.toMatch(/enforceAppCheck/);
         expect(optionsSlice).not.toMatch(/consumeAppCheckToken/);
+        expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(3);
+        expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
+    });
+
+    it("AR-40: Runtime-IAM canary config-contract — notifyNearbyUsers's serviceAccount is the dedicated messaging identity, Firestore-trigger config unaffected", () => {
+        const indexSrc = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+        const callStart = indexSrc.indexOf("exports.notifyNearbyUsers = onDocumentCreated(");
+        expect(callStart).toBeGreaterThan(-1);
+        const optionsSlice = indexSrc.slice(callStart, callStart + 400);
+
+        expect(optionsSlice).toMatch(/serviceAccount:\s*'parqueen-messaging@parkqueen-46475363-ccf36\.iam\.gserviceaccount\.com'/);
+        // A serviceAccount edit must not touch the Firestore trigger's own
+        // document path/region sitting right next to it.
+        expect(optionsSlice).toMatch(/document:\s*"spots\/\{spotId\}"/);
+        expect(optionsSlice).toMatch(/region:\s*"us-central1"/);
+        expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(3);
+        expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
+    });
+
+    it("AR-41: Runtime-IAM canary config-contract — processScheduledClaims's serviceAccount is the dedicated messaging identity, schedule/timezone/memory config unaffected", () => {
+        const indexSrc = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+        const callStart = indexSrc.indexOf("exports.processScheduledClaims = onSchedule(");
+        expect(callStart).toBeGreaterThan(-1);
+        const optionsSlice = indexSrc.slice(callStart, callStart + 400);
+
+        expect(optionsSlice).toMatch(/serviceAccount:\s*'parqueen-messaging@parkqueen-46475363-ccf36\.iam\.gserviceaccount\.com'/);
+        expect(optionsSlice).toMatch(/schedule:\s*"every 5 minutes"/);
+        expect(optionsSlice).toMatch(/timeZone:\s*"America\/Toronto"/);
+        expect(optionsSlice).toMatch(/memory:\s*"256MiB"/);
+        expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(3);
+        expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
+    });
+
+    it("AR-42: Runtime-IAM canary config-contract — scheduleCleaningReminders's serviceAccount is the dedicated messaging identity, schedule config unaffected", () => {
+        const indexSrc = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+        const callStart = indexSrc.indexOf("exports.scheduleCleaningReminders = onSchedule(");
+        expect(callStart).toBeGreaterThan(-1);
+        const optionsSlice = indexSrc.slice(callStart, callStart + 400);
+
+        expect(optionsSlice).toMatch(/serviceAccount:\s*'parqueen-messaging@parkqueen-46475363-ccf36\.iam\.gserviceaccount\.com'/);
+        expect(optionsSlice).toMatch(/schedule:\s*'every 15 minutes'/);
         expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(3);
         expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
     });
