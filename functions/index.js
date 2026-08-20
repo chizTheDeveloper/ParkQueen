@@ -1800,7 +1800,7 @@ exports.adminDeleteSpot = onCall(
 // this guarantee (same residual setStaffRole's own header already
 // documents).
 exports.bootstrapAdmin = onCall(
-  { region: 'us-central1' },
+  { region: 'us-central1', serviceAccount: 'parqueen-admin-auth@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (request) => {
     await requireCurrentAuthenticatedUser(request);
 
@@ -2001,7 +2001,7 @@ exports.bootstrapAdmin = onCall(
 // exhaustive scan below remains as additional, not substitute, defense in
 // depth for the first-time path.
 exports.reconcileLegacyAdminSingleton = onCall(
-  { region: 'us-central1' },
+  { region: 'us-central1', serviceAccount: 'parqueen-admin-auth@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (request) => {
     await requireCurrentAdmin(request);
 
@@ -2110,7 +2110,7 @@ exports.reconcileLegacyAdminSingleton = onCall(
 // accepted and documented, not solved, since no other in-repo code path
 // writes the role claim.
 exports.setStaffRole = onCall(
-  { region: 'us-central1' },
+  { region: 'us-central1', serviceAccount: 'parqueen-admin-auth@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (request) => {
     await requireCurrentAdmin(request);
 
