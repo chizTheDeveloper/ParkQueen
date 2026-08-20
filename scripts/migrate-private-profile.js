@@ -5,17 +5,23 @@
  * One-time Admin SDK migration: move legacy private demographic fields
  * from users/{uid} (public) → users/{uid}/private/profile (owner-only).
  *
- * Usage (Windows PowerShell):
- *   $env:GOOGLE_APPLICATION_CREDENTIALS = "C:\secure-path\service-account.json"
+ * Usage (Windows PowerShell) — Application Default Credentials, no
+ * downloaded service-account key required:
+ *   gcloud auth application-default login
+ *   gcloud auth application-default set-quota-project parkqueen-46475363-ccf36
+ *   $env:GCLOUD_PROJECT = "parkqueen-46475363-ccf36"
  *   node scripts/migrate-private-profile.js [--dry-run] [--verify]
- *   Remove-Item Env:GOOGLE_APPLICATION_CREDENTIALS
  *
  * --dry-run  : Scan only; report what would change. No writes.
  * --verify   : Read-only pass after migration; confirms zero legacy fields remain.
  *
- * Do NOT commit service-account credentials to git.
- * The GOOGLE_APPLICATION_CREDENTIALS env var must point to a service-account
- * key file that is listed in .gitignore.
+ * admin.initializeApp() below passes no `credential`, so the Admin SDK falls
+ * back to ADC automatically (`gcloud auth login` populates a separate
+ * credential store and does NOT satisfy this — ADC must be set up with the
+ * `application-default` subcommand above). User ADC credentials carry no
+ * project ID, so GCLOUD_PROJECT must be set for the project-mismatch check
+ * below to run; do not set GOOGLE_APPLICATION_CREDENTIALS to a
+ * service-account key file.
  *
  * Safe to re-run: already-migrated users are counted as alreadyClean and
  * skipped. Partial migrations resume from where they stopped.

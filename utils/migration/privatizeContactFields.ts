@@ -2,9 +2,17 @@
  * One-time migration: move `phone` and `email` from the public users/{uid}
  * document into the owner-only users/{uid}/private/account subcollection.
  *
- * Run as a standalone Node script with Firebase Admin credentials:
- *   GOOGLE_APPLICATION_CREDENTIALS=./serviceAccount.json \
+ * Run as a standalone Node script authenticated via Application Default
+ * Credentials — no downloaded service-account key required:
+ *   gcloud auth application-default login
+ *   gcloud auth application-default set-quota-project parkqueen-46475363-ccf36
  *   npx ts-node utils/migration/privatizeContactFields.ts
+ *
+ * admin.initializeApp({ projectId }) below passes no `credential`, so the
+ * Admin SDK falls back to ADC automatically (`gcloud auth login` populates a
+ * separate credential store and does NOT satisfy this — ADC must be set up
+ * with the `application-default` subcommand above). Do not set
+ * GOOGLE_APPLICATION_CREDENTIALS to a service-account key file.
  *
  * Flags (set via environment variables):
  *   DRY_RUN=true   (default) — logs actions, writes nothing
