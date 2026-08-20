@@ -125,51 +125,6 @@ function extractCallable(src: string, exportName: string): string {
 }
 
 describe('TM-13 — Phase J callable rate-limit source assertions', () => {
-    describe('moderateContent (60/hr)', () => {
-        const body = extractCallable(INDEX_SRC, 'moderateContent');
-
-        it('RL-C1: checkRateLimit is called with operation key "moderateContent"', () => {
-            expect(body).toMatch(/checkRateLimit\(.*'moderateContent'/);
-        });
-
-        it('RL-C2: limit is 60 per hour', () => {
-            expect(body).toMatch(/checkRateLimit\(.*'moderateContent'.*\{.*limit:\s*60.*windowSec:\s*3600/s);
-        });
-
-        it('RL-C3: checkRateLimit precedes db.collection("moderationLog") write', () => {
-            const rlIdx = body.indexOf("checkRateLimit(uid, 'moderateContent'");
-            const logIdx = body.indexOf('moderationLog');
-            expect(rlIdx).toBeGreaterThan(-1);
-            expect(logIdx).toBeGreaterThan(-1);
-            expect(rlIdx).toBeLessThan(logIdx);
-        });
-
-        it('RL-C4: auth guard precedes checkRateLimit', () => {
-            const authIdx = body.indexOf('throw new HttpsError("unauthenticated"');
-            const rlIdx = body.indexOf("checkRateLimit(uid, 'moderateContent'");
-            expect(authIdx).toBeLessThan(rlIdx);
-        });
-
-        it('RL-C5: unique operation key differs from other callables', () => {
-            expect(body).not.toMatch(/checkRateLimit\(.*'generateListingDescription'/);
-            expect(body).not.toMatch(/checkRateLimit\(.*'createSegmentFromSweepNYC'/);
-        });
-
-        it('RL-M1: a text length bound is enforced (invalid-argument on violation)', () => {
-            expect(body).toMatch(/text\.length\s*>\s*1000/);
-            const boundIdx = body.search(/text\.length\s*>\s*1000/);
-            const throwIdx = body.indexOf('invalid-argument', boundIdx);
-            expect(throwIdx).toBeGreaterThan(boundIdx);
-        });
-
-        it('RL-M2: the length bound is enforced before checkRateLimit, so an oversized payload never consumes quota', () => {
-            const boundIdx = body.search(/text\.length\s*>\s*1000/);
-            const rlIdx = body.indexOf("checkRateLimit(uid, 'moderateContent'");
-            expect(boundIdx).toBeGreaterThan(-1);
-            expect(boundIdx).toBeLessThan(rlIdx);
-        });
-    });
-
     describe('claimUsername (5/hr)', () => {
         const body = extractCallable(INDEX_SRC, 'claimUsername');
 

@@ -155,7 +155,6 @@ All deployed to `us-central1`, Node.js 20, Firebase Functions v5 (v2 API):
 6. `verifyEmailOTP` — callable, verifies email OTP codes
 7. `moderateAvatarUpload` — Storage trigger, runs Google Cloud Vision SafeSearch on avatar uploads
 8. `claimUsername` — callable, validates + claims usernames atomically via Firestore transaction
-9. `moderateContent` — callable, shared content moderation (banned words, contact info patterns)
 
 ### Notification System
 - **Push notifications** via Firebase Cloud Messaging (FCM)
@@ -590,11 +589,6 @@ Prefer:
 - **Purpose:** Validate and atomically claim a username
 - **Trigger:** Callable (onCall)
 - **Logic:** Validate length/chars/profanity/reserved, Firestore transaction to check uniqueness + claim, enforce 30-day cooldown (skip for `user_` prefixed names)
-
-### moderateContent
-- **Purpose:** Shared content moderation check
-- **Trigger:** Callable (onCall)
-- **Logic:** Normalize text, check against banned word list, check contact info patterns (messages only), check reserved words (usernames only), log to `moderationLog`
 
 ### awardCrowns
 - **Purpose:** Award crowns to finder and driver on successful parking handoff
