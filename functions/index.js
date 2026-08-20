@@ -700,7 +700,7 @@ exports.notifyNearbyUsers = onDocumentCreated(
 
 // 4) Generate and send email OTP
 exports.generateEmailOTP = onCall(
-  { region: "us-central1", secrets: [sendgridApiKey, emailRateLimitPepper] },
+  { region: "us-central1", secrets: [sendgridApiKey, emailRateLimitPepper], serviceAccount: 'parqueen-email@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Sign in first.");
     const email = _canonicalizeEmail(request.data?.email);
@@ -752,7 +752,7 @@ exports.generateEmailOTP = onCall(
 
 // 5) Verify email OTP
 exports.verifyEmailOTP = onCall(
-  { region: "us-central1" },
+  { region: "us-central1", serviceAccount: 'parqueen-user@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Sign in first.");
     const email = _canonicalizeEmail(request.data?.email);
