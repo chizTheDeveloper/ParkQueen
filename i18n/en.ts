@@ -645,6 +645,8 @@ const en: Record<string, string> = {
     'profile.uploading': 'Uploading...',
     'profile.reviewing_photo': 'Reviewing photo — this may take a moment',
     'profile.photo_timed_out': 'Photo check timed out — please try again.',
+    'profile.avatar_too_large': 'Image must be smaller than 5 MB.',
+    'profile.avatar_unsupported_format': 'Please choose a JPEG, PNG, or WebP image.',
     'profile.photo_rejected': "This photo couldn't be used. Please choose a different photo.",
     'profile.upload_failed': 'Upload failed — please try again.',
     'profile.section_progress': 'COMMUNITY PROGRESS',
