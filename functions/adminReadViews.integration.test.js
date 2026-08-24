@@ -514,7 +514,7 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(3);
         expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
 
-        // Nineteen canaries should carry a serviceAccount override — adminReadView
+        // Twenty-six canaries should carry a serviceAccount override — adminReadView
         // (admin-only), sendMessage (authoritative chat write path),
         // claimUsername, updateDisplayName (both authoritative
         // profile-identity write paths), moderateAvatarUpload (dedicated
@@ -530,12 +530,18 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         // notifyNearbyUsers/processScheduledClaims/scheduleCleaningReminders
         // (Wave 4 messaging-runtime migration — see AR-40/41/42), and
         // createSegmentFromSweepNYC (Wave 5 segment-creation runtime
-        // migration — see RL-C-10).
+        // migration — see RL-C-10), and adminAddSegment/adminAddCleaningRule/
+        // adminSupersedeRule/adminUpdateSegmentStatus/adminResolveParseFailure/
+        // adminReopenParseFailure/adminUpdateReport (Wave 6A admin-write
+        // runtime migration, shared parqueen-admin-write identity — see
+        // AS-26).
         // moderateContent was retired (uncalled since deployment; see
-        // docs/CHAT_MESSAGE_HARDENING.md) and no longer exists. No other
-        // callable/trigger has been migrated yet.
+        // docs/CHAT_MESSAGE_HARDENING.md) and no longer exists. adminSuspendUser/
+        // adminUnsuspendUser/adminAddSuspension/adminArchiveSuspension/
+        // adminDeleteSpot/adminBackfillStreetIntelligence (Wave 6B/6C) remain
+        // on compute-default pending later waves.
         const allServiceAccountMatches = indexSrc.match(/serviceAccount:\s*'[^']+'/g) || [];
-        expect(allServiceAccountMatches).toHaveLength(19);
+        expect(allServiceAccountMatches).toHaveLength(26);
     });
 
     it("AR-29: Runtime-IAM canary config-contract — moderateAvatarUpload's serviceAccount is the dedicated avatar-moderator identity, Storage-trigger config unaffected", () => {

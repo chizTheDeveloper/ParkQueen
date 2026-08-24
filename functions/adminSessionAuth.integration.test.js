@@ -467,4 +467,29 @@ describe('requireCurrentAdmin — session revocation / stale admin token hardeni
     // checkRevoked=true, so this property cannot be honestly proven in this
     // environment. Tracked as a separate follow-up rather than shipped
     // unverified.
+
+    it('AS-26: Runtime-IAM canary config-contract — Wave 6A admin-write callables run as the dedicated parqueen-admin-write identity, still gated by requireCurrentAdmin', () => {
+        const src = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+        const WAVE_6A = [
+            'adminAddSegment',
+            'adminAddCleaningRule',
+            'adminSupersedeRule',
+            'adminUpdateSegmentStatus',
+            'adminResolveParseFailure',
+            'adminReopenParseFailure',
+            'adminUpdateReport',
+        ];
+        for (const name of WAVE_6A) {
+            const callStart = src.indexOf(`exports.${name} = onCall(`);
+            expect(callStart).toBeGreaterThan(-1);
+            const optionsSlice = src.slice(callStart, callStart + 400);
+            expect(optionsSlice).toMatch(/serviceAccount:\s*'parqueen-admin-write@parkqueen-46475363-ccf36\.iam\.gserviceaccount\.com'/);
+            expect(optionsSlice).toMatch(/await requireCurrentAdmin\(request\);/);
+        }
+
+        // requireCurrentAdmin usage count (AS-22) is unaffected by a runtime-SA
+        // change — same 16 gated callables, no new/removed authorization call.
+        const migratedCount = (src.match(/await requireCurrentAdmin\(request\);/g) || []).length;
+        expect(migratedCount).toBe(16);
+    });
 });
