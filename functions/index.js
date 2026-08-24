@@ -2346,7 +2346,7 @@ exports.setStaffRole = onCall(
 
 // 16) Admin suspend user — writes user doc + standardized audit log entry
 exports.adminSuspendUser = onCall(
-  { region: 'us-central1' },
+  { region: 'us-central1', serviceAccount: 'parqueen-admin-write@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (request) => {
     await requireCurrentAdmin(request);
     const { userId, reason } = request.data || {};
@@ -2380,7 +2380,7 @@ exports.adminSuspendUser = onCall(
 
 // 17) Admin unsuspend user — clears suspension + standardized audit log entry
 exports.adminUnsuspendUser = onCall(
-  { region: 'us-central1' },
+  { region: 'us-central1', serviceAccount: 'parqueen-admin-write@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (request) => {
     await requireCurrentAdmin(request);
     const { userId } = request.data || {};
