@@ -13,11 +13,15 @@ const RUN = `${process.pid}_${Date.now()}`;
 let sequence = 0;
 const nextId = label => `pn_${label}_${RUN}_${++sequence}`;
 
-function createdEvent(spotId, data, eventId = `event_${spotId}`) {
+const PAST = Timestamp.fromMillis(Date.now() - 60_000);
+const FUTURE = Timestamp.fromMillis(Date.now() + 60 * 60_000);
+
+function createdEvent(spotId, data, eventId = `event_${spotId}`, time = new Date().toISOString()) {
     return {
         id: eventId,
         params: { spotId },
         data: { id: spotId, data: () => data },
+        time,
     };
 }
 
@@ -424,5 +428,160 @@ describe('Admin spot deletion — trust-penalty exemption contract (Wave 6B-3)',
         expect(updateIdx).toBeGreaterThan(-1);
         expect(deleteIdx).toBeGreaterThan(-1);
         expect(updateIdx).toBeLessThan(deleteIdx);
+    });
+});
+
+// ─── Natural-expiration trust exemption — system-expiration trust-bug fix ───
+// handoffsCancelledByFinder measures cancellation of an ACTIVE handoff. Once
+// a spot's own expiresAt has passed, ANY later deletion — by
+// cleanupExpiredSpotsHourly, a manual client delete, or anything else — is
+// normal removal of an already-dead listing, not an active cancellation,
+// regardless of which mechanism physically performs the delete. The
+// exemption is derived directly from the deleted snapshot's expiresAt and
+// the CloudEvent's own event.time (never Date.now()/handler-start time) and
+// fails closed: it only applies when both are genuinely valid and parseable.
+describe('Natural-expiration trust exemption — updateTrustOnSpotDelete', () => {
+    async function seedUser(uid) {
+        await db.doc(`users/${uid}`).set({ createdAt: Timestamp.now() });
+    }
+    async function cleanupUser(uid, spotId) {
+        await db.doc(`users/${uid}`).delete();
+        await db.doc(`users/${uid}/processedTrustEvents/${spotId}:finder-cancel`).delete();
+    }
+    async function expectPenalty(finderId, applied) {
+        const userSnap = await db.doc(`users/${finderId}`).get();
+        if (applied) {
+            expect(userSnap.data().trustStats?.handoffsCancelledByFinder).toBe(1);
+        } else {
+            expect(userSnap.data().trustStats).toBeUndefined();
+        }
+    }
+
+    it('CASE 1: active spot (expiresAt in the future), no source — finder cancellation penalty APPLIES', async () => {
+        const finderId = nextId('exp_finder');
+        const spotId = nextId('exp_spot');
+        await seedUser(finderId);
+        await indexModule.updateTrustOnSpotDelete.run(
+            createdEvent(spotId, { status: 'interested', finderId, expiresAt: FUTURE }, nextId('event')),
+        );
+        await expectPenalty(finderId, true);
+        await cleanupUser(finderId, spotId);
+    });
+
+    it('CASE 2: admin delete of an active spot — NO penalty (admin exemption independent of expiration)', async () => {
+        const finderId = nextId('exp_finder');
+        const spotId = nextId('exp_spot');
+        await seedUser(finderId);
+        await indexModule.updateTrustOnSpotDelete.run(
+            createdEvent(spotId, { status: 'interested', finderId, source: 'admin', expiresAt: FUTURE }, nextId('event')),
+        );
+        await expectPenalty(finderId, false);
+        await cleanupUser(finderId, spotId);
+    });
+
+    it('CASE 3: naturally expired spot, no source (the system-cleanup shape) — NO penalty', async () => {
+        const finderId = nextId('exp_finder');
+        const spotId = nextId('exp_spot');
+        await seedUser(finderId);
+        await indexModule.updateTrustOnSpotDelete.run(
+            createdEvent(spotId, { status: 'interested', finderId, expiresAt: PAST }, nextId('event')),
+        );
+        await expectPenalty(finderId, false);
+        await cleanupUser(finderId, spotId);
+    });
+
+    it('CASE 4: deletion event occurs at the EXACT expiration instant — NO penalty (<=, not <)', async () => {
+        const finderId = nextId('exp_finder');
+        const spotId = nextId('exp_spot');
+        await seedUser(finderId);
+        const boundaryMs = Date.now();
+        const expiresAt = Timestamp.fromMillis(boundaryMs);
+        const eventTime = new Date(boundaryMs).toISOString();
+        await indexModule.updateTrustOnSpotDelete.run(
+            createdEvent(spotId, { status: 'interested', finderId, expiresAt }, nextId('event'), eventTime),
+        );
+        await expectPenalty(finderId, false);
+        await cleanupUser(finderId, spotId);
+    });
+
+    it('CASE 5: manual/user delete after expiration — NO penalty (same result as system cleanup; no actor/source complexity added)', async () => {
+        const finderId = nextId('exp_finder');
+        const spotId = nextId('exp_spot');
+        await seedUser(finderId);
+        await indexModule.updateTrustOnSpotDelete.run(
+            createdEvent(spotId, { status: 'interested', finderId, source: 'user', expiresAt: PAST }, nextId('event')),
+        );
+        await expectPenalty(finderId, false);
+        await cleanupUser(finderId, spotId);
+    });
+
+    it('CASE 6: missing expiresAt — penalty behavior is preserved (no exemption merely because expiry is unavailable)', async () => {
+        const finderId = nextId('exp_finder');
+        const spotId = nextId('exp_spot');
+        await seedUser(finderId);
+        await indexModule.updateTrustOnSpotDelete.run(
+            createdEvent(spotId, { status: 'interested', finderId }, nextId('event')), // no expiresAt at all
+        );
+        await expectPenalty(finderId, true);
+        await cleanupUser(finderId, spotId);
+    });
+
+    it('CASE 7: malformed expiresAt (wrong type) — does not crash, penalty behavior is preserved', async () => {
+        const finderId = nextId('exp_finder');
+        const spotId = nextId('exp_spot');
+        await seedUser(finderId);
+        // Completing without throwing is itself proof of no crash.
+        await indexModule.updateTrustOnSpotDelete.run(
+            createdEvent(spotId, { status: 'interested', finderId, expiresAt: 'not-a-timestamp' }, nextId('event')),
+        );
+        await expectPenalty(finderId, true);
+        await cleanupUser(finderId, spotId);
+    });
+
+    it('CASE 8: malformed/missing event.time — no exemption is granted, penalty behavior is preserved, no crash', async () => {
+        const finderId = nextId('exp_finder');
+        const spotId = nextId('exp_spot');
+        await seedUser(finderId);
+        await indexModule.updateTrustOnSpotDelete.run(
+            createdEvent(spotId, { status: 'interested', finderId, expiresAt: PAST }, nextId('event'), 'not-a-real-timestamp'),
+        );
+        await expectPenalty(finderId, true);
+        await cleanupUser(finderId, spotId);
+    });
+
+    it('CASE 9: admin delete with malformed/missing expiry — NO penalty (admin exemption independent of expiration parsing)', async () => {
+        const finderId = nextId('exp_finder');
+        const spotId = nextId('exp_spot');
+        await seedUser(finderId);
+        await indexModule.updateTrustOnSpotDelete.run(
+            createdEvent(spotId, { status: 'interested', finderId, source: 'admin' }, nextId('event')), // no expiresAt
+        );
+        await expectPenalty(finderId, false);
+        await cleanupUser(finderId, spotId);
+    });
+
+    it('BUG-REPRO: the confirmed steady-state scenario (system-abandoned interested claim, already-expired listing, no source marker) no longer applies a penalty', async () => {
+        const finderId = nextId('exp_finder');
+        const spotId = nextId('exp_spot');
+        await seedUser(finderId);
+        // Exact shape cleanupExpiredInterests leaves behind when a heading
+        // claim's interestExpiresAt lapses at/after the Ping's own
+        // expiresAt: interestedUserId cleared, status left as 'interested'
+        // (never reopened — see cleanupExpiredInterests's own "never reopen
+        // an already-expired Ping" branch), finderId untouched — then
+        // cleanupExpiredSpotsHourly later hard-deletes it via
+        // expiresAt<=now (no status filter, no source marker). Before this
+        // fix, handoffsCancelledByFinder fired for this exact shape.
+        await indexModule.updateTrustOnSpotDelete.run(
+            createdEvent(spotId, {
+                status: 'interested',
+                finderId,
+                interestedUserId: null,
+                interestExpiresAt: null,
+                expiresAt: PAST,
+            }, nextId('event')),
+        );
+        await expectPenalty(finderId, false);
+        await cleanupUser(finderId, spotId);
     });
 });
