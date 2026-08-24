@@ -416,7 +416,7 @@ describe('Admin spot deletion — trust-penalty exemption contract (Wave 6B-3)',
         const src = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
         const fnStart = src.indexOf('exports.adminDeleteSpot = onCall(');
         expect(fnStart).toBeGreaterThan(-1);
-        const fnEnd = src.indexOf('\r\n);\r\n', fnStart);
+        const fnEnd = src.indexOf('exports.bootstrapAdmin = onCall(', fnStart);
         expect(fnEnd).toBeGreaterThan(fnStart);
         const body = src.slice(fnStart, fnEnd);
         const updateIdx = body.indexOf("spotRef.update({ source: 'admin' })");

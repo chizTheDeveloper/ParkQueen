@@ -552,7 +552,7 @@ describe('requireCurrentAdmin — session revocation / stale admin token hardeni
         // The updateTrustOnSpotDelete cross-function contract (functions/
         // pingNotificationPrivacy.integration.test.js TD-1..4) depends on
         // this exact ordering — a runtime-SA change must not disturb it.
-        const fnEnd = src.indexOf('\r\n);\r\n', callStart);
+        const fnEnd = src.indexOf('exports.bootstrapAdmin = onCall(', callStart);
         expect(fnEnd).toBeGreaterThan(callStart);
         const body = src.slice(callStart, fnEnd);
         const updateIdx = body.indexOf("spotRef.update({ source: 'admin' })");
