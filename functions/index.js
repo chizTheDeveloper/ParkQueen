@@ -2412,7 +2412,7 @@ exports.adminUnsuspendUser = onCall(
 
 // 18) Admin update report status — review / dismiss / reopen with audit trail
 exports.adminUpdateReport = onCall(
-  { region: 'us-central1' },
+  { region: 'us-central1', serviceAccount: 'parqueen-admin-write@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (request) => {
     await requireCurrentAdmin(request);
     const { reportId, status, adminNote } = request.data || {};
@@ -2467,7 +2467,7 @@ exports.adminUpdateReport = onCall(
 
 // 19) Admin update segment status — archive / needs_review / restore active with audit trail
 exports.adminUpdateSegmentStatus = onCall(
-  { region: 'us-central1' },
+  { region: 'us-central1', serviceAccount: 'parqueen-admin-write@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (request) => {
     await requireCurrentAdmin(request);
     const { segmentId, status, reason } = request.data || {};
@@ -3058,7 +3058,7 @@ exports.updateTrustOnSpotDelete = onDocumentDeleted(
 
 // 21) Admin resolve parse failure — marks failure as resolved with audit trail
 exports.adminResolveParseFailure = onCall(
-  { region: 'us-central1' },
+  { region: 'us-central1', serviceAccount: 'parqueen-admin-write@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (request) => {
     await requireCurrentAdmin(request);
     const { failureId, resolutionType, resolutionNote } = request.data || {};
@@ -3101,7 +3101,7 @@ exports.adminResolveParseFailure = onCall(
 
 // 22) Admin reopen parse failure — clears resolution with audit trail
 exports.adminReopenParseFailure = onCall(
-  { region: 'us-central1' },
+  { region: 'us-central1', serviceAccount: 'parqueen-admin-write@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (request) => {
     await requireCurrentAdmin(request);
     const { failureId } = request.data || {};
@@ -3135,7 +3135,7 @@ exports.adminReopenParseFailure = onCall(
 // 23) Admin add street segment — accepts fully geocoded payload from client, writes doc + audit trail.
 // Geocoding (OSM + address lookup) is performed client-side; this function owns the write + audit.
 exports.adminAddSegment = onCall(
-  { region: 'us-central1' },
+  { region: 'us-central1', serviceAccount: 'parqueen-admin-write@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (request) => {
     await requireCurrentAdmin(request);
     const p = request.data || {};
@@ -3203,7 +3203,7 @@ exports.adminAddSegment = onCall(
 
 // 24) Admin add cleaning rule — creates rule in segment subcollection with audit trail
 exports.adminAddCleaningRule = onCall(
-  { region: 'us-central1' },
+  { region: 'us-central1', serviceAccount: 'parqueen-admin-write@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (request) => {
     await requireCurrentAdmin(request);
     const { segmentId, side, days, startTime, endTime } = request.data || {};
@@ -3256,7 +3256,7 @@ exports.adminAddCleaningRule = onCall(
 
 // 25) Admin supersede cleaning rule — soft-deletes a rule with audit trail
 exports.adminSupersedeRule = onCall(
-  { region: 'us-central1' },
+  { region: 'us-central1', serviceAccount: 'parqueen-admin-write@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (request) => {
     await requireCurrentAdmin(request);
     const { segmentId, ruleId, reason } = request.data || {};
