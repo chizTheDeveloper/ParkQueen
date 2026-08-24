@@ -31,6 +31,9 @@
  *   AB-13: sensitive values not logged
  *   AB-14: direct client mutation is no longer possible (Rules denies it even for a current admin)
  *   AB-15: source-contract — new callable is present and requireCurrentAdmin-gated
+ *   AB-16: dryRun:true performs literally zero Firestore writes (Wave 6C runtime-migration audit)
+ *   AB-17: adminAuditLog written only on a live-write page that changed something, never on a dry run
+ *   AB-18: limit:1 processes at most one segment per page
  */
 
 const { initializeApp, getApps } = require('firebase-admin/app');
@@ -310,6 +313,66 @@ describe('adminBackfillStreetIntelligence — coordinated Functions/Rules/client
         const after = (await db.doc(`streetSegments/${segId}`).get()).data();
         expect(after.provenance.provider).toBe('admin');
         expect(typeof after.editedBy).toBe('string');
+    });
+
+    it('AB-16: dryRun:true performs literally zero Firestore writes — the segment/rule documents are byte-unchanged afterward', async () => {
+        const idToken = await adminIdToken(uid);
+        const segId = testUid('seg');
+        segIds.push(segId);
+        await makeSegment(segId, {}); // fully missing schema fields
+        await makeRule(segId, 'ruleA', {});
+
+        const before = (await db.doc(`streetSegments/${segId}`).get()).data();
+        const ruleBefore = (await db.doc(`streetSegments/${segId}/streetRules/ruleA`).get()).data();
+
+        const { totals, error } = await runFullBackfill(idToken, true);
+        expect(error).toBeUndefined();
+        // The would-update counts prove the engine found real work to do —
+        // this is not a vacuous "nothing to change" pass.
+        expect(totals.segmentsUpdated).toBeGreaterThanOrEqual(1);
+        expect(totals.rulesUpdated).toBeGreaterThanOrEqual(1);
+
+        const after = (await db.doc(`streetSegments/${segId}`).get()).data();
+        const ruleAfter = (await db.doc(`streetSegments/${segId}/streetRules/ruleA`).get()).data();
+        expect(after).toEqual(before);
+        expect(ruleAfter).toEqual(ruleBefore);
+    });
+
+    it('AB-17: adminAuditLog is written only for a live-write page that actually changed something, never for a dry run', async () => {
+        const idToken = await adminIdToken(uid);
+        const segId = testUid('seg');
+        segIds.push(segId);
+        await makeSegment(segId, {});
+
+        await callFn('adminBackfillStreetIntelligence', idToken, { dryRun: true });
+        const afterDryRun = await db.collection('adminAuditLog')
+            .where('adminId', '==', uid)
+            .where('action', '==', 'streetIntelligence.backfill')
+            .get();
+        expect(afterDryRun.empty).toBe(true);
+
+        const { error } = await runFullBackfill(idToken, false);
+        expect(error).toBeUndefined();
+        const afterLiveRun = await db.collection('adminAuditLog')
+            .where('adminId', '==', uid)
+            .where('action', '==', 'streetIntelligence.backfill')
+            .get();
+        expect(afterLiveRun.size).toBeGreaterThanOrEqual(1);
+
+        for (const doc of afterLiveRun.docs) await doc.ref.delete().catch(() => {});
+    });
+
+    it('AB-18: limit:1 processes at most one segment per page', async () => {
+        const idToken = await adminIdToken(uid);
+        const ids = [testUid('seg1'), testUid('seg2')].sort();
+        segIds.push(...ids);
+        for (const id of ids) await makeSegment(id, { id });
+
+        const resp = await callFn('adminBackfillStreetIntelligence', idToken, { dryRun: true, limit: 1 });
+        expect(resp.error).toBeUndefined();
+        expect(resp.result.segmentsScanned).toBe(1);
+        expect(resp.result.done).toBe(false);
+        expect(resp.result.nextCursor).toBeTruthy();
     });
 
     it('AB-13: sensitive values not logged', async () => {

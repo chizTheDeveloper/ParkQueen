@@ -3360,7 +3360,7 @@ exports.adminAddSuspension = onCall(
 // the returned cursor until done:true. Idempotent: only ever fills in
 // currently-missing fields, so a resumed/re-run page is harmless.
 exports.adminBackfillStreetIntelligence = onCall(
-  { region: 'us-central1' },
+  { region: 'us-central1', serviceAccount: 'parqueen-admin-write@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (request) => {
     await requireCurrentAdmin(request);
     const p = request.data || {};
