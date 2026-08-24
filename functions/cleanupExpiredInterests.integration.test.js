@@ -223,4 +223,11 @@ describe('cleanupExpiredInterests Function contract', () => {
         expect(staleAfterSecond).toEqual(staleAfterFirst); // not reprocessed — no longer a candidate
         expect(fresh.status).toBe('available'); // fresh candidate was not starved out
     });
+
+    it('CEI-13: Runtime-IAM canary config-contract — cleanupExpiredInterests (Wave 7A-1) runs as the dedicated parqueen-cleanup identity', () => {
+        const src = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+        const start = src.indexOf('exports.cleanupExpiredInterests');
+        const fn = src.slice(start, src.indexOf('exports.cleanupExpiredHolds', start));
+        expect(fn).toMatch(/serviceAccount:\s*'parqueen-cleanup@parkqueen-46475363-ccf36\.iam\.gserviceaccount\.com'/);
+    });
 });
