@@ -3049,6 +3049,23 @@ exports.updateTrustOnSpotDelete = onDocumentDeleted(
     const source = data.source || 'user';
     if (source === 'admin') return;
 
+    // Natural-expiration exemption: handoffsCancelledByFinder measures
+    // cancellation of an ACTIVE handoff. Once the spot's own expiresAt has
+    // passed, any later deletion — by cleanupExpiredSpotsHourly, a manual
+    // client delete, or anything else — is normal removal of an already-dead
+    // listing, not an active cancellation, regardless of which mechanism
+    // physically performs the delete. Fails closed: only exempts when BOTH
+    // expiresAt and event.time are genuinely valid and parseable; missing,
+    // null, or malformed expiresAt (or a missing/malformed event.time)
+    // preserves today's penalty behavior rather than silently granting a
+    // free exemption. <= (not <) at the boundary: a spot is no longer
+    // active at the exact instant it expires.
+    const expiresAt = data.expiresAt;
+    const deletionTimeMs = Date.parse(event.time);
+    if (expiresAt instanceof Timestamp && Number.isFinite(deletionTimeMs)) {
+      if (expiresAt.toMillis() <= deletionTimeMs) return;
+    }
+
     await applyTrustDelta(
       data.finderId,
       'handoffsCancelledByFinder',
