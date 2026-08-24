@@ -514,7 +514,7 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(3);
         expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
 
-        // Eighteen canaries should carry a serviceAccount override — adminReadView
+        // Nineteen canaries should carry a serviceAccount override — adminReadView
         // (admin-only), sendMessage (authoritative chat write path),
         // claimUsername, updateDisplayName (both authoritative
         // profile-identity write paths), moderateAvatarUpload (dedicated
@@ -528,12 +528,14 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         // generateEmailOTP/verifyEmailOTP (Wave 3 email-runtime migration,
         // split across two capability identities — see AR-38/39), and
         // notifyNearbyUsers/processScheduledClaims/scheduleCleaningReminders
-        // (Wave 4 messaging-runtime migration — see AR-40/41/42).
+        // (Wave 4 messaging-runtime migration — see AR-40/41/42), and
+        // createSegmentFromSweepNYC (Wave 5 segment-creation runtime
+        // migration — see RL-C-10).
         // moderateContent was retired (uncalled since deployment; see
         // docs/CHAT_MESSAGE_HARDENING.md) and no longer exists. No other
         // callable/trigger has been migrated yet.
         const allServiceAccountMatches = indexSrc.match(/serviceAccount:\s*'[^']+'/g) || [];
-        expect(allServiceAccountMatches).toHaveLength(18);
+        expect(allServiceAccountMatches).toHaveLength(19);
     });
 
     it("AR-29: Runtime-IAM canary config-contract — moderateAvatarUpload's serviceAccount is the dedicated avatar-moderator identity, Storage-trigger config unaffected", () => {

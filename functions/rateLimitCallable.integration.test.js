@@ -192,6 +192,14 @@ describe('RL-C createSegmentFromSweepNYC â€” callable behavioral tests', ()
         const counterSnap = await db.collection('rateLimits').doc(seededDocId).get();
         expect(counterSnap.data().count).toBe(LIMIT); // exact boundary, no overshoot from the race
     });
+
+    it("RL-C-10: Runtime-IAM canary config-contract — createSegmentFromSweepNYC's serviceAccount is the dedicated parqueen-user identity", () => {
+        const indexSrc = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+        const callStart = indexSrc.indexOf('exports.createSegmentFromSweepNYC = onCall(');
+        expect(callStart).toBeGreaterThan(-1);
+        const optionsSlice = indexSrc.slice(callStart, callStart + 600);
+        expect(optionsSlice).toMatch(/serviceAccount:\s*'parqueen-user@parkqueen-46475363-ccf36\.iam\.gserviceaccount\.com'/);
+    });
 });
 
 // â”€â”€â”€ generateListingDescription â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
