@@ -514,7 +514,7 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(3);
         expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
 
-        // Thirty-four canaries should carry a serviceAccount override — adminReadView
+        // Thirty-five canaries should carry a serviceAccount override — adminReadView
         // (admin-only), sendMessage (authoritative chat write path),
         // claimUsername, updateDisplayName (both authoritative
         // profile-identity write paths), moderateAvatarUpload (dedicated
@@ -543,11 +543,12 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         // see AS-30). This closes Wave 6 — every admin-write function now
         // runs on parqueen-admin-write. And cleanupExpiredInterests/
         // cleanupExpiredHolds (Wave 7A-1, dedicated parqueen-cleanup identity
-        // — see CEI-13/CEH-8).
+        // — see CEI-13/CEH-8), and cleanupExpiredSpotsHourly (Wave 7A-2,
+        // same shared identity — see CESH-1).
         // moderateContent was retired (uncalled since deployment; see
         // docs/CHAT_MESSAGE_HARDENING.md) and no longer exists.
         const allServiceAccountMatches = indexSrc.match(/serviceAccount:\s*'[^']+'/g) || [];
-        expect(allServiceAccountMatches).toHaveLength(34);
+        expect(allServiceAccountMatches).toHaveLength(35);
     });
 
     it("AR-29: Runtime-IAM canary config-contract — moderateAvatarUpload's serviceAccount is the dedicated avatar-moderator identity, Storage-trigger config unaffected", () => {
