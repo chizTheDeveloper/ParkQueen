@@ -561,4 +561,16 @@ describe('requireCurrentAdmin — session revocation / stale admin token hardeni
         expect(deleteIdx).toBeGreaterThan(-1);
         expect(updateIdx).toBeLessThan(deleteIdx);
     });
+
+    it('AS-30: Runtime-IAM canary config-contract — adminBackfillStreetIntelligence (Wave 6C) runs as the dedicated parqueen-admin-write identity, still gated by requireCurrentAdmin', () => {
+        const src = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+        const callStart = src.indexOf('exports.adminBackfillStreetIntelligence = onCall(');
+        expect(callStart).toBeGreaterThan(-1);
+        const optionsSlice = src.slice(callStart, callStart + 400);
+        expect(optionsSlice).toMatch(/serviceAccount:\s*'parqueen-admin-write@parkqueen-46475363-ccf36\.iam\.gserviceaccount\.com'/);
+        expect(optionsSlice).toMatch(/await requireCurrentAdmin\(request\);/);
+
+        const migratedCount = (src.match(/await requireCurrentAdmin\(request\);/g) || []).length;
+        expect(migratedCount).toBe(16);
+    });
 });
