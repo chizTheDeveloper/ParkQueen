@@ -492,4 +492,19 @@ describe('requireCurrentAdmin — session revocation / stale admin token hardeni
         const migratedCount = (src.match(/await requireCurrentAdmin\(request\);/g) || []).length;
         expect(migratedCount).toBe(16);
     });
+
+    it('AS-27: Runtime-IAM canary config-contract — Wave 6B-1 suspension-calendar callables run as the dedicated parqueen-admin-write identity, still gated by requireCurrentAdmin', () => {
+        const src = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+        const WAVE_6B_1 = ['adminAddSuspension', 'adminArchiveSuspension'];
+        for (const name of WAVE_6B_1) {
+            const callStart = src.indexOf(`exports.${name} = onCall(`);
+            expect(callStart).toBeGreaterThan(-1);
+            const optionsSlice = src.slice(callStart, callStart + 400);
+            expect(optionsSlice).toMatch(/serviceAccount:\s*'parqueen-admin-write@parkqueen-46475363-ccf36\.iam\.gserviceaccount\.com'/);
+            expect(optionsSlice).toMatch(/await requireCurrentAdmin\(request\);/);
+        }
+
+        const migratedCount = (src.match(/await requireCurrentAdmin\(request\);/g) || []).length;
+        expect(migratedCount).toBe(16);
+    });
 });

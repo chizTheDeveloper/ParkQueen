@@ -2525,7 +2525,7 @@ exports.adminUpdateSegmentStatus = onCall(
 
 // 20) Admin archive suspension — soft-delete with audit trail
 exports.adminArchiveSuspension = onCall(
-  { region: 'us-central1' },
+  { region: 'us-central1', serviceAccount: 'parqueen-admin-write@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (request) => {
     await requireCurrentAdmin(request);
     const { suspensionId, reason } = request.data || {};
@@ -3301,7 +3301,7 @@ exports.adminSupersedeRule = onCall(
 
 // 26) Admin add ASP suspension — creates suspension record with audit trail
 exports.adminAddSuspension = onCall(
-  { region: 'us-central1' },
+  { region: 'us-central1', serviceAccount: 'parqueen-admin-write@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (request) => {
     await requireCurrentAdmin(request);
     const { date, label, type } = request.data || {};
