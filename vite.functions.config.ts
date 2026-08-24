@@ -11,6 +11,7 @@ export default defineConfig({
       'functions/generateEmailOTP.integration.test.js',
       'functions/pingNotificationPrivacy.integration.test.js',
       'functions/cleanupExpiredInterests.integration.test.js',
+      'functions/cleanupExpiredHolds.integration.test.js',
       'functions/rateLimiter.integration.test.js',
       'functions/moderateAvatarUpload.integration.test.js',
       'functions/rateLimitCallable.integration.test.js',

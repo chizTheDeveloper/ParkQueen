@@ -226,6 +226,7 @@ exports.cleanupExpiredInterests = onSchedule(
     timeZone: "America/Toronto",
     region: "us-central1",
     memory: "256MiB",
+    serviceAccount: 'parqueen-cleanup@parkqueen-46475363-ccf36.iam.gserviceaccount.com',
   },
   async () => {
     const now = Timestamp.now();
@@ -312,6 +313,7 @@ exports.cleanupExpiredHolds = onSchedule(
     timeZone: "America/Toronto",
     region: "us-central1",
     memory: "256MiB",
+    serviceAccount: 'parqueen-cleanup@parkqueen-46475363-ccf36.iam.gserviceaccount.com',
   },
   async () => {
     const now = Timestamp.now();
