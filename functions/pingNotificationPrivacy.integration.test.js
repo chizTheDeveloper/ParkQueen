@@ -343,3 +343,86 @@ describe('Ping notification/privacy Function contract', () => {
         ]);
     });
 });
+
+// ─── Admin spot deletion — trust-penalty exemption contract (Wave 6B-3) ─────
+// adminDeleteSpot (functions/index.js) writes source:'admin' on the spot
+// immediately before the hard delete specifically so this trigger's
+// `if (source === 'admin') return;` guard skips the finder's cancellation
+// trust penalty. TD-1..3 prove updateTrustOnSpotDelete's own behavior via
+// the same .run(event) seam used above; TD-4 proves the write-before-delete
+// ordering adminDeleteSpot's side of the contract depends on.
+describe('Admin spot deletion — trust-penalty exemption contract (Wave 6B-3)', () => {
+    async function seedUser(uid) {
+        await db.doc(`users/${uid}`).set({ createdAt: Timestamp.now() });
+    }
+    async function cleanupUser(uid, spotId) {
+        await db.doc(`users/${uid}`).delete();
+        await db.doc(`users/${uid}/processedTrustEvents/${spotId}:finder-cancel`).delete();
+    }
+
+    it('TD-1: source:"admin" exempts the finder from the normal cancellation trust penalty', async () => {
+        const finderId = nextId('td_finder');
+        const spotId = nextId('td_spot');
+        await seedUser(finderId);
+
+        await indexModule.updateTrustOnSpotDelete.run(
+            createdEvent(spotId, { status: 'interested', finderId, source: 'admin' }, nextId('event')),
+        );
+
+        const userSnap = await db.doc(`users/${finderId}`).get();
+        expect(userSnap.data().trustStats).toBeUndefined();
+        const processedSnap = await db.doc(`users/${finderId}/processedTrustEvents/${spotId}:finder-cancel`).get();
+        expect(processedSnap.exists).toBe(false);
+
+        await cleanupUser(finderId, spotId);
+    });
+
+    it('TD-2: an ordinary (explicit source:"user") deletion still applies the normal finder cancellation penalty', async () => {
+        const finderId = nextId('td_finder');
+        const spotId = nextId('td_spot');
+        await seedUser(finderId);
+
+        await indexModule.updateTrustOnSpotDelete.run(
+            createdEvent(spotId, { status: 'interested', finderId, source: 'user' }, nextId('event')),
+        );
+
+        const userSnap = await db.doc(`users/${finderId}`).get();
+        expect(userSnap.data().trustStats.handoffsCancelledByFinder).toBe(1);
+        const processedSnap = await db.doc(`users/${finderId}/processedTrustEvents/${spotId}:finder-cancel`).get();
+        expect(processedSnap.exists).toBe(true);
+        expect(processedSnap.data().source).toBe('user');
+
+        await cleanupUser(finderId, spotId);
+    });
+
+    it('TD-3: a deletion with no source field at all (the real shape of every non-admin deletion path) still applies the penalty', async () => {
+        const finderId = nextId('td_finder');
+        const spotId = nextId('td_spot');
+        await seedUser(finderId);
+
+        await indexModule.updateTrustOnSpotDelete.run(
+            createdEvent(spotId, { status: 'interested', finderId }, nextId('event')),
+        );
+
+        const userSnap = await db.doc(`users/${finderId}`).get();
+        expect(userSnap.data().trustStats.handoffsCancelledByFinder).toBe(1);
+
+        await cleanupUser(finderId, spotId);
+    });
+
+    it('TD-4: source-contract — adminDeleteSpot sets source:"admin" before the hard delete (the exact write updateTrustOnSpotDelete depends on)', () => {
+        const fs = require('fs');
+        const path = require('path');
+        const src = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+        const fnStart = src.indexOf('exports.adminDeleteSpot = onCall(');
+        expect(fnStart).toBeGreaterThan(-1);
+        const fnEnd = src.indexOf('\r\n);\r\n', fnStart);
+        expect(fnEnd).toBeGreaterThan(fnStart);
+        const body = src.slice(fnStart, fnEnd);
+        const updateIdx = body.indexOf("spotRef.update({ source: 'admin' })");
+        const deleteIdx = body.indexOf('spotRef.delete()');
+        expect(updateIdx).toBeGreaterThan(-1);
+        expect(deleteIdx).toBeGreaterThan(-1);
+        expect(updateIdx).toBeLessThan(deleteIdx);
+    });
+});

@@ -1692,7 +1692,7 @@ exports.awardCrowns = onDocumentCreated(
 // All admin spot removals MUST use this function instead of direct Console/SDK deletes.
 // Sets source: 'admin' before deletion so onDocumentDeleted skips trust penalties.
 exports.adminDeleteSpot = onCall(
-  { region: 'us-central1' },
+  { region: 'us-central1', serviceAccount: 'parqueen-admin-write@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (request) => {
     await requireCurrentAdmin(request);
 
