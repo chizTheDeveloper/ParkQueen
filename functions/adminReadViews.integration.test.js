@@ -514,7 +514,7 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(3);
         expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
 
-        // Thirty canaries should carry a serviceAccount override — adminReadView
+        // Thirty-one canaries should carry a serviceAccount override — adminReadView
         // (admin-only), sendMessage (authoritative chat write path),
         // claimUsername, updateDisplayName (both authoritative
         // profile-identity write paths), moderateAvatarUpload (dedicated
@@ -537,13 +537,14 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         // AS-26), adminAddSuspension/adminArchiveSuspension (Wave 6B-1
         // suspension-calendar migration, same shared identity — see AS-27),
         // and adminSuspendUser/adminUnsuspendUser (Wave 6B-2 user-enforcement
-        // migration, same shared identity — see AS-28).
+        // migration, same shared identity — see AS-28), and adminDeleteSpot
+        // (Wave 6B-3, same shared identity — see AS-29).
         // moderateContent was retired (uncalled since deployment; see
-        // docs/CHAT_MESSAGE_HARDENING.md) and no longer exists. adminDeleteSpot
-        // (Wave 6B-3) and adminBackfillStreetIntelligence (Wave 6C) remain on
-        // compute-default pending later waves.
+        // docs/CHAT_MESSAGE_HARDENING.md) and no longer exists.
+        // adminBackfillStreetIntelligence (Wave 6C) remains on compute-default
+        // pending its own later, separately-sequenced wave.
         const allServiceAccountMatches = indexSrc.match(/serviceAccount:\s*'[^']+'/g) || [];
-        expect(allServiceAccountMatches).toHaveLength(30);
+        expect(allServiceAccountMatches).toHaveLength(31);
     });
 
     it("AR-29: Runtime-IAM canary config-contract — moderateAvatarUpload's serviceAccount is the dedicated avatar-moderator identity, Storage-trigger config unaffected", () => {

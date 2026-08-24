@@ -537,4 +537,28 @@ describe('requireCurrentAdmin — session revocation / stale admin token hardeni
             expect(body).not.toMatch(/\.set\(request\.data/);
         }
     });
+
+    it('AS-29: Runtime-IAM canary config-contract — adminDeleteSpot (Wave 6B-3) runs as the dedicated parqueen-admin-write identity, still gated by requireCurrentAdmin, source:\'admin\' still written before the hard delete', () => {
+        const src = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+        const callStart = src.indexOf('exports.adminDeleteSpot = onCall(');
+        expect(callStart).toBeGreaterThan(-1);
+        const optionsSlice = src.slice(callStart, callStart + 400);
+        expect(optionsSlice).toMatch(/serviceAccount:\s*'parqueen-admin-write@parkqueen-46475363-ccf36\.iam\.gserviceaccount\.com'/);
+        expect(optionsSlice).toMatch(/await requireCurrentAdmin\(request\);/);
+
+        const migratedCount = (src.match(/await requireCurrentAdmin\(request\);/g) || []).length;
+        expect(migratedCount).toBe(16);
+
+        // The updateTrustOnSpotDelete cross-function contract (functions/
+        // pingNotificationPrivacy.integration.test.js TD-1..4) depends on
+        // this exact ordering — a runtime-SA change must not disturb it.
+        const fnEnd = src.indexOf('exports.bootstrapAdmin = onCall(', callStart);
+        expect(fnEnd).toBeGreaterThan(callStart);
+        const body = src.slice(callStart, fnEnd);
+        const updateIdx = body.indexOf("spotRef.update({ source: 'admin' })");
+        const deleteIdx = body.indexOf('spotRef.delete()');
+        expect(updateIdx).toBeGreaterThan(-1);
+        expect(deleteIdx).toBeGreaterThan(-1);
+        expect(updateIdx).toBeLessThan(deleteIdx);
+    });
 });
