@@ -507,4 +507,34 @@ describe('requireCurrentAdmin — session revocation / stale admin token hardeni
         const migratedCount = (src.match(/await requireCurrentAdmin\(request\);/g) || []).length;
         expect(migratedCount).toBe(16);
     });
+
+    it('AS-28: Runtime-IAM canary config-contract — Wave 6B-2 user-enforcement callables run as the dedicated parqueen-admin-write identity, still gated by requireCurrentAdmin', () => {
+        const src = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+        const WAVE_6B_2 = ['adminSuspendUser', 'adminUnsuspendUser'];
+        for (const name of WAVE_6B_2) {
+            const callStart = src.indexOf(`exports.${name} = onCall(`);
+            expect(callStart).toBeGreaterThan(-1);
+            const optionsSlice = src.slice(callStart, callStart + 400);
+            expect(optionsSlice).toMatch(/serviceAccount:\s*'parqueen-admin-write@parkqueen-46475363-ccf36\.iam\.gserviceaccount\.com'/);
+            expect(optionsSlice).toMatch(/await requireCurrentAdmin\(request\);/);
+        }
+
+        // These two remain the representative privileged callables the whole
+        // AS-1..AS-17/RV-1..RV-19 authorization/revocation suite is built
+        // around — a runtime-SA change must not alter that request-level
+        // behavior, so the shared requireCurrentAdmin call count stays 16.
+        const migratedCount = (src.match(/await requireCurrentAdmin\(request\);/g) || []).length;
+        expect(migratedCount).toBe(16);
+
+        // adminSuspendUser/adminUnsuspendUser write only a fixed, hard-coded
+        // field set to users/{userId} — never a spread/merge of client
+        // request.data — so a client cannot inject arbitrary document
+        // fields through either callable.
+        for (const name of WAVE_6B_2) {
+            const callStart = src.indexOf(`exports.${name} = onCall(`);
+            const body = src.slice(callStart, callStart + 1200);
+            expect(body).not.toMatch(/\.\.\.request\.data/);
+            expect(body).not.toMatch(/\.set\(request\.data/);
+        }
+    });
 });

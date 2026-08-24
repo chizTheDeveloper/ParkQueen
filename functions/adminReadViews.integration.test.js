@@ -514,7 +514,7 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(3);
         expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
 
-        // Twenty-eight canaries should carry a serviceAccount override — adminReadView
+        // Thirty canaries should carry a serviceAccount override — adminReadView
         // (admin-only), sendMessage (authoritative chat write path),
         // claimUsername, updateDisplayName (both authoritative
         // profile-identity write paths), moderateAvatarUpload (dedicated
@@ -534,15 +534,16 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         // adminSupersedeRule/adminUpdateSegmentStatus/adminResolveParseFailure/
         // adminReopenParseFailure/adminUpdateReport (Wave 6A admin-write
         // runtime migration, shared parqueen-admin-write identity — see
-        // AS-26), and adminAddSuspension/adminArchiveSuspension (Wave 6B-1
-        // suspension-calendar migration, same shared identity — see AS-27).
+        // AS-26), adminAddSuspension/adminArchiveSuspension (Wave 6B-1
+        // suspension-calendar migration, same shared identity — see AS-27),
+        // and adminSuspendUser/adminUnsuspendUser (Wave 6B-2 user-enforcement
+        // migration, same shared identity — see AS-28).
         // moderateContent was retired (uncalled since deployment; see
-        // docs/CHAT_MESSAGE_HARDENING.md) and no longer exists. adminSuspendUser/
-        // adminUnsuspendUser/adminDeleteSpot (Wave 6B-2/6B-3) and
-        // adminBackfillStreetIntelligence (Wave 6C) remain on compute-default
-        // pending later waves.
+        // docs/CHAT_MESSAGE_HARDENING.md) and no longer exists. adminDeleteSpot
+        // (Wave 6B-3) and adminBackfillStreetIntelligence (Wave 6C) remain on
+        // compute-default pending later waves.
         const allServiceAccountMatches = indexSrc.match(/serviceAccount:\s*'[^']+'/g) || [];
-        expect(allServiceAccountMatches).toHaveLength(28);
+        expect(allServiceAccountMatches).toHaveLength(30);
     });
 
     it("AR-29: Runtime-IAM canary config-contract — moderateAvatarUpload's serviceAccount is the dedicated avatar-moderator identity, Storage-trigger config unaffected", () => {
