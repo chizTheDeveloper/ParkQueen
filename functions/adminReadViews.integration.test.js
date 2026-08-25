@@ -514,7 +514,7 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(3);
         expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
 
-        // Thirty-five canaries should carry a serviceAccount override — adminReadView
+        // Thirty-seven canaries should carry a serviceAccount override — adminReadView
         // (admin-only), sendMessage (authoritative chat write path),
         // claimUsername, updateDisplayName (both authoritative
         // profile-identity write paths), moderateAvatarUpload (dedicated
@@ -544,11 +544,16 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         // runs on parqueen-admin-write. And cleanupExpiredInterests/
         // cleanupExpiredHolds (Wave 7A-1, dedicated parqueen-cleanup identity
         // — see CEI-13/CEH-8), and cleanupExpiredSpotsHourly (Wave 7A-2,
-        // same shared identity — see CESH-1).
+        // same shared identity — see CESH-1), and initUserPrivateAccount/
+        // incrementTotalSpotsPinged (Wave 7B-1, dedicated
+        // parqueen-system-events identity — see OB-10/PN-11; source-only,
+        // not yet deployed — awardCrowns/updateTrustOnFeedback/
+        // updateTrustOnSpotDelete remain on compute-default pending
+        // 7B-2/7B-3).
         // moderateContent was retired (uncalled since deployment; see
         // docs/CHAT_MESSAGE_HARDENING.md) and no longer exists.
         const allServiceAccountMatches = indexSrc.match(/serviceAccount:\s*'[^']+'/g) || [];
-        expect(allServiceAccountMatches).toHaveLength(35);
+        expect(allServiceAccountMatches).toHaveLength(37);
     });
 
     it("AR-29: Runtime-IAM canary config-contract — moderateAvatarUpload's serviceAccount is the dedicated avatar-moderator identity, Storage-trigger config unaffected", () => {

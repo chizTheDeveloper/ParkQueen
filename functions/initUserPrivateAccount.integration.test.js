@@ -11,6 +11,8 @@
  * Emulators required: functions (5001), firestore (8080), auth (9099)
  */
 
+const fs = require('fs');
+const path = require('path');
 const { initializeApp, getApps } = require('firebase-admin/app');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const { getAuth } = require('firebase-admin/auth');
@@ -182,5 +184,15 @@ describe('§3 — initUserPrivateAccount trigger', () => {
         } finally {
             await nukeUser(UID_D);
         }
+    });
+
+    it('(OB-10) Runtime-IAM canary config-contract — runs as the dedicated parqueen-system-events identity (Wave 7B-1)', () => {
+        const src = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+        const start = src.indexOf('exports.initUserPrivateAccount = onDocumentCreated(');
+        expect(start).toBeGreaterThan(-1);
+        const fn = src.slice(start, src.indexOf('exports.cleanupExpiredSpotsHourly', start));
+        expect(fn).toMatch(/serviceAccount:\s*'parqueen-system-events@parkqueen-46475363-ccf36\.iam\.gserviceaccount\.com'/);
+        expect(fn).toMatch(/document:\s*'users\/\{userId\}'/);
+        expect(fn).toMatch(/\.set\(\{\s*moderationStatus:\s*'active',\s*reportCount:\s*0\s*\},\s*\{\s*merge:\s*true\s*\}\)/);
     });
 });
