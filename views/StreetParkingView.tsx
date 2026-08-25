@@ -1270,6 +1270,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
                     pingMode: departureTime ? 'later' : 'now',
                     reportedAt,
                     expiresAt,
+                    geohash: geofire.geohashForLocation([selectedItem.lat, selectedItem.lng]),
                     address: await reverseGeocode(selectedItem.lng, selectedItem.lat),
                 };
                 batch.set(newSpotRef, newSpotData);
