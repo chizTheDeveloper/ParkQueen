@@ -45,9 +45,9 @@ type SubscribeRangeFn<T> = (
     onError: (err: unknown) => void,
 ) => Unsubscribe;
 
-export interface GeoRegionSubscriptionOptions<T> {
+export interface GeoRegionSubscriptionOptions<T, M = undefined> {
     subscribeRange: SubscribeRangeFn<T>;
-    onData: (merged: Map<string, T>) => void;
+    onData: (merged: Map<string, T>, metadata: M) => void;
     onActiveListenerError?: (err: unknown, key: string) => void;
     onPendingListenerError?: (err: unknown, key: string) => void;
 }
@@ -70,11 +70,19 @@ export interface GeoRegionSubscriptionOptions<T> {
  *  - if an ACTIVE range errors, its last-known data is left in place —
  *    matches the pre-existing single-listener behavior of only logging.
  *  - setRegion(ranges) with a key-set identical to the current ACTIVE set
- *    is a no-op: no new listeners are created.
+ *    is a no-op with respect to Firestore listeners — no new subscriptions
+ *    are created — but the caller-supplied metadata (e.g. the exact-radius
+ *    center/radius pair to filter against) is still updated and published
+ *    immediately, since there is no pending replacement to wait for.
+ *  - when a range-set DOES change, the metadata passed alongside the new
+ *    ranges is held pending and only becomes "active" (published to onData)
+ *    atomically together with the data, at promotion time. This guarantees
+ *    a caller doing exact-distance filtering never filters the OLD active
+ *    dataset against a NEW center/radius before the new dataset exists.
  */
-export class GeoRegionSubscription<T> {
+export class GeoRegionSubscription<T, M = undefined> {
     private readonly subscribeRange: SubscribeRangeFn<T>;
-    private readonly onData: (merged: Map<string, T>) => void;
+    private readonly onData: (merged: Map<string, T>, metadata: M) => void;
     private readonly onActiveListenerError?: (err: unknown, key: string) => void;
     private readonly onPendingListenerError?: (err: unknown, key: string) => void;
 
@@ -82,28 +90,36 @@ export class GeoRegionSubscription<T> {
     private activeGeneration = -1;
     private activeRangeMaps = new Map<string, Map<string, T>>();
     private activeUnsubs = new Map<string, Unsubscribe>();
+    private activeMetadata!: M;
 
     private pendingGeneration = -1;
     private pendingRangeMaps = new Map<string, Map<string, T>>();
     private pendingUnsubs = new Map<string, Unsubscribe>();
     private pendingReady = new Set<string>();
     private pendingTotal = 0;
+    private pendingMetadata!: M;
 
     private disposed = false;
 
-    constructor(options: GeoRegionSubscriptionOptions<T>) {
+    constructor(options: GeoRegionSubscriptionOptions<T, M>) {
         this.subscribeRange = options.subscribeRange;
         this.onData = options.onData;
         this.onActiveListenerError = options.onActiveListenerError;
         this.onPendingListenerError = options.onPendingListenerError;
     }
 
-    setRegion(ranges: GeoQueryRange[]): void {
+    setRegion(ranges: GeoQueryRange[], metadata?: M): void {
         if (this.disposed) return;
         const newKeys = normalizeRangeKeys(ranges);
         const activeKeys = Array.from(this.activeRangeMaps.keys()).sort();
 
-        if (rangeKeySetsEqual(newKeys, activeKeys)) return;
+        if (rangeKeySetsEqual(newKeys, activeKeys)) {
+            // No Firestore replacement needed — update metadata immediately
+            // and re-publish the (unchanged) active dataset against it.
+            this.activeMetadata = metadata;
+            this.onData(mergeRangeMaps(this.activeRangeMaps), this.activeMetadata);
+            return;
+        }
 
         this.discardPending();
 
@@ -113,6 +129,7 @@ export class GeoRegionSubscription<T> {
         this.pendingUnsubs = new Map();
         this.pendingReady = new Set();
         this.pendingTotal = newKeys.length;
+        this.pendingMetadata = metadata;
 
         const uniqueRanges = new Map<string, GeoQueryRange>();
         ranges.forEach(r => uniqueRanges.set(rangeKey(r), r));
@@ -143,7 +160,7 @@ export class GeoRegionSubscription<T> {
 
         if (generation === this.activeGeneration) {
             this.activeRangeMaps.set(key, rangeMap);
-            this.onData(mergeRangeMaps(this.activeRangeMaps));
+            this.onData(mergeRangeMaps(this.activeRangeMaps), this.activeMetadata);
             return;
         }
 
@@ -178,6 +195,7 @@ export class GeoRegionSubscription<T> {
         this.activeGeneration = generation;
         this.activeRangeMaps = this.pendingRangeMaps;
         this.activeUnsubs = this.pendingUnsubs;
+        this.activeMetadata = this.pendingMetadata;
 
         this.pendingGeneration = -1;
         this.pendingRangeMaps = new Map();
@@ -185,7 +203,7 @@ export class GeoRegionSubscription<T> {
         this.pendingReady = new Set();
         this.pendingTotal = 0;
 
-        this.onData(mergeRangeMaps(this.activeRangeMaps));
+        this.onData(mergeRangeMaps(this.activeRangeMaps), this.activeMetadata);
     }
 
     private discardPending(): void {

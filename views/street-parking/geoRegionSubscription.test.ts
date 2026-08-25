@@ -252,6 +252,43 @@ describe('GeoRegionSubscription — transition semantics', () => {
         expect(last.has('A')).toBe(true);
     });
 
+    it('identical range set: metadata updates immediately alongside the existing (unchanged) dataset', () => {
+        const { subscribeRange, calls } = makeFakeSubscriber();
+        const onData = vi.fn();
+        const sub = new GeoRegionSubscription<{ name: string }, { radius: number }>({ subscribeRange, onData });
+
+        sub.setRegion([{ start: 'a', end: 'b' }], { radius: 1 });
+        calls[0].emit([{ id: 'A', data: { name: 'A' } }]);
+        expect(onData.mock.calls.at(-1)![1]).toEqual({ radius: 1 });
+
+        sub.setRegion([{ start: 'a', end: 'b' }], { radius: 2 }); // same range set, new metadata
+        expect(subscribeRange).toHaveBeenCalledTimes(1); // no new Firestore subscription
+        const [merged, metadata] = onData.mock.calls.at(-1)!;
+        expect(metadata).toEqual({ radius: 2 }); // metadata updates immediately
+        expect(merged.has('A')).toBe(true); // same dataset republished, unchanged
+    });
+
+    it('changed range set: metadata stays pending (old metadata still paired with old data) until promotion, then both update atomically', () => {
+        const { subscribeRange, calls } = makeFakeSubscriber();
+        const onData = vi.fn();
+        const sub = new GeoRegionSubscription<{ name: string }, { radius: number }>({ subscribeRange, onData });
+
+        sub.setRegion([{ start: 'a', end: 'b' }], { radius: 1 });
+        calls[0].emit([{ id: 'A', data: { name: 'A' } }]); // Region A active with radius 1
+
+        sub.setRegion([{ start: 'c', end: 'd' }], { radius: 2 }); // Region B pending with radius 2
+        // No snapshot from B yet — nothing should have republished B's metadata.
+        const beforePromotion = onData.mock.calls.at(-1)!;
+        expect(beforePromotion[1]).toEqual({ radius: 1 }); // still old metadata, paired with old data
+        expect(beforePromotion[0].has('A')).toBe(true);
+
+        calls[1].emit([{ id: 'B', data: { name: 'B' } }]); // B's only range delivers -> promotes
+        const afterPromotion = onData.mock.calls.at(-1)!;
+        expect(afterPromotion[1]).toEqual({ radius: 2 }); // new metadata, atomic with new data
+        expect(afterPromotion[0].has('B')).toBe(true);
+        expect(afterPromotion[0].has('A')).toBe(false);
+    });
+
     it('dispose() unsubscribes both active and pending listeners', () => {
         const { subscribeRange, calls } = makeFakeSubscriber();
         const onData = vi.fn();
@@ -264,5 +301,69 @@ describe('GeoRegionSubscription — transition semantics', () => {
         sub.dispose();
         expect(calls[0].unsubscribed).toBe(true);
         expect(calls[1].unsubscribed).toBe(true);
+    });
+
+    it('dispose() is idempotent — calling it twice does not throw or double-unsubscribe', () => {
+        const { subscribeRange, calls } = makeFakeSubscriber();
+        const onData = vi.fn();
+        const sub = new GeoRegionSubscription<{ name: string }>({ subscribeRange, onData });
+
+        sub.setRegion([{ start: 'a', end: 'b' }]);
+        calls[0].emit([{ id: 'A', data: { name: 'A' } }]);
+
+        expect(() => { sub.dispose(); sub.dispose(); }).not.toThrow();
+        expect(calls[0].unsubscribed).toBe(true);
+    });
+
+    it('an empty (zero-document) initial snapshot still counts toward promotion — a genuinely empty range is not "not ready"', () => {
+        const { subscribeRange, calls } = makeFakeSubscriber();
+        const onData = vi.fn();
+        const sub = new GeoRegionSubscription<{ name: string }>({ subscribeRange, onData });
+
+        sub.setRegion([{ start: 'a', end: 'b' }]);
+        calls[0].emit([{ id: 'old1', data: { name: 'old' } }]);
+        const oldCall = calls[0];
+
+        sub.setRegion([{ start: 'c', end: 'd' }, { start: 'e', end: 'f' }]);
+        calls[1].emit([]); // range 1 of 2: genuinely no documents in this cell
+        expect(oldCall.unsubscribed).toBe(false); // still waiting on range 2
+
+        calls[2].emit([{ id: 'new1', data: { name: 'new' } }]); // range 2 of 2 delivers
+        expect(oldCall.unsubscribed).toBe(true); // promoted — the empty snapshot counted
+        const last = onData.mock.calls.at(-1)![0];
+        expect(last.has('new1')).toBe(true);
+        expect(last.has('old1')).toBe(false);
+    });
+
+    it('an active-generation error on one range leaves other active ranges\' data intact', () => {
+        const { subscribeRange, calls } = makeFakeSubscriber();
+        const onData = vi.fn();
+        const onActiveListenerError = vi.fn();
+        const sub = new GeoRegionSubscription<{ name: string }>({ subscribeRange, onData, onActiveListenerError });
+
+        sub.setRegion([{ start: 'a', end: 'b' }, { start: 'c', end: 'd' }]);
+        calls[0].emit([{ id: 'docA', data: { name: 'A' } }]);
+        calls[1].emit([{ id: 'docB', data: { name: 'B' } }]); // both ranges ready -> promoted
+
+        calls[0].emitError(new Error('transient'));
+
+        expect(onActiveListenerError).toHaveBeenCalledTimes(1);
+        const last = onData.mock.calls.at(-1)![0];
+        expect(last.has('docA')).toBe(true); // errored range's last-known data untouched
+        expect(last.has('docB')).toBe(true); // sibling range's data untouched
+    });
+
+    it('the same range set supplied in a different array order is classified identically (no spurious replacement)', () => {
+        const { subscribeRange, calls } = makeFakeSubscriber();
+        const onData = vi.fn();
+        const sub = new GeoRegionSubscription<{ name: string }>({ subscribeRange, onData });
+
+        sub.setRegion([{ start: 'a', end: 'b' }, { start: 'c', end: 'd' }]);
+        calls[0].emit([{ id: 'docA', data: { name: 'A' } }]);
+        calls[1].emit([{ id: 'docB', data: { name: 'B' } }]); // both ready -> promoted to active
+        expect(subscribeRange).toHaveBeenCalledTimes(2);
+
+        sub.setRegion([{ start: 'c', end: 'd' }, { start: 'a', end: 'b' }]); // same set, reversed order
+        expect(subscribeRange).toHaveBeenCalledTimes(2); // no new subscriptions
     });
 });
