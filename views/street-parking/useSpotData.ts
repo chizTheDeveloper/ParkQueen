@@ -130,7 +130,7 @@ export function useSpotData({ userId, blockedUsers, searchCenter, showFree, show
             console.warn("Listings snapshot listener error:", err);
         });
         return () => unsubscribe();
-    }, [db, userId, searchCenter, showPaid]);
+    }, [db, userId, showPaid]);
 
     const radiusFilteredItems = useMemo(() => {
         const centerLat = searchCenter[1];
