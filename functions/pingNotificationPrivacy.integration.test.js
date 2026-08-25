@@ -76,6 +76,18 @@ describe('Ping notification/privacy Function contract', () => {
         expect((await statsRef.get()).data().totalSpotsPinged).toBe(20);
     });
 
+    it('PN-11 Runtime-IAM canary config-contract — incrementTotalSpotsPinged runs as the dedicated parqueen-system-events identity (Wave 7B-1)', () => {
+        const fs = require('fs');
+        const path = require('path');
+        const src = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+        const start = src.indexOf('exports.incrementTotalSpotsPinged = onDocumentCreated(');
+        expect(start).toBeGreaterThan(-1);
+        const fn = src.slice(start, src.indexOf('exports.notifyNearbyUsers', start));
+        expect(fn).toMatch(/serviceAccount:\s*'parqueen-system-events@parkqueen-46475363-ccf36\.iam\.gserviceaccount\.com'/);
+        expect(fn).toMatch(/document:\s*"spots\/\{spotId\}"/);
+        expect(fn).toMatch(/functionEvents\/incrementTotalSpotsPinged_\$\{stableId\(event\.id\)\}/);
+    });
+
     it('PN-3 retries do not duplicate nearby push or bell delivery', async () => {
         const spotId = nextId('nearby');
         const ownerId = nextId('owner');
