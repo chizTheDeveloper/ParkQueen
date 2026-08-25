@@ -514,7 +514,7 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         expect((indexSrc.match(/enforceAppCheck:\s*true/g) || []).length).toBe(3);
         expect(indexSrc.match(/consumeAppCheckToken:\s*true/g) || []).toHaveLength(0);
 
-        // Thirty-nine canaries should carry a serviceAccount override — adminReadView
+        // Forty canaries should carry a serviceAccount override — adminReadView
         // (admin-only), sendMessage (authoritative chat write path),
         // claimUsername, updateDisplayName (both authoritative
         // profile-identity write paths), moderateAvatarUpload (dedicated
@@ -548,13 +548,16 @@ describe('adminReadView — coordinated read-side session hardening', () => {
         // incrementTotalSpotsPinged (Wave 7B-1, dedicated
         // parqueen-system-events identity, deployed — see OB-10/PN-11), and
         // updateTrustOnFeedback/updateTrustOnSpotDelete (Wave 7B-2, same
-        // shared parqueen-system-events identity — see TB2-1/TB2-2;
-        // source-only, not yet deployed — awardCrowns remains on
-        // compute-default pending 7B-3).
+        // shared parqueen-system-events identity, deployed — see
+        // TB2-1/TB2-2), and awardCrowns (Wave 7B-3, same shared
+        // parqueen-system-events identity — see AC-9; source-only, not yet
+        // deployed). This closes the Eventarc runtime migration — all five
+        // formerly-compute-default functions now declare a dedicated
+        // serviceAccount in source.
         // moderateContent was retired (uncalled since deployment; see
         // docs/CHAT_MESSAGE_HARDENING.md) and no longer exists.
         const allServiceAccountMatches = indexSrc.match(/serviceAccount:\s*'[^']+'/g) || [];
-        expect(allServiceAccountMatches).toHaveLength(39);
+        expect(allServiceAccountMatches).toHaveLength(40);
     });
 
     it("AR-29: Runtime-IAM canary config-contract — moderateAvatarUpload's serviceAccount is the dedicated avatar-moderator identity, Storage-trigger config unaffected", () => {
