@@ -1671,6 +1671,22 @@ describe('spots — create schema (TM-10)', () => {
     it('TM10-H: unauthenticated create denied', async () => {
         await assertFails(addDoc(collection(anonDb(), 'spots'), validSpot));
     });
+
+    // TM10-I/J document a real pre-existing client bug found during a
+    // geoquery-feasibility audit: StreetParkingView.tsx's "re-ping over an
+    // existing selectedItem" write path (handleSaveSpot's `if (selectedItem)`
+    // branch) omits `geohash` entirely, even though it's in `hasAll` above.
+    // TM10-I proves rules already reject that exact shape (the bug is real,
+    // not merely a future geoquery prerequisite); TM10-J proves the corrected
+    // shape (same payload + geohash) succeeds, matching the client fix.
+    it('TM10-I: re-ping payload without geohash is denied (documents a real client bug)', async () => {
+        const { geohash: _g, ...missingGeohash } = validSpot;
+        await assertFails(addDoc(collection(ownerDb(), 'spots'), missingGeohash));
+    });
+
+    it('TM10-J: re-ping payload with geohash restored succeeds (proves the fix)', async () => {
+        await assertSucceeds(addDoc(collection(ownerDb(), 'spots'), validSpot));
+    });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
