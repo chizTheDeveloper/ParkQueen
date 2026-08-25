@@ -597,3 +597,72 @@ describe('Natural-expiration trust exemption — updateTrustOnSpotDelete', () =>
         await cleanupUser(finderId, spotId);
     });
 });
+
+// ─── Wave 7B-2 — trust-event runtime isolation (updateTrustOnFeedback / updateTrustOnSpotDelete) ───
+// Runtime-configuration-only migration to the dedicated parqueen-system-events
+// identity. Trust calculations, expiration/admin exemptions, and the shared
+// applyTrustDelta processedTrustEvents marker are unchanged — see the
+// describe blocks above for the exemption matrix, which is unaffected by
+// this runtime change.
+describe('Trust-event runtimes (Wave 7B-2)', () => {
+    const fs = require('fs');
+    const path = require('path');
+    async function seedUser(uid) {
+        await db.doc(`users/${uid}`).set({ createdAt: Timestamp.now() });
+    }
+    async function cleanupUser(uid, eventId) {
+        await db.doc(`users/${uid}`).delete();
+        await db.doc(`users/${uid}/processedTrustEvents/${eventId}`).delete();
+    }
+
+    it('TB2-1: Runtime-IAM canary config-contract — updateTrustOnFeedback runs as the dedicated parqueen-system-events identity', () => {
+        const src = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+        const start = src.indexOf('exports.updateTrustOnFeedback = onDocumentCreated(');
+        expect(start).toBeGreaterThan(-1);
+        const fn = src.slice(start, src.indexOf('exports.scheduleCleaningReminders', start));
+        expect(fn).toMatch(/serviceAccount:\s*'parqueen-system-events@parkqueen-46475363-ccf36\.iam\.gserviceaccount\.com'/);
+        expect(fn).toMatch(/document:\s*'spotFeedback\/\{feedbackId\}'/);
+        expect(fn).toMatch(/applyTrustDelta\(finderId, 'handoffsCompleted', `\$\{event\.params\.feedbackId\}:finder`\)/);
+    });
+
+    it('TB2-2: Runtime-IAM canary config-contract — updateTrustOnSpotDelete runs as the dedicated parqueen-system-events identity', () => {
+        const src = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+        const start = src.indexOf('exports.updateTrustOnSpotDelete = onDocumentDeleted(');
+        expect(start).toBeGreaterThan(-1);
+        const fn = src.slice(start, src.indexOf('exports.adminResolveParseFailure', start));
+        expect(fn).toMatch(/serviceAccount:\s*'parqueen-system-events@parkqueen-46475363-ccf36\.iam\.gserviceaccount\.com'/);
+        expect(fn).toMatch(/document:\s*'spots\/\{spotId\}'/);
+        expect(fn).toMatch(/source === 'admin'/);
+        expect(fn).toMatch(/expiresAt\.toMillis\(\) <= deletionTimeMs/);
+    });
+
+    it('TB2-3: updateTrustOnFeedback duplicate delivery — the same feedback event applies only one trust delta', async () => {
+        const finderId = nextId('tb2_finder');
+        const feedbackId = nextId('tb2_feedback');
+        await seedUser(finderId);
+        const event = createdEvent(feedbackId, { outcome: 'success', finderId }, nextId('event'));
+
+        await indexModule.updateTrustOnFeedback.run(event);
+        await indexModule.updateTrustOnFeedback.run(event);
+
+        const userSnap = await db.doc(`users/${finderId}`).get();
+        expect(userSnap.data().trustStats.handoffsCompleted).toBe(1);
+
+        await cleanupUser(finderId, `${feedbackId}:finder`);
+    });
+
+    it('TB2-4: updateTrustOnSpotDelete duplicate delivery — the same deletion event applies only one trust delta', async () => {
+        const finderId = nextId('tb2_finder');
+        const spotId = nextId('tb2_spot');
+        await seedUser(finderId);
+        const event = createdEvent(spotId, { status: 'interested', finderId }, nextId('event'));
+
+        await indexModule.updateTrustOnSpotDelete.run(event);
+        await indexModule.updateTrustOnSpotDelete.run(event);
+
+        const userSnap = await db.doc(`users/${finderId}`).get();
+        expect(userSnap.data().trustStats.handoffsCancelledByFinder).toBe(1);
+
+        await cleanupUser(finderId, `${spotId}:finder-cancel`);
+    });
+});

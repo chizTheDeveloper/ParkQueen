@@ -3004,7 +3004,7 @@ exports.deleteAccount = onCall({ region: 'us-central1', serviceAccount: 'parquee
 // Fires on every spotFeedback creation; only acts on outcome === 'success'.
 // eventId uses the feedback document ID (already globally unique) with a role suffix.
 exports.updateTrustOnFeedback = onDocumentCreated(
-  { document: 'spotFeedback/{feedbackId}', region: 'us-central1' },
+  { document: 'spotFeedback/{feedbackId}', region: 'us-central1', serviceAccount: 'parqueen-system-events@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (event) => {
     const data = event.data?.data();
     if (!data || data.outcome !== 'success') return;
@@ -3055,7 +3055,7 @@ exports.scheduleCleaningReminders = onSchedule(
 );
 
 exports.updateTrustOnSpotDelete = onDocumentDeleted(
-  { document: 'spots/{spotId}', region: 'us-central1' },
+  { document: 'spots/{spotId}', region: 'us-central1', serviceAccount: 'parqueen-system-events@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (event) => {
     const data = event.data?.data();
     if (!data || data.status !== 'interested' || !data.finderId) return;
