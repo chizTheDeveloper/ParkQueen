@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { AppView } from '../types';
 import { MapPin, Check, Locate, X, Bell, Clock, ChevronRight, ChevronLeft, Users, Car, Navigation, CheckCircle2 } from 'lucide-react';
 import { db } from '../firebase';
-import { collection, addDoc, Timestamp, doc, deleteDoc, writeBatch, updateDoc, getDocs, getDoc, setDoc, where, query, orderBy, startAt, endAt, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, Timestamp, doc, deleteDoc, writeBatch, updateDoc, getDocs, getDoc, setDoc, where, query, orderBy, startAt, endAt, serverTimestamp, limit } from 'firebase/firestore';
 import { auth } from '../firebaseConfig';
 import { detectParkingSide } from '../utils/streetIntelligence';
 import { detectCardinalSide } from '../utils/sweepnyc';
@@ -36,6 +36,7 @@ import { useSearch } from './street-parking/useSearch';
 import { useUnreadMessages } from './street-parking/useUnreadMessages';
 import { useSpotData } from './street-parking/useSpotData';
 import { useInterestFlow } from './street-parking/useInterestFlow';
+import { checkPingRateLimit } from './street-parking/pingRateLimit';
 import { SpotDetailsCard } from './street-parking/SpotDetailsCard';
 import { BottomSheet } from './street-parking/BottomSheet';
 import { HandoffFlow } from './street-parking/HandoffFlow';
@@ -1279,27 +1280,19 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
             }
         } else {
             try {
-                const oneHourAgo = now - 60 * 60 * 1000;
+                // Bounded to the newest 10 via the existing finderId+reportedAt
+                // index — reads no longer grow with a user's lifetime spot history.
                 const q = query(
                     collection(db, "spots"),
-                    where("finderId", "==", user.id)
+                    where("finderId", "==", user.id),
+                    orderBy("reportedAt", "desc"),
+                    limit(10)
                 );
                 const snap = await getDocs(q);
-                const recentSpots = snap.docs.filter(d => {
-                    const data = d.data();
-                    const reportedTime = data.reportedAt?.toMillis
-                        ? data.reportedAt.toMillis()
-                        : new Date(data.reportedAt).getTime();
-                    return reportedTime >= oneHourAgo;
-                });
+                const rateLimit = checkPingRateLimit(snap.docs, now);
 
-                if (recentSpots.length >= 5) {
-                    const oldestMs = Math.min(...recentSpots.map(d => {
-                        const ts = d.data().reportedAt?.toMillis ? d.data().reportedAt.toMillis() : new Date(d.data().reportedAt).getTime();
-                        return ts;
-                    }));
-                    const minutesLeft = Math.ceil((oldestMs + 60 * 60 * 1000 - now) / 60000);
-                    setPingError(t('ping_errors.rate_limit', { min: minutesLeft }));
+                if (rateLimit.limited) {
+                    setPingError(t('ping_errors.rate_limit', { min: rateLimit.minutesLeft }));
                     setIsPinging(false);
                     return;
                 }
