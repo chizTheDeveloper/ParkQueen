@@ -1664,6 +1664,7 @@ exports.awardCrowns = onDocumentCreated(
   {
     document: "spotFeedback/{feedbackId}",
     region: "us-central1",
+    serviceAccount: 'parqueen-system-events@parkqueen-46475363-ccf36.iam.gserviceaccount.com',
   },
   async (event) => {
     const data = event.data?.data();

@@ -183,4 +183,16 @@ describe('awardCrowns idempotency contract', () => {
 
         await cleanupUsers(uid);
     });
+
+    it('AC-9: Runtime-IAM canary config-contract — awardCrowns runs as the dedicated parqueen-system-events identity (Wave 7B-3)', () => {
+        const fs = require('fs');
+        const path = require('path');
+        const src = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
+        const start = src.indexOf('exports.awardCrowns = onDocumentCreated(');
+        expect(start).toBeGreaterThan(-1);
+        const fn = src.slice(start, src.indexOf('exports.adminDeleteSpot', start));
+        expect(fn).toMatch(/serviceAccount:\s*'parqueen-system-events@parkqueen-46475363-ccf36\.iam\.gserviceaccount\.com'/);
+        expect(fn).toMatch(/document:\s*"spotFeedback\/\{feedbackId\}"/);
+        expect(fn).toMatch(/functionEvents\/awardCrowns_\$\{feedbackId\}/);
+    });
 });
