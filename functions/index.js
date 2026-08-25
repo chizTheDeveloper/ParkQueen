@@ -1655,6 +1655,10 @@ exports.updateDisplayName = onCall(
 );
 
 // 10) Award crowns on successful parking handoff
+// feedbackId (event.params.feedbackId) is the idempotency key, not event.id:
+// Firestore rules derive it deterministically as `${spotId}_${userId}` and
+// forbid update/delete on spotFeedback docs, so one feedbackId can only ever
+// represent one real award — see functions/awardCrowns.integration.test.js.
 exports.awardCrowns = onDocumentCreated(
   {
     document: "spotFeedback/{feedbackId}",
@@ -1668,26 +1672,36 @@ exports.awardCrowns = onDocumentCreated(
     const finderId = data.finderId;
     if (!driverId || !finderId || driverId === finderId) return;
 
-    const batch = db.batch();
-
+    const feedbackId = event.params.feedbackId;
     const driverRef = db.doc(`users/${driverId}`);
-    const driverSnap = await driverRef.get();
-    const driverCrowns = (driverSnap.data()?.crowns || 0) + 1;
-    batch.update(driverRef, {
-        crowns: FieldValue.increment(1),
-        title: getTitleForCrowns(driverCrowns),
-    });
-
     const finderRef = db.doc(`users/${finderId}`);
-    const finderSnap = await finderRef.get();
-    const finderCrowns = (finderSnap.data()?.crowns || 0) + 2;
-    batch.update(finderRef, {
-        crowns: FieldValue.increment(2),
-        title: getTitleForCrowns(finderCrowns),
-    });
+    const processedRef = db.doc(`functionEvents/awardCrowns_${feedbackId}`);
 
-    await batch.commit();
-    console.log(`Crowns awarded: driver ${driverId.slice(0,4)}*** +1 (${driverCrowns}), finder ${finderId.slice(0,4)}*** +2 (${finderCrowns})`);
+    await db.runTransaction(async (tx) => {
+      if ((await tx.get(processedRef)).exists) return; // already processed — idempotency guard
+
+      const [driverSnap, finderSnap] = await Promise.all([tx.get(driverRef), tx.get(finderRef)]);
+      const driverCrowns = (driverSnap.data()?.crowns || 0) + 1;
+      const finderCrowns = (finderSnap.data()?.crowns || 0) + 2;
+
+      tx.update(driverRef, {
+          crowns: FieldValue.increment(1),
+          title: getTitleForCrowns(driverCrowns),
+      });
+      tx.update(finderRef, {
+          crowns: FieldValue.increment(2),
+          title: getTitleForCrowns(finderCrowns),
+      });
+      tx.set(processedRef, {
+          functionName: 'awardCrowns',
+          feedbackId,
+          driverId,
+          finderId,
+          processedAt: Timestamp.now(),
+      });
+
+      console.log(`Crowns awarded: driver ${driverId.slice(0,4)}*** +1 (${driverCrowns}), finder ${finderId.slice(0,4)}*** +2 (${finderCrowns})`);
+    });
   }
 );
 
