@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ChevronLeft, MapPin, Clock, ChevronDown, Handshake, ParkingSquare } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
@@ -41,9 +41,20 @@ export const ActivitiesView = ({ user, onBack }: { user: any; onBack: () => void
   const [loading, setLoading] = useState(true);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [lastTimestamp, setLastTimestamp] = useState<number | null>(null);
+  // Full history is fetched once and cached here; "Load More" pages through
+  // this cache client-side instead of re-querying both collections from
+  // scratch on every tap (the previous design re-downloaded the user's
+  // entire spots + spotFeedback history again just to reveal 20 more
+  // already-known items).
+  const allHistoryRef = useRef<HistoryItem[]>([]);
 
-  const fetchHistory = async (after?: number) => {
+  const showPage = (count: number) => {
+    const all = allHistoryRef.current;
+    setItems(all.slice(0, count));
+    setHasMore(all.length > count);
+  };
+
+  const fetchHistory = async () => {
     if (!user?.id) return;
 
     try {
@@ -67,20 +78,8 @@ export const ActivitiesView = ({ user, onBack }: { user: any; onBack: () => void
         return { id: `driver-${d.id}`, role: 'driver' as const, rawAddress: f.address || '', status, statusLabelKey, timestamp: ts };
       });
 
-      const all = [...finderItems, ...driverItems].sort((a, b) => b.timestamp - a.timestamp);
-      const filtered = after ? all.filter(i => i.timestamp < after) : all;
-      const page = filtered.slice(0, PAGE_SIZE);
-      const more = filtered.length > PAGE_SIZE;
-
-      if (after) {
-        setItems(prev => [...prev, ...page]);
-      } else {
-        setItems(page);
-      }
-      setHasMore(more);
-      if (page.length > 0) {
-        setLastTimestamp(page[page.length - 1].timestamp);
-      }
+      allHistoryRef.current = [...finderItems, ...driverItems].sort((a, b) => b.timestamp - a.timestamp);
+      showPage(PAGE_SIZE);
     } catch (err) {
       console.error('Error fetching parking history', err);
     } finally {
@@ -90,13 +89,15 @@ export const ActivitiesView = ({ user, onBack }: { user: any; onBack: () => void
   };
 
   useEffect(() => {
+    allHistoryRef.current = [];
     fetchHistory();
   }, [user?.id]);
 
   const handleLoadMore = () => {
-    if (!lastTimestamp || loadingMore) return;
+    if (loadingMore) return;
     setLoadingMore(true);
-    fetchHistory(lastTimestamp);
+    showPage(items.length + PAGE_SIZE);
+    setLoadingMore(false);
   };
 
   return (
