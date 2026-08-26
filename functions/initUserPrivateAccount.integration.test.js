@@ -26,6 +26,7 @@ const testApp =
 
 const db = getFirestore(testApp);
 const adminAuth = getAuth(testApp);
+const indexModule = require('./index.js');
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -186,13 +187,149 @@ describe('§3 — initUserPrivateAccount trigger', () => {
         }
     });
 
-    it('(OB-10) Runtime-IAM canary config-contract — runs as the dedicated parqueen-system-events identity (Wave 7B-1)', () => {
+    it('(OB-10) Runtime-IAM canary config-contract — runs as the dedicated parqueen-system-events identity (Wave 7B-1), retry enabled once retry-safe', () => {
         const src = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
         const start = src.indexOf('exports.initUserPrivateAccount = onDocumentCreated(');
         expect(start).toBeGreaterThan(-1);
         const fn = src.slice(start, src.indexOf('exports.cleanupExpiredSpotsHourly', start));
         expect(fn).toMatch(/serviceAccount:\s*'parqueen-system-events@parkqueen-46475363-ccf36\.iam\.gserviceaccount\.com'/);
         expect(fn).toMatch(/document:\s*'users\/\{userId\}'/);
-        expect(fn).toMatch(/\.set\(\{\s*moderationStatus:\s*'active',\s*reportCount:\s*0\s*\},\s*\{\s*merge:\s*true\s*\}\)/);
+        expect(fn).toMatch(/retry:\s*true/);
+    });
+});
+
+// ─── initUserPrivateAccount retry-safety contract ────────────────────────────
+// A delayed Eventarc redelivery of the original users/{uid} create event must
+// never clobber a legitimate later change to moderationStatus/reportCount,
+// and must not create an orphaned private/account under a deleted user, or
+// resurrect it as an infinite no-op poison loop. Design chosen: initialize
+// only fields not already present (transactional read-then-conditional-set),
+// rather than an event-identity marker — this protects the FIELDS themselves
+// regardless of how many times or which event touches them, which is the
+// actual property this handler needs (unlike a true "run exactly once"
+// action like awardCrowns or incrementTotalSpotsPinged's counter). Because
+// deleteAccount's recursiveDelete removes private/account along with the
+// root user doc, "missing" naturally resets on any legitimate future
+// recreation — no marker bookkeeping is required for that guarantee either.
+describe('initUserPrivateAccount retry-safety contract', () => {
+    async function cleanupDoc(ref) {
+        await ref.delete().catch(() => {});
+    }
+
+    function createdEvent(userId, eventId = `event_${userId}`) {
+        return { id: eventId, params: { userId }, data: { id: userId, data: () => ({}) } };
+    }
+
+    it('(RS-1) first delivery initializes private/account with defaults', async () => {
+        const userId = `rs1_${Date.now()}`;
+        const userRef = db.doc(`users/${userId}`);
+        const accountRef = userRef.collection('private').doc('account');
+        await userRef.set({ id: userId });
+
+        await indexModule.initUserPrivateAccount.run(createdEvent(userId));
+
+        expect((await accountRef.get()).data()).toEqual({ moderationStatus: 'active', reportCount: 0 });
+        await cleanupDoc(userRef);
+        await cleanupDoc(accountRef);
+    });
+
+    it('(RS-2) the same event delivered twice sequentially initializes the effect only once (no-op the second time)', async () => {
+        const userId = `rs2_${Date.now()}`;
+        const userRef = db.doc(`users/${userId}`);
+        const accountRef = userRef.collection('private').doc('account');
+        await userRef.set({ id: userId });
+        const event = createdEvent(userId);
+
+        await indexModule.initUserPrivateAccount.run(event);
+        await indexModule.initUserPrivateAccount.run(event);
+
+        expect((await accountRef.get()).data()).toEqual({ moderationStatus: 'active', reportCount: 0 });
+        await cleanupDoc(userRef);
+        await cleanupDoc(accountRef);
+    });
+
+    it('(RS-3) the same event delivered concurrently twice initializes the effect exactly once', async () => {
+        const userId = `rs3_${Date.now()}`;
+        const userRef = db.doc(`users/${userId}`);
+        const accountRef = userRef.collection('private').doc('account');
+        await userRef.set({ id: userId });
+        const event = createdEvent(userId);
+
+        await Promise.all([
+            indexModule.initUserPrivateAccount.run(event),
+            indexModule.initUserPrivateAccount.run(event),
+        ]);
+
+        expect((await accountRef.get()).data()).toEqual({ moderationStatus: 'active', reportCount: 0 });
+        await cleanupDoc(userRef);
+        await cleanupDoc(accountRef);
+    });
+
+    it('(RS-4) THE KEY TEST — a legitimate later mutation of moderationStatus/reportCount survives a delayed redelivery of the original create event', async () => {
+        const userId = `rs4_${Date.now()}`;
+        const userRef = db.doc(`users/${userId}`);
+        const accountRef = userRef.collection('private').doc('account');
+        await userRef.set({ id: userId });
+        const event = createdEvent(userId);
+
+        // T1: first delivery initializes defaults.
+        await indexModule.initUserPrivateAccount.run(event);
+        expect((await accountRef.get()).data()).toEqual({ moderationStatus: 'active', reportCount: 0 });
+
+        // T2: some legitimate later application action changes both fields
+        // (stand-in for any future moderation/report-count feature).
+        await accountRef.set({ moderationStatus: 'suspended', reportCount: 3 }, { merge: true });
+
+        // T3/T4: Eventarc redelivers the SAME original create event, arbitrarily late.
+        await indexModule.initUserPrivateAccount.run(event);
+
+        // The T2 mutation MUST survive.
+        const finalState = (await accountRef.get()).data();
+        expect(finalState).toEqual({ moderationStatus: 'suspended', reportCount: 3 });
+        await cleanupDoc(userRef);
+        await cleanupDoc(accountRef);
+    });
+
+    it('(RS-6) a root user missing at delivery time is a safe no-op — no orphaned private/account is created', async () => {
+        const userId = `rs6_${Date.now()}`; // deliberately never created
+        const accountRef = db.doc(`users/${userId}/private/account`);
+
+        await expect(indexModule.initUserPrivateAccount.run(createdEvent(userId))).resolves.not.toThrow();
+        expect((await accountRef.get()).exists).toBe(false);
+    });
+
+    it('(RS-7) a genuinely new create event after a legitimate full deletion re-initializes correctly (recursiveDelete clears private/account, so "missing" naturally resets)', async () => {
+        const userId = `rs7_${Date.now()}`;
+        const userRef = db.doc(`users/${userId}`);
+        const accountRef = userRef.collection('private').doc('account');
+        await userRef.set({ id: userId });
+
+        await indexModule.initUserPrivateAccount.run(createdEvent(userId, 'event_first'));
+        await accountRef.set({ moderationStatus: 'suspended', reportCount: 3 }, { merge: true });
+
+        // Simulates deleteAccount's recursiveDelete removing the whole user tree.
+        await db.recursiveDelete(userRef);
+        await userRef.set({ id: userId }); // legitimate recreation (new document, new create event)
+
+        await indexModule.initUserPrivateAccount.run(createdEvent(userId, 'event_second'));
+
+        expect((await accountRef.get()).data()).toEqual({ moderationStatus: 'active', reportCount: 0 });
+        await cleanupDoc(userRef);
+        await cleanupDoc(accountRef);
+    });
+
+    it('(RS-9) pre-existing private/account fields from another writer (e.g. verifyEmailOTP) are preserved, not just moderationStatus/reportCount', async () => {
+        const userId = `rs9_${Date.now()}`;
+        const userRef = db.doc(`users/${userId}`);
+        const accountRef = userRef.collection('private').doc('account');
+        await userRef.set({ id: userId });
+        await accountRef.set({ email: 'preserved@example.com' }); // pre-seeded before the trigger fires
+
+        await indexModule.initUserPrivateAccount.run(createdEvent(userId));
+
+        const data = (await accountRef.get()).data();
+        expect(data).toEqual({ email: 'preserved@example.com', moderationStatus: 'active', reportCount: 0 });
+        await cleanupDoc(userRef);
+        await cleanupDoc(accountRef);
     });
 });
