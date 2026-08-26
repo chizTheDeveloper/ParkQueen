@@ -1124,28 +1124,32 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
         const spotId = `mycar_${user.id}_${savedSpot.sessionId}`;
         const spotRef = doc(db, 'spots', spotId);
 
-        // Rate-limit check + orphan cleanup in one query
+        // Rate-limit check + orphan cleanup in one query — bounded to the same
+        // finderId+reportedAt composite index and limit(10) already used by
+        // the general ping rate-limit query below (no new index required),
+        // instead of reading this finder's entire spot history. A 'my_car'
+        // orphan older than the 10 most-recent spots for this finder is no
+        // longer proactively deleted here, but every spot has expiresAt set
+        // at creation and cleanupExpiredSpotsHourly sweeps the whole
+        // collection every hour regardless of source/status, so it's still
+        // deleted within about 90 minutes rather than left permanently.
         try {
-            const oneHourAgo = now - 60 * 60 * 1000;
-            const snap = await getDocs(query(collection(db, 'spots'), where('finderId', '==', user.id)));
-            const recentSpots = snap.docs.filter(d => {
-                if (d.id === spotId) return false;
-                const t = d.data().reportedAt?.toMillis?.() ?? new Date(d.data().reportedAt).getTime();
-                return t >= oneHourAgo;
-            });
-            if (recentSpots.length >= 5) {
-                const oldestMs = Math.min(...recentSpots.map(d => {
-                    const t = d.data().reportedAt?.toMillis?.() ?? new Date(d.data().reportedAt).getTime();
-                    return t;
-                }));
-                const minutesLeft = Math.ceil((oldestMs + 60 * 60 * 1000 - now) / 60000);
-                setMyCarDepartureError(t('my_car.ping_limit_reached', { minutes: minutesLeft }));
+            const snap = await getDocs(query(
+                collection(db, 'spots'),
+                where('finderId', '==', user.id),
+                orderBy('reportedAt', 'desc'),
+                limit(10)
+            ));
+            const candidates = snap.docs.filter(d => d.id !== spotId);
+            const rateLimit = checkPingRateLimit(candidates, now);
+            if (rateLimit.limited) {
+                setMyCarDepartureError(t('my_car.ping_limit_reached', { minutes: rateLimit.minutesLeft }));
                 setMyCarDepartureLoading(false);
                 return;
             }
             // Orphan cleanup: previous My Car pings orphaned when a new session overwrites
             // savedSpot without deleting the old linked ping (e.g. handoff auto-save)
-            const orphans = snap.docs.filter(d => d.id !== spotId && d.data().source === 'my_car');
+            const orphans = candidates.filter(d => d.data().source === 'my_car');
             if (orphans.length > 0) {
                 await Promise.all(orphans.map(d => deleteDoc(doc(db, 'spots', d.id))));
             }
