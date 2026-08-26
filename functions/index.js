@@ -177,12 +177,39 @@ async function applyTrustDelta(uid, statField, eventId, source = 'user') {
 
 // Initialize private/account subcollection when a new user doc is created.
 // Rules set allow write: if false on private/account, so only this server trigger can create it.
+//
+// Retry-safety design: fills in ONLY the moderationStatus/reportCount keys
+// that are not already present, inside one transaction alongside a read of
+// the root user doc — not an event-identity marker. This protects the two
+// fields themselves (from a delayed Eventarc redelivery clobbering a later
+// legitimate change to either one) regardless of which event touches them,
+// rather than just deduplicating one specific event id — the correct
+// property here, since this is "ensure sane defaults exist" not "run this
+// exactly once" (contrast incrementTotalSpotsPinged/awardCrowns). A root
+// user doc missing at delivery time (e.g. deleted before this fires) is a
+// safe no-op — no orphaned private/account is created. Because deleteAccount
+// recursively deletes the whole users/{uid} tree (private/account included),
+// "missing" naturally resets on any later legitimate recreation, so no
+// marker bookkeeping is needed for that guarantee either.
 exports.initUserPrivateAccount = onDocumentCreated(
-  { document: 'users/{userId}', region: 'us-central1', serviceAccount: 'parqueen-system-events@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
+  { document: 'users/{userId}', region: 'us-central1', retry: true, serviceAccount: 'parqueen-system-events@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (event) => {
     const { userId } = event.params;
-    await db.doc(`users/${userId}/private/account`)
-      .set({ moderationStatus: 'active', reportCount: 0 }, { merge: true });
+    const userRef = db.doc(`users/${userId}`);
+    const accountRef = userRef.collection('private').doc('account');
+
+    await db.runTransaction(async (tx) => {
+      const [userSnap, accountSnap] = await Promise.all([tx.get(userRef), tx.get(accountRef)]);
+      if (!userSnap.exists) return; // root user already gone — safe no-op, no orphaned private/account
+
+      const existing = accountSnap.exists ? accountSnap.data() : {};
+      const fill = {};
+      if (!('moderationStatus' in existing)) fill.moderationStatus = 'active';
+      if (!('reportCount' in existing)) fill.reportCount = 0;
+      if (Object.keys(fill).length === 0) return; // both already set — leave any later legitimate value alone
+
+      tx.set(accountRef, fill, { merge: true });
+    });
   }
 );
 

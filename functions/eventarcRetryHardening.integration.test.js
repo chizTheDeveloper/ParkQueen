@@ -3,10 +3,14 @@
 /**
  * Eventarc retry hardening — parqueen-system-events handlers.
  *
- * Confirms retry: true is enabled on the three marker-protected, atomic
- * system-event handlers proven safe (incrementTotalSpotsPinged,
- * updateTrustOnFeedback, updateTrustOnSpotDelete), and proves duplicate
- * Eventarc delivery is safe for each.
+ * Confirms retry: true is enabled on the four handlers proven safe:
+ * incrementTotalSpotsPinged, updateTrustOnFeedback, updateTrustOnSpotDelete
+ * (marker-protected, atomic), and initUserPrivateAccount (fill-only-missing-
+ * fields, transactional, root-user-existence guarded — see
+ * initUserPrivateAccount.integration.test.js's "retry-safety contract" suite,
+ * particularly RS-4, for the delayed-redelivery proof). Proves duplicate
+ * Eventarc delivery is safe for each of the three handlers tested directly
+ * here.
  *
  * Confirms retry remains OFF on:
  *  - awardCrowns — a real transaction-abort poison-event risk (see AC-7 in
@@ -14,17 +18,6 @@
  *    inside the transaction before the processed marker can be written, so a
  *    redelivered event would retry that exact same throw for the full
  *    Eventarc retry window with no escape).
- *  - initUserPrivateAccount — NOT retry-safe as currently written: it
- *    unconditionally .set()s two literal keys (moderationStatus,
- *    reportCount) with merge:true on every invocation. A delayed redelivery
- *    of the original users/{uid} create event silently reverts any
- *    legitimate later change to either field back to its init value — proven
- *    below by the delayed-redelivery test. No current writer in this repo
- *    changes either field after creation, but that's a property of what code
- *    exists today, not a guarantee this handler's own write pattern
- *    provides. Needs a design change (e.g. only set fields not already
- *    present, or a processed-event marker) before retry can be safely
- *    enabled — out of scope for this change.
  *  - notifyNearbyUsers — separate messaging retry analysis, not in scope
  *    here.
  */
@@ -48,49 +41,6 @@ function createdEvent(id, params, data, eventId = `event_${id}`) {
     return { id: eventId, params, data: { id, data: () => data } };
 }
 
-// ── initUserPrivateAccount: delayed-redelivery scenario ───────────────────────
-// initUserPrivateAccount unconditionally .set()s two literal keys
-// (moderationStatus, reportCount) with merge:true on every invocation,
-// including a redelivered original users/{uid} create event. merge:true only
-// protects OTHER keys (already proven by OB-5/OB-9 with unrelated fields like
-// customField/email) — it does NOT protect these two specific keys from being
-// reset to their init values if something legitimately changed them in the
-// interim. No current writer in this repository changes either field after
-// creation (see PR description / final report for the exhaustive search), but
-// that is a property of what code happens to exist today, not a guarantee
-// this handler's own write pattern provides — so retry is not safe on this
-// handler as currently written.
-describe('initUserPrivateAccount delayed-redelivery scenario', () => {
-    it('T0-T4: a legitimate later mutation to moderationStatus/reportCount is silently reverted by a delayed redelivery of the original create event', async () => {
-        const userId = nextId('user');
-        const originalEvent = createdEvent(userId, { userId }, {}, `event_${userId}`);
-        const accountRef = db.doc(`users/${userId}/private/account`);
-
-        // T1: initUserPrivateAccount succeeds on first delivery.
-        await indexModule.initUserPrivateAccount.run(originalEvent);
-        expect((await accountRef.get()).data()).toEqual({ moderationStatus: 'active', reportCount: 0 });
-
-        // T2: some legitimate later application action changes both fields
-        // (stand-in for any future moderation/report-count feature — Admin
-        // SDK write, bypassing the client-blocking `allow write: if false`
-        // rule, exactly as any real server-side mutation would).
-        await accountRef.set({ moderationStatus: 'suspended', reportCount: 3 }, { merge: true });
-        expect((await accountRef.get()).data()).toEqual({ moderationStatus: 'suspended', reportCount: 3 });
-
-        // T3/T4: Eventarc redelivers the SAME original users/{uid} create
-        // event (at-least-once delivery — this is exactly what retry: true
-        // legitimizes happening arbitrarily late).
-        await indexModule.initUserPrivateAccount.run(originalEvent);
-
-        // The T2 mutation does NOT survive — this is the retry-unsafety.
-        const finalState = (await accountRef.get()).data();
-        expect(finalState).toEqual({ moderationStatus: 'active', reportCount: 0 });
-        expect(finalState).not.toEqual({ moderationStatus: 'suspended', reportCount: 3 });
-
-        await accountRef.delete();
-    });
-});
-
 function deletedEvent(id, params, data, time) {
     return { id: `event_${id}`, params, data: { id, data: () => data }, time };
 }
@@ -110,8 +60,8 @@ describe('Eventarc retry configuration — parqueen-system-events handlers', () 
         return src.slice(start, end);
     }
 
-    it('initUserPrivateAccount remains WITHOUT retry — a delayed redelivery of the create event would silently revert any later legitimate change to moderationStatus/reportCount (see the delayed-redelivery test below)', () => {
-        expect(sliceFn('initUserPrivateAccount', 'cleanupExpiredSpotsHourly')).not.toMatch(/retry:\s*true/);
+    it('initUserPrivateAccount has retry enabled (fill-only-missing-fields design proven retry-safe — see initUserPrivateAccount.integration.test.js RS-4)', () => {
+        expect(sliceFn('initUserPrivateAccount', 'cleanupExpiredSpotsHourly')).toMatch(/retry:\s*true/);
     });
 
     it('incrementTotalSpotsPinged has retry enabled', () => {
