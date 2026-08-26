@@ -178,7 +178,7 @@ async function applyTrustDelta(uid, statField, eventId, source = 'user') {
 // Initialize private/account subcollection when a new user doc is created.
 // Rules set allow write: if false on private/account, so only this server trigger can create it.
 exports.initUserPrivateAccount = onDocumentCreated(
-  { document: 'users/{userId}', region: 'us-central1', retry: true, serviceAccount: 'parqueen-system-events@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
+  { document: 'users/{userId}', region: 'us-central1', serviceAccount: 'parqueen-system-events@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (event) => {
     const { userId } = event.params;
     await db.doc(`users/${userId}/private/account`)
