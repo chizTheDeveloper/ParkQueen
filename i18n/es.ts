@@ -652,6 +652,7 @@ const es: Record<string, string> = {
     'profile.section_progress': 'PROGRESO EN LA COMUNIDAD',
     'profile.section_impact': 'TU IMPACTO',
     'profile.pings_shared': 'Pings compartidos',
+    'profile.pings_shared_since': 'Desde {date}',
     'profile.successful_handoffs': 'Traspasos exitosos',
     'profile.spots_found': 'Lugares encontrados',
     'profile.impact_loading_error': 'No se pudo cargar el historial de actividad',

@@ -652,6 +652,7 @@ const en: Record<string, string> = {
     'profile.section_progress': 'COMMUNITY PROGRESS',
     'profile.section_impact': 'YOUR IMPACT',
     'profile.pings_shared': 'Pings shared',
+    'profile.pings_shared_since': 'Since {date}',
     'profile.successful_handoffs': 'Successful handoffs',
     'profile.spots_found': 'Spots found',
     'profile.impact_loading_error': 'Could not load activity counts',
