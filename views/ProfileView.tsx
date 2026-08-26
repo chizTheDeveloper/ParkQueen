@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useFocusOnMount } from '../hooks/useFocusOnMount';
 import { getStorage, ref, uploadBytes } from 'firebase/storage';
-import { doc, setDoc, serverTimestamp, onSnapshot, collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp, onSnapshot, collection, query, where, orderBy, limit, getDocs, getCountFromServer } from 'firebase/firestore';
 import { db } from '../firebase';
 import { ChevronLeft, ChevronRight, Edit, Clock, Info, Settings, Crown, MapPin, Handshake, ParkingSquare } from 'lucide-react';
 import { VehicleIcon } from '../utils/vehicleIcon';
@@ -66,19 +66,34 @@ export const ProfileView = ({ user, onBack, setView }) => {
       try {
         const items: { id: string; icon: string; actionKey: string; address: string; reward: string | null; ts: number }[] = [];
 
-        // Bounded: after PR #70 removed spots from deriveImpactCounts's
-        // pingsShared source, RecentActivity is the only consumer of this
-        // query, and only ever shows the newest 3 combined items — safe by
-        // the top-K-of-union argument (see the RecentActivity bounded-query
-        // investigation). Backed by the existing finderId+reportedAt index.
-        const spotsSnap = await getDocs(query(
-          collection(db, 'spots'),
-          where('finderId', '==', user.id),
-          orderBy('reportedAt', 'desc'),
-          limit(3),
-        ));
-        const recentSpots = spotsSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+        // Three independent, purpose-specific reads, fetched concurrently.
+        // RecentActivity (spots + feedback) only ever needs the newest 3
+        // combined items — safe by the top-K-of-union argument (see the
+        // RecentActivity bounded-query investigation). Spots found needs an
+        // exact full-history count, which a server aggregation provides
+        // without ever materializing the historical feedback documents
+        // client-side (see the Spots Found decoupling investigation).
+        const [spotsSnap, feedbackSnap, spotsFoundAgg] = await Promise.all([
+          getDocs(query(
+            collection(db, 'spots'),
+            where('finderId', '==', user.id),
+            orderBy('reportedAt', 'desc'),
+            limit(3),
+          )),
+          getDocs(query(
+            collection(db, 'spotFeedback'),
+            where('userId', '==', user.id),
+            orderBy('createdAt', 'desc'),
+            limit(3),
+          )),
+          getCountFromServer(query(
+            collection(db, 'spotFeedback'),
+            where('userId', '==', user.id),
+            where('outcome', '==', 'success'),
+          )),
+        ]);
 
+        const recentSpots = spotsSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
         recentSpots.forEach(s => {
           const ts = s.reportedAt?.toMillis?.() || 0;
           const addr = s.address || '';
@@ -91,27 +106,25 @@ export const ProfileView = ({ user, onBack, setView }) => {
           }
         });
 
-        // NOT bounded: this same result also feeds deriveImpactCounts's
-        // Spots-found count below, which must reflect every success-outcome
-        // feedback doc ever, not just the newest 3 — limiting this query
-        // would silently undercount Spots found for any user with more than
-        // 3 feedback docs. RecentActivity's feedback-derived items are still
-        // correctly bounded to the final top-3 slice at the end of this
-        // function; only the network read itself stays unbounded here.
-        const fbSnap = await getDocs(query(collection(db, 'spotFeedback'), where('userId', '==', user.id)));
-        const allFeedback = fbSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
-
-        allFeedback.forEach(f => {
+        // Every returned feedback doc becomes a "Parked" activity item
+        // regardless of outcome (success or failure) — this source exists
+        // only for RecentActivity display, never for the Spots found count.
+        const recentFeedback = feedbackSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+        recentFeedback.forEach(f => {
           const ts = f.createdAt?.toMillis?.() || 0;
           items.push({ id: `d-${f.id}`, icon: 'parking', actionKey: 'profile.activity_parked', address: f.address || '', reward: '+1', ts });
         });
 
-        // Compute impact from all docs before slicing. successfulHandoffs and
-        // pingsShared both come from durable users/{uid} counters (already
-        // present in memory — App.tsx spreads the whole users/{uid} doc into
-        // `user` — no extra Firestore read needed), not from counting
-        // ephemeral spots.
-        const counts = deriveImpactCounts(allFeedback, user.trustStats?.handoffsCompleted ?? 0, user.impactStats?.pingsShared ?? 0);
+        // successfulHandoffs and pingsShared come from durable users/{uid}
+        // counters (already present in memory — App.tsx spreads the whole
+        // users/{uid} doc into `user` — no extra Firestore read needed).
+        // spotsFound comes from the aggregation above — an exact full-history
+        // count, independent of whatever RecentActivity happens to fetch.
+        const counts = deriveImpactCounts({
+          pingsShared: user.impactStats?.pingsShared,
+          successfulHandoffs: user.trustStats?.handoffsCompleted,
+          spotsFound: spotsFoundAgg.data().count,
+        });
         setImpactCounts(counts);
         setImpactState('loaded');
 

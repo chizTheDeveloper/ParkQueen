@@ -1,41 +1,34 @@
-export interface ImpactFeedback {
-  outcome?: string;
-}
-
 export interface ImpactCounts {
   pingsShared: number;
   successfulHandoffs: number;
   spotsFound: number;
 }
 
+export interface ImpactCountsInput {
+  pingsShared?: number;
+  successfulHandoffs?: number;
+  spotsFound?: number;
+}
+
 /**
- * Derives community impact counts.
+ * Normalizes the three YOUR IMPACT figures. Each is already an exact,
+ * independently-sourced number by the time it reaches this function:
  *
- * Pings shared = the durable users/{uid}.impactStats.pingsShared counter,
- * written go-forward-only by incrementTotalSpotsPinged. NOT derived from the
- * spots collection: spots are deleted by cleanupExpiredSpotsHourly roughly
- * 30-90 minutes after creation, so counting them made this "lifetime impact"
- * stat both decay over time and cap out at whatever fit in that window.
+ * - pingsShared: users/{uid}.impactStats.pingsShared (durable, go-forward)
+ * - successfulHandoffs: users/{uid}.trustStats.handoffsCompleted (durable)
+ * - spotsFound: getCountFromServer(spotFeedback where userId==uid &&
+ *   outcome=='success') — a server aggregation over full history, not a
+ *   document array Profile happens to have fetched for display purposes
  *
- * Successful handoffs = the durable users/{uid}.trustStats.handoffsCompleted
- * counter, maintained by updateTrustOnFeedback (Cloud Functions) on every
- * successful spotFeedback creation. Same rationale as above.
- *
- * Spots found = feedback records where outcome === 'success' (driver parked).
- * Excludes 'failed' and undefined outcomes.
- *
- * ponytail: spotsFound still does a full-collection read; move to a durable
- * per-user counter or a Firestore count aggregation once history exceeds
- * ~500 docs.
+ * None of the three is derived from spots/spotFeedback document arrays —
+ * counting ephemeral/partial fetches previously made these figures decay
+ * or undercount over time. This function only guards against a missing
+ * value rendering as `undefined`.
  */
-export function deriveImpactCounts(
-  feedback: ImpactFeedback[],
-  handoffsCompleted: number,
-  pingsShared: number,
-): ImpactCounts {
+export function deriveImpactCounts(input: ImpactCountsInput): ImpactCounts {
   return {
-    pingsShared: pingsShared || 0,
-    successfulHandoffs: handoffsCompleted || 0,
-    spotsFound: feedback.filter(f => f.outcome === 'success').length,
+    pingsShared: input.pingsShared || 0,
+    successfulHandoffs: input.successfulHandoffs || 0,
+    spotsFound: input.spotsFound || 0,
   };
 }
