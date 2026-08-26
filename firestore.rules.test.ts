@@ -1748,6 +1748,50 @@ describe('spots — identity-display authority (SP)', () => {
         await assertSucceeds(setDoc(doc(ownerDb(), 'spots', SPOT_ID + '-minimal'), minimal));
     });
 
+    // My Car write-contract: handleMyCarPing (StreetParkingView.tsx) writes
+    // source:'my_car' on every My Car ping. It ALSO used to write
+    // originSessionId, which — before this fix — was rejected outright by
+    // this create rule (neither field was in hasOnly()), meaning every My
+    // Car ping was permanently denied in production. The fix: originSessionId
+    // was dead client-side metadata (never read back anywhere — the
+    // deterministic spot ID already encodes the same correlation) so the
+    // client stopped writing it; 'source' IS load-bearing (handleMyCarPing's
+    // own orphan-cleanup filter, d.data().source === 'my_car') so the rule
+    // now allows it, but ONLY the literal 'my_car' value — 'source' is also
+    // written server-side (adminDeleteSpot sets 'admin' via the Admin SDK) to
+    // drive updateTrustOnSpotDelete's cancellation-penalty exemption, so a
+    // client create must never be able to smuggle in any other value.
+    describe('My Car write-contract (MC)', () => {
+        const myCarPayload = {
+            ...baseSpot,
+            source: 'my_car',
+        };
+
+        it('MC-1: the corrected My Car payload (source:\'my_car\', no originSessionId) SUCCEEDS', async () => {
+            await assertSucceeds(setDoc(doc(ownerDb(), 'spots', SPOT_ID + '-mycar-a'), myCarPayload));
+        });
+
+        it('MC-2: originSessionId is still rejected — it is not, and must not become, part of the allowed schema', async () => {
+            await assertFails(setDoc(doc(ownerDb(), 'spots', SPOT_ID + '-mycar-b'), { ...myCarPayload, originSessionId: 'session-abc-123' }));
+        });
+
+        it('MC-3 (SECURITY): a client cannot spoof source:\'admin\' to smuggle the cancellation-penalty exemption', async () => {
+            await assertFails(setDoc(doc(ownerDb(), 'spots', SPOT_ID + '-mycar-c'), { ...baseSpot, source: 'admin' }));
+        });
+
+        it('MC-4: an arbitrary/unrecognized source value is rejected, not just \'admin\'', async () => {
+            await assertFails(setDoc(doc(ownerDb(), 'spots', SPOT_ID + '-mycar-d'), { ...baseSpot, source: 'anything_else' }));
+        });
+
+        it('MC-5: omitting source entirely still succeeds (ordinary, non-My-Car pings never set it)', async () => {
+            await assertSucceeds(setDoc(doc(ownerDb(), 'spots', SPOT_ID + '-mycar-e'), baseSpot));
+        });
+
+        it('MC-6: an otherwise-unrecognized extra field is still rejected — hasOnly remains strict beyond this one addition', async () => {
+            await assertFails(setDoc(doc(ownerDb(), 'spots', SPOT_ID + '-mycar-f'), { ...myCarPayload, notAllowed: 'nope' }));
+        });
+    });
+
     describe('claim (Arm 1) and hold-request (Arm 9)', () => {
         beforeEach(async () => {
             await seed('spots', SPOT_ID, baseSpot);
