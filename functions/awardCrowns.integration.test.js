@@ -56,7 +56,7 @@ describe('awardCrowns idempotency contract', () => {
         expect(driverSnap.data().title).toBe('Newcomer');
         expect(finderSnap.data().crowns).toBe(2);
         expect(finderSnap.data().title).toBe('Newcomer');
-        expect((await db.doc(`functionEvents/awardCrowns_${feedbackId}`).get()).exists).toBe(true);
+        expect((await db.doc(`functionEvents/awardCrowns_${feedbackId}`).get()).data().outcome).toBe('awarded');
 
         await cleanupUsers(driverId, finderId);
         await cleanupMarker(feedbackId);
@@ -155,7 +155,7 @@ describe('awardCrowns idempotency contract', () => {
         await cleanupMarker(feedbackId);
     });
 
-    it('AC-7: a missing driver user document fails the whole award atomically — no marker, finder untouched', async () => {
+    it('AC-7: a missing driver user document is a safe terminal no-op — marker written, finder untouched, no throw', async () => {
         const driverId = nextId('driver'); // deliberately never seeded
         const finderId = nextId('finder');
         const feedbackId = `${nextId('spot')}_${driverId}`;
@@ -163,12 +163,104 @@ describe('awardCrowns idempotency contract', () => {
 
         await expect(
             indexModule.awardCrowns.run(createdEvent(feedbackId, { outcome: 'success', userId: driverId, finderId })),
-        ).rejects.toThrow();
+        ).resolves.not.toThrow();
 
-        expect((await db.doc(`functionEvents/awardCrowns_${feedbackId}`).get()).exists).toBe(false);
+        const marker = (await db.doc(`functionEvents/awardCrowns_${feedbackId}`).get()).data();
+        expect(marker.outcome).toBe('skipped_missing_user');
         expect((await db.doc(`users/${finderId}`).get()).data().crowns).toBe(0);
 
         await cleanupUsers(finderId);
+        await cleanupMarker(feedbackId);
+    });
+
+    it('AC-10: a missing finder user document is symmetric — marker written, driver untouched, no throw', async () => {
+        const driverId = nextId('driver');
+        const finderId = nextId('finder'); // deliberately never seeded
+        const feedbackId = `${nextId('spot')}_${driverId}`;
+        await seedUser(driverId, 0);
+
+        await expect(
+            indexModule.awardCrowns.run(createdEvent(feedbackId, { outcome: 'success', userId: driverId, finderId })),
+        ).resolves.not.toThrow();
+
+        const marker = (await db.doc(`functionEvents/awardCrowns_${feedbackId}`).get()).data();
+        expect(marker.outcome).toBe('skipped_missing_user');
+        expect((await db.doc(`users/${driverId}`).get()).data().crowns).toBe(0);
+
+        await cleanupUsers(driverId);
+        await cleanupMarker(feedbackId);
+    });
+
+    it('AC-11: both driver and finder missing — terminal marker, no throw, nothing to touch', async () => {
+        const driverId = nextId('driver');
+        const finderId = nextId('finder');
+        const feedbackId = `${nextId('spot')}_${driverId}`;
+
+        await expect(
+            indexModule.awardCrowns.run(createdEvent(feedbackId, { outcome: 'success', userId: driverId, finderId })),
+        ).resolves.not.toThrow();
+
+        const marker = (await db.doc(`functionEvents/awardCrowns_${feedbackId}`).get()).data();
+        expect(marker.outcome).toBe('skipped_missing_user');
+
+        await cleanupMarker(feedbackId);
+    });
+
+    it('AC-12: a redelivered missing-user event no-ops on the terminal marker — no repeated work, no throw', async () => {
+        const driverId = nextId('driver'); // deliberately never seeded
+        const finderId = nextId('finder');
+        const feedbackId = `${nextId('spot')}_${driverId}`;
+        await seedUser(finderId, 0);
+        const event = createdEvent(feedbackId, { outcome: 'success', userId: driverId, finderId });
+
+        await indexModule.awardCrowns.run(event);
+        await expect(indexModule.awardCrowns.run(event)).resolves.not.toThrow();
+
+        expect((await db.doc(`users/${finderId}`).get()).data().crowns).toBe(0);
+
+        await cleanupUsers(finderId);
+        await cleanupMarker(feedbackId);
+    });
+
+    it('AC-13: concurrent duplicate missing-user event delivery writes exactly one terminal marker, no crowns', async () => {
+        const driverId = nextId('driver'); // deliberately never seeded
+        const finderId = nextId('finder');
+        const feedbackId = `${nextId('spot')}_${driverId}`;
+        await seedUser(finderId, 0);
+        const event = createdEvent(feedbackId, { outcome: 'success', userId: driverId, finderId });
+
+        await Promise.all([indexModule.awardCrowns.run(event), indexModule.awardCrowns.run(event)]);
+
+        const marker = (await db.doc(`functionEvents/awardCrowns_${feedbackId}`).get()).data();
+        expect(marker.outcome).toBe('skipped_missing_user');
+        expect((await db.doc(`users/${finderId}`).get()).data().crowns).toBe(0);
+
+        await cleanupUsers(finderId);
+        await cleanupMarker(feedbackId);
+    });
+
+    it('AC-14: realistic race — driver account deleted (recursiveDelete) between feedback creation and awardCrowns execution — terminal no-op, finder untouched', async () => {
+        const driverId = nextId('driver');
+        const finderId = nextId('finder');
+        const feedbackId = `${nextId('spot')}_${driverId}`;
+        await seedUser(driverId, 5);
+        await seedUser(finderId, 0);
+
+        // Simulates deleteAccount's recursiveDelete step, which runs long before
+        // its spotFeedback cleanup step — the feedback doc (and this event's
+        // captured payload) can legitimately outlive the driver's account.
+        await db.recursiveDelete(db.doc(`users/${driverId}`));
+
+        await expect(
+            indexModule.awardCrowns.run(createdEvent(feedbackId, { outcome: 'success', userId: driverId, finderId })),
+        ).resolves.not.toThrow();
+
+        const marker = (await db.doc(`functionEvents/awardCrowns_${feedbackId}`).get()).data();
+        expect(marker.outcome).toBe('skipped_missing_user');
+        expect((await db.doc(`users/${finderId}`).get()).data().crowns).toBe(0);
+
+        await cleanupUsers(finderId);
+        await cleanupMarker(feedbackId);
     });
 
     it('AC-8: driverId === finderId is a no-op (pre-existing guard) — no crowns, no marker', async () => {
@@ -194,5 +286,6 @@ describe('awardCrowns idempotency contract', () => {
         expect(fn).toMatch(/serviceAccount:\s*'parqueen-system-events@parkqueen-46475363-ccf36\.iam\.gserviceaccount\.com'/);
         expect(fn).toMatch(/document:\s*"spotFeedback\/\{feedbackId\}"/);
         expect(fn).toMatch(/functionEvents\/awardCrowns_\$\{feedbackId\}/);
+        expect(fn).toMatch(/retry:\s*true/);
     });
 });

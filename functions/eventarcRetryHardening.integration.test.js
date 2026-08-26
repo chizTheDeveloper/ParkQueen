@@ -3,21 +3,18 @@
 /**
  * Eventarc retry hardening — parqueen-system-events handlers.
  *
- * Confirms retry: true is enabled on the four handlers proven safe:
+ * Confirms retry: true is enabled on all five handlers proven safe:
  * incrementTotalSpotsPinged, updateTrustOnFeedback, updateTrustOnSpotDelete
- * (marker-protected, atomic), and initUserPrivateAccount (fill-only-missing-
+ * (marker-protected, atomic), initUserPrivateAccount (fill-only-missing-
  * fields, transactional, root-user-existence guarded — see
  * initUserPrivateAccount.integration.test.js's "retry-safety contract" suite,
- * particularly RS-4, for the delayed-redelivery proof). Proves duplicate
- * Eventarc delivery is safe for each of the three handlers tested directly
- * here.
+ * particularly RS-4), and awardCrowns (missing-user condition is now a
+ * durable terminal marker instead of a permanent tx.update()-on-missing-doc
+ * throw — see awardCrowns.integration.test.js AC-7/AC-10 through AC-14).
+ * Proves duplicate Eventarc delivery is safe for each of the three handlers
+ * tested directly here.
  *
  * Confirms retry remains OFF on:
- *  - awardCrowns — a real transaction-abort poison-event risk (see AC-7 in
- *    awardCrowns.integration.test.js: a missing driver user document throws
- *    inside the transaction before the processed marker can be written, so a
- *    redelivered event would retry that exact same throw for the full
- *    Eventarc retry window with no escape).
  *  - notifyNearbyUsers — separate messaging retry analysis, not in scope
  *    here.
  */
@@ -76,8 +73,8 @@ describe('Eventarc retry configuration — parqueen-system-events handlers', () 
         expect(sliceFn('updateTrustOnSpotDelete', 'adminResolveParseFailure')).toMatch(/retry:\s*true/);
     });
 
-    it('awardCrowns remains WITHOUT retry — a missing driver/finder document throws before the processed marker can be written (see AC-7), so a redelivered event would retry an unrecoverable failure for the full Eventarc window', () => {
-        expect(sliceFn('awardCrowns', 'adminDeleteSpot')).not.toMatch(/retry:\s*true/);
+    it('awardCrowns has retry enabled (missing-user condition now a durable terminal marker — see AC-7/AC-10 through AC-14)', () => {
+        expect(sliceFn('awardCrowns', 'adminDeleteSpot')).toMatch(/retry:\s*true/);
     });
 
     it('notifyNearbyUsers remains WITHOUT retry — out of scope, requires separate FCM partial-delivery retry analysis', () => {

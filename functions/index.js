@@ -1688,10 +1688,23 @@ exports.updateDisplayName = onCall(
 // Firestore rules derive it deterministically as `${spotId}_${userId}` and
 // forbid update/delete on spotFeedback docs, so one feedbackId can only ever
 // represent one real award — see functions/awardCrowns.integration.test.js.
+//
+// Missing-user terminal handling: spotFeedback is written directly by the
+// client (Firestore rules validate the caller's own role against the spots/
+// doc, not that the OTHER referenced user's account still exists), and
+// deleteAccount deletes users/{uid} (step 2 of its pipeline) long before its
+// spotFeedback cleanup steps run — so a driver or finder account can
+// legitimately be gone by the time this fires, on the very first delivery
+// attempt, not only on a delayed retry. Existing atomic all-or-nothing award
+// semantics are preserved (neither party is credited if either is missing)
+// but this is now a durably marked terminal outcome instead of a permanent
+// tx.update()-on-missing-doc throw, so a redelivered event (retry: true)
+// can't retry an unrecoverable failure for the full Eventarc window.
 exports.awardCrowns = onDocumentCreated(
   {
     document: "spotFeedback/{feedbackId}",
     region: "us-central1",
+    retry: true,
     serviceAccount: 'parqueen-system-events@parkqueen-46475363-ccf36.iam.gserviceaccount.com',
   },
   async (event) => {
@@ -1708,11 +1721,24 @@ exports.awardCrowns = onDocumentCreated(
     const processedRef = db.doc(`functionEvents/awardCrowns_${feedbackId}`);
 
     await db.runTransaction(async (tx) => {
-      if ((await tx.get(processedRef)).exists) return; // already processed — idempotency guard
+      if ((await tx.get(processedRef)).exists) return; // already processed (awarded or terminally skipped) — idempotency guard
 
       const [driverSnap, finderSnap] = await Promise.all([tx.get(driverRef), tx.get(finderRef)]);
-      const driverCrowns = (driverSnap.data()?.crowns || 0) + 1;
-      const finderCrowns = (finderSnap.data()?.crowns || 0) + 2;
+
+      if (!driverSnap.exists || !finderSnap.exists) {
+        tx.set(processedRef, {
+            functionName: 'awardCrowns',
+            feedbackId,
+            driverId,
+            finderId,
+            outcome: 'skipped_missing_user',
+            processedAt: Timestamp.now(),
+        });
+        return;
+      }
+
+      const driverCrowns = (driverSnap.data().crowns || 0) + 1;
+      const finderCrowns = (finderSnap.data().crowns || 0) + 2;
 
       tx.update(driverRef, {
           crowns: FieldValue.increment(1),
@@ -1727,6 +1753,7 @@ exports.awardCrowns = onDocumentCreated(
           feedbackId,
           driverId,
           finderId,
+          outcome: 'awarded',
           processedAt: Timestamp.now(),
       });
 
