@@ -26,6 +26,7 @@ export default defineConfig({
       'functions/adminBackfill.integration.test.js',
       'functions/adminReadViews.integration.test.js',
       'functions/adminAuth.revocation.integration.test.js',
+      'functions/eventarcRetryHardening.integration.test.js',
     ],
     testTimeout: 120000,
     hookTimeout: 120000,
