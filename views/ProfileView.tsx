@@ -80,8 +80,12 @@ export const ProfileView = ({ user, onBack, setView }) => {
           items.push({ id: `d-${f.id}`, icon: 'parking', actionKey: 'profile.activity_parked', address: f.address || '', reward: '+1', ts });
         });
 
-        // Compute impact from all docs before slicing
-        const counts = deriveImpactCounts(allSpots, allFeedback);
+        // Compute impact from all docs before slicing. successfulHandoffs
+        // comes from the durable trustStats.handoffsCompleted counter
+        // (already present in memory — App.tsx spreads the whole users/{uid}
+        // doc into `user` — no extra Firestore read needed), not from
+        // counting ephemeral spots.
+        const counts = deriveImpactCounts(allSpots, allFeedback, user.trustStats?.handoffsCompleted ?? 0);
         setImpactCounts(counts);
         setImpactState('loaded');
 
