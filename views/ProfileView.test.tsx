@@ -22,8 +22,10 @@ vi.mock('firebase/storage', () => ({
 
 let spotsDocs: Array<{ id: string; data: () => any }> = [];
 let feedbackDocs: Array<{ id: string; data: () => any }> = [];
+let spotsFoundCount: number | 'reject' = 0;
 const getDocsCalls: string[] = [];
 const queryLog: Array<{ name: string; constraints: any[] }> = [];
+const countQueryLog: Array<{ name: string; constraints: any[] }> = [];
 
 vi.mock('firebase/firestore', () => ({
     doc: (..._args: any[]) => ({}),
@@ -39,6 +41,11 @@ vi.mock('firebase/firestore', () => ({
         getDocsCalls.push(q.__name);
         queryLog.push({ name: q.__name, constraints: q.__constraints ?? [] });
         return { docs: q.__name === 'spots' ? spotsDocs : feedbackDocs };
+    },
+    getCountFromServer: async (q: any) => {
+        countQueryLog.push({ name: q.__name, constraints: q.__constraints ?? [] });
+        if (spotsFoundCount === 'reject') throw new Error('aggregation failed');
+        return { data: () => ({ count: spotsFoundCount }) };
     },
 }));
 
@@ -90,8 +97,10 @@ describe('ProfileView — impact card sourcing', () => {
     beforeEach(() => {
         getDocsCalls.length = 0;
         queryLog.length = 0;
+        countQueryLog.length = 0;
         spotsDocs = [];
         feedbackDocs = [];
+        spotsFoundCount = 0;
     });
 
     it('CASE 1: Pings shared reads user.impactStats.pingsShared', async () => {
@@ -102,45 +111,36 @@ describe('ProfileView — impact card sourcing', () => {
     });
 
     it('CASE 2: missing impactStats renders Pings shared as 0 (card shown via another nonzero metric)', async () => {
-        const renderer = await renderProfile({ id: 'me', trustStats: { handoffsCompleted: 1 } }); // no impactStats at all
-        const [pingsShared] = impactNumbers(renderer);
-        expect(pingsShared).toBe('0');
-        act(() => renderer.unmount());
-    });
-
-    it('CASE 3: impactStats present but missing pingsShared renders 0 (card shown via another nonzero metric)', async () => {
-        const renderer = await renderProfile({ id: 'me', trustStats: { handoffsCompleted: 1 }, impactStats: { someFutureCounter: 3 } });
+        const renderer = await renderProfile({ id: 'me', trustStats: { handoffsCompleted: 1 } });
         const [pingsShared] = impactNumbers(renderer);
         expect(pingsShared).toBe('0');
         act(() => renderer.unmount());
     });
 
     it('CASE 6: Successful handoffs still reads trustStats.handoffsCompleted', async () => {
-        spotsDocs = [spotDoc('a', Date.now()), spotDoc('b', Date.now())];
         const renderer = await renderProfile({ id: 'me', trustStats: { handoffsCompleted: 11 }, impactStats: { pingsShared: 1 } });
         const [, successfulHandoffs] = impactNumbers(renderer);
         expect(successfulHandoffs).toBe('11');
         act(() => renderer.unmount());
     });
 
-    it('CASE 7 / 13: Spots found counts every success-outcome feedback doc, not just the newest 3 (proves the shared allFeedback read is NOT bounded)', async () => {
-        const now = Date.now();
-        feedbackDocs = [
-            feedbackDoc('old1', now - 10 * 86400000, 'success'),
-            feedbackDoc('old2', now - 9 * 86400000, 'success'),
-            feedbackDoc('new1', now - 3000, 'success'),
-            feedbackDoc('new2', now - 2000, 'failed'),
-            feedbackDoc('new3', now - 1000, 'success'),
-        ];
-        const renderer = await renderProfile({ id: 'me', impactStats: { pingsShared: 0 } });
+    it('20 / 21: Spots found displays the aggregation number exactly, including a count larger than 3', async () => {
+        spotsFoundCount = 42;
+        const renderer = await renderProfile({ id: 'me' });
         const numbers = impactNumbers(renderer);
-        // 4 total success docs (old1, old2, new1, new3) — including two OLDER
-        // than the newest-3 window that RecentActivity itself displays.
-        expect(numbers[2]).toBe('4');
+        expect(numbers[2]).toBe('42');
         act(() => renderer.unmount());
     });
 
-    it('CASE 9/10: the tracking-boundary qualifier is rendered and distinct from the bare "Pings shared" label', async () => {
+    it('22: a zero Spots found count displays 0 correctly', async () => {
+        spotsFoundCount = 0;
+        const renderer = await renderProfile({ id: 'me', trustStats: { handoffsCompleted: 1 } });
+        const numbers = impactNumbers(renderer);
+        expect(numbers[2]).toBe('0');
+        act(() => renderer.unmount());
+    });
+
+    it('9/10: the tracking-boundary qualifier is rendered and distinct from the bare "Pings shared" label', async () => {
         const renderer = await renderProfile({ id: 'me', impactStats: { pingsShared: 5 } });
         const qualifier = pingsSharedQualifier(renderer);
         expect(qualifier).toBeDefined();
@@ -149,84 +149,120 @@ describe('ProfileView — impact card sourcing', () => {
         act(() => renderer.unmount());
     });
 
-    it('does not introduce any additional Firestore query — still exactly one spots read and one spotFeedback read', async () => {
+    it('does not introduce any additional Firestore query — exactly one spots read, one feedback read, one count aggregation', async () => {
         await renderProfile({ id: 'me', impactStats: { pingsShared: 5 }, trustStats: { handoffsCompleted: 5 } });
         expect(getDocsCalls.filter(c => c === 'spots').length).toBe(1);
         expect(getDocsCalls.filter(c => c === 'spotFeedback').length).toBe(1);
+        expect(countQueryLog.length).toBe(1);
     });
 
-    it('source contract: deriveImpactCounts is called with the durable impactStats.pingsShared value, not spots.length', () => {
+    it('source contract: deriveImpactCounts is called with the aggregation-sourced spotsFound, not a feedback array', async () => {
         const fs = require('fs');
         const source = fs.readFileSync(new URL('./ProfileView.tsx', import.meta.url), 'utf8');
         const callStart = source.indexOf('const counts = deriveImpactCounts(');
-        const callEnd = source.indexOf(';', callStart);
+        const callEnd = source.indexOf(');', callStart);
         const call = source.slice(callStart, callEnd);
 
-        expect(call).not.toMatch(/allSpots|recentSpots/);
-        expect(call).toMatch(/deriveImpactCounts\(allFeedback,\s*user\.trustStats\?\.handoffsCompleted\s*\?\?\s*0,\s*user\.impactStats\?\.pingsShared\s*\?\?\s*0\)/);
+        expect(call).not.toMatch(/allFeedback|recentFeedback\.filter/);
+        expect(call).toMatch(/spotsFound/);
     });
 });
 
-describe('ProfileView — RecentActivity bounded spots query', () => {
+describe('ProfileView — RecentActivity bounded queries', () => {
     beforeEach(() => {
         getDocsCalls.length = 0;
         queryLog.length = 0;
+        countQueryLog.length = 0;
         spotsDocs = [];
         feedbackDocs = [];
+        spotsFoundCount = 0;
     });
 
-    it('1: spots query has exact shape — finderId ==, orderBy reportedAt desc, limit 3', async () => {
+    it('1: spots query — finderId ==, orderBy reportedAt desc, limit 3', async () => {
         await renderProfile({ id: 'me' });
-        const constraints = queryFor('spots');
-        expect(constraints).toEqual([
+        expect(queryFor('spots')).toEqual([
             { __kind: 'where', field: 'finderId', op: '==', value: 'me' },
             { __kind: 'orderBy', field: 'reportedAt', direction: 'desc' },
             { __kind: 'limit', n: 3 },
         ]);
     });
 
-    it('2: spotFeedback query is NOT bounded — still userId == only, no orderBy/limit (shared with Spots found, see CASE 7/13 above)', async () => {
+    it('2: feedback query (RecentActivity source) — userId ==, orderBy createdAt desc, limit 3', async () => {
         await renderProfile({ id: 'me' });
-        const constraints = queryFor('spotFeedback');
-        expect(constraints).toEqual([
+        expect(queryFor('spotFeedback')).toEqual([
             { __kind: 'where', field: 'userId', op: '==', value: 'me' },
+            { __kind: 'orderBy', field: 'createdAt', direction: 'desc' },
+            { __kind: 'limit', n: 3 },
         ]);
     });
 
-    it('3: no outcome filter added to the spotFeedback query', async () => {
+    it('3: the RecentActivity feedback query has no outcome filter', async () => {
         await renderProfile({ id: 'me' });
-        const constraints = queryFor('spotFeedback');
-        expect(constraints.some((c: any) => c.field === 'outcome')).toBe(false);
+        expect(queryFor('spotFeedback').some((c: any) => c.field === 'outcome')).toBe(false);
     });
 
-    it('4: newest 3 all from spots', async () => {
+    it('4: the Spots found count query — userId == and outcome == success, no orderBy, no limit', async () => {
+        await renderProfile({ id: 'me' });
+        expect(countQueryLog[0].constraints).toEqual([
+            { __kind: 'where', field: 'userId', op: '==', value: 'me' },
+            { __kind: 'where', field: 'outcome', op: '==', value: 'success' },
+        ]);
+    });
+
+    it('5: the count query has no limit(3)', async () => {
+        await renderProfile({ id: 'me' });
+        expect(countQueryLog[0].constraints.some((c: any) => c.__kind === 'limit')).toBe(false);
+    });
+
+    it('6: the count query has no createdAt orderBy', async () => {
+        await renderProfile({ id: 'me' });
+        expect(countQueryLog[0].constraints.some((c: any) => c.__kind === 'orderBy')).toBe(false);
+    });
+
+    it('7: 5+ historical feedback docs with successes older than the newest-3 window — Spots found still returns the full aggregation count', async () => {
+        // The mock's spotsDocs/feedbackDocs represent what a real bounded
+        // query would already have limited server-side; the aggregation is
+        // deliberately configured independently and larger than 3 to prove
+        // it is NOT derived from whatever RecentActivity happens to fetch.
         const now = Date.now();
-        spotsDocs = [spotDoc('a', now - 1000), spotDoc('b', now - 2000), spotDoc('c', now - 3000)];
-        feedbackDocs = [feedbackDoc('old', now - 999999)];
+        feedbackDocs = [feedbackDoc('new1', now - 1000), feedbackDoc('new2', now - 2000), feedbackDoc('new3', now - 3000)];
+        spotsFoundCount = 7; // 2 older successes exist beyond the newest-3 window
         const renderer = await renderProfile({ id: 'me' });
-        expect(activityAddresses(renderer)).toEqual([' · spot-a', ' · spot-b', ' · spot-c']);
+        const numbers = impactNumbers(renderer);
+        expect(numbers[2]).toBe('7');
         act(() => renderer.unmount());
     });
 
-    it('5: newest 3 all from feedback', async () => {
+    it('8: failure feedback can still appear in RecentActivity', async () => {
         const now = Date.now();
-        feedbackDocs = [feedbackDoc('x', now - 1000), feedbackDoc('y', now - 2000), feedbackDoc('z', now - 3000)];
-        spotsDocs = [spotDoc('old', now - 999999)];
+        feedbackDocs = [feedbackDoc('x', now - 1000, 'failed')];
         const renderer = await renderProfile({ id: 'me' });
-        expect(activityAddresses(renderer)).toEqual([' · fb-x', ' · fb-y', ' · fb-z']);
+        expect(activityAddresses(renderer)).toEqual([' · fb-x']);
         act(() => renderer.unmount());
     });
 
-    it('6: mixed 2 spots + 1 feedback', async () => {
+    it('9: failure feedback does not contribute to Spots found (count is independent, aggregation-only)', async () => {
         const now = Date.now();
-        spotsDocs = [spotDoc('a', now - 1000), spotDoc('b', now - 3000)];
-        feedbackDocs = [feedbackDoc('x', now - 2000)];
-        const renderer = await renderProfile({ id: 'me' });
-        expect(activityAddresses(renderer)).toEqual([' · spot-a', ' · fb-x', ' · spot-b']);
+        feedbackDocs = [feedbackDoc('x', now - 1000, 'failed')];
+        spotsFoundCount = 0;
+        // hasImpact requires at least one nonzero metric to render the card
+        // at all — trustStats supplies that here so spotsFound: 0 is observable.
+        const renderer = await renderProfile({ id: 'me', trustStats: { handoffsCompleted: 1 } });
+        const numbers = impactNumbers(renderer);
+        expect(numbers[2]).toBe('0');
         act(() => renderer.unmount());
     });
 
-    it('7: mixed 1 spot + 2 feedback', async () => {
+    it('10: RecentActivity contains only the newest 3 across both sources', async () => {
+        const now = Date.now();
+        spotsDocs = [spotDoc('a', now - 1000), spotDoc('b', now - 2000)];
+        feedbackDocs = [feedbackDoc('x', now - 3000), feedbackDoc('y', now - 4000)];
+        const renderer = await renderProfile({ id: 'me' });
+        expect(activityAddresses(renderer)).toEqual([' · spot-a', ' · spot-b', ' · fb-x']);
+        act(() => renderer.unmount());
+    });
+
+    it('11: mixed ordering — newest combined top 3 remains correct', async () => {
         const now = Date.now();
         spotsDocs = [spotDoc('a', now - 2000)];
         feedbackDocs = [feedbackDoc('x', now - 1000), feedbackDoc('y', now - 3000)];
@@ -235,25 +271,7 @@ describe('ProfileView — RecentActivity bounded spots query', () => {
         act(() => renderer.unmount());
     });
 
-    it('8: one source empty', async () => {
-        const now = Date.now();
-        spotsDocs = [];
-        feedbackDocs = [feedbackDoc('x', now - 1000), feedbackDoc('y', now - 2000)];
-        const renderer = await renderProfile({ id: 'me' });
-        expect(activityAddresses(renderer)).toEqual([' · fb-x', ' · fb-y']);
-        act(() => renderer.unmount());
-    });
-
-    it('9: fewer than 3 total across both sources', async () => {
-        const now = Date.now();
-        spotsDocs = [spotDoc('a', now - 1000)];
-        feedbackDocs = [];
-        const renderer = await renderProfile({ id: 'me' });
-        expect(activityAddresses(renderer)).toEqual([' · spot-a']);
-        act(() => renderer.unmount());
-    });
-
-    it('10: an exact timestamp tie preserves current spot-before-feedback ordering (stable sort, spots pushed first)', async () => {
+    it('12: an exact timestamp tie preserves spot-before-feedback ordering', async () => {
         const now = Date.now();
         spotsDocs = [spotDoc('a', now)];
         feedbackDocs = [feedbackDoc('x', now)];
@@ -262,20 +280,30 @@ describe('ProfileView — RecentActivity bounded spots query', () => {
         act(() => renderer.unmount());
     });
 
-    it('11: a 4th, older spot cannot affect the global top 3 (server-side limit(3) already excludes it, proven safe by the top-K-of-union argument)', async () => {
+    it('13: one source empty', async () => {
         const now = Date.now();
-        spotsDocs = [spotDoc('a', now - 1000), spotDoc('b', now - 2000), spotDoc('c', now - 3000)]; // the mock only ever returns what the "query" would have limited to
-        feedbackDocs = [];
+        feedbackDocs = [feedbackDoc('x', now - 1000)];
         const renderer = await renderProfile({ id: 'me' });
-        expect(activityAddresses(renderer)).toHaveLength(3);
+        expect(activityAddresses(renderer)).toEqual([' · fb-x']);
         act(() => renderer.unmount());
     });
 
-    it('12: failure-outcome feedback still appears in RecentActivity', async () => {
+    it('14: both sources fewer than 3 total', async () => {
         const now = Date.now();
-        feedbackDocs = [feedbackDoc('x', now - 1000, 'failed')];
+        spotsDocs = [spotDoc('a', now - 1000)];
         const renderer = await renderProfile({ id: 'me' });
-        expect(activityAddresses(renderer)).toEqual([' · fb-x']);
+        expect(activityAddresses(renderer)).toEqual([' · spot-a']);
+        act(() => renderer.unmount());
+    });
+
+    it('15/16/17: a rejected count aggregation does not show a fake zero, does not fall back to the recent-feedback success count, and reaches the existing Profile error state', async () => {
+        feedbackDocs = [feedbackDoc('x', Date.now(), 'success')]; // would wrongly suggest "1" if used as a fallback
+        spotsFoundCount = 'reject';
+        const renderer = await renderProfile({ id: 'me' });
+        // hasImpact requires impactState === 'loaded'; on error it never
+        // reaches 'loaded', so the whole impact card (and any number,
+        // correct or not) never renders at all.
+        expect(impactNumbers(renderer)).toEqual([]);
         act(() => renderer.unmount());
     });
 });
