@@ -13,6 +13,15 @@
  * etc.) are introduced here.
  */
 
+// stats/global.totalSpotsPinged is a single document shared across the
+// ENTIRE suite: any other test file's real spots/{id} document creation
+// asynchronously triggers this same live Firestore listener in the
+// background, so before/after diffing it here is racy (confirmed in CI —
+// two parallel runs saw +2 and +3 instead of +1 for the same single call).
+// Exactly-once global-counter behavior is unaffected by this PR and is
+// already proven, race-tolerantly, by eventarcRetryHardening.integration.test.js.
+// These tests instead assert only against resources unique to each test
+// (a fresh finderId's user doc, a fresh event's marker) — race-free.
 const crypto = require('crypto');
 const { initializeApp, getApps } = require('firebase-admin/app');
 const { getFirestore, Timestamp } = require('firebase-admin/firestore');
@@ -41,19 +50,15 @@ async function cleanup(...refs) {
 }
 
 describe('incrementTotalSpotsPinged — durable per-user pingsShared counter', () => {
-    it('CASE 1: new ping + existing user increments global total, impactStats.pingsShared, and writes the marker', async () => {
+    it('CASE 1: new ping + existing user increments impactStats.pingsShared and writes the marker', async () => {
         const spotId = nextId('spot');
         const finderId = nextId('finder');
         const userRef = db.doc(`users/${finderId}`);
         await userRef.set({ crowns: 0 });
-        const statsRef = db.doc('stats/global');
-        const beforeGlobal = (await statsRef.get()).data()?.totalSpotsPinged || 0;
         const event = createdEvent(spotId, { spotId }, { finderId });
 
         await indexModule.incrementTotalSpotsPinged.run(event);
 
-        const afterGlobal = (await statsRef.get()).data()?.totalSpotsPinged || 0;
-        expect(afterGlobal - beforeGlobal).toBe(1);
         const userSnap = await userRef.get();
         expect(userSnap.data().impactStats.pingsShared).toBe(1);
         const markerSnap = await markerRef(event.id).get();
@@ -178,35 +183,28 @@ describe('incrementTotalSpotsPinged — durable per-user pingsShared counter', (
             actorUserId: finderId,
             processedAt: Timestamp.now(),
         });
-        const statsRef = db.doc('stats/global');
-        const beforeGlobal = (await statsRef.get()).data()?.totalSpotsPinged || 0;
 
         await indexModule.incrementTotalSpotsPinged.run(event);
 
-        const afterGlobal = (await statsRef.get()).data()?.totalSpotsPinged || 0;
-        expect(afterGlobal).toBe(beforeGlobal); // no global increment — already processed
         const userSnap = await userRef.get();
         expect(userSnap.data().impactStats).toBeUndefined(); // no retroactive backfill
 
         await cleanup(userRef, markerRef(event.id));
     });
 
-    it('CASE 9: actor user missing before first handler execution — global still increments, marker written, no user doc created', async () => {
+    it('CASE 9: actor user missing before first handler execution — marker still written, no user doc created', async () => {
         const spotId = nextId('spot');
         const finderId = nextId('finder'); // never created
         const userRef = db.doc(`users/${finderId}`);
-        const statsRef = db.doc('stats/global');
-        const beforeGlobal = (await statsRef.get()).data()?.totalSpotsPinged || 0;
         const event = createdEvent(spotId, { spotId }, { finderId });
 
         await indexModule.incrementTotalSpotsPinged.run(event);
 
-        const afterGlobal = (await statsRef.get()).data()?.totalSpotsPinged || 0;
-        expect(afterGlobal - beforeGlobal).toBe(1);
         const userSnap = await userRef.get();
         expect(userSnap.exists).toBe(false); // no stub created
         const markerSnap = await markerRef(event.id).get();
         expect(markerSnap.exists).toBe(true);
+        expect(markerSnap.data().actorUserId).toBe(finderId);
 
         await cleanup(markerRef(event.id));
     });
@@ -223,18 +221,16 @@ describe('incrementTotalSpotsPinged — durable per-user pingsShared counter', (
         await cleanup(markerRef(event.id));
     });
 
-    it('CASE 11: missing-user duplicate delivery still only increments the global counter once', async () => {
+    it('CASE 11: missing-user duplicate delivery never creates a user doc, on either delivery', async () => {
         const spotId = nextId('spot');
         const finderId = nextId('finder');
-        const statsRef = db.doc('stats/global');
-        const beforeGlobal = (await statsRef.get()).data()?.totalSpotsPinged || 0;
         const event = createdEvent(spotId, { spotId }, { finderId });
 
         await indexModule.incrementTotalSpotsPinged.run(event);
         await indexModule.incrementTotalSpotsPinged.run(event);
 
-        const afterGlobal = (await statsRef.get()).data()?.totalSpotsPinged || 0;
-        expect(afterGlobal - beforeGlobal).toBe(1);
+        const userSnap = await db.doc(`users/${finderId}`).get();
+        expect(userSnap.exists).toBe(false);
 
         await cleanup(markerRef(event.id));
     });
