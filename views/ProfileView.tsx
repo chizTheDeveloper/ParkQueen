@@ -12,8 +12,17 @@ import { validateAvatarUpload } from '../utils/avatarUploadValidation';
 import { deriveImpactCounts } from '../utils/profileImpact';
 import { t, useLang, getLang } from '../i18n';
 
+// The durable per-user pingsShared counter (users/{uid}.impactStats.pingsShared)
+// only started accumulating with this feature's rollout — historical ping
+// activity before it was intentionally not backfilled (see the Pings Shared
+// backfill-feasibility investigation). This constant is that fixed rollout
+// boundary, not the incrementTotalSpotsPinged marker's own 2026-08-04 start
+// date, which predates and is unrelated to this per-user counter.
+const PINGS_SHARED_TRACKING_SINCE = new Date(2026, 7, 1);
+
 export const ProfileView = ({ user, onBack, setView }) => {
   useLang();
+  const locale = getLang() === 'es' ? 'es' : 'en-US';
   const [isUploading, setIsUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string>('');
   const [uploadError, setUploadError] = useState(false);
@@ -80,12 +89,12 @@ export const ProfileView = ({ user, onBack, setView }) => {
           items.push({ id: `d-${f.id}`, icon: 'parking', actionKey: 'profile.activity_parked', address: f.address || '', reward: '+1', ts });
         });
 
-        // Compute impact from all docs before slicing. successfulHandoffs
-        // comes from the durable trustStats.handoffsCompleted counter
-        // (already present in memory — App.tsx spreads the whole users/{uid}
-        // doc into `user` — no extra Firestore read needed), not from
-        // counting ephemeral spots.
-        const counts = deriveImpactCounts(allSpots, allFeedback, user.trustStats?.handoffsCompleted ?? 0);
+        // Compute impact from all docs before slicing. successfulHandoffs and
+        // pingsShared both come from durable users/{uid} counters (already
+        // present in memory — App.tsx spreads the whole users/{uid} doc into
+        // `user` — no extra Firestore read needed), not from counting
+        // ephemeral spots.
+        const counts = deriveImpactCounts(allFeedback, user.trustStats?.handoffsCompleted ?? 0, user.impactStats?.pingsShared ?? 0);
         setImpactCounts(counts);
         setImpactState('loaded');
 
@@ -301,7 +310,6 @@ export const ProfileView = ({ user, onBack, setView }) => {
                     const ts = user.createdAt;
                     if (!ts) return null;
                     const d = typeof ts.toDate === 'function' ? ts.toDate() : new Date(ts);
-                    const locale = getLang() === 'es' ? 'es' : 'en-US';
                     return (
                       <p className="text-xs text-[var(--color-text-secondary)] mt-1">
                         {t('profile.joined', { date: d.toLocaleDateString(locale, { month: 'long', year: 'numeric' }) })}
@@ -383,6 +391,9 @@ export const ProfileView = ({ user, onBack, setView }) => {
                   <div className="flex flex-col items-center text-center">
                     <span className="text-[22px] font-extrabold text-[var(--color-text)] leading-none">{impactCounts.pingsShared}</span>
                     <span className="text-[10px] text-[var(--color-text-secondary)] mt-1 leading-snug">{t('profile.pings_shared')}</span>
+                    <span className="text-[9px] text-[var(--color-text-secondary)] opacity-70 leading-snug">
+                      {t('profile.pings_shared_since', { date: PINGS_SHARED_TRACKING_SINCE.toLocaleDateString(locale, { month: 'short', year: 'numeric' }) })}
+                    </span>
                   </div>
                   <div className="flex flex-col items-center text-center border-x border-[var(--color-border)]">
                     <span className="text-[22px] font-extrabold text-[var(--color-text)] leading-none">{impactCounts.successfulHandoffs}</span>
