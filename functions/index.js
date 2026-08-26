@@ -598,8 +598,14 @@ exports.incrementTotalSpotsPinged = onDocumentCreated(
     const statsRef = db.doc("stats/global");
     if (typeof event.id !== 'string' || !event.id) return;
     const eventRef = db.doc(`functionEvents/incrementTotalSpotsPinged_${stableId(event.id)}`);
+    const userRef = db.doc(`users/${spot.finderId}`);
     await db.runTransaction(async tx => {
-      if ((await tx.get(eventRef)).exists) return;
+      const [eventSnap, userSnap] = await Promise.all([tx.get(eventRef), tx.get(userRef)]);
+      // Historical markers (written before the per-user counter existed) are
+      // never reprocessed — "Pings shared" is go-forward only. See the Pings
+      // Shared backfill-feasibility investigation: exact historical
+      // attribution is unrecoverable for the vast majority of pings.
+      if (eventSnap.exists) return;
       tx.set(eventRef, {
         functionName: 'incrementTotalSpotsPinged',
         sourceEventId: event.id,
@@ -608,6 +614,9 @@ exports.incrementTotalSpotsPinged = onDocumentCreated(
         processedAt: Timestamp.now(),
       });
       tx.set(statsRef, { totalSpotsPinged: FieldValue.increment(1) }, { merge: true });
+      if (userSnap.exists) {
+        tx.set(userRef, { impactStats: { pingsShared: FieldValue.increment(1) } }, { merge: true });
+      }
     });
   }
 );
