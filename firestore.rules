@@ -252,7 +252,7 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly([
              'lat', 'lng', 'type', 'status', 'finderId', 'finderName',
              'finderTitle', 'finderVehicleColor', 'finderVehicleType', 'finderVehicleBrand',
-             'pingMode', 'reportedAt', 'expiresAt', 'geohash', 'address', 'originSpotId'])
+             'pingMode', 'reportedAt', 'expiresAt', 'geohash', 'address', 'originSpotId', 'source'])
         && request.resource.data.finderId == request.auth.uid
         && request.resource.data.status == 'available'
         && request.resource.data.type == 'free'
@@ -268,6 +268,13 @@ service cloud.firestore {
         && request.resource.data.lng >= -180 && request.resource.data.lng <= 180
         && request.resource.data.expiresAt is timestamp
         && request.resource.data.expiresAt > request.time
+        // 'source' is also written server-side (adminDeleteSpot sets 'admin'
+        // via the Admin SDK, bypassing rules entirely) to drive
+        // updateTrustOnSpotDelete's cancellation-penalty exemption — a client
+        // create may NEVER set anything but the literal 'my_car' tag used for
+        // handleMyCarPing's own orphan-cleanup filter, so this can't be used
+        // to spoof the admin exemption.
+        && (!('source' in request.resource.data) || request.resource.data.source == 'my_car')
         && matchesFinderIdentity(request.resource.data);
       allow delete: if signedIn() && resource.data.finderId == request.auth.uid;
       allow update: if signedIn() && (
