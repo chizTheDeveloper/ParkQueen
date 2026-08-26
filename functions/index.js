@@ -178,7 +178,7 @@ async function applyTrustDelta(uid, statField, eventId, source = 'user') {
 // Initialize private/account subcollection when a new user doc is created.
 // Rules set allow write: if false on private/account, so only this server trigger can create it.
 exports.initUserPrivateAccount = onDocumentCreated(
-  { document: 'users/{userId}', region: 'us-central1', serviceAccount: 'parqueen-system-events@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
+  { document: 'users/{userId}', region: 'us-central1', retry: true, serviceAccount: 'parqueen-system-events@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (event) => {
     const { userId } = event.params;
     await db.doc(`users/${userId}/private/account`)
@@ -561,6 +561,7 @@ exports.incrementTotalSpotsPinged = onDocumentCreated(
   {
     document: "spots/{spotId}",
     region: "us-central1",
+    retry: true,
     serviceAccount: 'parqueen-system-events@parkqueen-46475363-ccf36.iam.gserviceaccount.com',
   },
   async (event) => {
@@ -3005,7 +3006,7 @@ exports.deleteAccount = onCall({ region: 'us-central1', serviceAccount: 'parquee
 // Fires on every spotFeedback creation; only acts on outcome === 'success'.
 // eventId uses the feedback document ID (already globally unique) with a role suffix.
 exports.updateTrustOnFeedback = onDocumentCreated(
-  { document: 'spotFeedback/{feedbackId}', region: 'us-central1', serviceAccount: 'parqueen-system-events@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
+  { document: 'spotFeedback/{feedbackId}', region: 'us-central1', retry: true, serviceAccount: 'parqueen-system-events@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (event) => {
     const data = event.data?.data();
     if (!data || data.outcome !== 'success') return;
@@ -3056,7 +3057,7 @@ exports.scheduleCleaningReminders = onSchedule(
 );
 
 exports.updateTrustOnSpotDelete = onDocumentDeleted(
-  { document: 'spots/{spotId}', region: 'us-central1', serviceAccount: 'parqueen-system-events@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
+  { document: 'spots/{spotId}', region: 'us-central1', retry: true, serviceAccount: 'parqueen-system-events@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (event) => {
     const data = event.data?.data();
     if (!data || data.status !== 'interested' || !data.finderId) return;
