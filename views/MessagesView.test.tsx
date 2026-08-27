@@ -47,16 +47,39 @@ let userDocCalls: UserDocCall[] = [];
 let chatsOnNext: ((snap: any) => void) | null = null;
 let chatsUnsubCount = 0;
 
+interface MessagesSnapshotCall {
+    constraints: any[];
+    onNext: (snap: any) => void;
+}
+let messagesSnapshotCalls: MessagesSnapshotCall[] = [];
+let messagesUnsubCount = 0;
+
+interface OlderPageCall {
+    constraints: any[];
+    resolve: (docs: any[]) => void;
+    reject: (err: unknown) => void;
+}
+let olderPageCalls: OlderPageCall[] = [];
+// When null, every older-page getDocs call auto-resolves immediately with
+// this doc array (default: empty). Set to null to take manual control.
+let olderPageAutoDocs: any[] | null = [];
+
 vi.mock('firebase/firestore', () => ({
     collection: (_db: any, ...path: string[]) => ({ __col: path }),
     doc: (_db: any, ...path: string[]) => ({ __doc: path }),
     query: (base: any, ...constraints: any[]) => ({ ...base, __constraints: constraints }),
     where: (field: string, op: string, value: any) => ({ __kind: 'where', field, op, value }),
     orderBy: (field: string, dir?: string) => ({ __kind: 'orderBy', field, dir }),
+    limit: (n: number) => ({ __kind: 'limit', n }),
+    startAfter: (cursor: any) => ({ __kind: 'startAfter', cursor }),
     onSnapshot: (q: any, onNext: any) => {
         if (Array.isArray(q.__col) && q.__col.length === 1 && q.__col[0] === 'chats') {
             chatsOnNext = onNext;
             return () => { chatsUnsubCount++; };
+        }
+        if (Array.isArray(q.__col) && q.__col.length === 3 && q.__col[0] === 'chats' && q.__col[2] === 'messages') {
+            messagesSnapshotCalls.push({ constraints: q.__constraints, onNext });
+            return () => { messagesUnsubCount++; };
         }
         onNext({ docs: [] });
         return () => {};
@@ -69,7 +92,15 @@ vi.mock('firebase/firestore', () => ({
             reject,
         });
     }),
-    getDocs: async () => ({ docs: [] }),
+    getDocs: (q: any) => new Promise((resolve, reject) => {
+        const call: OlderPageCall = {
+            constraints: q.__constraints,
+            resolve: (docs: any[]) => resolve({ docs }),
+            reject,
+        };
+        olderPageCalls.push(call);
+        if (olderPageAutoDocs !== null) call.resolve(olderPageAutoDocs);
+    }),
     addDoc: async () => ({ id: 'x' }),
     setDoc: async () => {},
     writeBatch: () => ({ delete: () => {}, commit: async () => {} }),
@@ -100,6 +131,18 @@ function chatDoc(id: string, participants: string[], opts: {
     };
 }
 
+// Shared mock for every ref in the tree — messagesEndRef only ever calls
+// scrollIntoView() on it, messagesContainerRef only ever reads/writes
+// scrollTop/scrollHeight on it. Using one object for both is safe because
+// the two operations never interact.
+let scrollMock: { scrollIntoView: ReturnType<typeof vi.fn>; scrollTop: number; scrollHeight: number };
+function resetScrollMock() {
+    scrollMock = { scrollIntoView: vi.fn(), scrollTop: 0, scrollHeight: 0 };
+}
+function createNodeMock() {
+    return scrollMock;
+}
+
 async function renderMessages(props: Partial<React.ComponentProps<typeof MessagesView>> = {}) {
     let renderer: TestRenderer.ReactTestRenderer;
     await act(async () => {
@@ -108,13 +151,46 @@ async function renderMessages(props: Partial<React.ComponentProps<typeof Message
             activeChatContext: null,
             onBack: () => {},
             ...props,
-        }));
+        }), { createNodeMock });
     });
     return renderer!;
 }
 
 function emitChats(docs: any[]) {
     act(() => { chatsOnNext!({ docs }); });
+}
+
+function messageDoc(id: string, opts: { senderId: string; text: string; ms: number }) {
+    return {
+        id,
+        data: () => ({ senderId: opts.senderId, text: opts.text, timestamp: tsAt(opts.ms) }),
+    };
+}
+
+/** Emits a messages-listener snapshot with explicit docChanges — docsNewestFirst
+ * represents the full current result set (only read by the component on the
+ * very first snapshot, to capture the historical pagination cursor). */
+function emitMessages(callIndex: number, docsNewestFirst: any[], changes: Array<{ type: 'added' | 'modified' | 'removed'; doc: any }>) {
+    const call = messagesSnapshotCalls[callIndex];
+    act(() => { call.onNext({ docs: docsNewestFirst, docChanges: () => changes }); });
+}
+
+function added(docs: any[]) { return docs.map(doc => ({ type: 'added' as const, doc })); }
+
+function messageBubbleTexts(renderer: TestRenderer.ReactTestRenderer): string[] {
+    return renderer.root.findAll(
+        n => n.type === 'p' && n.props.className === 'text-sm',
+    ).map(n => String(n.props.children));
+}
+
+function loadEarlierButton(renderer: TestRenderer.ReactTestRenderer) {
+    return renderer.root.findAll(n => n.type === 'button' && n.props['aria-label'] === 'Load earlier messages')[0];
+}
+function loadEarlierVisible(renderer: TestRenderer.ReactTestRenderer): boolean {
+    return loadEarlierButton(renderer) !== undefined;
+}
+function clickLoadEarlier(renderer: TestRenderer.ReactTestRenderer) {
+    act(() => { loadEarlierButton(renderer).props.onClick(); });
 }
 
 function conversationNames(renderer: TestRenderer.ReactTestRenderer): string[] {
@@ -137,10 +213,19 @@ function clickButtonWithAriaLabel(renderer: TestRenderer.ReactTestRenderer, labe
     act(() => { btn.props.onClick(); });
 }
 
-function openFirstConversation(renderer: TestRenderer.ReactTestRenderer) {
-    const btn = renderer.root.findAll(
+function conversationRowButtons(renderer: TestRenderer.ReactTestRenderer) {
+    return renderer.root.findAll(
         n => n.type === 'button' && typeof n.props.className === 'string' && n.props.className.includes('rounded-2xl') && n.props.className.includes('p-3.5'),
-    )[0];
+    );
+}
+function openFirstConversation(renderer: TestRenderer.ReactTestRenderer) {
+    act(() => { conversationRowButtons(renderer)[0].props.onClick(); });
+}
+function openConversationAt(renderer: TestRenderer.ReactTestRenderer, index: number) {
+    act(() => { conversationRowButtons(renderer)[index].props.onClick(); });
+}
+function goBackToInbox(renderer: TestRenderer.ReactTestRenderer) {
+    const btn = renderer.root.findAll(n => n.type === 'button' && n.props['aria-label'] === 'Back to inbox')[0];
     act(() => { btn.props.onClick(); });
 }
 
@@ -164,6 +249,11 @@ describe('MessagesView — partner profile hydration', () => {
         chatsUnsubCount = 0;
         callableCalls = [];
         callableImpl = null;
+        messagesSnapshotCalls = [];
+        messagesUnsubCount = 0;
+        olderPageCalls = [];
+        olderPageAutoDocs = [];
+        resetScrollMock();
     });
     afterEach(() => {
         vi.useRealTimers();
@@ -385,6 +475,11 @@ describe('MessagesView — delete conversation via server-mediated callable', ()
         chatsUnsubCount = 0;
         callableCalls = [];
         callableImpl = null;
+        messagesSnapshotCalls = [];
+        messagesUnsubCount = 0;
+        olderPageCalls = [];
+        olderPageAutoDocs = [];
+        resetScrollMock();
     });
     afterEach(() => {
         vi.useRealTimers();
@@ -484,5 +579,364 @@ describe('MessagesView — delete conversation via server-mediated callable', ()
         });
         expect(callableCalls.length).toBe(1);
         act(() => renderer.unmount());
+    });
+});
+
+describe('MessagesView — bounded message history pagination', () => {
+    beforeEach(() => {
+        userDocCalls = [];
+        chatsOnNext = null;
+        chatsUnsubCount = 0;
+        callableCalls = [];
+        callableImpl = null;
+        messagesSnapshotCalls = [];
+        messagesUnsubCount = 0;
+        olderPageCalls = [];
+        olderPageAutoDocs = [];
+        resetScrollMock();
+    });
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    async function openConversationLive() {
+        const renderer = await renderMessages();
+        emitChats([chatDoc('me_alice', ['me', 'alice'])]);
+        await act(async () => { await flush(); });
+        openFirstConversation(renderer);
+        return renderer;
+    }
+
+    function msg(id: string, ms: number, senderId: string = 'alice') {
+        return messageDoc(id, { senderId, text: id, ms });
+    }
+
+    // ─── Query shape ─────────────────────────────────────────────────────
+
+    it('the live messages listener queries orderBy(timestamp desc) + limit(30), not the old unbounded ascending query', async () => {
+        const renderer = await openConversationLive();
+        expect(messagesSnapshotCalls.length).toBe(1);
+        const constraints = messagesSnapshotCalls[0].constraints;
+        expect(constraints.some((c: any) => c.__kind === 'orderBy' && c.field === 'timestamp' && c.dir === 'desc')).toBe(true);
+        expect(constraints.some((c: any) => c.__kind === 'limit' && c.n === 30)).toBe(true);
+        expect(constraints.some((c: any) => c.__kind === 'orderBy' && c.dir === 'asc')).toBe(false);
+        act(() => renderer.unmount());
+    });
+
+    it('the initial snapshot is displayed in chronological ascending order regardless of the descending fetch order', async () => {
+        const renderer = await openConversationLive();
+        emitMessages(0, [msg('m3', T0 + 2000), msg('m2', T0 + 1000), msg('m1', T0)], added([msg('m1', T0), msg('m2', T0 + 1000), msg('m3', T0 + 2000)]));
+        expect(messageBubbleTexts(renderer)).toEqual(['m1', 'm2', 'm3']);
+        act(() => renderer.unmount());
+    });
+
+    it('fewer than 30 initial messages shows no Load earlier control', async () => {
+        const renderer = await openConversationLive();
+        const docs = [msg('m2', T0 + 1000), msg('m1', T0)];
+        emitMessages(0, docs, added(docs));
+        expect(loadEarlierVisible(renderer)).toBe(false);
+        act(() => renderer.unmount());
+    });
+
+    it('exactly 30 initial messages makes the Load earlier control available', async () => {
+        const renderer = await openConversationLive();
+        const docs = Array.from({ length: 30 }, (_, i) => msg(`m${29 - i}`, T0 + (29 - i) * 1000)); // newest-first
+        emitMessages(0, docs, added(docs));
+        expect(loadEarlierVisible(renderer)).toBe(true);
+        act(() => renderer.unmount());
+    });
+
+    // ─── Pagination ──────────────────────────────────────────────────────
+
+    it('Load earlier issues a getDocs query with orderBy(timestamp desc) + startAfter(the actual oldest DocumentSnapshot) + limit(30)', async () => {
+        const renderer = await openConversationLive();
+        const oldest = msg('m1', T0);
+        const docs = Array.from({ length: 30 }, (_, i) => (i === 29 ? oldest : msg(`m${29 - i}`, T0 + (29 - i) * 1000)));
+        olderPageAutoDocs = null;
+        emitMessages(0, docs, added(docs));
+
+        clickLoadEarlier(renderer);
+        expect(olderPageCalls.length).toBe(1);
+        const constraints = olderPageCalls[0].constraints;
+        expect(constraints.some((c: any) => c.__kind === 'orderBy' && c.field === 'timestamp' && c.dir === 'desc')).toBe(true);
+        expect(constraints.some((c: any) => c.__kind === 'startAfter' && c.cursor === oldest)).toBe(true);
+        expect(constraints.some((c: any) => c.__kind === 'limit' && c.n === 30)).toBe(true);
+        act(() => renderer.unmount());
+    });
+
+    it('live window eviction never removes an already-loaded message — repeated evictions keep gapless retained history (K=3 conceptual walkthrough exactly as specified)', async () => {
+        const renderer = await openConversationLive();
+
+        // Initial live window (conceptually K=3): messages 1,2,3.
+        const m1 = msg('m1', T0 - 3000), m2 = msg('m2', T0 - 2000), m3 = msg('m3', T0 - 1000);
+        emitMessages(0, [m3, m2, m1], added([m1, m2, m3]));
+        expect(messageBubbleTexts(renderer)).toEqual(['m1', 'm2', 'm3']);
+
+        // Message 4 arrives — live query becomes 2,3,4 and emits removed(1).
+        const m4 = msg('m4', T0);
+        emitMessages(0, [m4, m3, m2], [{ type: 'added', doc: m4 }, { type: 'removed', doc: m1 }]);
+        expect(messageBubbleTexts(renderer)).toEqual(['m1', 'm2', 'm3', 'm4']); // NOT ['m2','m3','m4']
+
+        // The historical pagination cursor must still point at m1 (the
+        // oldest of the ORIGINAL initial page) — never moved forward by
+        // the eviction above. Older-page merge/dedup/cursor-advance
+        // mechanics themselves are proven separately (with the real
+        // MESSAGE_PAGE_SIZE=30 threshold, since hasMoreOlder only becomes
+        // true at exactly 30 initial documents) by the dedicated
+        // query-shape and retry tests above.
+
+        // Message 5 arrives afterward — live query shifts again (evicting 2).
+        const m5 = msg('m5', T0 + 1000);
+        emitMessages(0, [m5, m4, m3], [{ type: 'added', doc: m5 }, { type: 'removed', doc: m2 }]);
+        expect(messageBubbleTexts(renderer)).toEqual(['m1', 'm2', 'm3', 'm4', 'm5']); // still all five, gapless
+
+        act(() => renderer.unmount());
+    });
+
+    it('fewer than 30 documents returned by an older page sets hasMoreOlder to false', async () => {
+        const renderer = await openConversationLive();
+        const docs = Array.from({ length: 30 }, (_, i) => msg(`m${29 - i}`, T0 + (29 - i) * 1000));
+        olderPageAutoDocs = null;
+        emitMessages(0, docs, added(docs));
+        clickLoadEarlier(renderer);
+        await act(async () => {
+            olderPageCalls[0].resolve([msg('older1', T0 - 1000)]);
+            await flush();
+        });
+        expect(loadEarlierVisible(renderer)).toBe(false);
+        act(() => renderer.unmount());
+    });
+
+    it('an older-page failure preserves already-loaded messages and cursor, and retry remains possible', async () => {
+        const renderer = await openConversationLive();
+        const docs = Array.from({ length: 30 }, (_, i) => msg(`m${29 - i}`, T0 + (29 - i) * 1000));
+        olderPageAutoDocs = null;
+        emitMessages(0, docs, added(docs));
+        const beforeTexts = messageBubbleTexts(renderer);
+
+        clickLoadEarlier(renderer);
+        await act(async () => {
+            olderPageCalls[0].reject(new Error('boom'));
+            await flush();
+        });
+        expect(messageBubbleTexts(renderer)).toEqual(beforeTexts); // unchanged
+        expect(loadEarlierVisible(renderer)).toBe(true); // still available — retry possible
+        expect(renderer.root.findAll(n => n.type === 'p' && n.props.children === 'Failed to load earlier messages.').length).toBe(1);
+
+        // Retry succeeds normally.
+        await act(async () => {
+            clickLoadEarlier(renderer);
+            olderPageCalls[1].resolve([msg('older1', T0 - 5000)]);
+            await flush();
+        });
+        expect(messageBubbleTexts(renderer)).toContain('older1');
+        act(() => renderer.unmount());
+    });
+
+    it('a second Load earlier click while the first is still pending issues only one older-page request', async () => {
+        const renderer = await openConversationLive();
+        const docs = Array.from({ length: 30 }, (_, i) => msg(`m${29 - i}`, T0 + (29 - i) * 1000));
+        olderPageAutoDocs = null;
+        emitMessages(0, docs, added(docs));
+
+        olderPageAutoDocs = null;
+        clickLoadEarlier(renderer); // first click — now pending
+        expect(loadEarlierButton(renderer).props.disabled).toBe(true);
+        // Code-level guard, invoked directly (react-test-renderer doesn't
+        // itself enforce the disabled attribute).
+        act(() => { loadEarlierButton(renderer)?.props.onClick(); });
+
+        expect(olderPageCalls.length).toBe(1);
+        await act(async () => {
+            olderPageCalls[0].resolve([]);
+            await flush();
+        });
+        expect(olderPageCalls.length).toBe(1);
+        act(() => renderer.unmount());
+    });
+
+    // ─── modified events ─────────────────────────────────────────────────
+
+    it('a modified change type updates the retained message content by ID', async () => {
+        const renderer = await openConversationLive();
+        const m1 = msg('m1', T0);
+        emitMessages(0, [m1], added([m1]));
+        expect(messageBubbleTexts(renderer)).toEqual(['m1']);
+
+        const m1Edited = messageDoc('m1', { senderId: 'alice', text: 'm1-edited', ms: T0 });
+        emitMessages(0, [m1Edited], [{ type: 'modified', doc: m1Edited }]);
+        expect(messageBubbleTexts(renderer)).toEqual(['m1-edited']);
+        act(() => renderer.unmount());
+    });
+
+    // ─── Whole-chat deletion ─────────────────────────────────────────────
+
+    it('message removed events alone do not exit the conversation or clear retained history — only the chats listener disappearing does', async () => {
+        const renderer = await openConversationLive();
+        const m1 = msg('m1', T0);
+        emitMessages(0, [m1], added([m1]));
+        expect(isInConversationDetail(renderer)).toBe(true);
+
+        // Server-mediated whole-chat deletion in progress: the messages
+        // listener can emit removed() for real, already-loaded messages
+        // before the conversations listener reports the parent chat gone.
+        emitMessages(0, [], [{ type: 'removed', doc: m1 }]);
+        expect(isInConversationDetail(renderer)).toBe(true);
+        expect(messageBubbleTexts(renderer)).toEqual(['m1']); // NOT cleared
+
+        // Now the chats listener reports the chat itself is gone.
+        emitChats([]);
+        await act(async () => { await flush(); });
+        expect(isInConversationDetail(renderer)).toBe(false);
+        act(() => renderer.unmount());
+    });
+
+    it('after whole-chat deletion exits the view, opening a different conversation starts with clean pagination state (no leaked history)', async () => {
+        const renderer = await renderMessages();
+        emitChats([chatDoc('me_alice', ['me', 'alice'])]);
+        await act(async () => { await flush(); });
+        openFirstConversation(renderer);
+        const m1 = msg('m1', T0);
+        emitMessages(0, [m1], added([m1]));
+        expect(messageBubbleTexts(renderer)).toEqual(['m1']);
+
+        emitChats([]); // alice's chat is gone
+        await act(async () => { await flush(); });
+        expect(isInConversationDetail(renderer)).toBe(false);
+
+        emitChats([chatDoc('me_bob', ['me', 'bob'])]);
+        await act(async () => { await flush(); });
+        openFirstConversation(renderer);
+        expect(messageBubbleTexts(renderer)).toEqual([]); // clean slate, not leaking alice's m1
+        act(() => renderer.unmount());
+    });
+
+    // ─── Races ───────────────────────────────────────────────────────────
+
+    it('switching conversations unsubscribes the previous messages listener, and a late callback from it cannot affect the newly active conversation', async () => {
+        const renderer = await renderMessages();
+        emitChats([
+            chatDoc('me_alice', ['me', 'alice'], { lastMessageTimestampMs: T0 - 1000 }),
+            chatDoc('me_bob', ['me', 'bob'], { lastMessageTimestampMs: T0 }),
+        ]);
+        await act(async () => { await flush(); });
+
+        openConversationAt(renderer, 0); // bob (newest lastMessageTimestamp, sorts first)
+        const bobMsgCall = messagesSnapshotCalls[0];
+        expect(messagesUnsubCount).toBe(0);
+
+        goBackToInbox(renderer);
+        openConversationAt(renderer, 1); // alice
+        expect(messagesUnsubCount).toBe(1); // bob's listener torn down on switch
+        const mAlice = msg('a1', T0, 'alice');
+        emitMessages(1, [mAlice], added([mAlice]));
+        expect(messageBubbleTexts(renderer)).toEqual(['a1']);
+
+        // A late callback from bob's already-unsubscribed listener must not
+        // corrupt alice's display.
+        const mBobLate = msg('b-late', T0 + 5000, 'bob');
+        act(() => { bobMsgCall.onNext({ docs: [mBobLate], docChanges: () => added([mBobLate]) }); });
+        expect(messageBubbleTexts(renderer)).toEqual(['a1']);
+
+        act(() => renderer.unmount());
+    });
+
+    it('a late-resolving older-page request from a previous conversation does not mutate the newly active conversation\'s messages', async () => {
+        const renderer = await renderMessages();
+        emitChats([
+            chatDoc('me_alice', ['me', 'alice'], { lastMessageTimestampMs: T0 - 1000 }),
+            chatDoc('me_bob', ['me', 'bob'], { lastMessageTimestampMs: T0 }),
+        ]);
+        await act(async () => { await flush(); });
+
+        openConversationAt(renderer, 0); // bob
+        const docsB = Array.from({ length: 30 }, (_, i) => msg(`b${29 - i}`, T0 + (29 - i) * 1000, 'bob'));
+        olderPageAutoDocs = null;
+        emitMessages(0, docsB, added(docsB));
+        clickLoadEarlier(renderer); // pending older-page request for bob
+        const pendingBob = olderPageCalls[0];
+
+        goBackToInbox(renderer);
+        openConversationAt(renderer, 1); // alice
+        const mAlice = msg('a1', T0, 'alice');
+        emitMessages(1, [mAlice], added([mAlice]));
+        expect(messageBubbleTexts(renderer)).toEqual(['a1']);
+
+        // Bob's stale page resolves late — must not corrupt alice's display.
+        await act(async () => {
+            pendingBob.resolve([msg('late-bob', T0 - 100000, 'bob')]);
+            await flush();
+        });
+        expect(messageBubbleTexts(renderer)).toEqual(['a1']);
+        act(() => renderer.unmount());
+    });
+
+    it('unmounting while an older-page request is in flight causes no error or post-unmount state update', async () => {
+        const renderer = await openConversationLive();
+        const docs = Array.from({ length: 30 }, (_, i) => msg(`m${29 - i}`, T0 + (29 - i) * 1000));
+        olderPageAutoDocs = null;
+        emitMessages(0, docs, added(docs));
+        clickLoadEarlier(renderer);
+        const pending = olderPageCalls[0];
+        act(() => renderer.unmount());
+        await act(async () => {
+            expect(() => pending.resolve([msg('late', T0 - 100000)])).not.toThrow();
+            await flush();
+        });
+    });
+
+    // ─── Scroll ──────────────────────────────────────────────────────────
+
+    it('initial open scrolls to the newest message', async () => {
+        const renderer = await openConversationLive();
+        const m1 = msg('m1', T0);
+        emitMessages(0, [m1], added([m1]));
+        expect(scrollMock.scrollIntoView).toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    it('a new live message preserves the existing auto-scroll-to-bottom behavior', async () => {
+        const renderer = await openConversationLive();
+        const m1 = msg('m1', T0);
+        emitMessages(0, [m1], added([m1]));
+        scrollMock.scrollIntoView.mockClear();
+        const m2 = msg('m2', T0 + 1000);
+        emitMessages(0, [m2, m1], added([m2]));
+        expect(scrollMock.scrollIntoView).toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    it('Load earlier does NOT trigger scroll-to-bottom (preserves the user\'s reading position)', async () => {
+        const renderer = await openConversationLive();
+        const docs = Array.from({ length: 30 }, (_, i) => msg(`m${29 - i}`, T0 + (29 - i) * 1000));
+        olderPageAutoDocs = null;
+        emitMessages(0, docs, added(docs));
+        scrollMock.scrollIntoView.mockClear();
+
+        clickLoadEarlier(renderer);
+        await act(async () => {
+            olderPageCalls[0].resolve([msg('older1', T0 - 5000)]);
+            await flush();
+        });
+        expect(scrollMock.scrollIntoView).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    // ─── Empty chat ──────────────────────────────────────────────────────
+
+    it('an empty conversation shows no Load earlier control and normal empty rendering, unaffected by pagination', async () => {
+        const renderer = await openConversationLive();
+        emitMessages(0, [], []);
+        expect(loadEarlierVisible(renderer)).toBe(false);
+        expect(messageBubbleTexts(renderer)).toEqual([]);
+        act(() => renderer.unmount());
+    });
+
+    // ─── Scroll-restore formula (pure function) ─────────────────────────
+
+    it('computeRestoredScrollTop preserves the visual anchor: prevScrollTop + (newHeight - prevHeight)', async () => {
+        const { computeRestoredScrollTop } = await import('./MessagesView');
+        expect(computeRestoredScrollTop(100, 500, 800)).toBe(400);
+        expect(computeRestoredScrollTop(0, 200, 200)).toBe(0);
     });
 });

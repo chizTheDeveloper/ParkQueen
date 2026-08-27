@@ -804,6 +804,9 @@ const es: Record<string, string> = {
     'messages.type_placeholder': 'Escribe un mensaje...',
     'messages.back_chat_aria': 'Volver a mensajes',
     'messages.menu_aria': 'Más opciones',
+    'messages.load_earlier': 'Cargar mensajes anteriores',
+    'messages.loading_earlier': 'Cargando...',
+    'messages.toast_load_earlier_failed': 'No se pudieron cargar los mensajes anteriores.',
 
     // Street Intelligence — tarjeta + hoja de sesión
     'street_intel.found': 'Limpieza de calle encontrada',

@@ -804,6 +804,9 @@ const en: Record<string, string> = {
     'messages.type_placeholder': 'Type a message...',
     'messages.back_chat_aria': 'Back to inbox',
     'messages.menu_aria': 'More options',
+    'messages.load_earlier': 'Load earlier messages',
+    'messages.loading_earlier': 'Loading...',
+    'messages.toast_load_earlier_failed': 'Failed to load earlier messages.',
 
     // Street Intelligence — card + session sheet
     'street_intel.found': 'Street cleaning found',
