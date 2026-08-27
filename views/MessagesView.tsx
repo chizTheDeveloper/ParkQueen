@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { Send, ChevronLeft, MoreVertical, Sparkles, ArrowLeft, MapPin, MessageSquare } from 'lucide-react';
 import { generateSmartReplies, createSmartReplyRequestKey } from '../services/geminiService';
-import { collection, query, where, onSnapshot, addDoc, doc, setDoc, orderBy, serverTimestamp, getDoc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, doc, setDoc, orderBy, serverTimestamp, getDoc, getDocs, limit, startAfter, updateDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getApp } from 'firebase/app';
 import { db } from '../firebase';
@@ -12,6 +12,21 @@ interface MessagesViewProps {
   user: any;
   activeChatContext: { userId: string; context: string } | null;
   onBack: () => void;
+}
+
+// Realtime window size for the newest messages in an open conversation —
+// older history is loaded explicitly via loadOlderMessages(). Current
+// production p90 is 7 messages/chat, so 30 comfortably covers virtually
+// every conversation today while bounding initial read/render cost as
+// conversations age. Not user-configurable.
+const MESSAGE_PAGE_SIZE = 30;
+
+// Prepending older history must not visually yank the viewport — restoring
+// scrollTop to the same point in the (now taller) content preserves the
+// reader's position. Exported as a pure function so the formula itself can
+// be pinned directly without simulating a fake browser layout.
+export function computeRestoredScrollTop(prevScrollTop: number, prevScrollHeight: number, newScrollHeight: number): number {
+  return prevScrollTop + (newScrollHeight - prevScrollHeight);
 }
 
 export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatContext, onBack }) => {
@@ -27,6 +42,42 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
   const [smartReplies, setSmartReplies] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastSmartReplyKey = useRef<string | null>(null);
+
+  // ── Bounded message history pagination ──────────────────────────────
+  // retainedMessagesRef accumulates every message this session has loaded
+  // for the active conversation (live + explicitly paginated) — it is the
+  // source of truth for what's displayed (`messages`, derived below) and
+  // is NEVER pruned by a live-query 'removed' event. liveWindowIdsRef only
+  // tracks which IDs currently sit inside the realtime newest-window query,
+  // purely to interpret 'removed' vs 'added'/'modified' — a message leaving
+  // the live window (pushed out by a newer one) and a message being
+  // deleted server-side (mid deleteChat) produce the identical event, and
+  // the only safe way to tell them apart is to wait for the
+  // conversations-list listener to report the whole chat gone.
+  const [hasMoreOlder, setHasMoreOlder] = useState(false);
+  const [isLoadingOlder, setIsLoadingOlder] = useState(false);
+  const retainedMessagesRef = useRef<Map<string, any>>(new Map());
+  const liveWindowIdsRef = useRef<Set<string>>(new Set());
+  const oldestLoadedCursorRef = useRef<any>(null);
+  const conversationGenerationRef = useRef(0);
+  const isLoadingOlderRef = useRef(false);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const pendingScrollRestoreRef = useRef<{ prevScrollTop: number; prevScrollHeight: number } | null>(null);
+  const suppressAutoScrollRef = useRef(false);
+  const prevConversationIdsRef = useRef<Set<string>>(new Set());
+
+  const toMessage = (docSnap: any) => {
+    const data = docSnap.data();
+    return {
+      id: docSnap.id,
+      senderId: data.senderId,
+      text: data.text || '',
+      timestamp: data.timestamp?.toDate() || new Date(),
+      isMe: data.senderId === user?.id,
+    };
+  };
+  const sortedRetainedMessages = () =>
+    Array.from(retainedMessagesRef.current.values()).sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
   const [userProfilesCache, setUserProfilesCache] = useState<Record<string, { name: string; avatarUrl: string | null }>>({});
   // Mirrors userProfilesCache so the hydration effect below always checks
   // the freshest cache membership rather than a closure captured at the
@@ -233,31 +284,156 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
     initChat();
   }, [user?.id, activeChatContext]);
 
-  // 3. Listen to messages for the active conversation
+  // 3. Listen to the newest MESSAGE_PAGE_SIZE messages for the active
+  // conversation in realtime; older history is loaded explicitly via
+  // loadOlderMessages(). See the state block above for the
+  // retainedMessagesRef/liveWindowIdsRef contract.
   useEffect(() => {
+    retainedMessagesRef.current = new Map();
+    liveWindowIdsRef.current = new Set();
+    oldestLoadedCursorRef.current = null;
+    conversationGenerationRef.current++;
+    const myGeneration = conversationGenerationRef.current;
+    isLoadingOlderRef.current = false;
+    setMessages([]);
+    setHasMoreOlder(false);
+    setIsLoadingOlder(false);
+
     if (!activeConversationId || !user || !db) {
-      setMessages([]);
       return;
     }
+
     const q = query(
       collection(db, "chats", activeConversationId, "messages"),
-      orderBy("timestamp", "asc")
+      orderBy("timestamp", "desc"),
+      limit(MESSAGE_PAGE_SIZE)
     );
+
+    let isFirstSnapshot = true;
+
     const unsubscribe = onSnapshot(q, (snap) => {
-      const msgs = snap.docs.map(docSnap => {
-        const data = docSnap.data();
-        return {
-          id: docSnap.id,
-          senderId: data.senderId,
-          text: data.text || '',
-          timestamp: data.timestamp?.toDate() || new Date(),
-          isMe: data.senderId === user.id
-        };
+      // Defensive guard: real Firestore never invokes a callback after
+      // unsubscribe(), but this protects against that assumption anyway —
+      // a callback whose generation has since moved on (conversation
+      // switched, or the effect re-ran) must never mutate the current
+      // conversation's state.
+      if (conversationGenerationRef.current !== myGeneration) return;
+
+      const retained = retainedMessagesRef.current;
+      const liveIds = liveWindowIdsRef.current;
+
+      snap.docChanges().forEach((change: any) => {
+        if (change.type === 'removed') {
+          // Window eviction OR server-mediated whole-chat deletion in
+          // progress — never inferred from this event alone. Only stop
+          // tracking membership in the live window; retained history stays
+          // until the conversations-list listener says the whole chat is
+          // gone (see the effect below).
+          liveIds.delete(change.doc.id);
+          return;
+        }
+        const msg = toMessage(change.doc);
+        retained.set(msg.id, msg);
+        liveIds.add(msg.id);
       });
-      setMessages(msgs);
+
+      if (isFirstSnapshot) {
+        isFirstSnapshot = false;
+        // The historical pagination boundary — oldest document actually
+        // returned by THIS initial page. Never moved forward by later
+        // window eviction; only ever advanced by a successful
+        // loadOlderMessages() page.
+        if (snap.docs.length > 0) {
+          oldestLoadedCursorRef.current = snap.docs[snap.docs.length - 1];
+        }
+        setHasMoreOlder(snap.docs.length === MESSAGE_PAGE_SIZE);
+      }
+
+      setMessages(sortedRetainedMessages());
     });
-    return () => unsubscribe();
+
+    return () => {
+      unsubscribe();
+      // Invalidates any in-flight loadOlderMessages() request captured
+      // against this generation, whether due to a conversation switch or a
+      // full component unmount.
+      conversationGenerationRef.current++;
+    };
   }, [activeConversationId, user?.id]);
+
+  // If the active conversation disappears from the participant's own chats
+  // list (deleted by either participant via deleteChat), exit the detail
+  // view — the effect above then tears down the message listener and
+  // resets pagination state as part of its own activeConversationId
+  // change. Guarded against "not yet arrived" (a brand-new conversation)
+  // by only clearing when the id was PREVIOUSLY present and is now gone —
+  // never inferred from a message-level 'removed' event.
+  useEffect(() => {
+    const currentIds = new Set(conversations.map(c => c.id));
+    if (
+      activeConversationId &&
+      prevConversationIdsRef.current.has(activeConversationId) &&
+      !currentIds.has(activeConversationId)
+    ) {
+      setActiveConversationId(null);
+    }
+    prevConversationIdsRef.current = currentIds;
+  }, [conversations, activeConversationId]);
+
+  const loadOlderMessages = async () => {
+    if (!activeConversationId || !hasMoreOlder || isLoadingOlderRef.current || !oldestLoadedCursorRef.current) return;
+    const myGeneration = conversationGenerationRef.current;
+    const cursor = oldestLoadedCursorRef.current;
+    isLoadingOlderRef.current = true;
+    setIsLoadingOlder(true);
+    try {
+      const q = query(
+        collection(db, "chats", activeConversationId, "messages"),
+        orderBy("timestamp", "desc"),
+        startAfter(cursor),
+        limit(MESSAGE_PAGE_SIZE)
+      );
+      const snap = await getDocs(q);
+      if (conversationGenerationRef.current !== myGeneration) return; // stale — conversation switched or unmounted
+
+      snap.docs.forEach((docSnap: any) => {
+        const msg = toMessage(docSnap);
+        retainedMessagesRef.current.set(msg.id, msg);
+      });
+      if (snap.docs.length > 0) {
+        oldestLoadedCursorRef.current = snap.docs[snap.docs.length - 1];
+      }
+      setHasMoreOlder(snap.docs.length === MESSAGE_PAGE_SIZE);
+
+      const container = messagesContainerRef.current;
+      if (container) {
+        pendingScrollRestoreRef.current = { prevScrollTop: container.scrollTop, prevScrollHeight: container.scrollHeight };
+      }
+      suppressAutoScrollRef.current = true;
+      setMessages(sortedRetainedMessages());
+    } catch (e) {
+      console.error("Error loading earlier messages:", e);
+      showToast(t('messages.toast_load_earlier_failed'));
+      // Already-loaded history, cursor, and hasMoreOlder are left exactly
+      // as they were — retry remains possible via the still-visible control.
+    } finally {
+      if (conversationGenerationRef.current === myGeneration) {
+        isLoadingOlderRef.current = false;
+        setIsLoadingOlder(false);
+      }
+    }
+  };
+
+  // Restores the reader's visual position after prepending older history —
+  // runs before paint, so no scroll jump is visible.
+  useLayoutEffect(() => {
+    const pending = pendingScrollRestoreRef.current;
+    if (pending && messagesContainerRef.current) {
+      const container = messagesContainerRef.current;
+      container.scrollTop = computeRestoredScrollTop(pending.prevScrollTop, pending.prevScrollHeight, container.scrollHeight);
+      pendingScrollRestoreRef.current = null;
+    }
+  }, [messages]);
 
   // Update last read timestamp in localStorage when active chat receives messages
   useEffect(() => {
@@ -267,11 +443,21 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
     setIsMenuOpen(false);
   }, [activeConversationId, messages.length]);
 
-  // 4. Auto-scroll to bottom of messages & trigger Smart Replies
+  // 4. Auto-scroll to bottom on initial open / a new live message — NOT on
+  // a loadOlderMessages() prepend (suppressed above via suppressAutoScrollRef).
   useEffect(() => {
+    if (suppressAutoScrollRef.current) {
+      suppressAutoScrollRef.current = false;
+      return;
+    }
     if (activeConversationId && messages.length > 0) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, activeConversationId]);
 
+  // Trigger Smart Replies
+  useEffect(() => {
+    if (activeConversationId && messages.length > 0) {
       const lastMsg = messages[messages.length - 1];
       if (lastMsg && !lastMsg.isMe) {
         const key = createSmartReplyRequestKey(activeConversationId, lastMsg.id);
@@ -403,7 +589,17 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
         </div>
 
         {/* Messages Area */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
+        <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
+          {hasMoreOlder && (
+            <button
+              onClick={loadOlderMessages}
+              disabled={isLoadingOlder}
+              aria-label={t('messages.load_earlier')}
+              className="w-full text-center text-xs text-[var(--color-text-secondary)] py-2 disabled:opacity-50"
+            >
+              {isLoadingOlder ? t('messages.loading_earlier') : t('messages.load_earlier')}
+            </button>
+          )}
           {messages.map((msg) => (
             <div key={msg.id} className={`flex ${msg.isMe ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[75%] rounded-2xl px-4 py-3 ${
