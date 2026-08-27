@@ -503,6 +503,12 @@ describe('chats and messages — participant isolation', () => {
                 { senderId: OWNER_UID, text: 'On my way out', timestamp: Timestamp.now() },
             );
         });
+        await testEnv.withSecurityRulesDisabled(async ctx => {
+            await setDoc(
+                doc(ctx.firestore(), 'chats', CHAT_ID, 'messages', 'message-2'),
+                { senderId: OTHER_UID, text: 'On my way too', timestamp: Timestamp.now() },
+            );
+        });
     });
 
     it('C1: participant can read their chat and messages', async () => {
@@ -660,9 +666,65 @@ describe('chats and messages — participant isolation', () => {
         );
     });
 
-    it('C7: participant can delete their chat', async () => {
+    // Server-mediated chat deletion (deleteChat, functions/index.js) is now
+    // the sole authoritative delete path for both chats/{chatId} and its
+    // messages subcollection — it writes via the Admin SDK, which these
+    // Rules cannot see or gate. Direct client deletion is denied
+    // unconditionally, regardless of participant status, closing both the
+    // "delete an arbitrary/another participant's message" gap and the
+    // parent-orphaning hazard (a client could previously delete only the
+    // parent chat doc without also deleting its messages).
+    it('C7: a participant (chat owner) cannot directly delete their chat', async () => {
         const { deleteDoc } = await import('firebase/firestore');
-        await assertSucceeds(deleteDoc(doc(ownerDb(), 'chats', CHAT_ID)));
+        await assertFails(deleteDoc(doc(ownerDb(), 'chats', CHAT_ID)));
+    });
+
+    it('C9: the other participant cannot directly delete the chat either', async () => {
+        const { deleteDoc } = await import('firebase/firestore');
+        await assertFails(deleteDoc(doc(otherDb(), 'chats', CHAT_ID)));
+    });
+
+    it('C10: a non-participant cannot delete the chat', async () => {
+        const { deleteDoc } = await import('firebase/firestore');
+        await assertFails(deleteDoc(doc(thirdDb(), 'chats', CHAT_ID)));
+    });
+
+    it('C11: an unauthenticated client cannot delete the chat', async () => {
+        const { deleteDoc } = await import('firebase/firestore');
+        await assertFails(deleteDoc(doc(anonDb(), 'chats', CHAT_ID)));
+    });
+
+    it('CM-21: the sender cannot directly delete their own message', async () => {
+        const { deleteDoc } = await import('firebase/firestore');
+        await assertFails(deleteDoc(doc(ownerDb(), 'chats', CHAT_ID, 'messages', 'message-1')));
+    });
+
+    it('CM-22: the other (non-sender) participant cannot delete the sender\'s message', async () => {
+        const { deleteDoc } = await import('firebase/firestore');
+        await assertFails(deleteDoc(doc(otherDb(), 'chats', CHAT_ID, 'messages', 'message-1')));
+    });
+
+    it('CM-23: a participant cannot delete another participant\'s message either', async () => {
+        // message-2 is senderId: OTHER_UID — OWNER attempting to delete it
+        // proves denial isn't merely "can't delete your own", it's
+        // unconditional regardless of who sent it.
+        const { deleteDoc } = await import('firebase/firestore');
+        await assertFails(deleteDoc(doc(ownerDb(), 'chats', CHAT_ID, 'messages', 'message-2')));
+    });
+
+    it('CM-24: a non-participant cannot delete a message', async () => {
+        const { deleteDoc } = await import('firebase/firestore');
+        await assertFails(deleteDoc(doc(thirdDb(), 'chats', CHAT_ID, 'messages', 'message-1')));
+    });
+
+    it('CM-25: an unauthenticated client cannot delete a message', async () => {
+        const { deleteDoc } = await import('firebase/firestore');
+        await assertFails(deleteDoc(doc(anonDb(), 'chats', CHAT_ID, 'messages', 'message-1')));
+    });
+
+    it('CM-26: direct message update remains denied (pre-existing, unchanged by this PR)', async () => {
+        const { updateDoc: upd } = await import('firebase/firestore');
+        await assertFails(upd(doc(ownerDb(), 'chats', CHAT_ID, 'messages', 'message-1'), { text: 'edited' }));
     });
 });
 

@@ -643,8 +643,18 @@ service cloud.firestore {
         && request.resource.data.participants.size() == 2
         && request.auth.uid in request.resource.data.participants;
       allow update: if false;
-      allow delete: if chatParticipant(resource.data);
-      
+      // Direct client deletion disabled — deleteChat (functions/index.js) is
+      // now the sole authoritative delete path: it re-verifies participant
+      // membership, marks the chat `deleting` before any recursive removal
+      // begins (closing the send/delete race), and recursively removes the
+      // chat and its messages subcollection together via the Admin SDK,
+      // which these Rules cannot see or gate. Allowing a direct client
+      // delete here previously let a participant delete only the parent
+      // chat doc without also deleting its messages, orphaning the
+      // subcollection (Firestore does not cascade-delete subcollections).
+      // See docs/CHAT_DELETE_HARDENING.md.
+      allow delete: if false;
+
       match /messages/{messageId} {
         allow read: if chatParticipant(
           get(/databases/$(database)/documents/chats/$(chatId)).data
@@ -654,14 +664,17 @@ service cloud.firestore {
         // membership and runs server-side moderation before writing via the
         // Admin SDK, which these Rules cannot see or gate. A client-side-
         // only check (the old rule below, and the still-present UX-only
-        // moderateMessage()) is not a security boundary. NOT YET DEPLOYED —
-        // staged here per the migration's compatibility-safe rollout order;
-        // see docs/CHAT_MESSAGE_HARDENING.md Step D.
+        // moderateMessage()) is not a security boundary. See
+        // docs/CHAT_MESSAGE_HARDENING.md.
         allow create: if false;
         allow update: if false;
-        allow delete: if chatParticipant(
-          get(/databases/$(database)/documents/chats/$(chatId)).data
-        );
+        // Direct client deletion disabled — previously any chat participant
+        // could delete an arbitrary individual message, including one sent
+        // by the OTHER participant (this rule only checked chat membership,
+        // never senderId). Deletion is now exclusively server-mediated via
+        // deleteChat, alongside the whole conversation. See
+        // docs/CHAT_DELETE_HARDENING.md.
+        allow delete: if false;
       }
     }
   }
