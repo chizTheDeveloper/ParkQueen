@@ -5,6 +5,8 @@ import { ArrowLeft, MapPin, Bell, LocateFixed, WifiOff } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, where, onSnapshot, Timestamp } from 'firebase/firestore';
 import { deriveNearbyState, resolveBlockedCTA, type LocationPermissionState, type LocationCallbacks } from '../utils/nearbyActivity';
+import { usePingPhaseClock } from './street-parking/usePingPhaseClock';
+import { derivePingLifecycle } from '../utils/pingLifecycle';
 
 interface NotificationsViewProps {
     user: any;
@@ -106,9 +108,18 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
         );
     }, [user?.id]);
 
+    // Reuses the same self-rescheduling clock the map already uses
+    // (usePingPhaseClock/derivePingLifecycle) so a spot disappears at its
+    // real expiresAt boundary even with zero further Firestore activity —
+    // the query's `expiresAt > Timestamp.now()` bound is only evaluated once,
+    // at subscription-creation time, and Firestore listeners don't re-fire
+    // on wall-clock advancement alone.
+    const nowMs = usePingPhaseClock(spots);
+    const unexpiredSpots = spots.filter(s => !derivePingLifecycle(s, nowMs).expired);
+
     const filteredSpots = userLocation
-        ? spots.filter(s => getDistanceKm(userLocation[0], userLocation[1], s.lat, s.lng) <= 2.0)
-        : spots;
+        ? unexpiredSpots.filter(s => getDistanceKm(userLocation[0], userLocation[1], s.lat, s.lng) <= 2.0)
+        : unexpiredSpots;
     const nearbySpots = filteredSpots.slice(0, 10);
     const hasMore = filteredSpots.length > 10;
     const showNoLocationBanner = !userLocation && spots.length > 0 && permissionState === 'granted';
@@ -330,7 +341,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                             const time = relativeTime(spot.reportedAt);
                             const isNew = (spot.reportedAt?.toMillis?.() || 0) > lastViewed;
                             const expiringSoon = (spot.expiresAt?.toMillis?.() || 0) > 0 &&
-                                (spot.expiresAt.toMillis() - Date.now()) < 5 * 60 * 1000;
+                                (spot.expiresAt.toMillis() - nowMs) < 5 * 60 * 1000;
                             const address = spot.address || 'Shared spot nearby';
                             const finderName = spot.finderName || spot.username || 'Someone nearby';
                             const initial = finderName.charAt(0).toUpperCase();
