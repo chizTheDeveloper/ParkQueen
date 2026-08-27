@@ -28,6 +28,12 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastSmartReplyKey = useRef<string | null>(null);
   const [userProfilesCache, setUserProfilesCache] = useState<Record<string, { name: string; avatarUrl: string | null }>>({});
+  // Mirrors userProfilesCache so the hydration effect below always checks
+  // the freshest cache membership rather than a closure captured at the
+  // point this effect last re-ran (deps are [conversations, db], not
+  // userProfilesCache).
+  const userProfilesCacheRef = useRef(userProfilesCache);
+  useEffect(() => { userProfilesCacheRef.current = userProfilesCache; }, [userProfilesCache]);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
@@ -103,42 +109,50 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
     }
   };
 
-  // Dynamic User Profile Resolver & Cache to fix 'User' / 'Anonymous' fallback issues
+  // Dynamic User Profile Resolver & Cache to fix 'User' / 'Anonymous' fallback issues.
+  // Missing partner profiles are fetched concurrently (Promise.all) instead
+  // of one getDoc per uid awaited in series — same bounded set of reads,
+  // shorter critical path (max of the individual round-trips instead of
+  // their sum).
   useEffect(() => {
     if (conversations.length === 0 || !db) return;
-    const fetchNames = async () => {
-      const missingUserIds = conversations
+
+    const missingUserIds = Array.from(new Set(
+      conversations
         .map(c => c.otherUser.id)
-        .filter(id => id && !userProfilesCache[id]);
+        .filter(id => id && !userProfilesCacheRef.current[id])
+    ));
 
-      if (missingUserIds.length === 0) return;
+    if (missingUserIds.length === 0) return;
 
-      const newCache = { ...userProfilesCache };
-      let updated = false;
+    let cancelled = false;
 
-      for (const uid of missingUserIds) {
-        try {
-          const userDocRef = doc(db, "users", uid);
-          const userDocSnap = await getDoc(userDocRef);
-          if (userDocSnap.exists()) {
-             const data = userDocSnap.data();
-             newCache[uid] = {
-               name: data.fullName || '',
-               avatarUrl: data.avatarUrl || null
-             };
-             updated = true;
-          }
-        } catch (e) {
-          console.warn("Failed to fetch user profile for cache:", uid, e);
+    Promise.all(missingUserIds.map(async uid => {
+      try {
+        const userDocSnap = await getDoc(doc(db, "users", uid));
+        if (userDocSnap.exists()) {
+          const data = userDocSnap.data();
+          return [uid, { name: data.fullName || '', avatarUrl: data.avatarUrl || null }] as const;
         }
+      } catch (e) {
+        console.warn("Failed to fetch user profile for cache:", uid, e);
       }
+      return null;
+    })).then(results => {
+      if (cancelled) return;
+      const entries = results.filter((r): r is readonly [string, { name: string; avatarUrl: string | null }] => r !== null);
+      if (entries.length === 0) return;
+      // Functional update — merges against whatever userProfilesCache is at
+      // apply-time, so a slower, earlier-started hydration resolving after a
+      // faster, later one cannot clobber entries the later one already added.
+      setUserProfilesCache(prev => {
+        const next = { ...prev };
+        entries.forEach(([uid, val]) => { next[uid] = val; });
+        return next;
+      });
+    });
 
-      if (updated) {
-        setUserProfilesCache(newCache);
-      }
-    };
-
-    fetchNames();
+    return () => { cancelled = true; };
   }, [conversations, db]);
 
   // 1. Fetch conversations list for user
