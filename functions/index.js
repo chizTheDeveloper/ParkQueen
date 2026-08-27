@@ -1431,6 +1431,96 @@ function checkImpersonation(text) {
 // Check (see adminReadView's already-verified Stage 4A canary).
 const SEND_MESSAGE_ID_RE = /^[A-Za-z0-9_-]{1,100}$/;
 
+// Marks a chat as deleting (idempotently) and recursively removes it,
+// including its messages subcollection. Callable-authorization (is the
+// caller actually a participant?) is the CALLER's responsibility — deleteChat
+// checks it explicitly before invoking this; deleteAccount's own chats step
+// already knows uid is a participant, having just queried for these chats by
+// that same field, so it calls this directly with no further check.
+//
+// Messages are swept BEFORE the parent chat doc is removed (not a single
+// recursiveDelete(chatRef) call on the parent, whose own documented contract
+// is "the provided reference is deleted regardless of whether all deletes
+// succeeded" — relying on that would let the parent disappear while some
+// message deletes were still failing, permanently orphaning them beyond any
+// future retry's reach, since a retry's authorization check needs the parent
+// doc's participants array to still exist). With messages-first ordering, a
+// partial failure here leaves the parent doc in place (still marked
+// deleting) as the resumable retry point, and it is never possible for the
+// parent to be gone while orphaned message docs remain unswept.
+async function markChatDeletingAndRecursiveDelete(chatRef) {
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(chatRef);
+    if (!snap.exists) return;
+    if (!snap.data().deleting) {
+      tx.set(chatRef, { deleting: true, deletingAt: FieldValue.serverTimestamp() }, { merge: true });
+    }
+  });
+
+  await db.recursiveDelete(chatRef.collection('messages'));
+  await chatRef.delete();
+}
+
+const DELETE_CHAT_ID_RE = /^[A-Za-z0-9_-]{1,200}$/;
+
+// Server-mediated conversation deletion. Closes the gap where any chat
+// participant could delete an arbitrary individual message (including the
+// OTHER participant's message) or the chat document directly via the
+// Firestore SDK — firestore.rules still permits both today (see
+// docs/CHAT_MESSAGE_HARDENING.md's "Deferred" section, which addressed
+// create/update but not delete). Rules are intentionally left unchanged in
+// this PR — see PR B/C staging — so this callable exists with zero
+// production callers until the client migrates.
+//
+// Concurrency: marking the chat `deleting` inside a transaction BEFORE any
+// recursive deletion begins, combined with sendMessageHandler's own
+// transactional check of that same flag, closes the "new message created
+// while deletion is in flight" race — Firestore's transaction contention
+// retry (a transaction whose read set was written by another transaction
+// before it commits is automatically retried, re-reading the now-current
+// state) ensures a sendMessage transaction that read the chat before the
+// marker committed cannot successfully write after it.
+async function deleteChatHandler(request) {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
+
+  const { chatId } = request.data || {};
+  if (typeof chatId !== 'string' || !DELETE_CHAT_ID_RE.test(chatId)) {
+    throw new HttpsError('invalid-argument', 'A valid chatId is required.');
+  }
+
+  const uid = request.auth.uid;
+  // 10/hour: deleting a conversation is a deliberate, infrequent action —
+  // generous headroom over any legitimate usage pattern while bounding a
+  // scripted caller to a fixed ceiling per account.
+  await checkRateLimit(uid, 'deleteChat', { limit: 10, windowSec: 3600 });
+
+  const chatRef = db.collection('chats').doc(chatId);
+  const chatSnap = await chatRef.get();
+  if (!chatSnap.exists) {
+    // Already gone (prior success, or never existed) — indistinguishable
+    // end states from the caller's perspective; both resolve as success.
+    return { success: true };
+  }
+  const chatData = chatSnap.data();
+  if (!Array.isArray(chatData.participants) || !chatData.participants.includes(uid)) {
+    throw new HttpsError('permission-denied', 'Not a participant in this chat.');
+  }
+
+  await markChatDeletingAndRecursiveDelete(chatRef);
+  return { success: true };
+}
+
+exports._deleteChatHandler = deleteChatHandler;
+
+exports.deleteChat = onCall(
+  {
+    region: 'us-central1',
+    enforceAppCheck: true,
+    serviceAccount: 'parqueen-user@parkqueen-46475363-ccf36.iam.gserviceaccount.com',
+  },
+  deleteChatHandler
+);
+
 async function sendMessageHandler(request) {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in first.');
 
@@ -1473,6 +1563,13 @@ async function sendMessageHandler(request) {
     const chatData = chatSnap.data();
     if (!Array.isArray(chatData.participants) || !chatData.participants.includes(uid)) {
       throw new HttpsError('permission-denied', 'Not a participant in this chat.');
+    }
+    if (chatData.deleting) {
+      // Server-mediated deletion (deleteChat) is in flight for this chat —
+      // this transactional read is guaranteed fresh (or retried fresh by
+      // Firestore on contention) against whatever committed the `deleting`
+      // marker, so no message can be created after deletion has begun.
+      throw new HttpsError('failed-precondition', "This conversation is being deleted and can no longer receive messages.");
     }
     if (existingMsgSnap.exists) {
       // Idempotent retry (double-click / network retry with the same
@@ -2967,8 +3064,14 @@ exports.deleteAccount = onCall({ region: 'us-central1', serviceAccount: 'parquee
             )
         );
 
-        // Chats — paginated to avoid loading all IDs into memory;
-        // recursiveDelete on each chat covers its messages subcollection.
+        // Chats — paginated to avoid loading all IDs into memory. Uses the
+        // same markChatDeletingAndRecursiveDelete helper deleteChat uses —
+        // this account's uid is already known to be a participant of every
+        // chat enumerated here (that's exactly what the query above just
+        // verified), so no further authorization check is needed before
+        // calling it. Without the shared helper's deleting-marker step, a
+        // concurrent sendMessage from the OTHER (still-active) participant
+        // could race this recursive deletion and be silently orphaned.
         await step('chats', async () => {
             let cursor = null;
             while (true) {
@@ -2977,7 +3080,7 @@ exports.deleteAccount = onCall({ region: 'us-central1', serviceAccount: 'parquee
                 const snap = await q.get();
                 if (snap.empty) break;
                 for (const chatDoc of snap.docs) {
-                    await db.recursiveDelete(chatDoc.ref);
+                    await markChatDeletingAndRecursiveDelete(chatDoc.ref);
                 }
                 if (snap.size < 50) break;
                 cursor = snap.docs[snap.docs.length - 1];

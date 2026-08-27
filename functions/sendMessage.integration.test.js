@@ -376,6 +376,15 @@ describe('sendMessage — authoritative chat message write path', () => {
         expect(optionsSlice).not.toMatch(/consumeAppCheckToken/);
     });
 
+    it('SM-21: a chat marked deleting (server-mediated deletion in progress) refuses a new message and performs no write', async () => {
+        await db.collection('chats').doc(chatId).set({ deleting: true }, { merge: true });
+        const clientRequestId = testId('m');
+        const { error } = await callDirect(uidA, { chatId, clientRequestId, text: 'too late' });
+        expect(error).toBeDefined();
+        const doc = await db.collection('chats').doc(chatId).collection('messages').doc(clientRequestId).get();
+        expect(doc.exists).toBe(false);
+    });
+
     it('SM-20b: App Check canary HTTP boundary — a valid auth token but no App Check token is rejected before the handler runs', async () => {
         const idToken = await signInUser(uidA);
         // Raw HTTP call (not callDirect): the onCall wrapper's

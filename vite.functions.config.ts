@@ -18,6 +18,7 @@ export default defineConfig({
       'functions/moderateAvatarUpload.integration.test.js',
       'functions/rateLimitCallable.integration.test.js',
       'functions/sendMessage.integration.test.js',
+      'functions/deleteChat.integration.test.js',
       'functions/updateDisplayName.integration.test.js',
       'functions/bootstrapAdmin.integration.test.js',
       'functions/reconcileLegacyAdminSingleton.integration.test.js',
