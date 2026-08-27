@@ -1,8 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   computeSafeUntil,
   detectParkingSide,
   computeCrossRaw,
+  toNYCDateKey,
   type CleaningSchedule,
   type SuspensionDoc,
 } from './streetIntelligence';
@@ -142,7 +143,7 @@ describe('computeSafeUntil — West side of Melville St', () => {
 
   it('Monday cleaning suspended → skips to Thursday', () => {
     const now = dateAt('Mon', 7, 0);
-    const monday = now.toISOString().slice(0, 10);
+    const monday = toNYCDateKey(now);
     const suspensions: SuspensionDoc[] = [{
       id: 'test-susp',
       cityId: 'nyc',
@@ -384,5 +385,148 @@ describe('computeCrossRaw', () => {
   it('point exactly on the line → zero', () => {
     const cross = computeCrossRaw(0.5, 0, 0, 0, 1, 0);
     expect(cross).toBe(0);
+  });
+});
+
+// ─── toNYCDateKey — NYC ASP suspension date correctness ────────────────────────
+//
+// SuspensionDoc.date is a NYC civil-calendar date ("YYYY-MM-DD"). These tests
+// pin instants using explicit UTC offsets (e.g. "-04:00") so behavior does not
+// depend on the machine/CI running these tests.
+
+describe('toNYCDateKey', () => {
+  it('NYC evening (8:01 PM EDT) does not prematurely advance to the next day', () => {
+    // UTC instant is already 00:01 the next day — the bug this PR fixes.
+    expect(toNYCDateKey(new Date('2026-08-27T20:01:00-04:00'))).toBe('2026-08-27');
+  });
+
+  it('NYC 7:59 PM EDT (before the UTC rollover) is unaffected either way', () => {
+    expect(toNYCDateKey(new Date('2026-08-27T19:59:00-04:00'))).toBe('2026-08-27');
+  });
+
+  it('NYC midnight (EDT) advances exactly once', () => {
+    expect(toNYCDateKey(new Date('2026-08-27T23:59:00-04:00'))).toBe('2026-08-27');
+    expect(toNYCDateKey(new Date('2026-08-28T00:00:00-04:00'))).toBe('2026-08-28');
+  });
+
+  it('winter EST boundary: the UTC rollover happens an hour earlier (7 PM, not 8 PM) but the NYC date is still correct', () => {
+    // 7:01 PM EST → UTC is already 00:01 the next day.
+    expect(toNYCDateKey(new Date('2026-01-15T19:01:00-05:00'))).toBe('2026-01-15');
+    expect(toNYCDateKey(new Date('2026-01-15T18:59:00-05:00'))).toBe('2026-01-15');
+  });
+
+  it('summer EDT boundary is correct (rollover at 8 PM, not 7 PM)', () => {
+    expect(toNYCDateKey(new Date('2026-08-27T20:01:00-04:00'))).toBe('2026-08-27');
+    expect(toNYCDateKey(new Date('2026-08-27T19:01:00-04:00'))).toBe('2026-08-27');
+  });
+
+  it('the same absolute instant yields the same NYC date under any device/runtime timezone', () => {
+    const instant = new Date('2026-08-27T20:01:00-04:00');
+    const originalTZ = process.env.TZ;
+    try {
+      const results = ['America/New_York', 'America/Los_Angeles', 'UTC', 'Asia/Tokyo'].map(tz => {
+        process.env.TZ = tz;
+        return toNYCDateKey(instant);
+      });
+      expect(new Set(results).size).toBe(1);
+      expect(results[0]).toBe('2026-08-27');
+    } finally {
+      process.env.TZ = originalTZ;
+    }
+  });
+
+  it('spring-forward DST transition (2026-03-08): calendar identity is preserved across the jump', () => {
+    expect(toNYCDateKey(new Date('2026-03-07T23:59:00-05:00'))).toBe('2026-03-07'); // still EST
+    expect(toNYCDateKey(new Date('2026-03-08T00:00:00-05:00'))).toBe('2026-03-08'); // still EST, pre-2am jump
+    expect(toNYCDateKey(new Date('2026-03-08T12:00:00-04:00'))).toBe('2026-03-08'); // now EDT, same civil day
+  });
+
+  it('fall-back DST transition (2026-11-01): calendar identity is preserved across the jump', () => {
+    expect(toNYCDateKey(new Date('2026-10-31T23:59:00-04:00'))).toBe('2026-10-31'); // still EDT
+    expect(toNYCDateKey(new Date('2026-11-01T00:00:00-04:00'))).toBe('2026-11-01'); // still EDT, pre-2am jump
+    expect(toNYCDateKey(new Date('2026-11-01T12:00:00-05:00'))).toBe('2026-11-01'); // now EST, same civil day
+  });
+});
+
+// ─── computeSafeUntil — NYC suspension-check integration (device pinned to NYC) ─
+//
+// The schedule/day-of-week matching inside computeSafeUntil reads device-local
+// time (a separate, pre-existing, out-of-scope behavior — see PR notes), so
+// these two integration tests pin process.env.TZ to America/New_York for their
+// duration to reflect ParQueen's real, intended deployment context and isolate
+// what this PR actually changes: the suspension-date comparison.
+
+describe('computeSafeUntil — suspension check uses the NYC date, not UTC (device pinned to America/New_York)', () => {
+  let originalTZ: string | undefined;
+  beforeEach(() => { originalTZ = process.env.TZ; process.env.TZ = 'America/New_York'; });
+  afterEach(() => { process.env.TZ = originalTZ; });
+
+  it('active-now check: an evening cleaning window on a suspended NYC day is correctly recognized as suspended', () => {
+    const now = new Date('2026-08-27T20:15:00-04:00'); // Thu 8:15 PM EDT — UTC date has already rolled to Aug 28
+    const nycWeekday = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short' }).format(now);
+    const eveningSchedule: CleaningSchedule[] = [{ side: 'West', days: [nycWeekday], startTime: '20:00', endTime: '21:00' }];
+    const suspensions: SuspensionDoc[] = [{
+      id: 'evening-susp', cityId: 'nyc', date: toNYCDateKey(now), type: 'holiday',
+      label: 'Test', affectsTypes: ['streetCleaning'], source: 'admin',
+    }];
+    const result = computeSafeUntil(eveningSchedule, 'West', suspensions, now);
+    expect(result.activeNow).toBe(false);
+  });
+
+  it('active-now check: without the suspension, the same evening window IS active (control)', () => {
+    const now = new Date('2026-08-27T20:15:00-04:00');
+    const nycWeekday = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short' }).format(now);
+    const eveningSchedule: CleaningSchedule[] = [{ side: 'West', days: [nycWeekday], startTime: '20:00', endTime: '21:00' }];
+    const result = computeSafeUntil(eveningSchedule, 'West', NO_SUSPENSIONS, now);
+    expect(result.activeNow).toBe(true);
+  });
+
+  it('+14-day forward search skips a suspended upcoming day keyed by its correct NYC date', () => {
+    const now = dateAt('Thu', 23, 30); // late evening — UTC date may already be the next day
+    const followingMonday = new Date(now);
+    followingMonday.setDate(now.getDate() + 4); // Thu + 4 = Mon
+    const suspensions: SuspensionDoc[] = [{
+      id: 'next-monday-susp', cityId: 'nyc', date: toNYCDateKey(followingMonday), type: 'holiday',
+      label: 'Test', affectsTypes: ['streetCleaning'], source: 'admin',
+    }];
+    const result = computeSafeUntil(MELVILLE_SCHEDULES, 'West', suspensions, now);
+    // Without the suspension, next window is Monday 8:30 AM; suspended → skips to Thursday.
+    expect(result.nextDay).toBe('Thursday');
+  });
+
+  it('+14-day forward search: without the suspension, the same scenario resolves to Monday (control)', () => {
+    const now = dateAt('Thu', 23, 30);
+    const result = computeSafeUntil(MELVILLE_SCHEDULES, 'West', NO_SUSPENSIONS, now);
+    expect(result.nextDay).toBe('Monday');
+  });
+
+  it('archived suspension is still ignored regardless of NYC date correctness', () => {
+    const now = dateAt('Mon', 7, 0);
+    const suspensions: SuspensionDoc[] = [{
+      id: 'archived-susp', cityId: 'nyc', date: toNYCDateKey(now), type: 'holiday',
+      label: 'Test', affectsTypes: ['streetCleaning'], source: 'admin', status: 'archived',
+    }];
+    // computeSafeUntil itself doesn't filter archived status (StreetIntelligenceCard does,
+    // before calling computeSafeUntil) — this pins that computeSafeUntil's own contract is
+    // unchanged: it trusts whatever suspensions array it's given.
+    const result = computeSafeUntil(MELVILLE_SCHEDULES, 'West', suspensions, now);
+    expect(result.nextDay).toBe('Thursday');
+  });
+
+  it('affectsTypes filtering is unchanged: a suspension for a different rule type does not suppress streetCleaning', () => {
+    const now = dateAt('Mon', 9, 0); // inside the 8:30–10:00 active window
+    const suspensions: SuspensionDoc[] = [{
+      id: 'other-type-susp', cityId: 'nyc', date: toNYCDateKey(now), type: 'holiday',
+      label: 'Test', affectsTypes: ['someOtherRuleType'], source: 'admin',
+    }];
+    const result = computeSafeUntil(MELVILLE_SCHEDULES, 'West', suspensions, now);
+    expect(result.activeNow).toBe(true);
+  });
+
+  it('ordinary non-suspension safe-until behavior is unchanged', () => {
+    const now = dateAt('Mon', 10, 30);
+    const result = computeSafeUntil(MELVILLE_SCHEDULES, 'West', NO_SUSPENSIONS, now);
+    expect(result.activeNow).toBe(false);
+    expect(result.nextDay).toBe('Thursday');
   });
 });
