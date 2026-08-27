@@ -20,9 +20,21 @@ vi.mock('../services/geminiService', () => ({
     createSmartReplyRequestKey: (chatId: string, msgId: string) => `${chatId}:${msgId}`,
 }));
 vi.mock('../utils/moderation', () => ({ moderateMessage: () => null }));
+interface CallableCall { name: string; payload: any }
+let callableCalls: CallableCall[] = [];
+// When null, every callable invocation resolves immediately with a generic
+// success shape. Set to a function for a specific test to control
+// resolution/rejection/pending timing (e.g. proving double-click safety, or
+// error-path UX).
+let callableImpl: ((name: string, payload: any) => Promise<any>) | null = null;
+
 vi.mock('firebase/functions', () => ({
     getFunctions: () => ({}),
-    httpsCallable: () => async () => ({}),
+    httpsCallable: (_functions: any, name: string) => async (payload: any) => {
+        callableCalls.push({ name, payload });
+        if (callableImpl) return callableImpl(name, payload);
+        return { data: { success: true } };
+    },
 }));
 vi.mock('firebase/app', () => ({ getApp: () => ({}) }));
 
@@ -115,11 +127,43 @@ async function flush(ticks = 8) {
     for (let i = 0; i < ticks; i++) await Promise.resolve();
 }
 
+function clickButtonWithText(renderer: TestRenderer.ReactTestRenderer, text: string) {
+    const btn = renderer.root.findAll(n => n.type === 'button' && n.props.children === text)[0];
+    act(() => { btn.props.onClick(); });
+}
+
+function clickButtonWithAriaLabel(renderer: TestRenderer.ReactTestRenderer, label: string) {
+    const btn = renderer.root.findAll(n => n.type === 'button' && n.props['aria-label'] === label)[0];
+    act(() => { btn.props.onClick(); });
+}
+
+function openFirstConversation(renderer: TestRenderer.ReactTestRenderer) {
+    const btn = renderer.root.findAll(
+        n => n.type === 'button' && typeof n.props.className === 'string' && n.props.className.includes('rounded-2xl') && n.props.className.includes('p-3.5'),
+    )[0];
+    act(() => { btn.props.onClick(); });
+}
+
+function openDeleteConfirm(renderer: TestRenderer.ReactTestRenderer) {
+    clickButtonWithAriaLabel(renderer, 'More options');
+    clickButtonWithText(renderer, 'Delete Chat');
+}
+
+function isInConversationDetail(renderer: TestRenderer.ReactTestRenderer): boolean {
+    return renderer.root.findAll(n => n.type === 'button' && n.props['aria-label'] === 'More options').length > 0;
+}
+
+function deleteConfirmDialogVisible(renderer: TestRenderer.ReactTestRenderer): boolean {
+    return renderer.root.findAll(n => n.type === 'button' && n.props.children === 'Delete').length > 0;
+}
+
 describe('MessagesView — partner profile hydration', () => {
     beforeEach(() => {
         userDocCalls = [];
         chatsOnNext = null;
         chatsUnsubCount = 0;
+        callableCalls = [];
+        callableImpl = null;
     });
     afterEach(() => {
         vi.useRealTimers();
@@ -331,5 +375,114 @@ describe('MessagesView — partner profile hydration', () => {
         const fs = require('fs');
         const source = fs.readFileSync(new URL('./MessagesView.tsx', import.meta.url), 'utf8');
         expect(source).toMatch(/Promise\.all/);
+    });
+});
+
+describe('MessagesView — delete conversation via server-mediated callable', () => {
+    beforeEach(() => {
+        userDocCalls = [];
+        chatsOnNext = null;
+        chatsUnsubCount = 0;
+        callableCalls = [];
+        callableImpl = null;
+    });
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    async function renderInsideAConversation() {
+        const renderer = await renderMessages();
+        emitChats([chatDoc('me_alice', ['me', 'alice'])]);
+        await act(async () => { await flush(); });
+        openFirstConversation(renderer);
+        return renderer;
+    }
+
+    it('clicking "Delete Chat" opens the confirmation dialog', async () => {
+        const renderer = await renderInsideAConversation();
+        openDeleteConfirm(renderer);
+        expect(deleteConfirmDialogVisible(renderer)).toBe(true);
+        act(() => renderer.unmount());
+    });
+
+    it('confirming invokes the deleteChat callable exactly once, with the exact selected chatId as payload', async () => {
+        const renderer = await renderInsideAConversation();
+        openDeleteConfirm(renderer);
+        await act(async () => {
+            clickButtonWithText(renderer, 'Delete');
+            await flush();
+        });
+        expect(callableCalls.length).toBe(1);
+        expect(callableCalls[0].name).toBe('deleteChat');
+        expect(callableCalls[0].payload).toEqual({ chatId: 'me_alice' });
+        act(() => renderer.unmount());
+    });
+
+    it('source contract: conversation deletion no longer enumerates or batch-deletes messages client-side — it is a single callable request, independent of message count', () => {
+        const fs = require('fs');
+        const source = fs.readFileSync(new URL('./MessagesView.tsx', import.meta.url), 'utf8');
+        const fnStart = source.indexOf('const doDeleteChat');
+        const fnEnd = source.indexOf('\n  };', fnStart);
+        const body = source.slice(fnStart, fnEnd);
+        expect(body).not.toMatch(/getDocs/);
+        expect(body).not.toMatch(/writeBatch/);
+        expect(body).not.toMatch(/batch\.delete/);
+        expect(body).toMatch(/deleteChat/);
+    });
+
+    it('a successful deletion clears the active conversation, returning to the list view', async () => {
+        const renderer = await renderInsideAConversation();
+        expect(isInConversationDetail(renderer)).toBe(true);
+        openDeleteConfirm(renderer);
+        await act(async () => {
+            clickButtonWithText(renderer, 'Delete');
+            await flush();
+        });
+        expect(isInConversationDetail(renderer)).toBe(false);
+        act(() => renderer.unmount());
+    });
+
+    it('a rejected deleteChat call preserves the existing failure UX — stays in the conversation, confirm dialog closes, controls usable again for retry', async () => {
+        callableImpl = async () => { throw Object.assign(new Error('nope'), { code: 'permission-denied' }); };
+        const renderer = await renderInsideAConversation();
+        openDeleteConfirm(renderer);
+        await act(async () => {
+            clickButtonWithText(renderer, 'Delete');
+            await flush();
+        });
+        expect(isInConversationDetail(renderer)).toBe(true);
+        expect(deleteConfirmDialogVisible(renderer)).toBe(false);
+        expect(renderer.root.findAll(n => n.type === 'p' && n.props.children === 'Failed to delete conversation.').length).toBe(1);
+
+        // Controls usable again — can reopen the confirm dialog and retry.
+        openDeleteConfirm(renderer);
+        expect(deleteConfirmDialogVisible(renderer)).toBe(true);
+        act(() => renderer.unmount());
+    });
+
+    it('a double-click on the confirm Delete button while the first request is still pending issues exactly one callable request', async () => {
+        let releasePending: (() => void) | null = null;
+        callableImpl = () => new Promise((resolve) => { releasePending = () => resolve({ data: { success: true } }); });
+
+        const renderer = await renderInsideAConversation();
+        openDeleteConfirm(renderer);
+
+        const deleteBtn = () => renderer.root.findAll(n => n.type === 'button' && n.props.children === 'Delete')[0];
+        act(() => { deleteBtn().props.onClick(); }); // first click — now pending
+        // Visually disabled while pending...
+        expect(deleteBtn().props.disabled).toBe(true);
+        // ...and the code-level guard (not just the DOM disabled attribute,
+        // which react-test-renderer doesn't itself enforce) rejects a second
+        // click's onClick invoked directly while the first is still pending.
+        act(() => { deleteBtn().props.onClick(); });
+
+        expect(callableCalls.length).toBe(1);
+
+        await act(async () => {
+            releasePending!();
+            await flush();
+        });
+        expect(callableCalls.length).toBe(1);
+        act(() => renderer.unmount());
     });
 });
