@@ -3,10 +3,12 @@ import { useFocusOnMount } from '../hooks/useFocusOnMount';
 import { t, useLang } from '../i18n';
 import { ArrowLeft, MapPin, Bell, LocateFixed, WifiOff } from 'lucide-react';
 import { db } from '../firebase';
-import { collection, query, where, onSnapshot, Timestamp } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, Timestamp } from 'firebase/firestore';
 import { deriveNearbyState, resolveBlockedCTA, type LocationPermissionState, type LocationCallbacks } from '../utils/nearbyActivity';
 import { usePingPhaseClock } from './street-parking/usePingPhaseClock';
 import { derivePingLifecycle } from '../utils/pingLifecycle';
+import { buildGeoQueryRanges } from './street-parking/geoQuery';
+import { GeoRegionSubscription } from './street-parking/geoRegionSubscription';
 
 interface NotificationsViewProps {
     user: any;
@@ -94,22 +96,69 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
         setRequesting(false);
     }, [permissionState]); // eslint-disable-line react-hooks/exhaustive-deps
 
+    const subscriptionRef = useRef<GeoRegionSubscription<any, undefined> | null>(null);
+    const hasUsableLocation = permissionState === 'granted' && !!userLocation && !locationError;
+
+    // Geo-bound spots listener: one Firestore range subscription per geohash
+    // range covering NEARBY_RADIUS_MILES around the resolved location,
+    // reusing the same GeoRegionSubscription/buildGeoQueryRanges
+    // infrastructure the map already relies on (see street-parking/useSpotData.ts).
+    // Without a usable location there is no bare/citywide fallback — the
+    // subscription is disposed (zero listeners, zero reads) instead.
     useEffect(() => {
         if (!db) return;
-        const q = query(collection(db, 'spots'), where('status', 'in', ['available', 'interested']), where('expiresAt', '>', Timestamp.now()));
-        return onSnapshot(
-            q,
-            snap => {
-                const all = snap.docs
-                    .map(d => ({ id: d.id, ...d.data() }) as any)
-                    .filter(s => s.finderId !== user?.id && s.status !== 'interested');
-                all.sort((a, b) => (b.reportedAt?.toMillis() || 0) - (a.reportedAt?.toMillis() || 0));
+
+        if (!hasUsableLocation) {
+            if (subscriptionRef.current) {
+                subscriptionRef.current.dispose();
+                subscriptionRef.current = null;
+            }
+            setSpots([]);
+            return;
+        }
+
+        const [lat, lng] = userLocation!;
+        // Fixed once per subscription generation — every range in this
+        // generation shares this exact Timestamp rather than each computing
+        // its own `Timestamp.now()`, matching the PR #75 expiration contract.
+        const subscriptionTimestamp = Timestamp.now();
+        const ranges = buildGeoQueryRanges(lat, lng, NEARBY_RADIUS_MILES);
+
+        const subscription = new GeoRegionSubscription<any, undefined>({
+            subscribeRange: (range, onSnapshotCb, onErrorCb) => {
+                const q = query(
+                    collection(db, 'spots'),
+                    where('status', 'in', ['available', 'interested']),
+                    where('expiresAt', '>', subscriptionTimestamp),
+                    where('geohash', '>=', range.start),
+                    where('geohash', '<=', range.end),
+                    orderBy('geohash'),
+                );
+                return onSnapshot(
+                    q,
+                    snap => onSnapshotCb(snap.docs.map(d => ({ id: d.id, data: { id: d.id, ...d.data() } as any }))),
+                    err => onErrorCb(err),
+                );
+            },
+            onData: merged => {
+                const all = Array.from(merged.values())
+                    .filter((s: any) => s.finderId !== user?.id && s.status !== 'interested');
+                all.sort((a: any, b: any) => (b.reportedAt?.toMillis() || 0) - (a.reportedAt?.toMillis() || 0));
                 setSpots(all);
                 setSpotsLoading(false);
             },
-            () => { setSpotsLoading(false); setSpotsError(true); }
-        );
-    }, [user?.id]);
+            onActiveListenerError: () => { setSpotsLoading(false); setSpotsError(true); },
+            onPendingListenerError: () => { setSpotsLoading(false); setSpotsError(true); },
+        });
+
+        subscriptionRef.current = subscription;
+        subscription.setRegion(ranges);
+
+        return () => {
+            subscription.dispose();
+            if (subscriptionRef.current === subscription) subscriptionRef.current = null;
+        };
+    }, [user?.id, hasUsableLocation, userLocation]);
 
     // Reuses the same self-rescheduling clock the map already uses
     // (usePingPhaseClock/derivePingLifecycle) so a spot disappears at its
