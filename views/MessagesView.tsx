@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, ChevronLeft, MoreVertical, Sparkles, ArrowLeft, MapPin, MessageSquare } from 'lucide-react';
 import { generateSmartReplies, createSmartReplyRequestKey } from '../services/geminiService';
-import { collection, query, where, onSnapshot, addDoc, doc, setDoc, orderBy, serverTimestamp, getDocs, getDoc, writeBatch, updateDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, doc, setDoc, orderBy, serverTimestamp, getDoc, updateDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getApp } from 'firebase/app';
 import { db } from '../firebase';
@@ -36,23 +36,26 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
   useEffect(() => { userProfilesCacheRef.current = userProfilesCache; }, [userProfilesCache]);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingChat, setDeletingChat] = useState(false);
 
   const activeConversation = conversations.find(c => c.id === activeConversationId);
 
+  // Server-mediated deletion (see functions/index.js deleteChat) — the
+  // client no longer enumerates or batch-deletes messages itself, so
+  // deletion cost/client work no longer grows with conversation length.
   const doDeleteChat = async () => {
-    if (!activeConversationId) return;
-    setShowDeleteConfirm(false);
+    if (!activeConversationId || deletingChat) return;
+    setDeletingChat(true);
     try {
-      const msgsRef = collection(db, "chats", activeConversationId, "messages");
-      const snap = await getDocs(msgsRef);
-      const batch = writeBatch(db);
-      snap.docs.forEach(d => batch.delete(d.ref));
-      batch.delete(doc(db, "chats", activeConversationId));
-      await batch.commit();
+      const functions = getFunctions(getApp(), 'us-central1');
+      await httpsCallable(functions, 'deleteChat')({ chatId: activeConversationId });
       setActiveConversationId(null);
     } catch (e) {
       console.error("Error deleting chat:", e);
       showToast(t('messages.toast_delete_failed'));
+    } finally {
+      setDeletingChat(false);
+      setShowDeleteConfirm(false);
     }
   };
 
@@ -451,7 +454,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
                 <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 py-3 rounded-2xl border border-[var(--color-border)] text-[var(--color-text)] font-semibold text-sm">
                   {t('messages.cancel')}
                 </button>
-                <button onClick={doDeleteChat} className="flex-1 py-3 rounded-2xl bg-red-500/20 border border-red-500/40 text-red-400 font-bold text-sm">
+                <button onClick={doDeleteChat} disabled={deletingChat} className="flex-1 py-3 rounded-2xl bg-red-500/20 border border-red-500/40 text-red-400 font-bold text-sm disabled:opacity-50">
                   {t('messages.delete')}
                 </button>
               </div>
