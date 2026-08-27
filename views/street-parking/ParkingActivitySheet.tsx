@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, Timestamp } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { BottomSheet } from './BottomSheet';
 import { MapPin } from 'lucide-react';
 import { getDistance } from './utils';
 import { derivePingLifecycle, timestampToMillis } from '../../utils/pingLifecycle';
 import { t, useLang } from '../../i18n';
+import { buildGeoQueryRanges } from './geoQuery';
 
 interface ParkingActivitySheetProps {
     destination: { name: string; fullName: string; center: [number, number] };
@@ -29,29 +30,43 @@ export const ParkingActivitySheet: React.FC<ParkingActivitySheetProps> = ({
         const fetchActivity = async () => {
             setLoading(true);
             try {
-                const now = Timestamp.now();
-                const q = query(
+                const [lng, lat] = destination.center;
+                // Fixed once per fetch — every range shares this exact
+                // Timestamp rather than each range computing its own
+                // `Timestamp.now()`, giving all ranges the same logical
+                // snapshot eligibility boundary.
+                const fixedTimestamp = Timestamp.now();
+                const ranges = buildGeoQueryRanges(lat, lng, SEARCH_RADIUS_MILES);
+
+                const snaps = await Promise.all(ranges.map(range => getDocs(query(
                     collection(db, 'spots'),
                     where('status', 'in', ['available', 'interested']),
-                    where('expiresAt', '>', now),
-                );
-                const snap = await getDocs(q);
+                    where('expiresAt', '>', fixedTimestamp),
+                    where('geohash', '>=', range.start),
+                    where('geohash', '<=', range.end),
+                    orderBy('geohash'),
+                ))));
 
-                const [lng, lat] = destination.center;
+                if (cancelled) return;
+
+                // Geohash ranges can overlap — dedup by document ID before
+                // applying the exact-distance filter.
+                const merged = new Map<string, any>();
+                snaps.forEach(snap => {
+                    snap.docs.forEach(d => {
+                        const s = d.data();
+                        if (s.status === 'occupied') return;
+                        merged.set(d.id, s);
+                    });
+                });
+
                 const spots: any[] = [];
-
-                snap.docs.forEach(d => {
-                    const s = d.data();
-                    if (s.status === 'occupied') return;
-
+                merged.forEach(s => {
                     const distKm = getDistance(lat, lng, s.lat, s.lng);
                     const distMi = distKm * 0.621371;
                     if (distMi > SEARCH_RADIUS_MILES) return;
-
                     spots.push(s);
                 });
-
-                if (cancelled) return;
 
                 setNearbySpots(spots);
             } catch (e) {
