@@ -216,8 +216,22 @@ function parseTime(timeStr: string, onDate: Date): Date {
   return d;
 }
 
+// SuspensionDoc.date is a NYC civil-calendar date ("YYYY-MM-DD"), not a UTC
+// or device-local one — ASP suspensions are defined by NYC's own calendar day
+// regardless of where the app happens to be running. Intl.DateTimeFormat with
+// an explicit timeZone is DST-safe and independent of the runtime's local
+// timezone (unlike Date.toISOString(), which is always UTC).
+export function toNYCDateKey(date: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
+
 function isSuspended(date: Date, affectsType: string, suspensions: SuspensionDoc[]): boolean {
-  const dateStr = date.toISOString().slice(0, 10);
+  const dateStr = toNYCDateKey(date);
   return suspensions.some(
     (s) => s.date === dateStr && s.affectsTypes.includes(affectsType),
   );
