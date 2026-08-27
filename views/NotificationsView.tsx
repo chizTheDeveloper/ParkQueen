@@ -26,8 +26,11 @@ const getDistanceKm = (lat1: number, lon1: number, lat2: number, lon2: number): 
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 
+const NEARBY_RADIUS_MILES = 2;
+const KM_TO_MILES = 0.621371;
+
 const formatDistance = (km: number): string => {
-    const miles = km * 0.621371;
+    const miles = km * KM_TO_MILES;
     if (miles < 0.1) return `${Math.round(km * 3280.84)} ft`;
     return `${miles.toFixed(1)} mi`;
 };
@@ -118,7 +121,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
     const unexpiredSpots = spots.filter(s => !derivePingLifecycle(s, nowMs).expired);
 
     const filteredSpots = userLocation
-        ? unexpiredSpots.filter(s => getDistanceKm(userLocation[0], userLocation[1], s.lat, s.lng) <= 2.0)
+        ? unexpiredSpots.filter(s => getDistanceKm(userLocation[0], userLocation[1], s.lat, s.lng) * KM_TO_MILES <= NEARBY_RADIUS_MILES)
         : unexpiredSpots;
     const nearbySpots = filteredSpots.slice(0, 10);
     const hasMore = filteredSpots.length > 10;
@@ -330,7 +333,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                         )}
 
                         <p className="text-[10px] font-bold text-[#1e75ff] tracking-widest uppercase px-1 pb-1">
-                            {nearbySpots.length} {nearbySpots.length === 1 ? 'ping' : 'pings'}{userLocation ? ' within 2 mi' : ' nearby'}
+                            {nearbySpots.length} {nearbySpots.length === 1 ? 'ping' : 'pings'}{userLocation ? ` within ${NEARBY_RADIUS_MILES} mi` : ' nearby'}
                         </p>
 
                         {nearbySpots.map(spot => {
