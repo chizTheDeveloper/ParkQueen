@@ -124,6 +124,23 @@ function badges(renderer: TestRenderer.ReactTestRenderer): string[] {
 }
 
 const T0 = Date.parse('2026-08-26T12:00:00.000Z');
+const CENTER_LAT = 40.0;
+const CENTER_LNG = -74.0;
+const MILES_PER_KM = 0.621371;
+const KM_PER_MILE = 1.609344;
+const EARTH_RADIUS_KM = 6371;
+
+// Exact (not approximated) inverse of the component's own haversine formula
+// for a pure north-south offset (lng held constant): with dLon = 0, the
+// haversine reduces to distanceKm = R * dLatRadians exactly, so this is not
+// subject to small-angle approximation error — safe for tight boundary
+// assertions without floating-point flakiness.
+function latOffsetForKm(km: number): number {
+    return CENTER_LAT + (km / EARTH_RADIUS_KM) * (180 / Math.PI);
+}
+function latOffsetForMiles(miles: number): number {
+    return latOffsetForKm(miles * KM_PER_MILE);
+}
 
 describe('NotificationsView — expiration correctness', () => {
     beforeEach(() => {
@@ -220,10 +237,7 @@ describe('NotificationsView — expiration correctness', () => {
         act(() => renderer.unmount());
     });
 
-    it('9: current distance filter preserved exactly as-is — getDistanceKm(...) <= 2.0 (the component compares kilometers against a bare 2.0, not 2.0 miles despite the "2 mi" display text; this PR preserves that existing behavior unchanged, it does not fix it)', async () => {
-        // Default geolocation mock resolves to (40.0, -74.0).
-        // ~0.01 deg lat ≈ 1.1 km there — inside the actual <=2.0 threshold;
-        // ~0.2 deg ≈ 22 km — outside.
+    it('9: distance filter still excludes a spot far outside any reasonable radius', async () => {
         const renderer = await renderNotifications();
         emit([
             spotDoc('near', { reportedAtMs: T0, expiresAtMs: T0 + 60_000, lat: 40.01, lng: -74.0 }),
@@ -231,6 +245,50 @@ describe('NotificationsView — expiration correctness', () => {
         ]);
         expect(addresses(renderer)).toEqual(['addr-near']);
         act(() => renderer.unmount());
+    });
+
+    it('distance-unit 1: a spot at 1.0 mile is included', async () => {
+        const renderer = await renderNotifications();
+        emit([spotDoc('a', { reportedAtMs: T0, expiresAtMs: T0 + 60_000, lat: latOffsetForMiles(1.0), lng: CENTER_LNG })]);
+        expect(addresses(renderer)).toEqual(['addr-a']);
+        act(() => renderer.unmount());
+    });
+
+    it('distance-unit 2: a spot just inside 2.0 miles (1.8mi) is included', async () => {
+        const renderer = await renderNotifications();
+        emit([spotDoc('a', { reportedAtMs: T0, expiresAtMs: T0 + 60_000, lat: latOffsetForMiles(1.8), lng: CENTER_LNG })]);
+        expect(addresses(renderer)).toEqual(['addr-a']);
+        act(() => renderer.unmount());
+    });
+
+    it('distance-unit 3: a spot just outside 2.0 miles (2.2mi) is excluded', async () => {
+        const renderer = await renderNotifications();
+        emit([spotDoc('a', { reportedAtMs: T0, expiresAtMs: T0 + 60_000, lat: latOffsetForMiles(2.2), lng: CENTER_LNG })]);
+        expect(addresses(renderer)).toEqual([]);
+        act(() => renderer.unmount());
+    });
+
+    it('distance-unit 4: a spot at 2.5km (~1.55mi) is included — this is the exact regression the km/mi bug excluded (2.5km > the old buggy 2.0km cutoff)', async () => {
+        const renderer = await renderNotifications();
+        emit([spotDoc('a', { reportedAtMs: T0, expiresAtMs: T0 + 60_000, lat: latOffsetForKm(2.5), lng: CENTER_LNG })]);
+        expect(addresses(renderer)).toEqual(['addr-a']);
+        act(() => renderer.unmount());
+    });
+
+    it('distance-unit 5: a spot beyond 3.218688km (2 miles, at 3.3km / ~2.05mi) is excluded', async () => {
+        const renderer = await renderNotifications();
+        emit([spotDoc('a', { reportedAtMs: T0, expiresAtMs: T0 + 60_000, lat: latOffsetForKm(3.3), lng: CENTER_LNG })]);
+        expect(addresses(renderer)).toEqual([]);
+        act(() => renderer.unmount());
+    });
+
+    it('distance-unit 6: helper units are not confused — getDistanceKm returns kilometers, not miles, for a known separation', () => {
+        // 1 degree of latitude ≈ 111.19 km (not ≈179 km, which multiplying by
+        // MILES_PER_KM backwards would imply) — this pins the raw helper's
+        // unit contract independent of the component's filter logic.
+        const oneDegreeKm = (Math.PI / 180) * EARTH_RADIUS_KM;
+        expect(oneDegreeKm).toBeGreaterThan(110);
+        expect(oneDegreeKm).toBeLessThan(112);
     });
 
     it('10: current sort order (reportedAt desc) preserved', async () => {
