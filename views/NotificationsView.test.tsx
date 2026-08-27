@@ -1,6 +1,7 @@
 import React from 'react';
 import TestRenderer, { act } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildGeoQueryRanges } from './street-parking/geoQuery';
 
 // usePingPhaseClock listens for focus/visibilitychange to resume its clock
 // after a suspended tab; this environment has no DOM globals at all.
@@ -44,19 +45,26 @@ vi.hoisted(() => {
 
 vi.mock('../firebase', () => ({ db: {} }));
 
+interface FakeSub {
+    constraints: any[];
+    onNext: (snap: any) => void;
+    onError: (err: any) => void;
+    unsubscribed: boolean;
+}
+let subs: FakeSub[] = [];
 let onSnapshotCallCount = 0;
 let unsubscribeCallCount = 0;
-let latestOnNext: ((snap: any) => void) | null = null;
-let latestConstraints: any[] = [];
 
 vi.mock('firebase/firestore', () => ({
     collection: (_db: any, name: string) => ({ __name: name }),
-    query: (base: any, ...constraints: any[]) => { latestConstraints = constraints; return { __name: base.__name, __constraints: constraints }; },
+    query: (base: any, ...constraints: any[]) => ({ __name: base.__name, __constraints: constraints }),
     where: (field: string, op: string, value: any) => ({ __kind: 'where', field, op, value }),
-    onSnapshot: (_q: any, onNext: any, _onError: any) => {
+    orderBy: (field: string) => ({ __kind: 'orderBy', field }),
+    onSnapshot: (q: any, onNext: any, onError: any) => {
         onSnapshotCallCount++;
-        latestOnNext = onNext;
-        return () => { unsubscribeCallCount++; };
+        const sub: FakeSub = { constraints: q.__constraints, onNext, onError, unsubscribed: false };
+        subs.push(sub);
+        return () => { sub.unsubscribed = true; unsubscribeCallCount++; };
     },
     Timestamp: { now: () => ({ toMillis: () => Date.now() }) },
 }));
@@ -105,8 +113,16 @@ async function renderNotifications(props: Partial<React.ComponentProps<typeof No
     return renderer!;
 }
 
+// Broadcasts the same doc set to every currently-active fake range
+// subscription — a stand-in for "every geohash range's Firestore listener
+// delivered a snapshot containing these docs". A doc appearing in a range
+// whose true geohash envelope wouldn't actually contain it is exactly the
+// false-positive-geohash-match scenario the exact-distance filter (proven by
+// the distance-unit tests below) must still exclude.
 function emit(docs: any[]) {
-    act(() => { latestOnNext!({ docs }); });
+    act(() => {
+        subs.filter(s => !s.unsubscribed).forEach(s => s.onNext({ docs }));
+    });
 }
 
 function addresses(renderer: TestRenderer.ReactTestRenderer): string[] {
@@ -146,10 +162,9 @@ describe('NotificationsView — expiration correctness', () => {
     beforeEach(() => {
         vi.useFakeTimers();
         vi.setSystemTime(T0);
+        subs = [];
         onSnapshotCallCount = 0;
         unsubscribeCallCount = 0;
-        latestOnNext = null;
-        latestConstraints = [];
     });
     afterEach(() => {
         vi.useRealTimers();
@@ -221,9 +236,9 @@ describe('NotificationsView — expiration correctness', () => {
     it('7: no Firestore resubscription is required merely because time advanced', async () => {
         const renderer = await renderNotifications();
         emit([spotDoc('a', { reportedAtMs: T0, expiresAtMs: T0 + 5_000 })]);
-        expect(onSnapshotCallCount).toBe(1);
+        const callsAfterFirstEmit = onSnapshotCallCount;
         act(() => { vi.advanceTimersByTime(5_000); });
-        expect(onSnapshotCallCount).toBe(1);
+        expect(onSnapshotCallCount).toBe(callsAfterFirstEmit);
         act(() => renderer.unmount());
     });
 
@@ -261,7 +276,7 @@ describe('NotificationsView — expiration correctness', () => {
         act(() => renderer.unmount());
     });
 
-    it('distance-unit 3: a spot just outside 2.0 miles (2.2mi) is excluded', async () => {
+    it('distance-unit 3: a spot just outside 2.0 miles (2.2mi) is excluded — proves the exact-distance filter still rejects a geohash false-positive', async () => {
         const renderer = await renderNotifications();
         emit([spotDoc('a', { reportedAtMs: T0, expiresAtMs: T0 + 60_000, lat: latOffsetForMiles(2.2), lng: CENTER_LNG })]);
         expect(addresses(renderer)).toEqual([]);
@@ -275,7 +290,7 @@ describe('NotificationsView — expiration correctness', () => {
         act(() => renderer.unmount());
     });
 
-    it('distance-unit 5: a spot beyond 3.218688km (2 miles, at 3.3km / ~2.05mi) is excluded', async () => {
+    it('distance-unit 5: a spot beyond 3.218688km (2 miles, at 3.3km / ~2.05mi) is excluded — geohash false-positive rejected', async () => {
         const renderer = await renderNotifications();
         emit([spotDoc('a', { reportedAtMs: T0, expiresAtMs: T0 + 60_000, lat: latOffsetForKm(3.3), lng: CENTER_LNG })]);
         expect(addresses(renderer)).toEqual([]);
@@ -339,24 +354,110 @@ describe('NotificationsView — expiration correctness', () => {
         expect(() => { vi.advanceTimersByTime(10_000); }).not.toThrow();
     });
 
-    it('14: unmount releases the Firestore listener', async () => {
+    it('14: unmount releases every geo-range Firestore listener', async () => {
         const renderer = await renderNotifications();
         emit([spotDoc('a', { reportedAtMs: T0, expiresAtMs: T0 + 60_000 })]);
+        const rangeCount = subs.length;
+        expect(rangeCount).toBeGreaterThan(0);
         expect(unsubscribeCallCount).toBe(0);
         act(() => renderer.unmount());
-        expect(unsubscribeCallCount).toBe(1);
+        expect(unsubscribeCallCount).toBe(rangeCount);
     });
 
-    it('query shape unchanged: no geohash/orderBy/limit constraints added in this PR', async () => {
-        await renderNotifications();
-        expect(latestConstraints.some((c: any) => c.field === 'geohash')).toBe(false);
-        expect(latestConstraints.some((c: any) => c.__kind === 'orderBy')).toBe(false);
-        expect(latestConstraints.some((c: any) => c.__kind === 'limit')).toBe(false);
-    });
-
-    it('source contract: no geo-bounding infrastructure imported in this PR', () => {
+    it('source contract: geo-bounding infrastructure is imported and reused for this PR', () => {
         const fs = require('fs');
         const source = fs.readFileSync(new URL('./NotificationsView.tsx', import.meta.url), 'utf8');
-        expect(source).not.toMatch(/geohash|buildGeoQueryRanges|GeoRegionSubscription/);
+        expect(source).toMatch(/buildGeoQueryRanges/);
+        expect(source).toMatch(/GeoRegionSubscription/);
+    });
+
+    describe('geo-bound listener architecture', () => {
+        it('establishes one Firestore range subscription per geohash range from buildGeoQueryRanges(lat, lng, 2mi) for the resolved location', async () => {
+            const expectedRanges = [...buildGeoQueryRanges(40.0, -74.0, 2)].sort((a, b) => a.start.localeCompare(b.start));
+            const renderer = await renderNotifications();
+
+            expect(subs.length).toBe(expectedRanges.length);
+            const actualRanges = subs.map(s => {
+                const gte = s.constraints.find((c: any) => c.field === 'geohash' && c.op === '>=');
+                const lte = s.constraints.find((c: any) => c.field === 'geohash' && c.op === '<=');
+                return { start: gte.value, end: lte.value };
+            }).sort((a, b) => a.start.localeCompare(b.start));
+            expect(actualRanges).toEqual(expectedRanges);
+            act(() => renderer.unmount());
+        });
+
+        it('each per-range query preserves status/expiresAt filters and adds geohash bounds + orderBy(geohash), with no limit', async () => {
+            const renderer = await renderNotifications();
+            expect(subs.length).toBeGreaterThan(0);
+            subs.forEach(s => {
+                expect(s.constraints.some((c: any) =>
+                    c.field === 'status' && c.op === 'in' && JSON.stringify(c.value) === JSON.stringify(['available', 'interested']),
+                )).toBe(true);
+                expect(s.constraints.some((c: any) => c.field === 'expiresAt' && c.op === '>')).toBe(true);
+                expect(s.constraints.some((c: any) => c.field === 'geohash' && c.op === '>=')).toBe(true);
+                expect(s.constraints.some((c: any) => c.field === 'geohash' && c.op === '<=')).toBe(true);
+                expect(s.constraints.some((c: any) => c.__kind === 'orderBy' && c.field === 'geohash')).toBe(true);
+                expect(s.constraints.some((c: any) => c.__kind === 'limit')).toBe(false);
+            });
+            act(() => renderer.unmount());
+        });
+
+        it('all ranges in one subscription generation share the exact same expiresAt Timestamp — not recomputed per range', async () => {
+            const renderer = await renderNotifications();
+            const timestamps = subs.map(s => s.constraints.find((c: any) => c.field === 'expiresAt')?.value);
+            expect(timestamps.length).toBeGreaterThan(0);
+            expect(new Set(timestamps).size).toBe(1);
+            act(() => renderer.unmount());
+        });
+
+        it('no valid location (permission not yet determined): zero spot Firestore reads', async () => {
+            const renderer = await renderNotifications({ permissionState: 'not_determined' });
+            expect(onSnapshotCallCount).toBe(0);
+            expect(subs.length).toBe(0);
+            act(() => renderer.unmount());
+        });
+
+        it('no valid location (permission denied): zero spot Firestore reads', async () => {
+            const renderer = await renderNotifications({ permissionState: 'denied_requestable' });
+            expect(onSnapshotCallCount).toBe(0);
+            act(() => renderer.unmount());
+        });
+
+        it('no valid location (geolocation errors even though permission granted): zero spot Firestore reads', async () => {
+            Object.defineProperty(globalThis, 'navigator', {
+                configurable: true,
+                value: { geolocation: { getCurrentPosition: (_success: any, error: any) => { error({ code: 1 }); } } },
+            });
+            const renderer = await renderNotifications();
+            expect(onSnapshotCallCount).toBe(0);
+            act(() => renderer.unmount());
+            Object.defineProperty(globalThis, 'navigator', {
+                configurable: true,
+                value: { geolocation: { getCurrentPosition: (success: any) => success({ coords: { latitude: 40.0, longitude: -74.0 } }) } },
+            });
+        });
+
+        it('valid → lost location: disposes active geo listeners and clears stale results — no bare fallback listener', async () => {
+            const renderer = await renderNotifications({ permissionState: 'granted' });
+            emit([spotDoc('a', { reportedAtMs: T0, expiresAtMs: T0 + 60_000 })]);
+            expect(addresses(renderer)).toEqual(['addr-a']);
+            const activeBefore = subs.filter(s => !s.unsubscribed).length;
+            expect(activeBefore).toBeGreaterThan(0);
+
+            await act(async () => {
+                renderer.update(React.createElement(NotificationsView, {
+                    user: { id: 'me' },
+                    onBack: () => {},
+                    onSelectSpot: () => {},
+                    permissionState: 'denied_requestable',
+                    callbacks: noopCallbacks,
+                }));
+            });
+
+            expect(addresses(renderer)).toEqual([]);
+            expect(subs.filter(s => !s.unsubscribed).length).toBe(0);
+            expect(onSnapshotCallCount).toBe(activeBefore); // no new listener established after loss
+            act(() => renderer.unmount());
+        });
     });
 });
