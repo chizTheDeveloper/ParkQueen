@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import {
   computeSafeUntil,
   detectParkingSide,
@@ -21,6 +21,15 @@ function dateAt(dayName: string, hour: number, minute = 0): Date {
   d.setHours(hour, minute, 0, 0);
   return d;
 }
+
+// dateAt() and computeSafeUntil's own day-of-week matching both read
+// device-local time — this whole file's scenarios only make sense if that
+// local time is ParQueen's real, intended deployment context (NYC). Pinning
+// it here makes every test in this file deterministic regardless of which
+// timezone the machine/CI runner actually defaults to.
+let originalTZ: string | undefined;
+beforeAll(() => { originalTZ = process.env.TZ; process.env.TZ = 'America/New_York'; });
+afterAll(() => { process.env.TZ = originalTZ; });
 
 const NO_SUSPENSIONS: SuspensionDoc[] = [];
 
@@ -451,16 +460,10 @@ describe('toNYCDateKey', () => {
 // ─── computeSafeUntil — NYC suspension-check integration (device pinned to NYC) ─
 //
 // The schedule/day-of-week matching inside computeSafeUntil reads device-local
-// time (a separate, pre-existing, out-of-scope behavior — see PR notes), so
-// these two integration tests pin process.env.TZ to America/New_York for their
-// duration to reflect ParQueen's real, intended deployment context and isolate
-// what this PR actually changes: the suspension-date comparison.
+// time (a separate, pre-existing, out-of-scope behavior — see PR notes); the
+// file-level America/New_York pin above makes that assumption hold true here.
 
 describe('computeSafeUntil — suspension check uses the NYC date, not UTC (device pinned to America/New_York)', () => {
-  let originalTZ: string | undefined;
-  beforeEach(() => { originalTZ = process.env.TZ; process.env.TZ = 'America/New_York'; });
-  afterEach(() => { process.env.TZ = originalTZ; });
-
   it('active-now check: an evening cleaning window on a suspended NYC day is correctly recognized as suspended', () => {
     const now = new Date('2026-08-27T20:15:00-04:00'); // Thu 8:15 PM EDT — UTC date has already rolled to Aug 28
     const nycWeekday = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short' }).format(now);
