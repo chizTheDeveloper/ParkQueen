@@ -209,13 +209,6 @@ export function detectParkingSide(
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const FULL_DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-function parseTime(timeStr: string, onDate: Date): Date {
-  const [h, m] = timeStr.split(':').map(Number);
-  const d = new Date(onDate);
-  d.setHours(h, m, 0, 0);
-  return d;
-}
-
 // SuspensionDoc.date is a NYC civil-calendar date ("YYYY-MM-DD"), not a UTC
 // or device-local one — ASP suspensions are defined by NYC's own calendar day
 // regardless of where the app happens to be running. Intl.DateTimeFormat with
@@ -230,10 +223,78 @@ export function toNYCDateKey(date: Date): string {
   }).format(date);
 }
 
-function isSuspended(date: Date, affectsType: string, suspensions: SuspensionDoc[]): boolean {
-  const dateStr = toNYCDateKey(date);
+// ── NYC civil-clock helpers ─────────────────────────────────────────────────
+// Parking-rule day-of-week and active-window checks must be evaluated against
+// NYC's own wall clock, not the device/runtime's local time (a device in
+// Tokyo or a CI runner in UTC must produce the identical result as one in
+// NYC for the same absolute instant). All of these use Intl.DateTimeFormat
+// with an explicit timeZone, which — unlike Date.prototype's local getters —
+// is independent of the runtime's timezone and DST-safe.
+
+const NYC_CLOCK_FORMAT = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/New_York',
+  hourCycle: 'h23',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
+function nycWeekday(date: Date): string {
+  return new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short' }).format(date);
+}
+
+function nycMinutesSinceMidnight(date: Date): number {
+  const parts = Object.fromEntries(NYC_CLOCK_FORMAT.formatToParts(date).map((p) => [p.type, p.value]));
+  return Number(parts.hour) * 60 + Number(parts.minute);
+}
+
+/** Adds `days` NYC calendar days to a "YYYY-MM-DD" key via pure UTC date-component arithmetic — never touches wall-clock time, so it's immune to DST entirely. */
+function addNYCDateKeyDays(key: string, days: number): string {
+  const [y, m, d] = key.split('-').map(Number);
+  const next = new Date(Date.UTC(y, m - 1, d + days));
+  return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}-${String(next.getUTCDate()).padStart(2, '0')}`;
+}
+
+/** The weekday of a "YYYY-MM-DD" calendar date — pure calendar math, no timezone involved (a date has one weekday everywhere). */
+function weekdayOfNYCDateKey(key: string): string {
+  const [y, m, d] = key.split('-').map(Number);
+  return DAY_NAMES[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+}
+
+/**
+ * Converts an NYC civil date + wall-clock time ("YYYY-MM-DD", "HH:mm") into
+ * the absolute instant it represents, without hardcoding a UTC-4/-5 offset.
+ * Standard guess-and-correct technique: start from a guess, ask what NYC time
+ * that guess actually is, and shift by the difference. Converges in at most
+ * two passes since a day has only two possible offsets.
+ */
+function nycWallClockToInstant(dateKey: string, timeStr: string): Date {
+  const [y, m, d] = dateKey.split('-').map(Number);
+  const [hh, mm] = timeStr.split(':').map(Number);
+  const wanted = Date.UTC(y, m - 1, d, hh, mm);
+  const fullFormat = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+  let guess = wanted;
+  for (let i = 0; i < 2; i++) {
+    const parts = Object.fromEntries(fullFormat.formatToParts(new Date(guess)).map((p) => [p.type, p.value]));
+    const actual = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute));
+    const diff = wanted - actual;
+    if (diff === 0) break;
+    guess += diff;
+  }
+  return new Date(guess);
+}
+
+function parseMinutes(timeStr: string): number {
+  const [h, m] = timeStr.split(':').map(Number);
+  return h * 60 + m;
+}
+
+function isSuspendedOnDateKey(dateKey: string, affectsType: string, suspensions: SuspensionDoc[]): boolean {
   return suspensions.some(
-    (s) => s.date === dateStr && s.affectsTypes.includes(affectsType),
+    (s) => s.date === dateKey && s.affectsTypes.includes(affectsType),
   );
 }
 
@@ -261,35 +322,36 @@ export function computeSafeUntil(
   };
   const scheduleDescription = `${daysLabel} · ${fmt(sh, sm)}–${fmt(eh, em)}`;
 
-  // Check if currently inside a cleaning window
+  const todayKey = toNYCDateKey(now);
+  const todayName = nycWeekday(now);
+  const nowMinutes = nycMinutesSinceMidnight(now);
+
+  // Check if currently inside a cleaning window (NYC wall-clock time)
   for (const sched of sideSchedules) {
-    const todayName = DAY_NAMES[now.getDay()];
     if (sched.days.includes(todayName)) {
-      const start = parseTime(sched.startTime, now);
-      const end = parseTime(sched.endTime, now);
-      if (now >= start && now < end && !isSuspended(now, 'streetCleaning', suspensions)) {
+      const startMin = parseMinutes(sched.startTime);
+      const endMin = parseMinutes(sched.endTime);
+      if (nowMinutes >= startMin && nowMinutes < endMin && !isSuspendedOnDateKey(todayKey, 'streetCleaning', suspensions)) {
+        const end = nycWallClockToInstant(todayKey, sched.endTime);
         return { activeNow: true, safeUntil: end, nextDay: null, nextTime: null, scheduleDescription };
       }
     }
   }
 
-  // Find next cleaning window in the next 14 days
+  // Find next cleaning window in the next 14 NYC civil calendar days
   for (let daysAhead = 0; daysAhead < 14; daysAhead++) {
-    const candidate = new Date(now);
-    candidate.setDate(now.getDate() + daysAhead);
-    candidate.setHours(0, 0, 0, 0);
-
-    const dayName = DAY_NAMES[candidate.getDay()];
+    const candidateKey = addNYCDateKeyDays(todayKey, daysAhead);
+    const dayName = weekdayOfNYCDateKey(candidateKey);
 
     for (const sched of sideSchedules) {
       if (!sched.days.includes(dayName)) continue;
 
-      const start = parseTime(sched.startTime, candidate);
       // Skip if this window already passed today
-      if (daysAhead === 0 && start <= now) continue;
-      if (isSuspended(candidate, 'streetCleaning', suspensions)) continue;
+      if (daysAhead === 0 && parseMinutes(sched.startTime) <= nowMinutes) continue;
+      if (isSuspendedOnDateKey(candidateKey, 'streetCleaning', suspensions)) continue;
 
-      const fullDay = FULL_DAY_NAMES[candidate.getDay()];
+      const start = nycWallClockToInstant(candidateKey, sched.startTime);
+      const fullDay = FULL_DAY_NAMES[DAY_NAMES.indexOf(dayName)];
       const [h, m] = sched.startTime.split(':').map(Number);
       return {
         activeNow: false,
