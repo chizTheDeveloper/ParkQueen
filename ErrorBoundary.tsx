@@ -1,4 +1,5 @@
 import React, { Component, ErrorInfo, ReactNode } from "react";
+import { tryRecoverFromChunkError } from "./utils/staleChunkRecovery";
 
 interface Props {
   children: ReactNode;
@@ -19,6 +20,12 @@ class ErrorBoundary extends Component<Props, State> {
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error("Uncaught error:", error, errorInfo);
+    // Fallback path: the primary defense is the vite:preloadError listener in
+    // index.tsx, which intercepts a stale-chunk failure before it ever
+    // reaches render. This only matters if some failure gets here without
+    // going through that — a no-op for any error that isn't a recognized,
+    // not-yet-attempted chunk-load failure.
+    tryRecoverFromChunkError(error);
   }
 
   public render() {
