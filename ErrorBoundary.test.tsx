@@ -11,6 +11,7 @@ vi.hoisted(() => {
 
 import ErrorBoundary from './ErrorBoundary';
 import * as staleChunkRecovery from './utils/staleChunkRecovery';
+import * as errorReporting from './utils/errorReporting';
 
 function Bomb({ message }: { message: string }): React.ReactElement {
   throw new Error(message);
@@ -25,6 +26,8 @@ describe('ErrorBoundary', () => {
 
   beforeEach(() => {
     consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(staleChunkRecovery, 'tryRecoverFromChunkError').mockReturnValue(false);
+    vi.spyOn(errorReporting, 'captureClientException').mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -38,32 +41,40 @@ describe('ErrorBoundary', () => {
   });
 
   it('shows the manual "Something went wrong" + Reload UI for an ordinary application error', () => {
-    const recoverSpy = vi.spyOn(staleChunkRecovery, 'tryRecoverFromChunkError').mockReturnValue(false);
     const renderer = TestRenderer.create(
       <ErrorBoundary><Bomb message="Objects are not valid as a React child" /></ErrorBoundary>
     );
     expect(renderer.root.findByType('h1').props.children).toBe('Something went wrong.');
     expect(renderer.root.findByType('button').props.children).toBe('Reload');
-    expect(recoverSpy).toHaveBeenCalled();
+    expect(staleChunkRecovery.tryRecoverFromChunkError).toHaveBeenCalled();
   });
 
   it('logs the error via console.error for a genuine (non-chunk) failure', () => {
-    vi.spyOn(staleChunkRecovery, 'tryRecoverFromChunkError').mockReturnValue(false);
     TestRenderer.create(<ErrorBoundary><Bomb message="boom" /></ErrorBoundary>);
     expect(consoleErrorSpy).toHaveBeenCalled();
   });
 
-  it('delegates to tryRecoverFromChunkError for a caught error, and still logs it', () => {
-    const recoverSpy = vi.spyOn(staleChunkRecovery, 'tryRecoverFromChunkError').mockReturnValue(true);
+  it('reports the error to Sentry via captureClientException, with only safe context', () => {
+    TestRenderer.create(<ErrorBoundary><Bomb message="boom" /></ErrorBoundary>);
+    expect(errorReporting.captureClientException).toHaveBeenCalledTimes(1);
+    const [reportedError, context] = (errorReporting.captureClientException as any).mock.calls[0];
+    expect(reportedError).toBeInstanceOf(Error);
+    expect(reportedError.message).toBe('boom');
+    expect(context).toEqual({ component: 'ErrorBoundary', errorCode: 'Error' });
+  });
+
+  it('still calls tryRecoverFromChunkError for a caught error, independent of Sentry reporting', () => {
     TestRenderer.create(
       <ErrorBoundary><Bomb message="Failed to fetch dynamically imported module: https://x/y.js" /></ErrorBoundary>
     );
-    expect(recoverSpy).toHaveBeenCalledWith(expect.objectContaining({ message: 'Failed to fetch dynamically imported module: https://x/y.js' }));
+    expect(staleChunkRecovery.tryRecoverFromChunkError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'Failed to fetch dynamically imported module: https://x/y.js' })
+    );
+    expect(errorReporting.captureClientException).toHaveBeenCalled();
     expect(consoleErrorSpy).toHaveBeenCalled();
   });
 
   it('the manual Reload button still calls window.location.reload()', () => {
-    vi.spyOn(staleChunkRecovery, 'tryRecoverFromChunkError').mockReturnValue(false);
     const reloadSpy = vi.fn();
     (globalThis as any).window.location.reload = reloadSpy;
 

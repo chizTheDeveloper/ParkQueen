@@ -1,5 +1,6 @@
 import React, { Component, ErrorInfo, ReactNode } from "react";
 import { tryRecoverFromChunkError } from "./utils/staleChunkRecovery";
+import { captureClientException } from "./utils/errorReporting";
 
 interface Props {
   children: ReactNode;
@@ -20,6 +21,13 @@ class ErrorBoundary extends Component<Props, State> {
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error("Uncaught error:", error, errorInfo);
+    // Infrastructure-only capture: the error itself plus which boundary
+    // caught it and its own name (e.g. "TypeError") — no props, no state,
+    // no componentStack (React component names/tree shape only, but kept
+    // out for now since it isn't needed yet and errorInfo has no allowlist
+    // of its own). Explicit business-action context (which screen/action
+    // failed) is a separate, later PR.
+    captureClientException(error, { component: 'ErrorBoundary', errorCode: error.name });
     // Fallback path: the primary defense is the vite:preloadError listener in
     // index.tsx, which intercepts a stale-chunk failure before it ever
     // reaches render. This only matters if some failure gets here without
