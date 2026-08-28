@@ -3,6 +3,15 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
 import { handleVitePreloadError } from './utils/staleChunkRecovery';
+import { initSentry } from './utils/sentryInit';
+
+// Production-only exception monitoring; a no-op in dev/test or when no DSN
+// is configured (see utils/sentryInit.ts for the full privacy contract).
+initSentry({
+  isProd: import.meta.env.PROD,
+  dsn: import.meta.env.VITE_SENTRY_DSN,
+  release: __APP_RELEASE__,
+});
 
 // Polyfill process for browser environment to prevent "process is not defined" errors
 // This is necessary because the Gemini SDK and other libs might reference 'process'
