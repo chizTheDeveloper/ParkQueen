@@ -3,7 +3,7 @@ import { db } from '../../firebase';
 import { collection, getDocs, getDoc, doc, query, where, orderBy } from 'firebase/firestore';
 import { Leaf, AlertTriangle, CheckCircle } from 'lucide-react';
 import {
-  computeSafeUntil,
+  computeSafeUntil, toNYCDateKey, addNYCDateKeyDays, MAX_FORWARD_SEARCH_DAYS_AHEAD,
   StreetRuleDoc, SuspensionDoc, SafeUntilResult, CleaningSchedule,
 } from '../../utils/streetIntelligence';
 import { t, useLang } from '../../i18n';
@@ -69,13 +69,25 @@ export const StreetIntelligenceCard = ({
     const load = async () => {
       cdbg(`load — segmentId:${segmentId} parkingSide:${parkingSide} sideConfidence:${sideConfidence} confirmedParkingSide:${confirmedParkingSide ?? 'null'} effectiveSide:${effectiveSide ?? 'null'} streetName:${streetName}`);
       try {
+        // Suspension matching (computeSafeUntil) only ever inspects today
+        // through today + MAX_FORWARD_SEARCH_DAYS_AHEAD (NYC civil dates) —
+        // bounding the fetch to that exact horizon avoids reading the
+        // suspensions collection's entire history on every card load.
+        const todayKey = toNYCDateKey(new Date());
+        const horizonKey = addNYCDateKeyDays(todayKey, MAX_FORWARD_SEARCH_DAYS_AHEAD);
+
         const [segSnap, rulesSnap, suspSnap] = await Promise.all([
           getDoc(doc(db, 'streetSegments', segmentId)),
           getDocs(query(
             collection(db, 'streetSegments', segmentId, 'streetRules'),
             where('supersededAt', '==', null),
           )),
-          getDocs(query(collection(db, 'suspensions'), orderBy('date', 'desc'))),
+          getDocs(query(
+            collection(db, 'suspensions'),
+            where('date', '>=', todayKey),
+            where('date', '<=', horizonKey),
+            orderBy('date', 'desc'),
+          )),
         ]);
         const segStatus = segSnap.exists() ? (segSnap.data().status ?? 'active') : 'active';
         cdbg(`segment status: ${segStatus}`);

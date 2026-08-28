@@ -248,7 +248,7 @@ function nycMinutesSinceMidnight(date: Date): number {
 }
 
 /** Adds `days` NYC calendar days to a "YYYY-MM-DD" key via pure UTC date-component arithmetic — never touches wall-clock time, so it's immune to DST entirely. */
-function addNYCDateKeyDays(key: string, days: number): string {
+export function addNYCDateKeyDays(key: string, days: number): string {
   const [y, m, d] = key.split('-').map(Number);
   const next = new Date(Date.UTC(y, m - 1, d + days));
   return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}-${String(next.getUTCDate()).padStart(2, '0')}`;
@@ -291,6 +291,12 @@ function parseMinutes(timeStr: string): number {
   const [h, m] = timeStr.split(':').map(Number);
   return h * 60 + m;
 }
+
+// The furthest-ahead NYC civil day computeSafeUntil's forward search can ever
+// inspect (today + this many days, inclusive). Exported so a suspension-fetch
+// query can be bounded to exactly this horizon and no further — the two must
+// never drift apart, so this is the one place either reads it.
+export const MAX_FORWARD_SEARCH_DAYS_AHEAD = 13;
 
 function isSuspendedOnDateKey(dateKey: string, affectsType: string, suspensions: SuspensionDoc[]): boolean {
   return suspensions.some(
@@ -338,8 +344,8 @@ export function computeSafeUntil(
     }
   }
 
-  // Find next cleaning window in the next 14 NYC civil calendar days
-  for (let daysAhead = 0; daysAhead < 14; daysAhead++) {
+  // Find next cleaning window within the next MAX_FORWARD_SEARCH_DAYS_AHEAD NYC civil calendar days
+  for (let daysAhead = 0; daysAhead <= MAX_FORWARD_SEARCH_DAYS_AHEAD; daysAhead++) {
     const candidateKey = addNYCDateKeyDays(todayKey, daysAhead);
     const dayName = weekdayOfNYCDateKey(candidateKey);
 
