@@ -46,12 +46,13 @@ describe('initSentry', () => {
     expect(config.dsn).toBe(DSN);
   });
 
-  it('drops console/fetch/xhr breadcrumbs, keeps history (sanitized separately)', () => {
+  it('drops console/fetch/xhr/dom breadcrumbs, keeps history (sanitized separately)', () => {
     initSentry({ isProd: true, dsn: DSN, release: 'abc123' });
     expect(breadcrumbsIntegration).toHaveBeenCalledWith(expect.objectContaining({
       console: false,
       fetch: false,
       xhr: false,
+      dom: false,
       history: true,
     }));
   });
@@ -81,10 +82,30 @@ describe('initSentry', () => {
     expect(result.request.headers).toBeUndefined();
     expect(result.request.data).toBeUndefined();
     expect(result.request.query_string).toBeUndefined();
-    // The bare request URL itself (no query string) is left alone — it's not
-    // in the strip list because it's needed for grouping and doesn't itself
-    // carry query/cookie/body content once those are stripped separately.
-    expect(result.request.url).toBe('https://x/y');
+  });
+
+  it('beforeSend reduces an absolute request.url with query string and fragment to pathname only', () => {
+    initSentry({ isProd: true, dsn: DSN, release: 'abc123' });
+    const config = init.mock.calls[0][0];
+    const event = { request: { url: 'https://parqueen.app/messages?chat=abc#foo' } };
+    const result = config.beforeSend(event);
+    expect(result.request.url).toBe('/messages');
+  });
+
+  it('beforeSend reduces a relative request.url with query string and fragment to pathname only', () => {
+    initSentry({ isProd: true, dsn: DSN, release: 'abc123' });
+    const config = init.mock.calls[0][0];
+    const event = { request: { url: '/messages?chat=abc#foo' } };
+    const result = config.beforeSend(event);
+    expect(result.request.url).toBe('/messages');
+  });
+
+  it('beforeSend drops a malformed request.url rather than sending it raw', () => {
+    initSentry({ isProd: true, dsn: DSN, release: 'abc123' });
+    const config = init.mock.calls[0][0];
+    const event = { request: { url: 'http://[::1' } };
+    const result = config.beforeSend(event);
+    expect(result.request.url).toBeUndefined();
   });
 
   it('beforeSend is a no-op when there is no user/request on the event', () => {

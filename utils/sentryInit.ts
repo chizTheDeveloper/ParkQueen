@@ -21,6 +21,16 @@ function toPathOnly(url: string): string {
   }
 }
 
+// Malformed URLs are dropped (undefined) rather than sent raw — matches the
+// "drop rather than send unsanitized" fallback used for event.request.url.
+function sanitizeRequestUrl(url: string): string | undefined {
+  try {
+    return new URL(url, 'http://localhost').pathname;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Exception monitoring only — no session replay, tracing, profiling, logs,
  * or user feedback (none of those integrations are added; Sentry.init()
@@ -44,6 +54,9 @@ export function initSentry({ isProd, dsn, release }: InitSentryOptions): void {
         console: false,
         fetch: false,
         xhr: false,
+        // Click/DOM interaction trails aren't needed for this foundation —
+        // Sentry should receive exceptions and route context, not behavior.
+        dom: false,
         // This SPA has no client-side URL routing (views switch via React
         // state, not the address bar), so these rarely fire in practice —
         // sanitized to path-only below regardless, as defense-in-depth.
@@ -62,6 +75,14 @@ export function initSentry({ isProd, dsn, release }: InitSentryOptions): void {
       if (event.request) {
         for (const key of SENSITIVE_REQUEST_KEYS) {
           delete (event.request as Record<string, unknown>)[key];
+        }
+        if (typeof event.request.url === 'string') {
+          const sanitized = sanitizeRequestUrl(event.request.url);
+          if (sanitized === undefined) {
+            delete event.request.url;
+          } else {
+            event.request.url = sanitized;
+          }
         }
       }
       return event;
