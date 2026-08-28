@@ -533,3 +533,121 @@ describe('computeSafeUntil — suspension check uses the NYC date, not UTC (devi
     expect(result.nextDay).toBe('Thursday');
   });
 });
+
+// ─── computeSafeUntil — NYC clock correctness (device-timezone independence) ───
+//
+// computeSafeUntil must evaluate parking-rule day-of-week and wall-clock time
+// against NYC's own civil clock, not whatever timezone the device/runtime
+// happens to be in. These tests drive process.env.TZ through several real
+// zones for the SAME absolute instant and assert identical results — bypassing
+// the file-level America/New_York pin above on purpose, since that pin is
+// exactly the assumption these tests must not silently rely on.
+
+describe('computeSafeUntil — device-timezone independence (NYC clock)', () => {
+  function withTZ<T>(tz: string, fn: () => T): T {
+    const prior = process.env.TZ;
+    process.env.TZ = tz;
+    try {
+      return fn();
+    } finally {
+      process.env.TZ = prior;
+    }
+  }
+
+  // Thursday, 2026-08-27, 9:00 AM America/New_York (EDT) — inside Melville
+  // West's Thu 8:30–10:00 window. In UTC this is 13:00, which is late evening
+  // in Tokyo (22:00) and morning in Los Angeles (06:00) — device-local
+  // getDay()/getHours() would disagree on which weekday and time this is.
+  const ACTIVE_INSTANT = new Date('2026-08-27T09:00:00-04:00');
+
+  it('activeNow is true under America/New_York for the reference instant', () => {
+    const result = withTZ('America/New_York', () =>
+      computeSafeUntil(MELVILLE_SCHEDULES, 'West', NO_SUSPENSIONS, ACTIVE_INSTANT));
+    expect(result.activeNow).toBe(true);
+  });
+
+  it('the same absolute instant yields activeNow=true under UTC, America/Los_Angeles, and Asia/Tokyo too', () => {
+    const tzs = ['America/New_York', 'UTC', 'America/Los_Angeles', 'Asia/Tokyo'];
+    const results = tzs.map(tz => withTZ(tz, () =>
+      computeSafeUntil(MELVILLE_SCHEDULES, 'West', NO_SUSPENSIONS, ACTIVE_INSTANT).activeNow));
+    expect(results).toEqual([true, true, true, true]);
+  });
+
+  it('the same absolute instant yields an identical safeUntil instant under every device timezone', () => {
+    const tzs = ['America/New_York', 'UTC', 'America/Los_Angeles', 'Asia/Tokyo'];
+    const times = tzs.map(tz => withTZ(tz, () =>
+      computeSafeUntil(MELVILLE_SCHEDULES, 'West', NO_SUSPENSIONS, ACTIVE_INSTANT).safeUntil?.getTime()));
+    expect(new Set(times).size).toBe(1);
+  });
+
+  // A late-Sunday-evening NYC instant whose UTC/device-local calendar date and
+  // weekday have already rolled over to Monday under a UTC-ahead device zone.
+  const LATE_SUNDAY_NYC = new Date('2026-08-30T23:30:00-04:00'); // Sun 11:30 PM EDT
+
+  it('forward search finds the same next-day/time under NYC and under a UTC-ahead device timezone', () => {
+    const nyResult = withTZ('America/New_York', () =>
+      computeSafeUntil(MELVILLE_SCHEDULES, 'West', NO_SUSPENSIONS, LATE_SUNDAY_NYC));
+    const tokyoResult = withTZ('Asia/Tokyo', () =>
+      computeSafeUntil(MELVILLE_SCHEDULES, 'West', NO_SUSPENSIONS, LATE_SUNDAY_NYC));
+    expect(nyResult.nextDay).toBe('Monday');
+    expect(tokyoResult.nextDay).toBe(nyResult.nextDay);
+    expect(tokyoResult.safeUntil?.getTime()).toBe(nyResult.safeUntil?.getTime());
+  });
+
+  it('safeUntil is the correct absolute instant for an EDT-side target day (8:30 AM NYC = 12:30 UTC)', () => {
+    const result = withTZ('America/New_York', () =>
+      computeSafeUntil(MELVILLE_SCHEDULES, 'West', NO_SUSPENSIONS, new Date('2026-08-24T07:00:00-04:00'))); // Mon Aug 24 2026, 7 AM EDT
+    expect(result.safeUntil?.toISOString()).toBe('2026-08-24T12:30:00.000Z');
+  });
+
+  it('safeUntil is the correct absolute instant for an EST-side target day (8:30 AM NYC = 13:30 UTC)', () => {
+    const result = withTZ('America/New_York', () =>
+      computeSafeUntil(MELVILLE_SCHEDULES, 'West', NO_SUSPENSIONS, new Date('2026-01-19T07:00:00-05:00'))); // Mon Jan 19 2026, 7 AM EST
+    expect(result.safeUntil?.toISOString()).toBe('2026-01-19T13:30:00.000Z');
+  });
+
+  it('a 14-civil-day forward search spanning a DST transition still lands on the correct calendar day', () => {
+    const beforeSpringForward = new Date('2026-03-01T07:00:00-05:00'); // Sun, one week before transition — stays in EST throughout
+    const result = withTZ('America/New_York', () =>
+      computeSafeUntil(MELVILLE_SCHEDULES, 'West', NO_SUSPENSIONS, beforeSpringForward));
+    // Next Mon/Thu window after Mar 1 (Sun) is Monday Mar 2 — still pre-DST (EST).
+    expect(result.nextDay).toBe('Monday');
+    expect(result.safeUntil?.toISOString()).toBe('2026-03-02T13:30:00.000Z'); // 8:30 AM EST = 13:30 UTC
+
+    // Now start the search from just before the transition weekend (a
+    // non-schedule day), so the search must cross March 8 (spring-forward)
+    // to reach the next Mon/Thu window.
+    const spanningTransition = new Date('2026-03-06T07:00:00-05:00'); // Fri, before transition, no schedule that day
+    const spanResult = withTZ('America/New_York', () =>
+      computeSafeUntil(MELVILLE_SCHEDULES, 'West', NO_SUSPENSIONS, spanningTransition));
+    // Next window after Fri Mar 6 is Monday Mar 9 — AFTER the Mar 8 transition (now EDT).
+    expect(spanResult.nextDay).toBe('Monday');
+    expect(spanResult.safeUntil?.toISOString()).toBe('2026-03-09T12:30:00.000Z'); // 8:30 AM EDT = 12:30 UTC
+  });
+
+  it('suspension-date matching (#84) is unaffected by this change', () => {
+    const now = new Date('2026-08-27T20:15:00-04:00'); // Thu 8:15 PM EDT — UTC date already rolled to Aug 28
+    const eveningSchedule: CleaningSchedule[] = [{ side: 'West', days: ['Thu'], startTime: '20:00', endTime: '21:00' }];
+    const suspensions: SuspensionDoc[] = [{
+      id: 'evening-susp', cityId: 'nyc', date: toNYCDateKey(now), type: 'holiday',
+      label: 'Test', affectsTypes: ['streetCleaning'], source: 'admin',
+    }];
+    const result = withTZ('Asia/Tokyo', () => computeSafeUntil(eveningSchedule, 'West', suspensions, now));
+    expect(result.activeNow).toBe(false);
+  });
+
+  it('no-schedule-for-side and empty-schedule behavior are unaffected', () => {
+    const result = withTZ('Asia/Tokyo', () =>
+      computeSafeUntil(MELVILLE_SCHEDULES, 'North', NO_SUSPENSIONS, ACTIVE_INSTANT));
+    expect(result.scheduleDescription).toBeNull();
+    expect(result.activeNow).toBe(false);
+  });
+
+  it('scheduleDescription formatting is unaffected by device timezone', () => {
+    const tzs = ['America/New_York', 'UTC', 'Asia/Tokyo'];
+    const descriptions = tzs.map(tz => withTZ(tz, () =>
+      computeSafeUntil(MELVILLE_SCHEDULES, 'West', NO_SUSPENSIONS, ACTIVE_INSTANT).scheduleDescription));
+    expect(new Set(descriptions).size).toBe(1);
+    expect(descriptions[0]).toContain('Mon & Thu');
+  });
+});
