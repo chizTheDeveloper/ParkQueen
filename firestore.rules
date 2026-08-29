@@ -449,7 +449,10 @@ service cloud.firestore {
     }
 
     match /spotNotifications/{notifId} {
-      allow read: if signedIn() && resource.data.targetUserId == request.auth.uid;
+      allow read: if signedIn()
+        && (resource.data.targetUserId == request.auth.uid
+          || (resource.data.senderId == request.auth.uid
+            && resource.data.type == 'handoff_success'));
       allow create: if signedIn()
         && request.resource.data.keys().hasAll(
              ['spotId', 'senderId', 'targetUserId', 'type', 'message', 'createdAt'])
@@ -506,6 +509,10 @@ service cloud.firestore {
         && request.resource.data.createdAt is timestamp
         && request.resource.data.createdAt <= request.time
         && request.resource.data.createdAt >= request.time - duration.value(5, 'm')
+        && (!('confirmedByFinder' in request.resource.data)
+          || (request.resource.data.confirmedByFinder == true
+            && request.resource.data.outcome == 'success'
+            && request.auth.uid == request.resource.data.finderId))
         && feedbackId == request.resource.data.spotId + '_' + request.resource.data.userId
         && exists(/databases/$(database)/documents/spots/$(request.resource.data.spotId))
         && getAfter(/databases/$(database)/documents/spots/$(request.resource.data.spotId)).data.status == 'occupied'
@@ -526,7 +533,8 @@ service cloud.firestore {
       // so either side can safely reconcile its deterministic terminal retry.
       allow read: if signedIn()
         && (resource.data.userId == request.auth.uid
-          || resource.data.finderId == request.auth.uid);
+          || (resource.data.finderId == request.auth.uid
+            && resource.data.get('confirmedByFinder', false) == true));
       allow update, delete: if false;
     }
 

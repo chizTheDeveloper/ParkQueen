@@ -1,4 +1,6 @@
-import { doc, getDoc, runTransaction, setDoc, Timestamp } from 'firebase/firestore';
+import {
+  collection, doc, getDoc, getDocs, query, runTransaction, setDoc, Timestamp, where,
+} from 'firebase/firestore';
 import { isHandoffFailureReason, spotFeedbackDocId } from '../../utils/spotFeedback';
 
 type Firestore = any;
@@ -126,13 +128,26 @@ async function commitTerminalHandoff(
       // A pre-PR #90 client could have committed immutable success feedback
       // before its separate notification write failed. The deterministic
       // notification id lets a retry repair that legacy partial state without
-      // touching the feedback document. A create-only retry succeeds when the
-      // document is missing and is denied harmlessly when it already exists.
+      // touching the feedback document. Check sender-visible success notices
+      // first because older clients used random ids; otherwise a fully completed
+      // legacy handoff would receive a duplicate deterministic notification.
       if (notification) {
-        try {
-          await setDoc(notificationRef, notification);
-        } catch (notificationError: any) {
-          if (notificationError?.code !== 'permission-denied') throw notificationError;
+        const priorNotifications = await getDocs(query(
+          collection(db, 'spotNotifications'),
+          where('senderId', '==', notification.senderId),
+          where('type', '==', 'handoff_success'),
+          where('spotId', '==', params.spotId),
+        ));
+        const alreadyNotified = priorNotifications.docs.some((snapshot: any) => (
+          snapshot.data()?.targetUserId === notification.targetUserId
+        ));
+        if (!alreadyNotified) {
+          try {
+            await setDoc(notificationRef, notification);
+          } catch (notificationError: any) {
+            // A concurrent retry can win this create between query and write.
+            if (notificationError?.code !== 'permission-denied') throw notificationError;
+          }
         }
       }
       return 'already_completed';

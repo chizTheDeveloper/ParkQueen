@@ -689,6 +689,72 @@ describe('spotFeedback', () => {
             type: 'handoff_success',
         });
     });
+
+    it('F19: retry does not duplicate an already-delivered legacy random-id success notification', async () => {
+        const spotId = 'legacy-complete-success-spot';
+        const feedbackId = `${spotId}_${OTHER_UID}`;
+        await seed('spots', spotId, { ...interestedSpot, status: 'occupied' });
+        await seed('spotFeedback', feedbackId, {
+            spotId,
+            userId: OTHER_UID,
+            finderId: OWNER_UID,
+            address: '999 Legacy Complete St',
+            outcome: 'success',
+            failureReason: null,
+            createdAt: Timestamp.now(),
+        });
+        await seed('spotNotifications', 'legacy-random-notification-id', {
+            spotId,
+            senderId: OTHER_UID,
+            targetUserId: OWNER_UID,
+            type: 'handoff_success',
+            message: 'Already delivered',
+            createdAt: Timestamp.now(),
+        });
+
+        await expect(completeTerminalHandoff(otherDb(), {
+            spotId,
+            driverId: OTHER_UID,
+            driverName: 'TestDriver',
+            finderId: OWNER_UID,
+            address: '999 Legacy Complete St',
+            outcome: 'success',
+            failureReason: null,
+        })).resolves.toBe('already_completed');
+
+        const notifications = await getDocs(query(
+            collection(ownerDb(), 'spotNotifications'),
+            where('targetUserId', '==', OWNER_UID),
+            where('spotId', '==', spotId),
+        ));
+        expect(notifications.size).toBe(1);
+    });
+
+    it('F20: finder reads only finder-authored feedback and a driver cannot forge that marker', async () => {
+        await seed('spotFeedback', 'driver-private-failure', {
+            spotId: 'private-failure-spot',
+            userId: OTHER_UID,
+            finderId: OWNER_UID,
+            address: 'Private Failure St',
+            outcome: 'failed',
+            failureReason: 'Other',
+            createdAt: Timestamp.now(),
+        });
+        await assertFails(getDoc(doc(ownerDb(), 'spotFeedback', 'driver-private-failure')));
+
+        const spotId = 'forged-finder-confirmation-spot';
+        await seed('spots', spotId, { ...interestedSpot, status: 'occupied' });
+        await assertFails(setDoc(doc(otherDb(), 'spotFeedback', `${spotId}_${OTHER_UID}`), {
+            spotId,
+            userId: OTHER_UID,
+            finderId: OWNER_UID,
+            address: 'Forged Confirmation St',
+            outcome: 'success',
+            failureReason: null,
+            confirmedByFinder: true,
+            createdAt: Timestamp.now(),
+        }));
+    });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
