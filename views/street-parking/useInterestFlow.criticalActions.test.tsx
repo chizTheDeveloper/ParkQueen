@@ -184,7 +184,7 @@ describe('useInterestFlow — critical-action failure reporting', () => {
   });
 
   it('handleHandoffOutcome remains uncaught on failure (no local catch) — Sentry\'s global handler covers it, so no explicit report is added here', async () => {
-    setDoc.mockRejectedValueOnce(txError);
+    runTransaction.mockRejectedValueOnce(txError);
     const getFlow = mount();
 
     // Establish handoffSpotRef via handleArrival first, matching real flow.

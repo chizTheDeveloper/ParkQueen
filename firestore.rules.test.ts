@@ -28,6 +28,10 @@ import {
     runTransaction,
 } from 'firebase/firestore';
 import { cancelClaimTransaction } from './views/street-parking/cancelClaimTransaction';
+import {
+    completeFinderConfirmedHandoff,
+    completeTerminalHandoff,
+} from './views/street-parking/completeTerminalHandoff';
 
 // ── Test identities ────────────────────────────────────────────────────────────
 const OWNER_UID  = 'owner-aaa-111';
@@ -478,6 +482,301 @@ describe('spotFeedback', () => {
                 createdAt: Timestamp.now(),
             })
         );
+    });
+
+    it('F11: failed feedback must include one final allowlisted reason at creation', async () => {
+        await seed('spots', 'failed-feedback-spot', {
+            ...interestedSpot,
+            status: 'occupied',
+        });
+
+        await assertSucceeds(
+            setDoc(doc(otherDb(), 'spotFeedback', `failed-feedback-spot_${OTHER_UID}`), {
+                spotId: 'failed-feedback-spot',
+                userId: OTHER_UID,
+                finderId: OWNER_UID,
+                address: '999 Failed St',
+                outcome: 'failed',
+                failureReason: 'Someone else got it',
+                createdAt: Timestamp.now(),
+            })
+        );
+    });
+
+    it('F12: failed feedback with a missing, null, or arbitrary reason is rejected', async () => {
+        await seed('spots', 'invalid-failed-feedback-spot', {
+            ...interestedSpot,
+            status: 'occupied',
+        });
+        const base = {
+            spotId: 'invalid-failed-feedback-spot',
+            userId: OTHER_UID,
+            finderId: OWNER_UID,
+            address: '999 Failed St',
+            outcome: 'failed',
+            createdAt: Timestamp.now(),
+        };
+
+        await assertFails(
+            setDoc(doc(otherDb(), 'spotFeedback', `invalid-failed-feedback-spot_${OTHER_UID}`), base)
+        );
+        await assertFails(
+            setDoc(doc(otherDb(), 'spotFeedback', `invalid-failed-feedback-spot_${OTHER_UID}`), {
+                ...base,
+                failureReason: null,
+            })
+        );
+        await assertFails(
+            setDoc(doc(otherDb(), 'spotFeedback', `invalid-failed-feedback-spot_${OTHER_UID}`), {
+                ...base,
+                failureReason: 'arbitrary user text',
+            })
+        );
+    });
+
+    it('F13: successful feedback cannot smuggle a failure reason', async () => {
+        await seed('spots', 'success-feedback-spot', {
+            ...interestedSpot,
+            status: 'occupied',
+        });
+
+        await assertFails(
+            setDoc(doc(otherDb(), 'spotFeedback', `success-feedback-spot_${OTHER_UID}`), {
+                spotId: 'success-feedback-spot',
+                userId: OTHER_UID,
+                finderId: OWNER_UID,
+                address: '999 Success St',
+                outcome: 'success',
+                failureReason: 'Someone else got it',
+                createdAt: Timestamp.now(),
+            })
+        );
+    });
+
+    it('F14: valid participant atomically completes success once with one finder notification', async () => {
+        const spotId = 'terminal-success-spot';
+        const feedbackId = `${spotId}_${OTHER_UID}`;
+        await seed('spots', spotId, {
+            ...interestedSpot,
+            status: 'occupied',
+        });
+        const params = {
+            spotId,
+            driverId: OTHER_UID,
+            driverName: 'TestDriver',
+            finderId: OWNER_UID,
+            address: '999 Success St',
+            outcome: 'success' as const,
+            failureReason: null,
+        };
+
+        await expect(completeTerminalHandoff(otherDb(), params)).resolves.toBe('created');
+        await expect(completeTerminalHandoff(otherDb(), params)).resolves.toBe('already_completed');
+
+        const feedback = await getDoc(doc(otherDb(), 'spotFeedback', feedbackId));
+        expect(feedback.data()).toMatchObject({ outcome: 'success', failureReason: null });
+        const notification = await getDoc(doc(ownerDb(), 'spotNotifications', `handoff_success_${feedbackId}`));
+        expect(notification.data()).toMatchObject({
+            senderId: OTHER_UID,
+            targetUserId: OWNER_UID,
+            type: 'handoff_success',
+        });
+    });
+
+    it('F15: valid participant atomically completes failed feedback with its final reason once', async () => {
+        const spotId = 'terminal-failed-spot';
+        const feedbackId = `${spotId}_${OTHER_UID}`;
+        await seed('spots', spotId, {
+            ...interestedSpot,
+            status: 'occupied',
+        });
+        const params = {
+            spotId,
+            driverId: OTHER_UID,
+            driverName: 'TestDriver',
+            finderId: OWNER_UID,
+            address: '999 Failed St',
+            outcome: 'failed' as const,
+            failureReason: "Finder hadn't left yet",
+        };
+
+        await expect(completeTerminalHandoff(otherDb(), params)).resolves.toBe('created');
+        await expect(completeTerminalHandoff(otherDb(), params)).resolves.toBe('already_completed');
+
+        const feedback = await getDoc(doc(otherDb(), 'spotFeedback', feedbackId));
+        expect(feedback.data()).toMatchObject({
+            outcome: 'failed',
+            failureReason: "Finder hadn't left yet",
+        });
+    });
+
+    it('F16: invalid participant cannot complete another user\'s terminal handoff', async () => {
+        const spotId = 'terminal-unauthorized-spot';
+        await seed('spots', spotId, {
+            ...interestedSpot,
+            status: 'occupied',
+        });
+
+        await expect(completeTerminalHandoff(thirdDb(), {
+            spotId,
+            driverId: THIRD_UID,
+            driverName: 'Intruder',
+            finderId: OWNER_UID,
+            address: '999 Private St',
+            outcome: 'success',
+            failureReason: null,
+        })).rejects.toThrow(/PERMISSION_DENIED|permission-denied/);
+    });
+
+    it('F17: finder-confirmed success atomically occupies the spot and completes once', async () => {
+        const spotId = 'finder-terminal-success-spot';
+        const feedbackId = `${spotId}_${OTHER_UID}`;
+        await seed('spots', spotId, interestedSpot);
+        const params = {
+            spotId,
+            driverId: OTHER_UID,
+            finderId: OWNER_UID,
+            finderName: 'TestFinder',
+            address: '999 Finder Success St',
+        };
+
+        await expect(completeFinderConfirmedHandoff(ownerDb(), params)).resolves.toBe('created');
+        await expect(completeFinderConfirmedHandoff(ownerDb(), params)).resolves.toBe('already_completed');
+
+        const spot = await getDoc(doc(ownerDb(), 'spots', spotId));
+        expect(spot.data()?.status).toBe('occupied');
+        const feedback = await getDoc(doc(ownerDb(), 'spotFeedback', feedbackId));
+        expect(feedback.data()).toMatchObject({
+            outcome: 'success',
+            confirmedByFinder: true,
+        });
+        const notification = await getDoc(doc(otherDb(), 'spotNotifications', `handoff_success_${feedbackId}`));
+        expect(notification.data()).toMatchObject({
+            senderId: OWNER_UID,
+            targetUserId: OTHER_UID,
+            type: 'handoff_success',
+        });
+    });
+
+    it('F18: retry repairs a legacy success missing its finder notification without updating feedback', async () => {
+        const spotId = 'legacy-partial-success-spot';
+        const feedbackId = `${spotId}_${OTHER_UID}`;
+        await seed('spots', spotId, { ...interestedSpot, status: 'occupied' });
+        await seed('spotFeedback', feedbackId, {
+            spotId,
+            userId: OTHER_UID,
+            finderId: OWNER_UID,
+            address: '999 Legacy Success St',
+            outcome: 'success',
+            failureReason: null,
+            createdAt: Timestamp.now(),
+        });
+
+        await expect(completeTerminalHandoff(otherDb(), {
+            spotId,
+            driverId: OTHER_UID,
+            driverName: 'TestDriver',
+            finderId: OWNER_UID,
+            address: '999 Legacy Success St',
+            outcome: 'success',
+            failureReason: null,
+        })).resolves.toBe('already_completed');
+
+        const notification = await getDoc(doc(ownerDb(), 'spotNotifications', `handoff_success_${feedbackId}`));
+        expect(notification.data()).toMatchObject({
+            senderId: OTHER_UID,
+            targetUserId: OWNER_UID,
+            type: 'handoff_success',
+        });
+    });
+
+    it('F19: retry does not duplicate an already-delivered legacy random-id success notification', async () => {
+        const spotId = 'legacy-complete-success-spot';
+        const feedbackId = `${spotId}_${OTHER_UID}`;
+        await seed('spots', spotId, { ...interestedSpot, status: 'occupied' });
+        await seed('spotFeedback', feedbackId, {
+            spotId,
+            userId: OTHER_UID,
+            finderId: OWNER_UID,
+            address: '999 Legacy Complete St',
+            outcome: 'success',
+            failureReason: null,
+            createdAt: Timestamp.now(),
+        });
+        await seed('spotNotifications', 'legacy-random-notification-id', {
+            spotId,
+            senderId: OTHER_UID,
+            targetUserId: OWNER_UID,
+            type: 'handoff_success',
+            message: 'Already delivered',
+            createdAt: Timestamp.now(),
+        });
+
+        await expect(completeTerminalHandoff(otherDb(), {
+            spotId,
+            driverId: OTHER_UID,
+            driverName: 'TestDriver',
+            finderId: OWNER_UID,
+            address: '999 Legacy Complete St',
+            outcome: 'success',
+            failureReason: null,
+        })).resolves.toBe('already_completed');
+
+        const notifications = await getDocs(query(
+            collection(ownerDb(), 'spotNotifications'),
+            where('targetUserId', '==', OWNER_UID),
+            where('spotId', '==', spotId),
+        ));
+        expect(notifications.size).toBe(1);
+    });
+
+    it('F20: finder reads only finder-authored feedback and a driver cannot forge that marker', async () => {
+        await seed('spotFeedback', 'driver-private-failure', {
+            spotId: 'private-failure-spot',
+            userId: OTHER_UID,
+            finderId: OWNER_UID,
+            address: 'Private Failure St',
+            outcome: 'failed',
+            failureReason: 'Other',
+            createdAt: Timestamp.now(),
+        });
+        await assertFails(getDoc(doc(ownerDb(), 'spotFeedback', 'driver-private-failure')));
+
+        const spotId = 'forged-finder-confirmation-spot';
+        await seed('spots', spotId, { ...interestedSpot, status: 'occupied' });
+        await assertFails(setDoc(doc(otherDb(), 'spotFeedback', `${spotId}_${OTHER_UID}`), {
+            spotId,
+            userId: OTHER_UID,
+            finderId: OWNER_UID,
+            address: 'Forged Confirmation St',
+            outcome: 'success',
+            failureReason: null,
+            confirmedByFinder: true,
+            createdAt: Timestamp.now(),
+        }));
+    });
+
+    it('F21: finder-authored feedback must be a marked successful confirmation', async () => {
+        const spotId = 'finder-marker-required-spot';
+        await seed('spots', spotId, { ...interestedSpot, status: 'occupied' });
+        const base = {
+            spotId,
+            userId: OTHER_UID,
+            finderId: OWNER_UID,
+            address: 'Finder Marker Required St',
+            createdAt: Timestamp.now(),
+        };
+
+        await assertFails(setDoc(doc(ownerDb(), 'spotFeedback', `${spotId}_${OTHER_UID}`), {
+            ...base,
+            outcome: 'success',
+            failureReason: null,
+        }));
+        await assertFails(setDoc(doc(ownerDb(), 'spotFeedback', `${spotId}_${OTHER_UID}`), {
+            ...base,
+            outcome: 'failed',
+            failureReason: 'Other',
+        }));
     });
 });
 
