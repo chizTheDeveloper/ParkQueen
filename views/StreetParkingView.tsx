@@ -43,7 +43,7 @@ import { BottomSheet } from './street-parking/BottomSheet';
 import { HandoffFlow } from './street-parking/HandoffFlow';
 import { ParkingActivitySheet } from './street-parking/ParkingActivitySheet';
 import { HeaderBar } from './street-parking/HeaderBar';
-import { StreetIntelligenceCard } from './street-parking/StreetIntelligenceCard';
+import { StreetIntelligenceCard, StreetIntelligenceUnavailableCard } from './street-parking/StreetIntelligenceCard';
 import { useParkingTimer } from './street-parking/useParkingTimer';
 import { usePingPhaseClock } from './street-parking/usePingPhaseClock';
 import { AppTour, TOUR_KEY } from './street-parking/AppTour';
@@ -1594,9 +1594,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
                                 </button>
                             </div>
                         ) : (
-                            <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-4 mb-4">
-                                <p className="text-sm text-[var(--color-text-secondary)]">{t('my_car.no_cleaning_data')}</p>
-                            </div>
+                            <StreetIntelligenceUnavailableCard />
                         )}
 
                         {/* Compact action row: cleaning alert / move reminder */}

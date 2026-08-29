@@ -6,6 +6,11 @@ import {
   computeSafeUntil, toNYCDateKey, addNYCDateKeyDays, MAX_FORWARD_SEARCH_DAYS_AHEAD,
   StreetRuleDoc, SuspensionDoc, SafeUntilResult, CleaningSchedule,
 } from '../../utils/streetIntelligence';
+import {
+  classifyStreetIntelligence,
+  StreetIntelligencePresentation,
+  StreetIntelligenceSource,
+} from '../../utils/streetIntelligencePresentation';
 import { t, useLang } from '../../i18n';
 
 interface Props {
@@ -24,6 +29,44 @@ const fmtSafeUntil = (d: Date) => {
   return `${day} at ${time}`;
 };
 
+const fmtSourceDate = (value: string, locale: string) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
+    return null;
+  }
+  return date.toLocaleDateString(locale, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+};
+
+const sourceLabel = (source: StreetIntelligenceSource) => {
+  if (source === 'admin') return t('street_intel.source_admin');
+  if (source === 'sweepnyc') return t('street_intel.source_sweepnyc');
+  return t('street_intel.source_nyc_open_data');
+};
+
+export const StreetIntelligenceUnavailableCard = () => (
+  <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-4 mb-4">
+    <div className="flex items-center gap-2 mb-2">
+      <AlertTriangle size={16} className="text-[var(--color-text-secondary)] shrink-0" />
+      <p className="text-sm font-semibold text-[var(--color-text)]">
+        {t('street_intel.data_unavailable')}
+      </p>
+    </div>
+    <p className="text-xs text-[var(--color-text-secondary)]">
+      {t('street_intel.decision_caution')}
+    </p>
+  </div>
+);
+
 const SIDE_KEY_MAP: Record<string, string> = {
   North: 'street_intel.side_north',
   South: 'street_intel.side_south',
@@ -38,7 +81,8 @@ export const StreetIntelligenceCard = ({
   sideConfidence, confirmedParkingSide, onConfirmSide,
   onResult,
 }: Props) => {
-  useLang();
+  const lang = useLang();
+  const locale = lang === 'es' ? 'es-US' : 'en-US';
   const sideLabel = (side: string) => SIDE_KEY_MAP[side] ? t(SIDE_KEY_MAP[side]) : side;
 
   // Effective side: user-confirmed takes priority, then GPS only if confidence is high
@@ -47,7 +91,9 @@ export const StreetIntelligenceCard = ({
   const [result, setResult] = useState<SafeUntilResult | null>(null);
   const [scheduleCount, setScheduleCount] = useState(0);
   const [availableSides, setAvailableSides] = useState<string[]>([]);
-  const [needsReview, setNeedsReview] = useState(false);
+  const [presentation, setPresentation] = useState<StreetIntelligencePresentation>({
+    state: 'unknown', source: null, lastSourceSync: null,
+  });
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [debugLines, setDebugLines] = useState<string[]>([]);
@@ -65,6 +111,7 @@ export const StreetIntelligenceCard = ({
     setLoadError(false);
     setResult(null);
     setAvailableSides([]);
+    setPresentation({ state: 'unknown', source: null, lastSourceSync: null });
 
     const load = async () => {
       cdbg(`load — segmentId:${segmentId} parkingSide:${parkingSide} sideConfidence:${sideConfidence} confirmedParkingSide:${confirmedParkingSide ?? 'null'} effectiveSide:${effectiveSide ?? 'null'} streetName:${streetName}`);
@@ -89,14 +136,14 @@ export const StreetIntelligenceCard = ({
             orderBy('date', 'desc'),
           )),
         ]);
-        const segStatus = segSnap.exists() ? (segSnap.data().status ?? 'active') : 'active';
-        cdbg(`segment status: ${segStatus}`);
-        setNeedsReview(segStatus === 'needs_review');
-
         if (cancelled) return;
 
         const rules = rulesSnap.docs.map(d => ({ id: d.id, ...d.data() } as StreetRuleDoc));
         cdbg(`streetRules docs: ${rules.length} | ids: ${rules.map(r => r.id).join(', ')}`);
+        const segment = segSnap.exists() ? segSnap.data() : null;
+        const nextPresentation = classifyStreetIntelligence(segment, rules);
+        cdbg(`presentation state: ${nextPresentation.state} | source: ${nextPresentation.source ?? 'none'}`);
+        setPresentation(nextPresentation);
 
         const suspensions = suspSnap.docs
           .map(d => ({ id: d.id, ...d.data() } as SuspensionDoc))
@@ -109,6 +156,12 @@ export const StreetIntelligenceCard = ({
         );
 
         setScheduleCount(allSchedules.length);
+
+        if (nextPresentation.state === 'unknown') {
+          cdbg('UI branch: unknown/unavailable');
+          onResult?.(null);
+          return;
+        }
 
         if (!effectiveSide) {
           const sides = [...new Set(allSchedules.map(s => s.side))].filter(Boolean);
@@ -155,6 +208,16 @@ export const StreetIntelligenceCard = ({
     </div>
   ) : null;
 
+  const freshnessDate = presentation.lastSourceSync
+    ? fmtSourceDate(presentation.lastSourceSync, locale)
+    : null;
+  const metadataBlock = presentation.source ? (
+    <div className="mt-3 text-[11px] text-[var(--color-text-secondary)]">
+      <p>{t('street_intel.source_label', { source: sourceLabel(presentation.source) })}</p>
+      {freshnessDate && <p>{t('street_intel.data_updated', { date: freshnessDate })}</p>}
+    </div>
+  ) : null;
+
   if (loading) {
     return (
       <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-4 mb-4 animate-pulse">
@@ -167,10 +230,13 @@ export const StreetIntelligenceCard = ({
   if (loadError) {
     return (
       <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] px-4 py-4 mb-4">
-        <p className="text-sm text-[var(--color-text-secondary)]">{t('street_intel.load_error')}</p>
+        <p className="text-sm text-[var(--color-text-secondary)] mb-2">{t('street_intel.load_error')}</p>
+        <p className="text-xs text-[var(--color-text-secondary)]">{t('street_intel.decision_caution')}</p>
       </div>
     );
   }
+
+  if (presentation.state === 'unknown') return <StreetIntelligenceUnavailableCard />;
 
   if (!effectiveSide) {
     if (availableSides.length === 0) return null;
@@ -179,14 +245,18 @@ export const StreetIntelligenceCard = ({
         <div className="flex items-center gap-2 mb-2">
           <AlertTriangle size={14} className="text-amber-400 shrink-0" />
           <p className="text-[11px] font-bold text-amber-300/70 uppercase tracking-widest">
-            {t('street_intel.found')}
+            {presentation.state === 'caution'
+              ? t('street_intel.needs_review')
+              : t('street_intel.info_available')}
           </p>
         </div>
         <p className="text-sm text-white font-semibold mb-1">
           {t('street_intel.which_side')}
         </p>
         <p className="text-xs text-[var(--color-text-secondary)] mb-3">
-          {t('street_intel.schedules_found_street', { street: streetName })}
+          {presentation.state === 'caution'
+            ? t('street_intel.schedules_found_estimate', { street: streetName })
+            : t('street_intel.schedules_found_street', { street: streetName })}
         </p>
         <div className="flex gap-2 flex-wrap">
           {availableSides.map(side => (
@@ -200,8 +270,9 @@ export const StreetIntelligenceCard = ({
           ))}
         </div>
         <p className="text-xs text-[var(--color-text-secondary)] mt-3">
-          {t('street_intel.check_signs')}
+          {t('street_intel.decision_caution')}
         </p>
+        {metadataBlock}
         {debugBlock}
       </div>
     );
@@ -226,6 +297,10 @@ export const StreetIntelligenceCard = ({
             ? t('street_intel.no_schedule_for_side', { side: effectiveSideLabel.toLowerCase() })
             : t('street_intel.no_schedule_unknown')}
         </p>
+        {metadataBlock}
+        <p className="text-xs text-[var(--color-text-secondary)] mt-3">
+          {t('street_intel.decision_caution')}
+        </p>
         {debugBlock}
       </div>
     );
@@ -240,19 +315,45 @@ export const StreetIntelligenceCard = ({
         </p>
       </div>
 
+      {presentation.state === 'caution' && (
+        <div className="rounded-xl border border-yellow-500/25 bg-yellow-500/10 px-3 py-2 mb-3">
+          <div className="flex items-center gap-2 mb-1">
+            <AlertTriangle size={16} className="text-yellow-400 shrink-0" />
+            <p className="text-sm font-bold text-yellow-300">{t('street_intel.needs_review')}</p>
+          </div>
+          <p className="text-xs text-[var(--color-text-secondary)]">
+            {t('street_intel.needs_review_body')}
+          </p>
+        </div>
+      )}
+
       {result.activeNow ? (
         <div className="flex items-center gap-2 mb-2">
           <AlertTriangle size={18} className="text-red-400 shrink-0" />
           <div>
-            <p className="text-base font-extrabold text-red-400 leading-tight">{t('street_intel.active_now')}</p>
-            <p className="text-xs text-[var(--color-text-secondary)]">{t('street_intel.active_now_body')}</p>
+            <p className="text-base font-extrabold text-red-400 leading-tight">
+              {presentation.state === 'caution'
+                ? t('street_intel.may_be_active_now')
+                : t('street_intel.active_now')}
+            </p>
+            <p className="text-xs text-[var(--color-text-secondary)]">
+              {presentation.state === 'caution'
+                ? t('street_intel.may_be_active_now_body')
+                : t('street_intel.active_now_body')}
+            </p>
           </div>
         </div>
       ) : result.nextDay ? (
         <div className="flex items-center gap-2 mb-2">
-          <CheckCircle size={18} className="text-green-400 shrink-0" />
+          {presentation.state === 'caution'
+            ? <AlertTriangle size={18} className="text-yellow-400 shrink-0" />
+            : <CheckCircle size={18} className="text-green-400 shrink-0" />}
           <div>
-            <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest leading-none mb-0.5">{t('street_intel.safe_until_label')}</p>
+            <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest leading-none mb-0.5">
+              {presentation.state === 'caution'
+                ? t('street_intel.estimated_window')
+                : t('street_intel.safe_until_label')}
+            </p>
             <p className="text-base font-extrabold text-white leading-tight">
               {result.safeUntil ? fmtSafeUntil(result.safeUntil) : `${result.nextDay} ${result.nextTime}`}
             </p>
@@ -260,7 +361,9 @@ export const StreetIntelligenceCard = ({
         </div>
       ) : (
         <div className="flex items-center gap-2 mb-2">
-          <CheckCircle size={18} className="text-green-400 shrink-0" />
+          {presentation.state === 'caution'
+            ? <AlertTriangle size={18} className="text-yellow-400 shrink-0" />
+            : <CheckCircle size={18} className="text-green-400 shrink-0" />}
           <p className="text-sm text-[var(--color-text-secondary)]">{t('street_intel.no_upcoming')}</p>
         </div>
       )}
@@ -275,13 +378,13 @@ export const StreetIntelligenceCard = ({
             ? t('street_intel.schedules_count_one')
             : t('street_intel.schedules_count', { count: String(scheduleCount) })}
         </span>
-        {needsReview ? (
+        {presentation.state === 'caution' ? (
           <span className="text-[10px] font-semibold text-yellow-400 bg-yellow-500/10 px-2 py-0.5 rounded-full border border-yellow-500/20">
             {t('street_intel.needs_review')}
           </span>
         ) : (
           <span className="text-[10px] font-semibold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full border border-blue-500/20">
-            {t('street_intel.verified')}
+            {t('street_intel.info_available')}
           </span>
         )}
         {confirmedParkingSide && (
@@ -290,11 +393,10 @@ export const StreetIntelligenceCard = ({
           </span>
         )}
       </div>
-      {needsReview && (
-        <p className="text-xs text-yellow-400/80 mt-2">
-          {t('street_intel.needs_review_body')}
-        </p>
-      )}
+      {metadataBlock}
+      <p className="text-xs text-[var(--color-text-secondary)] mt-3">
+        {t('street_intel.decision_caution')}
+      </p>
       {debugBlock}
     </div>
   );
