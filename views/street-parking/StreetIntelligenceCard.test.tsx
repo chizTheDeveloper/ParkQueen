@@ -19,6 +19,7 @@ vi.mock('../../firebase', () => ({ db: {} }));
 
 interface SuspensionRow { id: string; data: any }
 let suspensionRows: SuspensionRow[] = [];
+let segmentExists = true;
 let segmentData: any = { status: 'active' };
 let streetRuleRows: { id: string; data: any }[] = [];
 interface SuspensionsQueryCall { constraints: any[] }
@@ -30,7 +31,7 @@ vi.mock('firebase/firestore', () => ({
     query: (base: any, ...constraints: any[]) => ({ ...base, __constraints: constraints }),
     where: (field: string, op: string, value: any) => ({ __kind: 'where', field, op, value }),
     orderBy: (field: string, dir?: string) => ({ __kind: 'orderBy', field, dir }),
-    getDoc: (_ref: any) => Promise.resolve({ exists: () => true, data: () => segmentData }),
+    getDoc: (_ref: any) => Promise.resolve({ exists: () => segmentExists, data: () => segmentData }),
     getDocs: (q: any) => {
         if (Array.isArray(q.__col) && q.__col[0] === 'suspensions') {
             suspensionsQueryCalls.push({ constraints: q.__constraints });
@@ -64,6 +65,19 @@ const MELVILLE_RULE = {
     lastSourceSync: null,
 };
 
+const SUPPORTED_ADMIN_SEGMENT = {
+    status: 'active',
+    source: 'admin',
+    confidenceScore: 1,
+    provenance: { provider: 'admin' },
+};
+
+function renderedText(renderer: TestRenderer.ReactTestRenderer): string {
+    return renderer.root.findAll(node => typeof node.children?.[0] === 'string')
+        .flatMap(node => node.children.filter((child): child is string => typeof child === 'string'))
+        .join(' ');
+}
+
 async function renderCard(overrides: Partial<React.ComponentProps<typeof StreetIntelligenceCard>> = {}) {
     let onResultValue: any = 'not-called';
     let renderer: TestRenderer.ReactTestRenderer;
@@ -90,7 +104,8 @@ describe('StreetIntelligenceCard — date-bounded suspension fetch', () => {
     beforeEach(() => {
         suspensionsQueryCalls = [];
         suspensionRows = [];
-        segmentData = { status: 'active' };
+        segmentExists = true;
+        segmentData = SUPPORTED_ADMIN_SEGMENT;
         streetRuleRows = [{ id: 'rule1', data: MELVILLE_RULE }];
     });
     afterEach(() => {
@@ -210,5 +225,88 @@ describe('StreetIntelligenceCard — date-bounded suspension fetch', () => {
         await renderCard();
         const constraints = suspensionsQueryCalls[0].constraints;
         expect(constraints.some((c: any) => c.__kind === 'limit')).toBe(false);
+    });
+});
+
+describe('StreetIntelligenceCard — calibrated authority presentation', () => {
+    beforeEach(() => {
+        suspensionsQueryCalls = [];
+        suspensionRows = [];
+        segmentExists = true;
+        segmentData = SUPPORTED_ADMIN_SEGMENT;
+        streetRuleRows = [{ id: 'rule1', data: MELVILLE_RULE }];
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-08-24T07:00:00-04:00'));
+    });
+
+    afterEach(() => vi.useRealTimers());
+
+    it('missing segment renders neutral unavailable copy and no precise Safe Until', async () => {
+        segmentExists = false;
+        const { renderer } = await renderCard();
+        const text = renderedText(renderer);
+        expect(text).toContain('Parking rule data is unavailable for this location.');
+        expect(text).not.toContain('Safe Until');
+        expect(text).not.toContain('ParQueen Verified');
+    });
+
+    it('missing status fails closed instead of rendering supported or verified', async () => {
+        segmentData = { ...SUPPORTED_ADMIN_SEGMENT, status: undefined };
+        const { renderer } = await renderCard();
+        const text = renderedText(renderer);
+        expect(text).toContain('Parking rule data is unavailable for this location.');
+        expect(text).not.toContain('Parking info available');
+        expect(text).not.toContain('ParQueen Verified');
+    });
+
+    it('needs_review places textual caution before the calculated time and removes verified treatment', async () => {
+        segmentData = { ...SUPPORTED_ADMIN_SEGMENT, status: 'needs_review' };
+        const { renderer } = await renderCard();
+        const text = renderedText(renderer);
+        expect(text).toContain('Needs review');
+        expect(text).toContain('Estimated parking window');
+        expect(text.indexOf('Needs review')).toBeLessThan(text.indexOf('Estimated parking window'));
+        expect(text).not.toContain('ParQueen Verified');
+    });
+
+    it('fallback data receives caution rather than an unsupported verified label', async () => {
+        segmentData = {
+            status: 'needs_review',
+            source: 'nyc_open_data',
+            needsReview: true,
+            confidenceScore: 0.5,
+            provenance: { provider: 'nyc_open_data', geometrySource: 'fallback' },
+        };
+        streetRuleRows = [{ id: 'rule1', data: { ...MELVILLE_RULE, source: 'nyc_open_data', needsReview: true } }];
+        const { renderer } = await renderCard();
+        const text = renderedText(renderer);
+        expect(text).toContain('Needs review');
+        expect(text).toContain('NYC Open Data fallback');
+        expect(text).not.toContain('ParQueen Verified');
+    });
+
+    it('supported data keeps Safe Until useful with conservative authority and adjacent safety copy', async () => {
+        const { renderer } = await renderCard();
+        const text = renderedText(renderer);
+        expect(text).toContain('Safe Until');
+        expect(text).toContain('Parking info available');
+        expect(text).toContain('Check posted signs and current NYC rules before parking.');
+        expect(text).not.toContain('ParQueen Verified');
+        expect(text).not.toMatch(/guarantee(?:d|s)? legal parking/i);
+    });
+
+    it('renders source and freshness only when reliable metadata exists', async () => {
+        streetRuleRows = [{ id: 'rule1', data: { ...MELVILLE_RULE, lastSourceSync: '2026-08-29' } }];
+        const withMetadata = await renderCard();
+        expect(renderedText(withMetadata.renderer)).toContain('Source: ParQueen admin data');
+        expect(renderedText(withMetadata.renderer)).toContain('Data updated: Aug 29, 2026');
+
+        streetRuleRows = [{ id: 'rule1', data: { ...MELVILLE_RULE, lastSourceSync: null } }];
+        const withoutFreshness = await renderCard();
+        expect(renderedText(withoutFreshness.renderer)).not.toContain('Data updated:');
+
+        streetRuleRows = [{ id: 'rule1', data: { ...MELVILLE_RULE, lastSourceSync: '2026-13-01' } }];
+        const withInvalidFreshness = await renderCard();
+        expect(renderedText(withInvalidFreshness.renderer)).not.toContain('Data updated:');
     });
 });
