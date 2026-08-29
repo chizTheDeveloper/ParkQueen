@@ -6,6 +6,7 @@ import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getApp } from 'firebase/app';
 import { db } from '../firebase';
 import { moderateMessage } from '../utils/moderation';
+import { reportCriticalActionFailure } from '../utils/errorReporting';
 import { t, useLang } from '../i18n';
 
 interface MessagesViewProps {
@@ -103,6 +104,10 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
       setActiveConversationId(null);
     } catch (e) {
       console.error("Error deleting chat:", e);
+      // Single generic path for every failure here (no business-rule branching
+      // to exclude) — client-side reporting is the only signal for failures
+      // that never reach the callable at all (network/App Check).
+      reportCriticalActionFailure('chat_delete', e);
       showToast(t('messages.toast_delete_failed'));
     } finally {
       setDeletingChat(false);
@@ -522,7 +527,12 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
             setModerationError(t('messages.rate_limited'));
             setTimeout(() => setModerationError(''), 4000);
         } else {
+            // Genuinely unexpected — the moderation/rate-limit branches above are
+            // expected, well-understood outcomes with their own server-side
+            // trail; this catch-all is the only class of failure (network,
+            // App Check, internal) with no guaranteed diagnostic trail.
             console.error("Error sending message", e);
+            reportCriticalActionFailure('message_send', e, code ? { errorCode: code } : undefined);
             showToast(t('messages.toast_send_failed'));
         }
     } finally {
