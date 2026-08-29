@@ -76,19 +76,9 @@ describe('reportCriticalActionFailure', () => {
     expect(scope.setTag).toHaveBeenCalledWith('action', 'spot_claim');
   });
 
-  it('attaches the surface tag when provided', () => {
-    let scope: any;
-    withScope.mockImplementationOnce((cb: (scope: any) => void) => { scope = { setTag: vi.fn() }; cb(scope); return scope; });
+  it('has no surface field — no surface was actually wired up at any real call site in this PR', () => {
+    // @ts-expect-error — surface is not part of CriticalActionContext
     reportCriticalActionFailure('spot_claim', new Error('boom'), { surface: 'map' });
-    expect(scope.setTag).toHaveBeenCalledWith('surface', 'map');
-  });
-
-  it('does not attach a surface tag when not provided', () => {
-    let scope: any;
-    withScope.mockImplementationOnce((cb: (scope: any) => void) => { scope = { setTag: vi.fn() }; cb(scope); return scope; });
-    reportCriticalActionFailure('spot_claim', new Error('boom'));
-    const taggedKeys = scope.setTag.mock.calls.map((call: any[]) => call[0]);
-    expect(taggedKeys).not.toContain('surface');
   });
 
   it('attaches the operationType tag when provided', () => {
@@ -117,8 +107,8 @@ describe('reportCriticalActionFailure', () => {
     let scope: any;
     withScope.mockImplementationOnce((cb: (scope: any) => void) => { scope = { setTag: vi.fn() }; cb(scope); return scope; });
     const firebaseError = Object.assign(new Error('boom'), { code: 'internal' });
-    reportCriticalActionFailure('spot_claim', firebaseError, { errorCode: 'unexpected' });
-    expect(scope.setTag).toHaveBeenCalledWith('errorCode', 'unexpected');
+    reportCriticalActionFailure('spot_claim', firebaseError, { errorCode: 'not-found' });
+    expect(scope.setTag).toHaveBeenCalledWith('errorCode', 'not-found');
   });
 
   it('does not accept arbitrary context fields — the type only allows surface/errorCode/operationType', () => {
@@ -133,11 +123,91 @@ describe('reportCriticalActionFailure', () => {
     expect(sentError.message).toContain('account_create');
   });
 
-  it('preserves the original stack trace for diagnostic value', () => {
+  it('does NOT copy the original stack verbatim — a V8 stack begins with "Name: message", which would reintroduce the original message', () => {
     const original = new Error('boom');
     reportCriticalActionFailure('ping_create', original);
     const sentError = captureException.mock.calls[0][0];
-    expect(sentError.stack).toBe(original.stack);
+    expect(sentError.stack).not.toBe(original.stack);
+  });
+
+  it('the synthetic exception keeps its own stack, which still contains real reporting call-site frames', () => {
+    reportCriticalActionFailure('ping_create', new Error('boom'));
+    const sentError = captureException.mock.calls[0][0];
+    expect(sentError.stack).toContain('reportCriticalActionFailure');
+  });
+
+  describe('privacy regression — a distinctive secret-like original message must never reach Sentry', () => {
+    const SECRET = 'USER_PRIVATE_TEXT_123456';
+
+    it('reports exactly once', () => {
+      reportCriticalActionFailure('account_create', new Error(SECRET));
+      expect(captureException).toHaveBeenCalledTimes(1);
+    });
+
+    it('captured exception.message does not contain the secret', () => {
+      reportCriticalActionFailure('account_create', new Error(SECRET));
+      const sentError = captureException.mock.calls[0][0];
+      expect(sentError.message).not.toContain(SECRET);
+    });
+
+    it('captured exception.stack does not contain the secret', () => {
+      reportCriticalActionFailure('account_create', new Error(SECRET));
+      const sentError = captureException.mock.calls[0][0];
+      expect(sentError.stack).not.toContain(SECRET);
+    });
+
+    it('synthetic exception message is exactly critical_action_failure:<action>', () => {
+      reportCriticalActionFailure('account_create', new Error(SECRET));
+      const sentError = captureException.mock.calls[0][0];
+      expect(sentError.message).toBe('critical_action_failure:account_create');
+    });
+
+    it('the secret is not used as the errorCode tag even if it were placed on error.code', () => {
+      let scope: any;
+      withScope.mockImplementationOnce((cb: (scope: any) => void) => { scope = { setTag: vi.fn() }; cb(scope); return scope; });
+      reportCriticalActionFailure('account_create', Object.assign(new Error('boom'), { code: SECRET }));
+      expect(scope.setTag).toHaveBeenCalledWith('errorCode', 'unknown');
+    });
+
+    it('error.message is never read for the errorCode tag, even when .code/.name are absent', () => {
+      let scope: any;
+      withScope.mockImplementationOnce((cb: (scope: any) => void) => { scope = { setTag: vi.fn() }; cb(scope); return scope; });
+      const bareError = { message: SECRET };
+      reportCriticalActionFailure('account_create', bareError);
+      const taggedErrorCode = scope.setTag.mock.calls.find((c: any[]) => c[0] === 'errorCode');
+      expect(taggedErrorCode).toBeUndefined();
+    });
+  });
+
+  describe('errorCode normalization — never a free-form or oversized value', () => {
+    it('a normal Firebase-style code is preserved as-is', () => {
+      let scope: any;
+      withScope.mockImplementationOnce((cb: (scope: any) => void) => { scope = { setTag: vi.fn() }; cb(scope); return scope; });
+      reportCriticalActionFailure('spot_claim', Object.assign(new Error('x'), { code: 'functions/failed-precondition' }));
+      expect(scope.setTag).toHaveBeenCalledWith('errorCode', 'functions/failed-precondition');
+    });
+
+    it('an oversized code collapses to "unknown"', () => {
+      let scope: any;
+      withScope.mockImplementationOnce((cb: (scope: any) => void) => { scope = { setTag: vi.fn() }; cb(scope); return scope; });
+      const huge = 'a'.repeat(500);
+      reportCriticalActionFailure('spot_claim', Object.assign(new Error('x'), { code: huge }));
+      expect(scope.setTag).toHaveBeenCalledWith('errorCode', 'unknown');
+    });
+
+    it('a code containing free-form/unsafe characters (spaces, punctuation) collapses to "unknown"', () => {
+      let scope: any;
+      withScope.mockImplementationOnce((cb: (scope: any) => void) => { scope = { setTag: vi.fn() }; cb(scope); return scope; });
+      reportCriticalActionFailure('spot_claim', Object.assign(new Error('x'), { code: 'contact me at a@b.com!' }));
+      expect(scope.setTag).toHaveBeenCalledWith('errorCode', 'unknown');
+    });
+
+    it('an explicit context.errorCode is normalized too, not trusted verbatim', () => {
+      let scope: any;
+      withScope.mockImplementationOnce((cb: (scope: any) => void) => { scope = { setTag: vi.fn() }; cb(scope); return scope; });
+      reportCriticalActionFailure('spot_claim', new Error('x'), { errorCode: 'free form text with spaces' });
+      expect(scope.setTag).toHaveBeenCalledWith('errorCode', 'unknown');
+    });
   });
 
   it('never throws into the caller, even if Sentry itself throws', () => {
