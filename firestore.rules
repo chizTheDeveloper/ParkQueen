@@ -497,12 +497,20 @@ service cloud.firestore {
           (request.resource.data.outcome == 'success'
             && request.resource.data.get('failureReason', null) == null)
           || (request.resource.data.outcome == 'failed'
-            && request.resource.data.get('failureReason', null) in [
-              'Someone else got it',
-              "Finder hadn't left yet",
-              "Couldn't find the location",
-              'Other'
-            ])
+            && ('failureReason' in request.resource.data)
+            && (
+              // Temporary rollout bridge: pre-#90 cached clients create an
+              // explicit null; #90 clients create the final reason initially.
+              // Feedback stays immutable. Remove after legacy clients retire
+              // or a minimum-version/forced-refresh mechanism exists.
+              request.resource.data.failureReason == null
+              || request.resource.data.failureReason in [
+                'Someone else got it',
+                "Finder hadn't left yet",
+                "Couldn't find the location",
+                'Other'
+              ]
+            ))
         )
         && request.resource.data.address is string
         && request.resource.data.address.size() <= 500

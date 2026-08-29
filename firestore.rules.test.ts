@@ -484,26 +484,35 @@ describe('spotFeedback', () => {
         );
     });
 
-    it('F11: failed feedback must include one final allowlisted reason at creation', async () => {
-        await seed('spots', 'failed-feedback-spot', {
-            ...interestedSpot,
-            status: 'occupied',
-        });
+    it('F11: new-client failed feedback accepts every final allowlisted reason at creation', async () => {
+        const reasons = [
+            'Someone else got it',
+            "Finder hadn't left yet",
+            "Couldn't find the location",
+            'Other',
+        ];
 
-        await assertSucceeds(
-            setDoc(doc(otherDb(), 'spotFeedback', `failed-feedback-spot_${OTHER_UID}`), {
-                spotId: 'failed-feedback-spot',
-                userId: OTHER_UID,
-                finderId: OWNER_UID,
-                address: '999 Failed St',
-                outcome: 'failed',
-                failureReason: 'Someone else got it',
-                createdAt: Timestamp.now(),
-            })
-        );
+        for (const [index, failureReason] of reasons.entries()) {
+            const spotId = `failed-feedback-spot-${index}`;
+            await seed('spots', spotId, {
+                ...interestedSpot,
+                status: 'occupied',
+            });
+            await assertSucceeds(
+                setDoc(doc(otherDb(), 'spotFeedback', `${spotId}_${OTHER_UID}`), {
+                    spotId,
+                    userId: OTHER_UID,
+                    finderId: OWNER_UID,
+                    address: '999 Failed St',
+                    outcome: 'failed',
+                    failureReason,
+                    createdAt: Timestamp.now(),
+                })
+            );
+        }
     });
 
-    it('F12: failed feedback with a missing, null, or arbitrary reason is rejected', async () => {
+    it('F12: failed feedback with a missing or arbitrary reason is rejected', async () => {
         await seed('spots', 'invalid-failed-feedback-spot', {
             ...interestedSpot,
             status: 'occupied',
@@ -523,15 +532,88 @@ describe('spotFeedback', () => {
         await assertFails(
             setDoc(doc(otherDb(), 'spotFeedback', `invalid-failed-feedback-spot_${OTHER_UID}`), {
                 ...base,
-                failureReason: null,
-            })
-        );
-        await assertFails(
-            setDoc(doc(otherDb(), 'spotFeedback', `invalid-failed-feedback-spot_${OTHER_UID}`), {
-                ...base,
                 failureReason: 'arbitrary user text',
             })
         );
+    });
+
+    it('F12b: rollout bridge accepts only a participant-authored legacy failed feedback with explicit null reason', async () => {
+        const spotId = 'legacy-null-failed-feedback-spot';
+        await seed('spots', spotId, {
+            ...interestedSpot,
+            status: 'occupied',
+        });
+
+        await assertSucceeds(
+            setDoc(doc(otherDb(), 'spotFeedback', `${spotId}_${OTHER_UID}`), {
+                spotId,
+                userId: OTHER_UID,
+                finderId: OWNER_UID,
+                address: '999 Legacy Failed St',
+                outcome: 'failed',
+                failureReason: null,
+                createdAt: Timestamp.now(),
+            })
+        );
+    });
+
+    it('F12c: rollout bridge rejects unauthenticated and unrelated users forging legacy failed/null feedback', async () => {
+        const spotId = 'legacy-null-forgery-spot';
+        await seed('spots', spotId, {
+            ...interestedSpot,
+            status: 'occupied',
+        });
+        const legacyFeedback = {
+            spotId,
+            userId: OTHER_UID,
+            finderId: OWNER_UID,
+            address: '999 Legacy Failed St',
+            outcome: 'failed',
+            failureReason: null,
+            createdAt: Timestamp.now(),
+        };
+
+        await assertFails(setDoc(doc(anonDb(), 'spotFeedback', `${spotId}_${OTHER_UID}`), legacyFeedback));
+        await assertFails(setDoc(doc(thirdDb(), 'spotFeedback', `${spotId}_${OTHER_UID}`), legacyFeedback));
+    });
+
+    it('F12d: rollout bridge rejects extra fields on legacy failed/null feedback', async () => {
+        const spotId = 'legacy-null-extra-field-spot';
+        await seed('spots', spotId, {
+            ...interestedSpot,
+            status: 'occupied',
+        });
+
+        await assertFails(
+            setDoc(doc(otherDb(), 'spotFeedback', `${spotId}_${OTHER_UID}`), {
+                spotId,
+                userId: OTHER_UID,
+                finderId: OWNER_UID,
+                address: '999 Legacy Failed St',
+                outcome: 'failed',
+                failureReason: null,
+                createdAt: Timestamp.now(),
+                reward: 1,
+            })
+        );
+    });
+
+    it('F12e: unchanged backend guards reject failed/null before authoritative Crown or trust work', () => {
+        const source = readFileSync('functions/index.js', 'utf8');
+        const successOnlyGuard = "if (!data || data.outcome !== 'success') return;";
+        const awardCrowns = source.slice(
+            source.indexOf('exports.awardCrowns = onDocumentCreated('),
+            source.indexOf('exports.adminDeleteSpot'),
+        );
+        const updateTrust = source.slice(
+            source.indexOf('exports.updateTrustOnFeedback = onDocumentCreated('),
+            source.indexOf('exports.scheduleCleaningReminders'),
+        );
+
+        expect(awardCrowns.indexOf(successOnlyGuard)).toBeGreaterThan(-1);
+        expect(awardCrowns.indexOf(successOnlyGuard)).toBeLessThan(awardCrowns.indexOf('db.runTransaction'));
+        expect(updateTrust.indexOf(successOnlyGuard)).toBeGreaterThan(-1);
+        expect(updateTrust.indexOf(successOnlyGuard)).toBeLessThan(updateTrust.indexOf('applyTrustDelta'));
     });
 
     it('F13: successful feedback cannot smuggle a failure reason', async () => {
