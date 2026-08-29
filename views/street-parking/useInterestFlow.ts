@@ -5,11 +5,10 @@ import { MapItem } from './types';
 import { getDistance, drawRoute, clearRoute, NYC_CENTER } from './utils';
 import { getTitleForCrowns } from '../../utils/crowns';
 import { getPingExpiresAtMs, timestampToMillis } from '../../utils/pingLifecycle';
-import { spotFeedbackDocId } from '../../utils/spotFeedback';
 import { cancelClaimTransaction } from './cancelClaimTransaction';
 import { reportClaimFailure, reportClaimCancelFailure } from './claimFailureReporting';
 import { t } from '../../i18n';
-import { completeTerminalHandoff } from './completeTerminalHandoff';
+import { completeFinderConfirmedHandoff, completeTerminalHandoff } from './completeTerminalHandoff';
 
 interface UseInterestFlowOptions {
     selectedItem: any;
@@ -255,30 +254,14 @@ export function useInterestFlow({
         const claimerId = selectedItem.interestedUserId;
         const claimerName = selectedItem.interestedUserName || 'the driver';
 
-        await updateDoc(doc(db, 'spots', selectedItem.id), { status: 'occupied' });
-
         if (!claimerId) throw new Error('Missing claimer for completed handoff');
-        await setDoc(doc(db, 'spotFeedback', spotFeedbackDocId(selectedItem.id, claimerId)), {
+        await completeFinderConfirmedHandoff(db, {
             spotId: selectedItem.id,
-            userId: claimerId,
+            driverId: claimerId,
             finderId: user.id,
-            outcome: 'success',
-            failureReason: null,
+            finderName: user.username || 'The driver',
             address: selectedItem.title || selectedItem.address || '',
-            confirmedByFinder: true,
-            createdAt: Timestamp.now(),
         });
-
-        if (claimerId) {
-            await addDoc(collection(db, 'spotNotifications'), {
-                spotId: selectedItem.id,
-                senderId: user.id,
-                targetUserId: claimerId,
-                type: 'handoff_success',
-                message: `${user.username || 'The driver'} confirmed you're parked — +1 Crown earned!`,
-                createdAt: Timestamp.now(),
-            });
-        }
 
         setFinderToast(`Nice one! ${claimerName} is parked. +2 Crowns earned.`);
         setFinderToastTitle('Crown earned!');

@@ -1,4 +1,4 @@
-import { doc, getDoc, runTransaction, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, runTransaction, setDoc, Timestamp } from 'firebase/firestore';
 import { isHandoffFailureReason, spotFeedbackDocId } from '../../utils/spotFeedback';
 
 type Firestore = any;
@@ -17,6 +17,19 @@ export interface CompleteTerminalHandoffParams {
 
 export type TerminalHandoffCompletion = 'created' | 'already_completed';
 
+interface TerminalNotification {
+  senderId: string;
+  targetUserId: string;
+  message: string;
+}
+
+interface InternalTerminalHandoffParams extends CompleteTerminalHandoffParams {
+  actorId: string;
+  confirmedByFinder: boolean;
+  markSpotOccupied: boolean;
+  notification: TerminalNotification | null;
+}
+
 function sameTerminalFeedback(
   existing: Record<string, any>,
   intended: Record<string, any>,
@@ -25,7 +38,8 @@ function sameTerminalFeedback(
     && existing.userId === intended.userId
     && existing.finderId === intended.finderId
     && existing.outcome === intended.outcome
-    && existing.address === intended.address;
+    && existing.address === intended.address
+    && (existing.confirmedByFinder === true) === (intended.confirmedByFinder === true);
 
   if (!sameIdentityAndOutcome) return false;
   if ((existing.failureReason ?? null) === intended.failureReason) return true;
@@ -41,9 +55,9 @@ function sameTerminalFeedback(
  * Atomically creates the immutable terminal feedback and, for success, the
  * finder notification. The deterministic feedback id is also the retry key.
  */
-export async function completeTerminalHandoff(
+async function commitTerminalHandoff(
   db: Firestore,
-  params: CompleteTerminalHandoffParams,
+  params: InternalTerminalHandoffParams,
 ): Promise<TerminalHandoffCompletion> {
   if (params.outcome === 'failed' && !isHandoffFailureReason(params.failureReason)) {
     throw new Error('Invalid handoff failure reason');
@@ -65,30 +79,38 @@ export async function completeTerminalHandoff(
     failureReason: params.failureReason,
     address: params.address,
     createdAt,
+    ...(params.confirmedByFinder ? { confirmedByFinder: true } : {}),
   };
+  const notification = params.notification ? {
+    spotId: params.spotId,
+    senderId: params.notification.senderId,
+    targetUserId: params.notification.targetUserId,
+    type: 'handoff_success',
+    message: params.notification.message,
+    createdAt,
+  } : null;
 
   try {
     await runTransaction(db, async (tx) => {
       const spotSnap = await tx.get(spotRef);
       if (!spotSnap.exists()) throw new Error('Handoff spot no longer exists');
       const spot = spotSnap.data() as Record<string, any>;
-      if (spot.status !== 'occupied'
-        || spot.finderId !== params.finderId
+      if (spot.finderId !== params.finderId
         || spot.interestedUserId !== params.driverId) {
-        throw new Error('Handoff participants or terminal state changed');
+        throw new Error('Handoff participants changed');
+      }
+      if (params.markSpotOccupied) {
+        if (params.actorId !== params.finderId
+          || (spot.status !== 'interested' && spot.status !== 'occupied')) {
+          throw new Error('Handoff terminal state changed');
+        }
+        if (spot.status !== 'occupied') tx.update(spotRef, { status: 'occupied' });
+      } else if (params.actorId !== params.driverId || spot.status !== 'occupied') {
+        throw new Error('Handoff terminal state changed');
       }
 
       tx.set(feedbackRef, feedback);
-      if (params.outcome === 'success') {
-        tx.set(notificationRef, {
-          spotId: params.spotId,
-          senderId: params.driverId,
-          targetUserId: params.finderId,
-          type: 'handoff_success',
-          message: `${params.driverName || 'Someone'} parked in your spot — +2 Crowns earned!`,
-          createdAt,
-        });
-      }
+      if (notification) tx.set(notificationRef, notification);
     });
     return 'created';
   } catch (error: any) {
@@ -101,8 +123,65 @@ export async function completeTerminalHandoff(
       throw error;
     }
     if (existing.exists() && sameTerminalFeedback(existing.data(), feedback)) {
+      // A pre-PR #90 client could have committed immutable success feedback
+      // before its separate notification write failed. The deterministic
+      // notification id lets a retry repair that legacy partial state without
+      // touching the feedback document. A create-only retry succeeds when the
+      // document is missing and is denied harmlessly when it already exists.
+      if (notification) {
+        try {
+          await setDoc(notificationRef, notification);
+        } catch (notificationError: any) {
+          if (notificationError?.code !== 'permission-denied') throw notificationError;
+        }
+      }
       return 'already_completed';
     }
     throw error;
   }
+}
+
+export async function completeTerminalHandoff(
+  db: Firestore,
+  params: CompleteTerminalHandoffParams,
+): Promise<TerminalHandoffCompletion> {
+  return commitTerminalHandoff(db, {
+    ...params,
+    actorId: params.driverId,
+    confirmedByFinder: false,
+    markSpotOccupied: false,
+    notification: params.outcome === 'success' ? {
+      senderId: params.driverId,
+      targetUserId: params.finderId,
+      message: `${params.driverName || 'Someone'} parked in your spot — +2 Crowns earned!`,
+    } : null,
+  });
+}
+
+export interface CompleteFinderConfirmedHandoffParams {
+  spotId: string;
+  driverId: string;
+  finderId: string;
+  finderName: string;
+  address: string;
+}
+
+export async function completeFinderConfirmedHandoff(
+  db: Firestore,
+  params: CompleteFinderConfirmedHandoffParams,
+): Promise<TerminalHandoffCompletion> {
+  return commitTerminalHandoff(db, {
+    ...params,
+    actorId: params.finderId,
+    driverName: params.finderName,
+    outcome: 'success',
+    failureReason: null,
+    confirmedByFinder: true,
+    markSpotOccupied: true,
+    notification: {
+      senderId: params.finderId,
+      targetUserId: params.driverId,
+      message: `${params.finderName || 'The driver'} confirmed you're parked — +1 Crown earned!`,
+    },
+  });
 }

@@ -82,27 +82,32 @@ function snapshotFor(ref: { __col: string; __id: string }) {
   };
 }
 
-function mount() {
+function mount(currentUser: typeof user = user) {
   let flow!: ReturnType<typeof useInterestFlow>;
   const setSelectedItem = vi.fn();
   act(() => {
     TestRenderer.create(
-      <Harness onReady={(next) => { flow = next; }} setSelectedItem={setSelectedItem} />,
+      <Harness
+        onReady={(next) => { flow = next; }}
+        setSelectedItem={setSelectedItem}
+        currentUser={currentUser}
+      />,
     );
   });
   return { getFlow: () => flow, setSelectedItem };
 }
 
 function Harness({
-  onReady, setSelectedItem,
+  onReady, setSelectedItem, currentUser = user,
 }: {
   onReady: (flow: ReturnType<typeof useInterestFlow>) => void;
   setSelectedItem: React.Dispatch<React.SetStateAction<any>>;
+  currentUser?: typeof user;
 }) {
   const flow = useInterestFlow({
     selectedItem: spot,
     setSelectedItem,
-    user,
+    user: currentUser,
     freeSpots: [spot],
     userLocation: null,
     mapRef: { current: null },
@@ -135,6 +140,10 @@ describe('useInterestFlow — terminal handoff outcomes', () => {
     runTransaction.mockReset();
     setDoc.mockReset();
     setDoc.mockImplementation(async (ref, data) => {
+      if ((ref.__col === 'spotFeedback' || ref.__col === 'spotNotifications')
+        && documents.has(pathOf(ref))) {
+        throw permissionDenied();
+      }
       documents.set(pathOf(ref), data);
     });
     updateDoc.mockReset();
@@ -145,15 +154,18 @@ describe('useInterestFlow — terminal handoff outcomes', () => {
     documents.set('spots/spot-1', { ...spot });
     getDoc.mockImplementation(async (ref) => snapshotFor(ref));
     runTransaction.mockImplementation(async (_db, callback) => {
-      const staged: Array<{ ref: any; data: Record<string, any> }> = [];
+      const staged: Array<{ ref: any; data: Record<string, any>; merge?: boolean }> = [];
       const result = await callback({
         get: async (ref: any) => snapshotFor(ref),
         set: (ref: any, data: Record<string, any>) => staged.push({ ref, data }),
+        update: (ref: any, data: Record<string, any>) => staged.push({ ref, data, merge: true }),
       });
       if (staged.some(({ ref }) => ref.__col === 'spotFeedback' && documents.has(pathOf(ref)))) {
         throw permissionDenied();
       }
-      for (const { ref, data } of staged) await setDoc(ref, data);
+      for (const { ref, data, merge } of staged) {
+        await setDoc(ref, merge ? { ...(documents.get(pathOf(ref)) ?? {}), ...data } : data);
+      }
       return result;
     });
   });
@@ -171,6 +183,22 @@ describe('useInterestFlow — terminal handoff outcomes', () => {
     expect(updatesTo('users')).toHaveLength(0);
   });
 
+  it('finder-confirmed success atomically completes once with one deterministic notification', async () => {
+    const finder = { id: 'finder-1', username: 'Finder', crowns: 0 };
+    const { getFlow } = mount(finder);
+
+    await act(async () => {
+      await getFlow().handleFinderConfirmsArrival();
+      await getFlow().handleFinderConfirmsArrival();
+    });
+
+    expect(runTransaction).toHaveBeenCalledTimes(2);
+    expect(writesTo('spotFeedback')).toHaveLength(1);
+    expect([...documents.keys()].filter((path) => path.startsWith('spotNotifications/'))).toHaveLength(1);
+    expect(addDoc).toHaveBeenCalledTimes(0);
+    expect(documents.get('spots/spot-1')?.status).toBe('occupied');
+  });
+
   it('duplicate successful completion creates feedback and finder notification only once', async () => {
     const { getFlow } = mount();
     await arrive(getFlow);
@@ -181,11 +209,11 @@ describe('useInterestFlow — terminal handoff outcomes', () => {
     });
 
     expect(writesTo('spotFeedback')).toHaveLength(1);
-    expect(writesTo('spotNotifications')).toHaveLength(1);
+    expect([...documents.keys()].filter((path) => path.startsWith('spotNotifications/'))).toHaveLength(1);
     expect(addDoc).toHaveBeenCalledTimes(0);
   });
 
-  it('retry after an already-committed successful terminal transaction restores celebration without another write', async () => {
+  it('retry after an already-committed successful terminal transaction restores celebration without duplicate state', async () => {
     documents.set('spotFeedback/spot-1_driver-1', {
       spotId: 'spot-1', userId: 'driver-1', finderId: 'finder-1',
       outcome: 'success', failureReason: null, address: '1 Main St',
@@ -200,7 +228,7 @@ describe('useInterestFlow — terminal handoff outcomes', () => {
 
     expect(getFlow().handoffStep).toBe('celebration');
     expect(writesTo('spotFeedback')).toHaveLength(0);
-    expect(writesTo('spotNotifications')).toHaveLength(0);
+    expect([...documents.keys()].filter((path) => path.startsWith('spotNotifications/'))).toHaveLength(1);
   });
 
   it('choosing failed only opens the reason step and performs no feedback write', async () => {
