@@ -509,10 +509,14 @@ service cloud.firestore {
         && request.resource.data.createdAt is timestamp
         && request.resource.data.createdAt <= request.time
         && request.resource.data.createdAt >= request.time - duration.value(5, 'm')
-        && (!('confirmedByFinder' in request.resource.data)
-          || (request.resource.data.confirmedByFinder == true
+        && (
+          (request.auth.uid == request.resource.data.userId
+            && !('confirmedByFinder' in request.resource.data))
+          || (request.auth.uid == request.resource.data.finderId
+            && request.resource.data.confirmedByFinder == true
             && request.resource.data.outcome == 'success'
-            && request.auth.uid == request.resource.data.finderId))
+            && request.resource.data.failureReason == null)
+        )
         && feedbackId == request.resource.data.spotId + '_' + request.resource.data.userId
         && exists(/databases/$(database)/documents/spots/$(request.resource.data.spotId))
         && getAfter(/databases/$(database)/documents/spots/$(request.resource.data.spotId)).data.status == 'occupied'

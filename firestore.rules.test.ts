@@ -755,6 +755,29 @@ describe('spotFeedback', () => {
             createdAt: Timestamp.now(),
         }));
     });
+
+    it('F21: finder-authored feedback must be a marked successful confirmation', async () => {
+        const spotId = 'finder-marker-required-spot';
+        await seed('spots', spotId, { ...interestedSpot, status: 'occupied' });
+        const base = {
+            spotId,
+            userId: OTHER_UID,
+            finderId: OWNER_UID,
+            address: 'Finder Marker Required St',
+            createdAt: Timestamp.now(),
+        };
+
+        await assertFails(setDoc(doc(ownerDb(), 'spotFeedback', `${spotId}_${OTHER_UID}`), {
+            ...base,
+            outcome: 'success',
+            failureReason: null,
+        }));
+        await assertFails(setDoc(doc(ownerDb(), 'spotFeedback', `${spotId}_${OTHER_UID}`), {
+            ...base,
+            outcome: 'failed',
+            failureReason: 'Other',
+        }));
+    });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
