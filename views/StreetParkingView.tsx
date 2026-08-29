@@ -37,6 +37,7 @@ import { useUnreadMessages } from './street-parking/useUnreadMessages';
 import { useSpotData } from './street-parking/useSpotData';
 import { useInterestFlow } from './street-parking/useInterestFlow';
 import { checkPingRateLimit } from './street-parking/pingRateLimit';
+import { reportPingCreationFailure } from './street-parking/pingFailureReporting';
 import { SpotDetailsCard } from './street-parking/SpotDetailsCard';
 import { BottomSheet } from './street-parking/BottomSheet';
 import { HandoffFlow } from './street-parking/HandoffFlow';
@@ -1249,6 +1250,7 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
 
         const onSaveError = (error: any) => {
             console.error("Error saving spot:", error);
+            reportPingCreationFailure(error, departureTime);
             setPingError(t('ping_errors.save_failed'));
             setIsPinging(false);
         };

@@ -8,6 +8,7 @@ import { t, useLang } from '../i18n';
 import { SignupProgress } from '../components/SignupProgress';
 import { validateUsername, parseCooldownDays } from '../utils/username';
 import { moderateUsername } from '../utils/moderation';
+import { reportCriticalActionFailure } from '../utils/errorReporting';
 
 // Evaluated once at module load — same pattern as CreateAccountView / LocationPromptView
 const prefersReduced =
@@ -150,6 +151,12 @@ export const NameEntryView: React.FC<NameEntryViewProps> = ({ onComplete }) => {
             } else if (code === 'functions/unauthenticated') {
                 setClaimError('Please sign in and try again.');
             } else {
+                // Genuinely unexpected — not a known business-rule rejection
+                // (those are already understood via the callable's own deliberate
+                // response and need no extra monitoring). Never forwards `msg`,
+                // which can otherwise echo moderation/cooldown text derived from
+                // user input; only the safe, enum-like error code is tagged.
+                reportCriticalActionFailure('account_create', e, code ? { errorCode: code } : undefined);
                 setClaimError(t('name_entry.error_network'));
             }
         } finally {

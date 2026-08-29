@@ -108,7 +108,11 @@ vi.mock('firebase/firestore', () => ({
     serverTimestamp: () => ({ __serverTimestamp: true }),
 }));
 
+const { reportCriticalActionFailure } = vi.hoisted(() => ({ reportCriticalActionFailure: vi.fn() }));
+vi.mock('../utils/errorReporting', () => ({ reportCriticalActionFailure }));
+
 import { MessagesView } from './MessagesView';
+import { t } from '../i18n';
 
 const T0 = Date.parse('2026-08-27T12:00:00.000Z');
 
@@ -240,6 +244,20 @@ function isInConversationDetail(renderer: TestRenderer.ReactTestRenderer): boole
 
 function deleteConfirmDialogVisible(renderer: TestRenderer.ReactTestRenderer): boolean {
     return renderer.root.findAll(n => n.type === 'button' && n.props.children === 'Delete').length > 0;
+}
+
+function getMessageInput(renderer: TestRenderer.ReactTestRenderer) {
+    return renderer.root.findByProps({ placeholder: t('messages.type_placeholder') });
+}
+function getSendButton(renderer: TestRenderer.ReactTestRenderer) {
+    return getMessageInput(renderer).parent!.findByType('button');
+}
+async function typeAndSend(renderer: TestRenderer.ReactTestRenderer, text: string) {
+    act(() => { getMessageInput(renderer).props.onChange({ target: { value: text } }); });
+    await act(async () => {
+        getSendButton(renderer).props.onClick();
+        await flush();
+    });
 }
 
 describe('MessagesView — partner profile hydration', () => {
@@ -938,5 +956,121 @@ describe('MessagesView — bounded message history pagination', () => {
         const { computeRestoredScrollTop } = await import('./MessagesView');
         expect(computeRestoredScrollTop(100, 500, 800)).toBe(400);
         expect(computeRestoredScrollTop(0, 200, 200)).toBe(0);
+    });
+});
+
+describe('MessagesView — critical-action failure reporting', () => {
+    beforeEach(() => {
+        userDocCalls = [];
+        chatsOnNext = null;
+        chatsUnsubCount = 0;
+        callableCalls = [];
+        callableImpl = null;
+        messagesSnapshotCalls = [];
+        messagesUnsubCount = 0;
+        olderPageCalls = [];
+        olderPageAutoDocs = [];
+        reportCriticalActionFailure.mockClear();
+        resetScrollMock();
+    });
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    async function renderInsideAConversation() {
+        const renderer = await renderMessages();
+        emitChats([chatDoc('me_alice', ['me', 'alice'])]);
+        await act(async () => { await flush(); });
+        openFirstConversation(renderer);
+        return renderer;
+    }
+
+    // ─── deleteChat ──────────────────────────────────────────────────────
+
+    it('a rejected deleteChat call reports chat_delete exactly once, with no chat id or message content', async () => {
+        const err = Object.assign(new Error('nope'), { code: 'permission-denied' });
+        callableImpl = async () => { throw err; };
+        const renderer = await renderInsideAConversation();
+        openDeleteConfirm(renderer);
+        await act(async () => {
+            clickButtonWithText(renderer, 'Delete');
+            await flush();
+        });
+        expect(reportCriticalActionFailure).toHaveBeenCalledTimes(1);
+        const [action, error, context] = reportCriticalActionFailure.mock.calls[0];
+        expect(action).toBe('chat_delete');
+        expect(error).toBe(err);
+        expect(context).toBeUndefined();
+        act(() => renderer.unmount());
+    });
+
+    it('a successful deleteChat reports zero failures', async () => {
+        const renderer = await renderInsideAConversation();
+        openDeleteConfirm(renderer);
+        await act(async () => {
+            clickButtonWithText(renderer, 'Delete');
+            await flush();
+        });
+        expect(reportCriticalActionFailure).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    // ─── sendMessage ─────────────────────────────────────────────────────
+
+    it('a genuinely unexpected sendMessage failure reports message_send exactly once, with only a safe error code — never message text', async () => {
+        const err = Object.assign(new Error('internal'), { code: 'internal' });
+        callableImpl = async () => { throw err; };
+        const renderer = await renderInsideAConversation();
+
+        await typeAndSend(renderer, 'a private message with secret content');
+
+        expect(reportCriticalActionFailure).toHaveBeenCalledTimes(1);
+        const [action, error, context] = reportCriticalActionFailure.mock.calls[0];
+        expect(action).toBe('message_send');
+        expect(error).toBe(err);
+        expect(context).toEqual({ errorCode: 'internal' });
+        act(() => renderer.unmount());
+    });
+
+    it('does NOT report an expected moderation rejection (functions/invalid-argument) — normal, already-diagnosed control flow', async () => {
+        callableImpl = async () => { throw Object.assign(new Error('blocked'), { code: 'functions/invalid-argument' }); };
+        const renderer = await renderInsideAConversation();
+
+        await typeAndSend(renderer, 'hello');
+
+        expect(reportCriticalActionFailure).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    it('does NOT report an expected rate-limit rejection (functions/resource-exhausted)', async () => {
+        callableImpl = async () => { throw Object.assign(new Error('slow down'), { code: 'functions/resource-exhausted' }); };
+        const renderer = await renderInsideAConversation();
+
+        await typeAndSend(renderer, 'hello');
+
+        expect(reportCriticalActionFailure).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    it('a successful send reports zero failures', async () => {
+        const renderer = await renderInsideAConversation();
+
+        await typeAndSend(renderer, 'hello');
+
+        expect(reportCriticalActionFailure).not.toHaveBeenCalled();
+        act(() => renderer.unmount());
+    });
+
+    it('user-facing failure behavior for sendMessage is unchanged: shows the existing toast, and the input keeps its text for retry', async () => {
+        callableImpl = async () => { throw Object.assign(new Error('internal'), { code: 'internal' }); };
+        const renderer = await renderInsideAConversation();
+
+        await typeAndSend(renderer, 'hello');
+
+        expect(renderer.root.findAll(n => n.type === 'p' && n.props.children === t('messages.toast_send_failed')).length).toBe(1);
+        // Unlike the success path (which clears inputText), a failure must not
+        // discard what the user typed — this is pre-existing behavior, unchanged.
+        expect(getMessageInput(renderer).props.value).toBe('hello');
+        act(() => renderer.unmount());
     });
 });

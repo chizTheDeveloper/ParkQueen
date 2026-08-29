@@ -7,6 +7,7 @@ import { getTitleForCrowns } from '../../utils/crowns';
 import { getPingExpiresAtMs, timestampToMillis } from '../../utils/pingLifecycle';
 import { spotFeedbackDocId } from '../../utils/spotFeedback';
 import { cancelClaimTransaction } from './cancelClaimTransaction';
+import { reportClaimFailure, reportClaimCancelFailure } from './claimFailureReporting';
 import { t } from '../../i18n';
 
 interface UseInterestFlowOptions {
@@ -221,6 +222,7 @@ export function useInterestFlow({
             setTrackedItemId(spot.id);
             if (mapRef.current) drawRoute(mapRef.current, userLocation || NYC_CENTER, dest);
         } catch (e: any) {
+            reportClaimFailure(e, 'immediate');
             setInterestError(e.message || "Failed to reserve spot");
         }
     };
@@ -321,7 +323,8 @@ export function useInterestFlow({
             activeRouteDestinationRef.current = null;
             if (mapRef.current) clearRoute(mapRef.current);
             setSelectedItem(null);
-        } catch {
+        } catch (e) {
+            reportClaimCancelFailure(e);
             // Never leak raw SDK error text (e.g. transaction-ordering errors) to the UI.
             setInterestError(t('claim_flow.cancel_error'));
         } finally {
@@ -519,6 +522,7 @@ export function useInterestFlow({
             // Track for snapshot disappearance detection — no route drawn yet
             setTrackedItemId(spot.id);
         } catch (e: any) {
+            reportClaimFailure(e, 'scheduled');
             setInterestError(e.message || "Failed to claim spot");
         }
     };
