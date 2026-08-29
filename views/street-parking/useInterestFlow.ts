@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { db } from '../../firebase';
-import { doc, updateDoc, deleteDoc, runTransaction, Timestamp, collection, query, where, getDocs, addDoc, setDoc, onSnapshot, orderBy, limit, increment } from 'firebase/firestore';
+import { doc, updateDoc, deleteDoc, runTransaction, Timestamp, collection, query, where, getDocs, addDoc, setDoc, onSnapshot, orderBy, limit } from 'firebase/firestore';
 import { MapItem } from './types';
 import { getDistance, drawRoute, clearRoute, NYC_CENTER } from './utils';
 import { getTitleForCrowns } from '../../utils/crowns';
@@ -9,6 +9,7 @@ import { spotFeedbackDocId } from '../../utils/spotFeedback';
 import { cancelClaimTransaction } from './cancelClaimTransaction';
 import { reportClaimFailure, reportClaimCancelFailure } from './claimFailureReporting';
 import { t } from '../../i18n';
+import { completeTerminalHandoff } from './completeTerminalHandoff';
 
 interface UseInterestFlowOptions {
     selectedItem: any;
@@ -380,57 +381,38 @@ export function useInterestFlow({
         const spotSnap = handoffSpotRef.current;
         if (!spotSnap || !user) return;
 
-        await setDoc(doc(db, 'spotFeedback', spotFeedbackDocId(spotSnap.id, user.id)), {
+        if (outcome === 'failed') {
+            setHandoffStep('failure_reason');
+            return;
+        }
+
+        await completeTerminalHandoff(db, {
             spotId: spotSnap.id,
-            userId: user.id,
+            driverId: user.id,
+            driverName: user.username || 'Someone',
             finderId: spotSnap.finderId,
-            outcome,
-            failureReason: null,
             address: spotSnap.address || '',
-            createdAt: Timestamp.now(),
+            outcome: 'success',
+            failureReason: null,
         });
 
-        if (outcome === 'success') {
-            await addDoc(collection(db, 'spotNotifications'), {
-                spotId: spotSnap.id,
-                senderId: user.id,
-                targetUserId: spotSnap.finderId,
-                type: 'handoff_success',
-                message: `${user.username || 'Someone'} parked in your spot — +2 Crowns earned!`,
-                createdAt: Timestamp.now(),
-            });
-            // Save last parked location and track claim count for reciprocity nudge
-            await updateDoc(doc(db, 'users', user.id), {
-                lastParkedLocation: {
-                    lat: spotSnap.lat,
-                    lng: spotSnap.lng,
-                    address: spotSnap.address || '',
-                    savedAt: Timestamp.now(),
-                },
-                claimCount: increment(1),
-            });
-            setHandoffSpotCoords({ lat: spotSnap.lat, lng: spotSnap.lng, address: spotSnap.address || '' });
-            setHandoffStep('celebration');
-        } else {
-            setHandoffStep('failure_reason');
-        }
+        setHandoffSpotCoords({ lat: spotSnap.lat, lng: spotSnap.lng, address: spotSnap.address || '' });
+        setHandoffStep('celebration');
     };
 
     const handleFailureReason = async (reason: string) => {
         const spotSnap = handoffSpotRef.current;
         if (!spotSnap || !user) return;
 
-        const q = query(
-            collection(db, 'spotFeedback'),
-            where('spotId', '==', spotSnap.id),
-            where('userId', '==', user.id),
-            orderBy('createdAt', 'desc'),
-            limit(1)
-        );
-        const snap = await getDocs(q);
-        if (!snap.empty) {
-            await updateDoc(snap.docs[0].ref, { failureReason: reason });
-        }
+        await completeTerminalHandoff(db, {
+            spotId: spotSnap.id,
+            driverId: user.id,
+            driverName: user.username || 'Someone',
+            finderId: spotSnap.finderId,
+            address: spotSnap.address || '',
+            outcome: 'failed',
+            failureReason: reason,
+        });
 
         setHandoffStep(null);
         setHandoffFinderName(null);

@@ -2,13 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Car, CheckCircle2, XCircle, Users, MapPin, Clock, HelpCircle, Crown, Bell, ChevronLeft } from 'lucide-react';
 import { TimePicker } from './TimePicker';
 import { t, useLang } from '../../i18n';
+import { HANDOFF_FAILURE_REASONS } from '../../utils/spotFeedback';
 
-const FAILURE_REASONS = [
-    { label: 'Someone else got it', icon: Users },
-    { label: "Finder hadn't left yet", icon: Clock },
-    { label: "Couldn't find the location", icon: MapPin },
-    { label: 'Other', icon: HelpCircle },
-];
+const FAILURE_REASON_ICONS = [Users, Clock, MapPin, HelpCircle] as const;
+const FAILURE_REASONS = HANDOFF_FAILURE_REASONS.map((label, index) => ({
+    label,
+    icon: FAILURE_REASON_ICONS[index],
+}));
 
 const REMINDER_OPTIONS = [
     { label: '30 min', minutes: 30 },
