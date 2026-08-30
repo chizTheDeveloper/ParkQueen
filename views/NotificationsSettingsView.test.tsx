@@ -64,4 +64,23 @@ describe('NotificationsSettingsView runtime truthfulness', () => {
     await act(async () => { await toggle.props.onClick(); });
     expect(mocks.updateDoc).toHaveBeenCalledWith({ path: 'preferences' }, { notificationsEnabled: false });
   });
+
+  it('reflects a successful re-enable when the authoritative preference updates', () => {
+    const props = {
+      onBack: vi.fn(),
+      notificationRuntime: { capability: 'supported', permission: 'granted', registration: 'registered' } as const,
+      onEnableNotifications: vi.fn(),
+      onRecheckNotifications: vi.fn(),
+    };
+    const renderer = TestRenderer.create(
+      <NotificationsSettingsView user={{ id: 'me', notificationsEnabled: false }} {...props} />,
+    );
+    expect(renderer.root.findByProps({ 'aria-label': 'Notifications' }).props['aria-checked']).toBe(false);
+
+    act(() => renderer.update(
+      <NotificationsSettingsView user={{ id: 'me', notificationsEnabled: true }} {...props} />,
+    ));
+
+    expect(renderer.root.findByProps({ 'aria-label': 'Notifications' }).props['aria-checked']).toBe(true);
+  });
 });

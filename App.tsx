@@ -52,7 +52,14 @@ import { getApp } from 'firebase/app';
 import { clearRecaptchaVerifier, replaceRecaptchaVerifier } from './utils/recaptchaLifecycle';
 import { notificationRegistration, type NotificationRuntimeState } from './utils/notificationRegistration';
 import { createNotificationLifecycle } from './utils/notificationLifecycle';
-import { readNotificationIntentFromPayload, type NotificationIntent } from './utils/notificationIntent';
+import {
+  consumeNotificationIntentFragment,
+  normalizeNotificationIntent,
+  readNotificationIntentFromPayload,
+  type NotificationIntent,
+} from './utils/notificationIntent';
+import { createNotificationIntentQueue, executeNotificationIntent } from './utils/notificationNavigation';
+import { ForegroundNotificationToast } from './components/ForegroundNotificationToast';
 
 // Clears all account-scoped browser state after account deletion.
 // Preserves device-scoped preferences (theme, language) so they survive account transitions.
@@ -71,6 +78,7 @@ export default function App() {
   const [vehicleOnboarding, setVehicleOnboarding] = useState(false);
   const [locationAccess, setLocationAccess] = useState<LocationAccess>(() => readPersistedAccess());
   const [pendingSpotId, setPendingSpotId] = useState<string | null>(null);
+  const [pendingMyCarOpen, setPendingMyCarOpen] = useState(false);
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useState(() => {
@@ -79,8 +87,10 @@ export default function App() {
   const [activeChatContext, setActiveChatContext] = useState<{ userId: string; context: string } | null>(null);
   const [chatReturnSpotId, setChatReturnSpotId] = useState<string | null>(null);
   const [pushToast, setPushToast] = useState<{ title: string; body: string; intent: NotificationIntent } | null>(null);
+  const pushToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [notificationRuntime, setNotificationRuntime] = useState<NotificationRuntimeState | null>(null);
   const [notificationBusy, setNotificationBusy] = useState(false);
+  const notificationIntentQueueRef = useRef<ReturnType<typeof createNotificationIntentQueue> | null>(null);
   const [titleUnlock, setTitleUnlock] = useState<string | null>(null);
   const prevTitleRef = useRef<string | null>(null);
   const privateEmailRef = useRef<string | undefined>(undefined);
@@ -259,15 +269,65 @@ export default function App() {
           body: message.notification?.body ?? message.data?.body ?? '',
           intent: readNotificationIntentFromPayload(payload),
         });
-        setTimeout(() => setPushToast(null), 5000);
+        if (pushToastTimerRef.current) clearTimeout(pushToastTimerRef.current);
+        pushToastTimerRef.current = setTimeout(() => {
+          setPushToast(null);
+          pushToastTimerRef.current = null;
+        }, 5000);
       },
     });
     void lifecycle.setUser(user?.id ? {
       uid: user.id,
       productPreferenceEnabled: user.notificationsEnabled !== false,
     } : null);
-    return () => lifecycle.dispose();
+    return () => {
+      lifecycle.dispose();
+      if (pushToastTimerRef.current) clearTimeout(pushToastTimerRef.current);
+      pushToastTimerRef.current = null;
+    };
   }, [user?.id, user?.notificationsEnabled]);
+
+  useEffect(() => {
+    const queue = createNotificationIntentQueue(intent => {
+      executeNotificationIntent(intent, {
+        openPing: spotId => {
+          setPendingMyCarOpen(false);
+          setPendingSpotId(spotId);
+          setCurrentView(AppView.MAP);
+        },
+        openMyCar: () => {
+          setPendingSpotId(null);
+          setPendingMyCarOpen(true);
+          setCurrentView(AppView.MAP);
+        },
+        openNotifications: () => {
+          setPendingSpotId(null);
+          setPendingMyCarOpen(false);
+          setCurrentView(AppView.NOTIFICATIONS);
+        },
+      });
+    });
+    notificationIntentQueueRef.current = queue;
+
+    const startupIntent = consumeNotificationIntentFragment(window.location, window.history);
+    if (startupIntent) queue.accept(startupIntent);
+
+    const onWorkerMessage = (event: MessageEvent) => {
+      const message = event.data as { kind?: unknown; version?: unknown; intent?: unknown } | null;
+      if (message?.kind !== 'PARQUEEN_NOTIFICATION_OPEN' || message.version !== 1) return;
+      queue.accept(normalizeNotificationIntent(message.intent) ?? { version: 1, type: 'notifications' });
+    };
+    navigator.serviceWorker?.addEventListener('message', onWorkerMessage);
+    return () => {
+      navigator.serviceWorker?.removeEventListener('message', onWorkerMessage);
+      queue.dispose();
+      if (notificationIntentQueueRef.current === queue) notificationIntentQueueRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    notificationIntentQueueRef.current?.setReady(!loading && !!user?.id);
+  }, [loading, user?.id]);
 
 
   useEffect(() => {
@@ -552,6 +612,16 @@ export default function App() {
             setView={setCurrentView}
             pendingSpotId={pendingSpotId}
             onPendingSpotConsumed={() => setPendingSpotId(null)}
+            onPendingSpotUnavailable={() => {
+              setCurrentView(AppView.NOTIFICATIONS);
+              setPushToast({
+                title: t('notifications.ping_unavailable'),
+                body: '',
+                intent: { version: 1, type: 'notifications' },
+              });
+            }}
+            pendingMyCarOpen={pendingMyCarOpen}
+            onPendingMyCarConsumed={() => setPendingMyCarOpen(false)}
             allowLocationTracking={locationAccess === 'granted'}
           />
           {currentView === AppView.MESSAGES && (
@@ -681,18 +751,17 @@ export default function App() {
       </main>
 
       {pushToast && (
-        <div className="fixed top-4 left-4 right-4 z-50 flex justify-center animate-in fade-in slide-in-from-top duration-300">
-          <div className="bg-[var(--color-glass)] backdrop-blur-xl border border-[var(--color-border)] rounded-2xl px-4 py-3 shadow-2xl flex items-center gap-3 max-w-sm w-full">
-            <div className="w-9 h-9 rounded-full bg-[#1e75ff]/15 flex items-center justify-center shrink-0">
-              <span className="text-lg">👑</span>
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-bold text-[var(--color-text)] truncate">{pushToast.title}</div>
-              <div className="text-xs text-[var(--color-text-secondary)] truncate">{pushToast.body}</div>
-            </div>
-            <button onClick={() => setPushToast(null)} className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)] shrink-0 text-lg">&times;</button>
-          </div>
-        </div>
+        <ForegroundNotificationToast
+          title={pushToast.title}
+          body={pushToast.body}
+          openLabel={t('notifications.open_action')}
+          dismissLabel={t('notifications.dismiss_action')}
+          onOpen={() => {
+            notificationIntentQueueRef.current?.accept(pushToast.intent);
+            setPushToast(null);
+          }}
+          onDismiss={() => setPushToast(null)}
+        />
       )}
 
       {titleUnlock && (

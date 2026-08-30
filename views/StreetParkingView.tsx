@@ -47,9 +47,20 @@ import { StreetIntelligenceCard, StreetIntelligenceUnavailableCard } from './str
 import { useParkingTimer } from './street-parking/useParkingTimer';
 import { usePingPhaseClock } from './street-parking/usePingPhaseClock';
 import { AppTour, TOUR_KEY } from './street-parking/AppTour';
+import { resolveNotificationPing } from '../utils/notificationPing';
 
 
-export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, pendingSpotId, onPendingSpotConsumed, allowLocationTracking }) => {
+export const MapView: React.FC<MapViewProps> = ({
+    user,
+    setView,
+    onMessageUser,
+    pendingSpotId,
+    onPendingSpotConsumed,
+    onPendingSpotUnavailable,
+    pendingMyCarOpen = false,
+    onPendingMyCarConsumed,
+    allowLocationTracking,
+}) => {
     useLang(); // re-render on language change
     const mapContainerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -140,16 +151,37 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
         });
     }, [nowMs, selectedItem, user?.id]);
 
-    // Consume pendingSpotId — fly to spot and open SpotDetailsCard (searches both arrays so
-    // owner spots in activeSpots and claimer spots in freeSpots both resolve correctly)
+    // Resolve a notification Ping against current map state, then one direct
+    // document read if the radius-bounded arrays do not contain it. Every
+    // outcome consumes the pending ID so stale alerts cannot remain stuck.
     useEffect(() => {
         if (!pendingSpotId || !mapReady) return;
-        const item = spotData.freeSpots.find(s => s.id === pendingSpotId)
-                  ?? spotData.activeSpots.find(s => s.id === pendingSpotId);
-        if (!item) return;
-        onPendingSpotConsumed?.();
-        mapRef.current?.flyTo({ center: [item.lng, item.lat], zoom: 17, duration: 800 });
-        setSelectedItem(item);
+        let cancelled = false;
+        const currentItems = [...spotData.freeSpots, ...spotData.activeSpots];
+        void resolveNotificationPing(
+            pendingSpotId,
+            currentItems,
+            Date.now(),
+            async spotId => {
+                const snap = await getDoc(doc(db, 'spots', spotId));
+                return snap.exists() ? ({ id: snap.id, ...snap.data() } as any) : null;
+            },
+        ).then(result => {
+            if (cancelled) return;
+            onPendingSpotConsumed?.();
+            if (result.kind === 'unavailable') {
+                onPendingSpotUnavailable?.();
+                return;
+            }
+            const item = result.item;
+            mapRef.current?.flyTo({ center: [item.lng as number, item.lat as number], zoom: 17, duration: 800 });
+            setSelectedItem(item);
+        }).catch(() => {
+            if (cancelled) return;
+            onPendingSpotConsumed?.();
+            onPendingSpotUnavailable?.();
+        });
+        return () => { cancelled = true; };
     }, [pendingSpotId, mapReady, spotData.freeSpots, spotData.activeSpots]);
 
     const interestFlow = useInterestFlow({
@@ -230,6 +262,12 @@ export const MapView: React.FC<MapViewProps> = ({ user, setView, onMessageUser, 
     );
     const [showSessionSheet, setShowSessionSheet] = useState(false);
     const [showDepartureSheet, setShowDepartureSheet] = useState(false);
+
+    useEffect(() => {
+        if (!pendingMyCarOpen) return;
+        onPendingMyCarConsumed?.();
+        if (savedSpot) setShowSessionSheet(true);
+    }, [pendingMyCarOpen, savedSpot, onPendingMyCarConsumed]);
     const [parkedDuration, setParkedDuration] = useState('');
     const [showCustomReminder, setShowCustomReminder] = useState(false);
     const [showRemindPanel, setShowRemindPanel] = useState(false);

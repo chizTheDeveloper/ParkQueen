@@ -890,6 +890,8 @@ const es: Record<string, string> = {
     'notifications.setup_retry': 'Intentar de nuevo',
     'notifications.setup_working': 'Configurando…',
     'notifications.ping_unavailable': 'Este Ping ya no está disponible.',
+    'notifications.open_action': 'Abrir',
+    'notifications.dismiss_action': 'Descartar notificación',
 };
 
 export default es;

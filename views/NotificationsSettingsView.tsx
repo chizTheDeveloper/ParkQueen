@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ChevronLeft, Bell } from 'lucide-react';
 import { t, useLang } from '../i18n';
 import { doc, updateDoc } from 'firebase/firestore';
@@ -44,6 +44,9 @@ export const NotificationsSettingsView: React.FC<NotificationsSettingsViewProps>
     const [radius, setRadius] = useState<number>(user?.notificationRadius ?? 1);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
+    useEffect(() => {
+        setEnabled(user?.notificationsEnabled ?? true);
+    }, [user?.notificationsEnabled]);
     const deliveryEnabled = notificationRuntime === undefined
         ? enabled
         : deriveNotificationPresentation(enabled, notificationRuntime ?? null).kind === 'enabled';
