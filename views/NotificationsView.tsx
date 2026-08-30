@@ -9,6 +9,8 @@ import { usePingPhaseClock } from './street-parking/usePingPhaseClock';
 import { derivePingLifecycle } from '../utils/pingLifecycle';
 import { buildGeoQueryRanges } from './street-parking/geoQuery';
 import { GeoRegionSubscription } from './street-parking/geoRegionSubscription';
+import { NotificationEnableCard } from '../components/NotificationEnableCard';
+import type { NotificationRuntimeState } from '../utils/notificationRegistration';
 
 interface NotificationsViewProps {
     user: any;
@@ -16,6 +18,10 @@ interface NotificationsViewProps {
     onSelectSpot?: (spotId: string) => void;
     permissionState: LocationPermissionState;
     callbacks: LocationCallbacks;
+    notificationRuntime?: NotificationRuntimeState | null;
+    notificationBusy?: boolean;
+    onEnableNotifications?: () => void;
+    onRecheckNotifications?: () => void;
 }
 
 const getDistanceKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
@@ -60,6 +66,8 @@ const LOCATION_NEEDED: LocationPermissionState[] = [
 
 export const NotificationsView: React.FC<NotificationsViewProps> = ({
     user, onBack, onSelectSpot, permissionState, callbacks,
+    notificationRuntime, notificationBusy = false,
+    onEnableNotifications, onRecheckNotifications,
 }) => {
     const [spots, setSpots] = useState<any[]>([]);
     const [spotsLoading, setSpotsLoading] = useState(true);
@@ -232,6 +240,17 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
 
             {/* Body */}
             <div className="flex-1 overflow-y-auto no-scrollbar">
+                {onEnableNotifications && onRecheckNotifications && (
+                    <div className="px-4 pt-4 max-w-md mx-auto">
+                        <NotificationEnableCard
+                            runtime={notificationRuntime ?? null}
+                            productPreferenceEnabled={user?.notificationsEnabled !== false}
+                            busy={notificationBusy}
+                            onEnable={onEnableNotifications}
+                            onRecheck={onRecheckNotifications}
+                        />
+                    </div>
+                )}
 
                 {/* ── Unified location-needed state ───────────────────────── */}
                 {isLocationNeeded && (

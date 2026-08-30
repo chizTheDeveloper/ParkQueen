@@ -25,9 +25,6 @@ export function useParkingTimer() {
         setTimer(t);
         notifiedRef.current = false;
         onExpireRef.current = onExpire ?? null;
-        if ('Notification' in window && Notification.permission === 'default') {
-            Notification.requestPermission();
-        }
     };
 
     const clearTimer = () => {

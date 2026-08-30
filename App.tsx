@@ -46,12 +46,20 @@ import { ConfirmationResult, RecaptchaVerifier, reauthenticateWithPhoneNumber, s
 import { maskPhoneNumber, verifyUidUnchanged } from './utils/reauthBeforeDelete';
 import { auth, db } from './firebaseConfig';
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, onSnapshot, getDoc, setDoc, collection, query, where, getDocs } from "firebase/firestore";
-import { getToken, deleteToken, onMessage } from 'firebase/messaging';
+import { doc, onSnapshot, getDoc } from "firebase/firestore";
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getApp } from 'firebase/app';
-import { getFCM } from './firebaseConfig';
 import { clearRecaptchaVerifier, replaceRecaptchaVerifier } from './utils/recaptchaLifecycle';
+import { notificationRegistration, type NotificationRuntimeState } from './utils/notificationRegistration';
+import { createNotificationLifecycle } from './utils/notificationLifecycle';
+import {
+  consumeNotificationIntentFragment,
+  normalizeNotificationIntent,
+  readNotificationIntentFromPayload,
+  type NotificationIntent,
+} from './utils/notificationIntent';
+import { createNotificationIntentQueue, executeNotificationIntent } from './utils/notificationNavigation';
+import { ForegroundNotificationToast } from './components/ForegroundNotificationToast';
 
 // Clears all account-scoped browser state after account deletion.
 // Preserves device-scoped preferences (theme, language) so they survive account transitions.
@@ -70,6 +78,7 @@ export default function App() {
   const [vehicleOnboarding, setVehicleOnboarding] = useState(false);
   const [locationAccess, setLocationAccess] = useState<LocationAccess>(() => readPersistedAccess());
   const [pendingSpotId, setPendingSpotId] = useState<string | null>(null);
+  const [pendingMyCarOpen, setPendingMyCarOpen] = useState(false);
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useState(() => {
@@ -77,7 +86,11 @@ export default function App() {
   });
   const [activeChatContext, setActiveChatContext] = useState<{ userId: string; context: string } | null>(null);
   const [chatReturnSpotId, setChatReturnSpotId] = useState<string | null>(null);
-  const [pushToast, setPushToast] = useState<{ title: string; body: string } | null>(null);
+  const [pushToast, setPushToast] = useState<{ title: string; body: string; intent: NotificationIntent } | null>(null);
+  const pushToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [notificationRuntime, setNotificationRuntime] = useState<NotificationRuntimeState | null>(null);
+  const [notificationBusy, setNotificationBusy] = useState(false);
+  const notificationIntentQueueRef = useRef<ReturnType<typeof createNotificationIntentQueue> | null>(null);
   const [titleUnlock, setTitleUnlock] = useState<string | null>(null);
   const prevTitleRef = useRef<string | null>(null);
   const privateEmailRef = useRef<string | undefined>(undefined);
@@ -134,49 +147,6 @@ export default function App() {
           return;
         }
 
-        // FCM Setup — ownership-aware registration to prevent cross-account token association.
-        // parqueen_fcm_owner_uid tracks which UID last successfully registered on this browser.
-        // If a different UID signs in, or if no marker exists (legacy install), the old browser
-        // registration is invalidated with deleteToken before a fresh one is obtained.
-        // Private-beta limitation: fcmToken is a scalar field — only one device per account.
-        getFCM().then(async messaging => {
-            if (!messaging) return;
-            const permission = await Notification.requestPermission();
-            if (permission === 'granted') {
-                try {
-                    const storedOwnerUid = localStorage.getItem('parqueen_fcm_owner_uid');
-                    const FCM_OWNER_VERSION = '1';
-                    const ownerMismatch = storedOwnerUid !== null && storedOwnerUid !== firebaseUser.uid;
-                    // Legacy installs have no marker; rotate once to establish clean ownership.
-                    const legacyInstall = storedOwnerUid === null && localStorage.getItem('parqueen_fcm_owner_version') !== FCM_OWNER_VERSION;
-                    if (ownerMismatch || legacyInstall) {
-                        // deleteToken invalidates the browser's cached registration at the FCM backend.
-                        // If it fails, the catch block skips token association so a shared token is
-                        // never written under the new UID.
-                        await deleteToken(messaging);
-                    }
-                    const currentToken = await getToken(messaging);
-                    if (currentToken) {
-                        await setDoc(doc(db, 'users', firebaseUser.uid, 'private', 'preferences'), { fcmToken: currentToken }, { merge: true });
-                        // Record ownership only after Firestore write succeeds.
-                        localStorage.setItem('parqueen_fcm_owner_uid', firebaseUser.uid);
-                        localStorage.setItem('parqueen_fcm_owner_version', FCM_OWNER_VERSION);
-                    }
-                } catch (e) {
-                    // Rotation or registration failed — user continues without push notifications.
-                    // No token is stored; next authenticated online session will retry.
-                    console.warn('FCM setup error', e);
-                }
-            }
-            onMessage(messaging, (payload) => {
-                // Skip spot notifications the current user created — defense in depth
-                // against the CF self-filter failing or running a stale version.
-                if (payload.data?.finderId && payload.data.finderId === firebaseUser.uid) return;
-                setPushToast({ title: payload.notification?.title || '', body: payload.notification?.body || '' });
-                setTimeout(() => setPushToast(null), 5000);
-            });
-        });
-        
         // Listen for profile data changes
         userProfileUnsubscribe = onSnapshot(userDocRef, (userDoc) => {
           if (userDoc.exists()) {
@@ -284,6 +254,81 @@ export default function App() {
     };
   }, []);
 
+  // One lifecycle owns silent granted-token refresh and the foreground FCM
+  // listener. Authentication never requests notification permission.
+  useEffect(() => {
+    const lifecycle = createNotificationLifecycle(notificationRegistration, {
+      onState: setNotificationRuntime,
+      onPayload: payload => {
+        const message = payload as {
+          notification?: { title?: string; body?: string };
+          data?: { title?: string; body?: string };
+        };
+        setPushToast({
+          title: message.notification?.title ?? message.data?.title ?? '',
+          body: message.notification?.body ?? message.data?.body ?? '',
+          intent: readNotificationIntentFromPayload(payload),
+        });
+        if (pushToastTimerRef.current) clearTimeout(pushToastTimerRef.current);
+        pushToastTimerRef.current = setTimeout(() => {
+          setPushToast(null);
+          pushToastTimerRef.current = null;
+        }, 5000);
+      },
+    });
+    void lifecycle.setUser(user?.id ? {
+      uid: user.id,
+      productPreferenceEnabled: user.notificationsEnabled !== false,
+    } : null);
+    return () => {
+      lifecycle.dispose();
+      if (pushToastTimerRef.current) clearTimeout(pushToastTimerRef.current);
+      pushToastTimerRef.current = null;
+    };
+  }, [user?.id, user?.notificationsEnabled]);
+
+  useEffect(() => {
+    const queue = createNotificationIntentQueue(intent => {
+      executeNotificationIntent(intent, {
+        openPing: spotId => {
+          setPendingMyCarOpen(false);
+          setPendingSpotId(spotId);
+          setCurrentView(AppView.MAP);
+        },
+        openMyCar: () => {
+          setPendingSpotId(null);
+          setPendingMyCarOpen(true);
+          setCurrentView(AppView.MAP);
+        },
+        openNotifications: () => {
+          setPendingSpotId(null);
+          setPendingMyCarOpen(false);
+          setCurrentView(AppView.NOTIFICATIONS);
+        },
+      });
+    });
+    notificationIntentQueueRef.current = queue;
+
+    const startupIntent = consumeNotificationIntentFragment(window.location, window.history);
+    if (startupIntent) queue.accept(startupIntent);
+
+    const onWorkerMessage = (event: MessageEvent) => {
+      const message = event.data as { kind?: unknown; version?: unknown; intent?: unknown } | null;
+      if (message?.kind !== 'PARQUEEN_NOTIFICATION_OPEN' || message.version !== 1) return;
+      queue.accept(normalizeNotificationIntent(message.intent) ?? { version: 1, type: 'notifications' });
+    };
+    navigator.serviceWorker?.addEventListener('message', onWorkerMessage);
+    return () => {
+      navigator.serviceWorker?.removeEventListener('message', onWorkerMessage);
+      queue.dispose();
+      if (notificationIntentQueueRef.current === queue) notificationIntentQueueRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    notificationIntentQueueRef.current?.setReady(!loading && !!user?.id);
+  }, [loading, user?.id]);
+
 
   useEffect(() => {
     const root = window.document.documentElement;
@@ -319,6 +364,31 @@ export default function App() {
 
   const toggleTheme = () => {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
+  };
+
+  const handleEnableNotifications = async () => {
+    if (!user?.id || notificationBusy) return;
+    setNotificationBusy(true);
+    try {
+      setNotificationRuntime(await notificationRegistration.enable(user.id));
+    } finally {
+      setNotificationBusy(false);
+    }
+  };
+
+  const handleRecheckNotifications = async () => {
+    if (!user?.id || notificationBusy) return;
+    setNotificationBusy(true);
+    try {
+      const inspected = await notificationRegistration.inspect();
+      setNotificationRuntime(
+        inspected.capability === 'supported' && inspected.permission === 'granted'
+          ? await notificationRegistration.refreshGranted(user.id, user.notificationsEnabled !== false)
+          : inspected,
+      );
+    } finally {
+      setNotificationBusy(false);
+    }
   };
 
   const handleMessageUser = (userId: string, context: string, returnSpotId?: string) => {
@@ -542,6 +612,16 @@ export default function App() {
             setView={setCurrentView}
             pendingSpotId={pendingSpotId}
             onPendingSpotConsumed={() => setPendingSpotId(null)}
+            onPendingSpotUnavailable={() => {
+              setCurrentView(AppView.NOTIFICATIONS);
+              setPushToast({
+                title: t('notifications.ping_unavailable'),
+                body: '',
+                intent: { version: 1, type: 'notifications' },
+              });
+            }}
+            pendingMyCarOpen={pendingMyCarOpen}
+            onPendingMyCarConsumed={() => setPendingMyCarOpen(false)}
             allowLocationTracking={locationAccess === 'granted'}
           />
           {currentView === AppView.MESSAGES && (
@@ -613,15 +693,15 @@ export default function App() {
       case AppView.PROFILE:
         return <ProfileView user={user} setView={setCurrentView} onBack={() => setCurrentView(AppView.MAP)} />;
       case AppView.SETTINGS:
-        return <SettingsView user={user} setView={setCurrentView} onBack={() => setCurrentView(AppView.PROFILE)} onLogout={handleLogout} onDeleteAccount={handleDeleteAccount} theme={theme} toggleTheme={toggleTheme} permissionState={nearbyPermissionState(locationAccess)} />;
+        return <SettingsView user={user} setView={setCurrentView} onBack={() => setCurrentView(AppView.PROFILE)} onLogout={handleLogout} onDeleteAccount={handleDeleteAccount} theme={theme} toggleTheme={toggleTheme} permissionState={nearbyPermissionState(locationAccess)} notificationRuntime={notificationRuntime} />;
       case AppView.NOTIFICATIONS_SETTINGS:
-        return <NotificationsSettingsView user={user} onBack={() => setCurrentView(AppView.SETTINGS)} />;
+        return <NotificationsSettingsView user={user} onBack={() => setCurrentView(AppView.SETTINGS)} notificationRuntime={notificationRuntime} notificationBusy={notificationBusy} onEnableNotifications={handleEnableNotifications} onRecheckNotifications={handleRecheckNotifications} />;
       case AppView.LOCATION_SETTINGS:
         return <LocationSettingsView user={user} onBack={() => setCurrentView(AppView.SETTINGS)} permissionState={nearbyPermissionState(locationAccess)} callbacks={locationCallbacks} />;
       case AppView.LANGUAGE_SETTINGS:
         return <LanguageSettingsView user={user} onBack={() => setCurrentView(AppView.SETTINGS)} />;
       case AppView.NOTIFICATIONS:
-        return <NotificationsView user={user} onBack={() => setCurrentView(AppView.MAP)} onSelectSpot={(id) => { setPendingSpotId(id); setCurrentView(AppView.MAP); }} permissionState={nearbyPermissionState(locationAccess)} callbacks={locationCallbacks} />;
+        return <NotificationsView user={user} onBack={() => setCurrentView(AppView.MAP)} onSelectSpot={(id) => { setPendingSpotId(id); setCurrentView(AppView.MAP); }} permissionState={nearbyPermissionState(locationAccess)} callbacks={locationCallbacks} notificationRuntime={notificationRuntime} notificationBusy={notificationBusy} onEnableNotifications={handleEnableNotifications} onRecheckNotifications={handleRecheckNotifications} />;
       case AppView.ADMIN_LOGIN:
         return <AdminLoginView onVerified={() => setCurrentView(AppView.ADMIN_DASHBOARD)} />;
       case AppView.ADMIN_DASHBOARD:
@@ -671,18 +751,17 @@ export default function App() {
       </main>
 
       {pushToast && (
-        <div className="fixed top-4 left-4 right-4 z-50 flex justify-center animate-in fade-in slide-in-from-top duration-300">
-          <div className="bg-[var(--color-glass)] backdrop-blur-xl border border-[var(--color-border)] rounded-2xl px-4 py-3 shadow-2xl flex items-center gap-3 max-w-sm w-full">
-            <div className="w-9 h-9 rounded-full bg-[#1e75ff]/15 flex items-center justify-center shrink-0">
-              <span className="text-lg">👑</span>
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-bold text-[var(--color-text)] truncate">{pushToast.title}</div>
-              <div className="text-xs text-[var(--color-text-secondary)] truncate">{pushToast.body}</div>
-            </div>
-            <button onClick={() => setPushToast(null)} className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)] shrink-0 text-lg">&times;</button>
-          </div>
-        </div>
+        <ForegroundNotificationToast
+          title={pushToast.title}
+          body={pushToast.body}
+          openLabel={t('notifications.open_action')}
+          dismissLabel={t('notifications.dismiss_action')}
+          onOpen={() => {
+            notificationIntentQueueRef.current?.accept(pushToast.intent);
+            setPushToast(null);
+          }}
+          onDismiss={() => setPushToast(null)}
+        />
       )}
 
       {titleUnlock && (

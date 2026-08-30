@@ -139,6 +139,24 @@ function badges(renderer: TestRenderer.ReactTestRenderer): string[] {
     ).map(n => String(n.props.children));
 }
 
+describe('NotificationsView — contextual parking alerts', () => {
+    it('renders the primary Enable action and delegates only its explicit click', async () => {
+        const onEnableNotifications = vi.fn();
+        const renderer = await renderNotifications({
+            notificationRuntime: {
+                capability: 'supported', permission: 'default', registration: 'not_registered',
+            },
+            onEnableNotifications,
+            onRecheckNotifications: vi.fn(),
+        });
+        expect(onEnableNotifications).not.toHaveBeenCalled();
+        const button = renderer.root.findByProps({ 'data-notification-action': 'enable' });
+        act(() => button.props.onClick());
+        expect(onEnableNotifications).toHaveBeenCalledTimes(1);
+        act(() => renderer.unmount());
+    });
+});
+
 const T0 = Date.parse('2026-08-26T12:00:00.000Z');
 const CENTER_LAT = 40.0;
 const CENTER_LNG = -74.0;
