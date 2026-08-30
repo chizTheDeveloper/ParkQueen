@@ -1,7 +1,13 @@
 import type { LocationPermissionState } from './nearbyActivity';
+import type { NotificationRuntimeState } from './notificationRegistration';
+import { deriveNotificationPresentation } from './notificationPresentation';
 
 export interface NotificationsSummaryState {
-  statusKey: 'settings.notif_on' | 'settings.notif_off';
+  statusKey:
+    | 'settings.notif_on'
+    | 'settings.notif_off'
+    | 'settings.notif_not_ready'
+    | 'settings.notif_unavailable';
   showRadius: boolean;
   radius: number;
 }
@@ -20,7 +26,25 @@ export interface LocationSummaryState {
 export function getNotificationsSummaryState(
   enabled: boolean,
   radius: number,
+  runtime?: NotificationRuntimeState | null,
 ): NotificationsSummaryState {
+  if (runtime !== undefined) {
+    const presentation = deriveNotificationPresentation(enabled, runtime);
+    const ready = presentation.kind === 'enabled';
+    const unavailable = presentation.kind === 'unsupported'
+      || presentation.kind === 'ios_install_required';
+    return {
+      statusKey: ready
+        ? 'settings.notif_on'
+        : unavailable
+          ? 'settings.notif_unavailable'
+          : enabled
+            ? 'settings.notif_not_ready'
+            : 'settings.notif_off',
+      showRadius: ready,
+      radius,
+    };
+  }
   return {
     statusKey: enabled ? 'settings.notif_on' : 'settings.notif_off',
     showRadius: enabled,

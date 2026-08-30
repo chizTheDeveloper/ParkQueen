@@ -9,6 +9,7 @@ import { db } from '../firebase';
 import { AppView } from '../types';
 import { getNotificationsSummaryState, getLocationSummaryState } from '../utils/settingsSummary';
 import type { LocationPermissionState } from '../utils/nearbyActivity';
+import type { NotificationRuntimeState } from '../utils/notificationRegistration';
 
 interface SettingsViewProps {
     user: any;
@@ -19,6 +20,7 @@ interface SettingsViewProps {
     theme: string;
     toggleTheme: () => void;
     permissionState?: LocationPermissionState;
+    notificationRuntime?: NotificationRuntimeState | null;
 }
 
 const Toggle = ({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) => (
@@ -27,7 +29,7 @@ const Toggle = ({ checked, onChange }: { checked: boolean; onChange: (v: boolean
     </button>
 );
 
-export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBack, onLogout, onDeleteAccount, theme, toggleTheme, permissionState }) => {
+export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBack, onLogout, onDeleteAccount, theme, toggleTheme, permissionState, notificationRuntime }) => {
     useLang();
     const [emailStep, setEmailStep] = useState<'view' | 'input' | 'otp'>('view');
     const [emailDraft, setEmailDraft] = useState(user?.email || '');
@@ -87,7 +89,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
         if (e.key === 'Backspace' && !otpDigits[index] && index > 0) otpRefs.current[index - 1]?.focus();
     };
 
-    const notifSummary = getNotificationsSummaryState(user?.notificationsEnabled ?? true, user?.notificationRadius ?? 1);
+    const notifSummary = getNotificationsSummaryState(
+        user?.notificationsEnabled ?? true,
+        user?.notificationRadius ?? 1,
+        notificationRuntime,
+    );
     const locSummary = permissionState
         ? getLocationSummaryState(permissionState, user?.sharePreciseLocation ?? true)
         : null;

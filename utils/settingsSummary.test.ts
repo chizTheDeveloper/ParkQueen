@@ -18,6 +18,29 @@ describe('getNotificationsSummaryState', () => {
   it('passes through any valid radius', () => {
     expect(getNotificationsSummaryState(true, 5).radius).toBe(5);
   });
+
+  it('does not report On when the product preference is true but delivery is not registered', () => {
+    const s = getNotificationsSummaryState(true, 1, {
+      capability: 'supported', permission: 'default', registration: 'not_registered',
+    });
+    expect(s.statusKey).toBe('settings.notif_not_ready');
+    expect(s.showRadius).toBe(false);
+  });
+
+  it('reports On only for granted registered delivery', () => {
+    const s = getNotificationsSummaryState(true, 2, {
+      capability: 'supported', permission: 'granted', registration: 'registered',
+    });
+    expect(s.statusKey).toBe('settings.notif_on');
+    expect(s.showRadius).toBe(true);
+  });
+
+  it('reports unavailable separately from Off', () => {
+    const s = getNotificationsSummaryState(true, 1, {
+      capability: 'unsupported', permission: 'unavailable', registration: 'not_registered',
+    });
+    expect(s.statusKey).toBe('settings.notif_unavailable');
+  });
 });
 
 describe('getLocationSummaryState', () => {
