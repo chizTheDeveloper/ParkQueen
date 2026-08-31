@@ -22,7 +22,8 @@ regexTarget = "line"
 paths = [
   '''^firebase\.ts$''',
   '''^firebaseConfig\.ts$''',
-  '''^public[\\/]firebase-messaging-sw\.js$'''
+  '''^public[\\/]firebase-messaging-sw\.js$''',
+  '''^utils[\\/]fixtures[\\/]firebase-messaging-sw\.pre93-08f7d61\.js$'''
 ]
 regexes = [
   '''^\s*apiKey:\s*["']AIza[0-9A-Za-z_-]{35}["'],?\s*$'''
@@ -38,7 +39,8 @@ regexTarget = "line"
 paths = [
   '''^firebase\.ts$''',
   '''^firebaseConfig\.ts$''',
-  '''^public[\\/]firebase-messaging-sw\.js$'''
+  '''^public[\\/]firebase-messaging-sw\.js$''',
+  '''^utils[\\/]fixtures[\\/]firebase-messaging-sw\.pre93-08f7d61\.js$'''
 ]
 regexes = [
   '''apiKey:\s*["']AIza[0-9A-Za-z_-]{35}["']'''

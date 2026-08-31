@@ -95,7 +95,11 @@ function buildMessages(prefsResults, spotId) {
                 title: '👑 New Spot Near You!',
                 body: 'Someone just left a spot ' + distLabel + '.',
             },
-            data: { spotId },
+            data: {
+                navigationVersion: '1',
+                navigationType: 'ping',
+                spotId,
+            },
         });
     }
     const tokenOwners = new Map();

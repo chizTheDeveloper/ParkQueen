@@ -129,8 +129,36 @@ describe('Ping notification/privacy Function contract', () => {
 
         expect(errors).not.toHaveBeenCalled();
         expect(batches.flat()).toHaveLength(2);
+        const outbound = batches.flat();
+        expect(outbound.map(message => message.data)).toEqual([
+            expect.objectContaining({
+                navigationVersion: '1',
+                navigationType: 'ping',
+                spotId,
+                deliveryId: expect.stringMatching(/^nearby_[a-f0-9]{64}$/),
+            }),
+            expect.objectContaining({
+                navigationVersion: '1',
+                navigationType: 'ping',
+                spotId,
+                deliveryId: expect.stringMatching(/^nearby_[a-f0-9]{64}$/),
+            }),
+        ]);
+        expect(new Set(outbound.map(message => message.data.deliveryId)).size).toBe(2);
+        for (const message of outbound) {
+            expect(Object.keys(message.data).sort()).toEqual([
+                'deliveryId', 'navigationType', 'navigationVersion', 'spotId',
+            ]);
+            expect(JSON.stringify(message.data)).not.toContain(ownerId);
+            expect(JSON.stringify(message.data)).not.toContain(recipientId);
+            expect(JSON.stringify(message.data)).not.toContain('40.7128');
+            expect(JSON.stringify(message.data)).not.toContain('-74.006');
+        }
         const bells = await db.collection('spotNotifications').where('spotId', '==', spotId).get();
         expect(bells.docs).toHaveLength(2);
+        expect(new Set(bells.docs.map(doc => doc.id))).toEqual(
+            new Set(outbound.map(message => message.data.deliveryId)),
+        );
         expect(bells.docs[0].data()).toMatchObject({
             spotId,
             senderId: ownerId,
@@ -200,6 +228,18 @@ describe('Ping notification/privacy Function contract', () => {
         expect(sent[0].notification.title).toBe('🅿️ Lugar abriéndose pronto');
         const notifications = await db.collection('spotNotifications').where('spotId', '==', spotId).get();
         expect(notifications.docs).toHaveLength(1);
+        const internalClaimId = notifications.docs[0].data().claimId;
+        expect(sent[0].data).toEqual({
+            navigationVersion: '1',
+            navigationType: 'ping',
+            spotId,
+            deliveryId: expect.stringMatching(/^reminder_[a-f0-9]{64}$/),
+        });
+        expect(sent[0].data).not.toHaveProperty('claimId');
+        expect(sent[0].data.deliveryId).not.toBe(notifications.docs[0].id);
+        expect(sent[0].data.deliveryId).not.toContain(internalClaimId);
+        expect(JSON.stringify(sent[0].data)).not.toContain(ownerId);
+        expect(JSON.stringify(sent[0].data)).not.toContain(claimerId);
         expect(notifications.docs[0].data()).toMatchObject({
             spotId,
             senderId: null,
@@ -214,6 +254,52 @@ describe('Ping notification/privacy Function contract', () => {
             db.doc(`users/${claimerId}/private/preferences`).delete(),
             ...notifications.docs.map(doc => doc.ref.delete()),
         ]);
+    });
+
+    it('PN-5b cleaning reminders carry only a stable hashed My Car route and distinct events do not collide', async () => {
+        const sessionId = nextId('cleaning_session');
+        const sessionRef = db.doc(`parkingSessions/${sessionId}`);
+        const sent = [];
+        indexModule._pingNotificationHooks.send = async message => { sent.push(message); return 'message-id'; };
+
+        const firstReminderAt = Timestamp.fromMillis(Date.now() - 120000);
+        const firstSavedAt = Timestamp.fromMillis(Date.now() - 240000);
+        await sessionRef.set({
+            active: true,
+            reminderEnabled: true,
+            reminderSent: false,
+            reminderAt: firstReminderAt,
+            savedAt: firstSavedAt,
+            fcmToken: `token_${sessionId}`,
+            streetName: 'Private Test Street',
+            reminderMinutesBefore: 30,
+        });
+        await indexModule.scheduleCleaningReminders.run({});
+        await indexModule.scheduleCleaningReminders.run({});
+
+        expect(sent).toHaveLength(1);
+        expect(sent[0].data).toEqual({
+            navigationVersion: '1',
+            navigationType: 'my_car',
+            deliveryId: expect.stringMatching(/^cleaning_[a-f0-9]{64}$/),
+        });
+        const firstDeliveryId = sent[0].data.deliveryId;
+        const serializedFirstData = JSON.stringify(sent[0].data);
+        expect(serializedFirstData).not.toContain(sessionId);
+        expect(serializedFirstData).not.toContain(String(firstReminderAt.toMillis()));
+        expect(serializedFirstData).not.toContain(String(firstSavedAt.toMillis()));
+        expect(serializedFirstData).not.toContain('Private Test Street');
+        expect(serializedFirstData).not.toContain(`token_${sessionId}`);
+
+        const secondSavedAt = Timestamp.fromMillis(firstSavedAt.toMillis() + 1000);
+        await sessionRef.update({ savedAt: secondSavedAt, reminderSent: false });
+        await indexModule.scheduleCleaningReminders.run({});
+        expect(sent).toHaveLength(2);
+        expect(sent[1].data.deliveryId).toMatch(/^cleaning_[a-f0-9]{64}$/);
+        expect(sent[1].data.deliveryId).not.toBe(firstDeliveryId);
+        expect(JSON.stringify(sent[1].data)).not.toContain(String(secondSavedAt.toMillis()));
+
+        await sessionRef.delete();
     });
 
     it('PN-6 auto-release transition and both participant notifications commit once', async () => {
