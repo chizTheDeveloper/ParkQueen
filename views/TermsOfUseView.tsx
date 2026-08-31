@@ -1,67 +1,90 @@
 import React from 'react';
 import { ChevronLeft } from 'lucide-react';
 
-export const TermsOfUseView = ({ onBack }: { onBack: () => void }) => {
-  return (
-    <div className="min-h-full bg-[var(--color-bg)] text-[var(--color-text)] pt-4 pb-20 px-4 max-w-md mx-auto">
-      {/* Header */}
-      <div className="flex items-center gap-4 mb-6">
-        <button onClick={onBack} aria-label="Back" className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] text-[var(--color-text)] hover:bg-white/10 transition-all shrink-0">
-          <ChevronLeft size={20} />
-        </button>
-        <h1 className="text-xl font-bold text-[var(--color-text)] tracking-wide">Terms of Use</h1>
-      </div>
+export const TermsOfUseView = ({ onBack }: { onBack: () => void }) => (
+  <div className="min-h-full bg-[var(--color-bg)] text-[var(--color-text)] pt-4 pb-20 px-4 max-w-2xl mx-auto">
+    <header className="flex items-center gap-4 mb-6">
+      <button onClick={onBack} aria-label="Back to ParQueen" className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] text-[var(--color-text)] hover:bg-white/10 transition-all shrink-0">
+        <ChevronLeft size={20} aria-hidden="true" />
+      </button>
+      <h1 className="text-xl font-bold text-[var(--color-text)] tracking-wide">Terms of Use</h1>
+    </header>
 
-      <div className="bg-[var(--color-card)] border border-[var(--color-border)] backdrop-blur-md rounded-3xl p-5 shadow-xl text-[var(--color-text-secondary)] text-xs space-y-4">
-        <h3 className="text-lg font-bold text-[var(--color-text)]">Terms of Use for ParkQueen</h3>
-        <p className="leading-relaxed"><strong>Effective Date:</strong> May 11, 2026</p>
+    <article className="bg-[var(--color-card)] border border-[var(--color-border)] backdrop-blur-md rounded-3xl p-5 shadow-xl text-[var(--color-text-secondary)] text-sm leading-relaxed space-y-4">
+      <p>
+        <strong>Effective Date:</strong> May 11, 2026<br />
+        <strong>Last Updated:</strong> August 31, 2026
+      </p>
 
-        <h4 className="text-sm font-bold text-[var(--color-text)] mt-4">1. Acceptance of Terms</h4>
-        <p className="leading-relaxed">By accessing or using the ParkQueen mobile application (the "Service"), you agree to be bound by these Terms of Use. If you do not agree, you may not use the Service.</p>
+      <section aria-labelledby="terms-acceptance">
+        <h2 id="terms-acceptance" className="text-base font-bold text-[var(--color-text)] mb-2">1. Acceptance of Terms</h2>
+        <p>By accessing or using ParQueen (the “Service”), you agree to these Terms of Use and acknowledge the Privacy Policy. If you do not agree, do not use the Service.</p>
+      </section>
 
-        <h4 className="text-sm font-bold text-[var(--color-text)] mt-4">2. Description of Service</h4>
-        <p className="leading-relaxed">ParkQueen provides an interactive platform for finding street parking, sharing parking availability ("Pings"), and renting private parking spaces ("P2P Rentals"). The Service includes an AI-powered Sign Decoder to assist in interpreting parking regulations.</p>
+      <section aria-labelledby="terms-service">
+        <h2 id="terms-service" className="text-base font-bold text-[var(--color-text)] mb-2">2. The Service</h2>
+        <p>ParQueen provides community street-parking Pings, nearby parking discovery, parking handoffs and messages, My Car reminders and directions, public street-rule guidance, optional notifications, and AI-assisted sign interpretation and reply suggestions. Some map entries may describe private parking listings, but ParQueen does not currently process rental payments or guarantee a booking or transaction.</p>
+      </section>
 
-        <h4 className="text-sm font-bold text-[var(--color-text)] mt-4">3. AI Sign Decoder: Disclaimer of Accuracy</h4>
+      <section aria-labelledby="terms-parking">
+        <h2 id="terms-parking" className="text-base font-bold text-[var(--color-text)] mb-2">3. Parking Information Is Not a Guarantee</h2>
         <ul className="list-disc pl-5 space-y-2">
-          <li className="leading-relaxed"><strong>Informational Purposes Only:</strong> The AI Sign Decoder is provided for informational purposes only. While we use advanced AI (Google Gemini), we do not guarantee the accuracy of any "YES," "NO," or "CONDITIONAL" verdict.</li>
-          <li className="leading-relaxed"><strong>User Responsibility:</strong> You are solely responsible for verifying all physical street signs and local bylaws before parking.</li>
-          <li className="leading-relaxed"><strong>Limitation of Liability:</strong> ParkQueen, its developers, and affiliates are not liable for any parking tickets, fines, towing fees, or legal penalties resulting from your reliance on the Service’s AI suggestions.</li>
+          <li>A Ping reports what another user shared. It does not reserve a public street space or guarantee that the space will remain open when you arrive.</li>
+          <li>Street Intelligence, cleaning schedules, map data, notifications, estimated arrival times, and AI interpretations may be incomplete, delayed, stale, or incorrect.</li>
+          <li>Posted signs, curb markings, temporary restrictions, directions from authorities, and current law control. You are responsible for verifying that parking is legal and safe.</li>
+          <li>ParQueen is not responsible for tickets, towing, fines, damage, injury, or other loss caused by relying on community or calculated parking information.</li>
         </ul>
+      </section>
 
-        <h4 className="text-sm font-bold text-[var(--color-text)] mt-4">4. P2P Rental Marketplace (Hosts & Guests)</h4>
+      <section aria-labelledby="terms-handoffs">
+        <h2 id="terms-handoffs" className="text-base font-bold text-[var(--color-text)] mb-2">4. Community Pings and Handoffs</h2>
+        <p>Share only honest, current information. A claim or “I’m heading there” status coordinates a community handoff; it does not create ownership, priority under traffic law, or a guaranteed right to a space. Do not use the Service while operating a moving vehicle, obstruct traffic, confront another driver, or attempt to reserve public curb space unlawfully.</p>
+      </section>
+
+      <section aria-labelledby="terms-content">
+        <h2 id="terms-content" className="text-base font-bold text-[var(--color-text)] mb-2">5. Accounts, Messages, and User Content</h2>
         <ul className="list-disc pl-5 space-y-2">
-          <li className="leading-relaxed"><strong>Authorization:</strong> Hosts represent and warrant that they have the legal right to rent out the parking space listed and that such rental does not violate local zoning laws or lease agreements.</li>
-          <li className="leading-relaxed"><strong>Insurance:</strong> ParkQueen does not provide insurance for P2P rentals. Drivers and Hosts are responsible for maintaining their own insurance coverage for property damage or personal injury.</li>
-          <li className="leading-relaxed"><strong>Disputes:</strong> ParkQueen acts as a facilitator only. Any disputes regarding the use of a private space (e.g., overstays, damage) must be resolved between the Host and the Guest.</li>
+          <li>Provide accurate account and parking information and keep control of your authenticated session.</li>
+          <li>You remain responsible for Pings, profile information, photos, messages, listings, reports, and other content you submit.</li>
+          <li>Do not impersonate others; harass, threaten, defraud, or discriminate; post unlawful or infringing content; manipulate trust or rewards; scrape the Service; or interfere with its operation.</li>
+          <li>ParQueen may review reports and restrict or remove accounts or content to protect users, comply with law, or enforce these Terms.</li>
         </ul>
+      </section>
 
-        <h4 className="text-sm font-bold text-[var(--color-text)] mt-4">5. Community "Pings" & User Conduct</h4>
-        <ul className="list-disc pl-5 space-y-2">
-          <li className="leading-relaxed"><strong>Accuracy:</strong> You agree to provide honest and accurate "Pings" when leaving a spot. Frequent false pings may result in a decrease in your Reputation Score or account suspension.</li>
-          <li className="leading-relaxed"><strong>Safe Operation:</strong> You must not use the Service while operating a moving vehicle. Always pull over safely before interacting with the app or taking photos of signs.</li>
-        </ul>
+      <section aria-labelledby="terms-ai">
+        <h2 id="terms-ai" className="text-base font-bold text-[var(--color-text)] mb-2">6. AI-Assisted Features</h2>
+        <p>AI output is advisory, may be incomplete or wrong, and is not legal advice. Always inspect the full physical sign and surrounding restrictions. You are responsible for reviewing any suggested reply before sending it.</p>
+      </section>
 
-        <h4 className="text-sm font-bold text-[var(--color-text)] mt-4">6. Payments and Fees</h4>
-        <ul className="list-disc pl-5 space-y-2">
-          <li className="leading-relaxed"><strong>Processing:</strong> Payments for rentals are handled by our third-party provider (e.g., Stripe). By making a transaction, you agree to their terms.</li>
-          <li className="leading-relaxed"><strong>Service Fees:</strong> ParkQueen may collect a percentage of P2P transactions as a service fee, which will be clearly displayed before booking.</li>
-        </ul>
+      <section aria-labelledby="terms-listings">
+        <h2 id="terms-listings" className="text-base font-bold text-[var(--color-text)] mb-2">7. Private Parking Listings</h2>
+        <p>If you publish or respond to a private parking listing, you are responsible for the listing’s accuracy, your authority to offer or use the space, and compliance with applicable property, lease, zoning, tax, insurance, and parking requirements. ParQueen does not provide insurance and does not currently act as a payment processor.</p>
+      </section>
 
-        <h4 className="text-sm font-bold text-[var(--color-text)] mt-4">7. Intellectual Property</h4>
-        <p className="leading-relaxed">All content, including the AI Sign Decoder logic, UI/UX design, and the "ParkQueen" brand, is the property of the developers. You may not reverse-engineer, decompile, or scrape data from the Service.</p>
+      <section aria-labelledby="terms-availability">
+        <h2 id="terms-availability" className="text-base font-bold text-[var(--color-text)] mb-2">8. Availability and Third-Party Services</h2>
+        <p>The Service depends on browsers, devices, location providers, maps, Firebase, push-delivery networks, AI services, public-data providers, and network access. Features or notifications can be unavailable, delayed, or changed. We may modify, suspend, or discontinue features, subject to applicable law.</p>
+      </section>
 
-        <h4 className="text-sm font-bold text-[var(--color-text)] mt-4">8. Termination</h4>
-        <p className="leading-relaxed">We reserve the right to suspend or terminate your account at our sole discretion for violations of these terms, fraudulent activity, or behavior that harms the community.</p>
+      <section aria-labelledby="terms-property">
+        <h2 id="terms-property" className="text-base font-bold text-[var(--color-text)] mb-2">9. Intellectual Property</h2>
+        <p>ParQueen’s software, design, and branding are protected by applicable intellectual-property laws. These Terms do not permit you to copy, sell, reverse engineer, or commercially exploit the Service except where law expressly allows it.</p>
+      </section>
 
-        <h4 className="text-sm font-bold text-[var(--color-text)] mt-4">9. Governing Law</h4>
-        <p className="leading-relaxed">These terms are governed by the laws of the Province of Ontario and the federal laws of Canada.</p>
+      <section aria-labelledby="terms-termination">
+        <h2 id="terms-termination" className="text-base font-bold text-[var(--color-text)] mb-2">10. Termination</h2>
+        <p>You may stop using the Service or request account deletion through Settings. We may suspend or terminate access for violations, fraud, abuse, safety threats, or conduct that harms the community, subject to applicable law.</p>
+      </section>
 
-        <h4 className="text-sm font-bold text-[var(--color-text)] mt-4">10. Contact</h4>
-        <p className="leading-relaxed">
-          Email: <a href="mailto:support@parkqueen.app" className="text-[#38bdf8] hover:underline">support@parkqueen.app</a>
-        </p>
-      </div>
-    </div>
-  );
-};
+      <section aria-labelledby="terms-law">
+        <h2 id="terms-law" className="text-base font-bold text-[var(--color-text)] mb-2">11. Governing Law</h2>
+        <p>These Terms are governed by the laws of the Province of Ontario and the federal laws of Canada.</p>
+      </section>
+
+      <section aria-labelledby="terms-contact">
+        <h2 id="terms-contact" className="text-base font-bold text-[var(--color-text)] mb-2">12. Contact</h2>
+        <p>Questions about these Terms can be sent to <a href="mailto:support@parkqueen.app" className="text-[#38bdf8] hover:underline">support@parkqueen.app</a>.</p>
+      </section>
+    </article>
+  </div>
+);

@@ -10,6 +10,7 @@ import { AppView } from '../types';
 import { getNotificationsSummaryState, getLocationSummaryState } from '../utils/settingsSummary';
 import type { LocationPermissionState } from '../utils/nearbyActivity';
 import type { NotificationRuntimeState } from '../utils/notificationRegistration';
+import { LEGAL_PATHS } from '../utils/legalRoutes';
 
 interface SettingsViewProps {
     user: any;
@@ -310,7 +311,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                             <p className="text-xs font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">{t('settings.section_legal')}</p>
                         </div>
                         <div className="divide-y divide-[var(--color-border)]">
-                            <a href="https://parqueen.app/privacy" target="_blank" rel="noopener noreferrer" className="w-full px-4 py-3.5 flex items-center gap-3 text-left hover:bg-white/5 active:bg-white/10 transition-colors block">
+                            <a href={LEGAL_PATHS.privacy} target="_blank" rel="noopener noreferrer" className="w-full px-4 py-3.5 flex items-center gap-3 text-left hover:bg-white/5 active:bg-white/10 transition-colors block">
                                 <div className="w-9 h-9 rounded-xl bg-[#1e75ff]/10 flex items-center justify-center text-[#38bdf8] shrink-0"><Shield size={17} /></div>
                                 <div className="flex-1">
                                     <p className="text-sm font-semibold text-[var(--color-text)]">{t('profile.privacy_policy')}</p>
@@ -318,7 +319,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ user, setView, onBac
                                 </div>
                                 <ChevronRight size={16} className="text-[var(--color-text-secondary)] shrink-0" />
                             </a>
-                            <a href="https://parqueen.app/terms" target="_blank" rel="noopener noreferrer" className="w-full px-4 py-3.5 flex items-center gap-3 text-left hover:bg-white/5 active:bg-white/10 transition-colors block">
+                            <a href={LEGAL_PATHS.terms} target="_blank" rel="noopener noreferrer" className="w-full px-4 py-3.5 flex items-center gap-3 text-left hover:bg-white/5 active:bg-white/10 transition-colors block">
                                 <div className="w-9 h-9 rounded-xl bg-[#1e75ff]/10 flex items-center justify-center text-[#38bdf8] shrink-0"><FileText size={17} /></div>
                                 <div className="flex-1">
                                     <p className="text-sm font-semibold text-[var(--color-text)]">{t('profile.terms_of_use')}</p>

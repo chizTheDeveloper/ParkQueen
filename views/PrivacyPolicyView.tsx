@@ -1,71 +1,93 @@
 import React from 'react';
 import { ChevronLeft } from 'lucide-react';
 
-export const PrivacyPolicyView = ({ onBack }: { onBack: () => void }) => {
-  return (
-    <div className="min-h-full bg-[var(--color-bg)] text-[var(--color-text)] pt-4 pb-20 px-4 max-w-md mx-auto">
-      {/* Header */}
-      <div className="flex items-center gap-4 mb-6">
-        <button onClick={onBack} aria-label="Back" className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] text-[var(--color-text)] hover:bg-white/10 transition-all shrink-0">
-          <ChevronLeft size={20} />
-        </button>
-        <h1 className="text-xl font-bold text-[var(--color-text)] tracking-wide">Privacy Policy</h1>
-      </div>
+export const PrivacyPolicyView = ({ onBack }: { onBack: () => void }) => (
+  <div className="min-h-full bg-[var(--color-bg)] text-[var(--color-text)] pt-4 pb-20 px-4 max-w-2xl mx-auto">
+    <header className="flex items-center gap-4 mb-6">
+      <button onClick={onBack} aria-label="Back to ParQueen" className="w-10 h-10 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] text-[var(--color-text)] hover:bg-white/10 transition-all shrink-0">
+        <ChevronLeft size={20} aria-hidden="true" />
+      </button>
+      <h1 className="text-xl font-bold text-[var(--color-text)] tracking-wide">Privacy Policy</h1>
+    </header>
 
-      <div className="bg-[var(--color-card)] border border-[var(--color-border)] backdrop-blur-md rounded-3xl p-5 shadow-xl text-[var(--color-text-secondary)] text-xs space-y-4">
-        <h3 className="text-lg font-bold text-[var(--color-text)]">Privacy Policy for ParkQueen</h3>
-        <p className="leading-relaxed">
-          <strong>Effective Date:</strong> May 11, 2026<br/>
-          <strong>Last Updated:</strong> May 11, 2026
-        </p>
+    <article className="bg-[var(--color-card)] border border-[var(--color-border)] backdrop-blur-md rounded-3xl p-5 shadow-xl text-[var(--color-text-secondary)] text-sm leading-relaxed space-y-4">
+      <p>
+        <strong>Effective Date:</strong> May 11, 2026<br />
+        <strong>Last Updated:</strong> August 31, 2026
+      </p>
 
-        <h4 className="text-sm font-bold text-[var(--color-text)] mt-4">1. Introduction</h4>
-        <p className="leading-relaxed">ParkQueen ("we," "us," or "our") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, and safeguard your information when you use our mobile application and services in compliance with the Personal Information Protection and Electronic Documents Act (PIPEDA) in Canada and applicable US state laws.</p>
+      <section aria-labelledby="privacy-introduction">
+        <h2 id="privacy-introduction" className="text-base font-bold text-[var(--color-text)] mb-2">1. Introduction</h2>
+        <p>ParQueen (“we,” “us,” or “our”) provides community parking tools. This policy explains what information the current service handles, why it is used, and the choices available to you. It does not promise rights or retention periods beyond those required by applicable law.</p>
+      </section>
 
-        <h4 className="text-sm font-bold text-[var(--color-text)] mt-4">2. Information We Collect</h4>
+      <section aria-labelledby="privacy-information">
+        <h2 id="privacy-information" className="text-base font-bold text-[var(--color-text)] mb-2">2. Information We Handle</h2>
         <ul className="list-disc pl-5 space-y-2">
-          <li className="leading-relaxed"><strong>Personal Information:</strong> Name, email address, and phone number provided during registration.</li>
-          <li className="leading-relaxed"><strong>Geolocation Data:</strong> We collect precise real-time location data to show nearby parking spots and decode signs relevant to your position. This is only collected with your express consent.</li>
-          <li className="leading-relaxed"><strong>Visual Data (Photos):</strong> When you use the AI Sign Decoder, we process the images you upload.</li>
-          <li className="leading-relaxed"><strong>Peer-to-Peer Data:</strong> Messages between users regarding parking spots and details about private driveways or garages listed for rent.</li>
-          <li className="leading-relaxed"><strong>Usage Data:</strong> Information on how you interact with the app, including "pings," searches, and reputation points.</li>
+          <li><strong>Account and profile information:</strong> Your phone-authentication account, display name, username, optional verified email and profile details, vehicle information, avatar, language, theme, and account preferences.</li>
+          <li><strong>Location information:</strong> With browser or device permission, ParQueen uses precise location to show nearby Pings, support map search and directions, save My Car, create parking reminders, and provide Street Intelligence. While location-enabled map tracking is active, ParQueen automatically stores a geohash derived from your current location and an update timestamp to identify candidates for optional nearby parking alerts. Location is also stored when you deliberately create a Ping, save your car, or use another feature that needs a saved location.</li>
+          <li><strong>Community activity:</strong> Pings, claims, handoff status and feedback, parking history, messages, reports, moderation information, and trust or Crown events.</li>
+          <li><strong>Photos and AI inputs:</strong> Sign photos you choose to scan, avatar photos, and message context submitted when smart-reply assistance is used.</li>
+          <li><strong>Push-notification information:</strong> Notification preferences, a Firebase Cloud Messaging registration token for the browser, and delivery-related metadata.</li>
+          <li><strong>Technical and safety information:</strong> Limited request, error, device, security, and abuse-prevention metadata generated when the service is used.</li>
         </ul>
+      </section>
 
-        <h4 className="text-sm font-bold text-[var(--color-text)] mt-4">3. How We Use Your Information</h4>
+      <section aria-labelledby="privacy-use">
+        <h2 id="privacy-use" className="text-base font-bold text-[var(--color-text)] mb-2">3. How We Use Information</h2>
         <ul className="list-disc pl-5 space-y-2">
-          <li className="leading-relaxed"><strong>AI Processing:</strong> Images of parking signs are processed via the Google Gemini API to provide instant "Yes/No" parking verdicts.</li>
-          <li className="leading-relaxed"><strong>Predictive Modeling:</strong> Anonymized location and ping data are used to train our internal predictive models to forecast parking availability.</li>
-          <li className="leading-relaxed"><strong>Service Delivery:</strong> To facilitate P2P rentals and manage your host dashboard and earnings.</li>
-          <li className="leading-relaxed"><strong>Safety & Trust:</strong> To maintain our community reputation system and prevent fraudulent listings.</li>
+          <li>Authenticate accounts and maintain profiles and preferences.</li>
+          <li>Display community parking information, coordinate claims and handoffs, support messaging, and maintain trust and safety.</li>
+          <li>Provide maps, nearby results, walking directions, parking reminders, and street-rule guidance.</li>
+          <li>Deliver optional parking alerts after you explicitly enable browser notifications.</li>
+          <li>Process explicit AI-assisted requests. AI explanations and suggestions are advisory and may be incomplete or incorrect; posted signs and current law remain authoritative.</li>
+          <li>Diagnose failures, secure the service, enforce limits, investigate reports, and prevent abuse.</li>
         </ul>
+        <p className="mt-2">We do not sell personal information or use location and Ping history to train an internal parking-prediction model.</p>
+      </section>
 
-        <h4 className="text-sm font-bold text-[var(--color-text)] mt-4">4. Data Sharing & Third Parties</h4>
-        <p className="leading-relaxed">We do not sell your personal data. We share information only with:</p>
+      <section aria-labelledby="privacy-providers">
+        <h2 id="privacy-providers" className="text-base font-bold text-[var(--color-text)] mb-2">4. Service Providers and Data Sources</h2>
+        <p>Information is shared only as needed to operate the requested feature or protect the service:</p>
+        <ul className="list-disc pl-5 space-y-2 mt-2">
+          <li><strong>Firebase and Google Cloud:</strong> Authentication, database and file storage, Cloud Functions, push delivery, avatar safety review, and supporting infrastructure.</li>
+          <li><strong>Mapbox:</strong> Interactive maps, address search, reverse geocoding, and walking directions. Map requests can include search text or coordinates.</li>
+          <li><strong>Google Gemini:</strong> Sign interpretation and smart-reply assistance for content you explicitly submit.</li>
+          <li><strong>SendGrid:</strong> Delivery of email-verification codes when you add an email address.</li>
+          <li><strong>Sentry:</strong> Production exception monitoring. ParQueen configures it without default personal information and removes user data, request headers, cookies, bodies, query strings, and full URLs before sending events. Session Replay, tracing, profiling, and Sentry logging are not enabled.</li>
+          <li><strong>Public street-data providers:</strong> Sources such as NYC Open Data, SweepNYC, and OpenStreetMap may receive a location or street-area query needed to retrieve public parking information.</li>
+        </ul>
+      </section>
+
+      <section aria-labelledby="privacy-choices">
+        <h2 id="privacy-choices" className="text-base font-bold text-[var(--color-text)] mb-2">5. Your Choices</h2>
         <ul className="list-disc pl-5 space-y-2">
-          <li className="leading-relaxed"><strong>Google Cloud / Gemini API:</strong> For image analysis and AI-generated replies (handled according to Google's Enterprise Privacy standards).</li>
-          <li className="leading-relaxed"><strong>Firebase:</strong> For secure data storage, authentication, and real-time database management.</li>
-          <li className="leading-relaxed"><strong>Mapbox/Leaflet:</strong> To provide navigation and interactive mapping services.</li>
+          <li><strong>Location:</strong> You can decline or revoke location permission. Features that depend on current location will be limited.</li>
+          <li><strong>Notifications:</strong> Parking alerts are optional. You can disable the product preference or change browser or device permission at any time.</li>
+          <li><strong>Profile and communications:</strong> You can edit supported profile fields, leave optional fields blank, delete chats where available, block users, and report safety concerns.</li>
+          <li><strong>Account deletion:</strong> Settings provides an authenticated deletion flow. It removes account, profile, private preference, notification-token, parking-session, message, avatar, and authentication data covered by the deletion service. Records needed for another participant’s history, safety, fraud prevention, or legal obligations may instead be minimized or anonymized.</li>
         </ul>
+      </section>
 
-        <h4 className="text-sm font-bold text-[var(--color-text)] mt-4">5. Your Rights & Choices</h4>
-        <ul className="list-disc pl-5 space-y-2">
-          <li className="leading-relaxed"><strong>Location Permissions:</strong> You can opt-out of location tracking at any time through your device settings, though this will limit the app's core functionality.</li>
-          <li className="leading-relaxed"><strong>Access & Deletion:</strong> Under PIPEDA, you have the right to request access to the personal data we hold or request its permanent deletion from our Firebase servers.</li>
-          <li className="leading-relaxed"><strong>Data Portability:</strong> You may request a copy of your listing and transaction history in a machine-readable format.</li>
-        </ul>
+      <section aria-labelledby="privacy-retention">
+        <h2 id="privacy-retention" className="text-base font-bold text-[var(--color-text)] mb-2">6. Storage, Retention, and Security</h2>
+        <p>We keep information only while it is needed to provide the feature, maintain safety and security, resolve reports, or meet legal obligations. Different records have different operational lifetimes, and provider logs or backups may follow provider-controlled schedules. We use access controls and encrypted network connections, but no online service can guarantee absolute security.</p>
+      </section>
 
-        <h4 className="text-sm font-bold text-[var(--color-text)] mt-4">6. Data Security & Retention</h4>
-        <p className="leading-relaxed">We use industry-standard encryption (AES-256) for data at rest and TLS for data in transit. We retain your personal data only as long as necessary to provide services or as required by law.</p>
+      <section aria-labelledby="privacy-children">
+        <h2 id="privacy-children" className="text-base font-bold text-[var(--color-text)] mb-2">7. Children</h2>
+        <p>ParQueen is not directed to children under 13. If you believe a child under 13 provided personal information, contact us so it can be reviewed and removed where required.</p>
+      </section>
 
-        <h4 className="text-sm font-bold text-[var(--color-text)] mt-4">7. Changes to This Policy</h4>
-        <p className="leading-relaxed">We may update this policy to reflect changes in our AI features or legal requirements. We will notify you of significant changes via in-app notification.</p>
+      <section aria-labelledby="privacy-changes">
+        <h2 id="privacy-changes" className="text-base font-bold text-[var(--color-text)] mb-2">8. Changes to This Policy</h2>
+        <p>We may update this policy when the service or applicable requirements change. The current version and update date will remain available on this page.</p>
+      </section>
 
-        <h4 className="text-sm font-bold text-[var(--color-text)] mt-4">8. Contact Us</h4>
-        <p className="leading-relaxed">
-          For questions regarding your privacy, please contact our Privacy Officer at:<br/>
-          Email: <a href="mailto:privacy@parkqueen.app" className="text-[#38bdf8] hover:underline">privacy@parkqueen.app</a>
-        </p>
-      </div>
-    </div>
-  );
-};
+      <section aria-labelledby="privacy-contact">
+        <h2 id="privacy-contact" className="text-base font-bold text-[var(--color-text)] mb-2">9. Contact</h2>
+        <p>Privacy questions or requests can be sent to <a href="mailto:privacy@parkqueen.app" className="text-[#38bdf8] hover:underline">privacy@parkqueen.app</a>.</p>
+      </section>
+    </article>
+  </div>
+);
