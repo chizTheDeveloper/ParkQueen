@@ -48,6 +48,7 @@ import { useParkingTimer } from './street-parking/useParkingTimer';
 import { usePingPhaseClock } from './street-parking/usePingPhaseClock';
 import { AppTour, TOUR_KEY } from './street-parking/AppTour';
 import { resolveNotificationPing } from '../utils/notificationPing';
+import { AccessibleModal } from '../components/AccessibleModal';
 
 
 export const MapView: React.FC<MapViewProps> = ({
@@ -90,6 +91,7 @@ export const MapView: React.FC<MapViewProps> = ({
     const [showPingConfirmation, setShowPingConfirmation] = useState(false);
     const [pingError, setPingError] = useState<string | null>(null);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const deletePingCancelRef = useRef<HTMLButtonElement>(null);
     const [isSpotModalOpen, setSpotModalOpen] = useState(false);
     const [spotAddress, setSpotAddress] = useState<string>(() => t('my_car.resolving_address'));
 
@@ -2297,20 +2299,24 @@ export const MapView: React.FC<MapViewProps> = ({
             )}
 
             {showDeleteConfirm && (
-                <div className="absolute inset-0 z-[200] flex items-end justify-center pb-10 bg-black/50 backdrop-blur-sm">
-                    <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-3xl p-6 mx-4 w-full max-w-sm shadow-2xl">
+                <AccessibleModal
+                    ariaLabel={t('map.delete_confirm_title')}
+                    initialFocusRef={deletePingCancelRef}
+                    onDismiss={() => setShowDeleteConfirm(false)}
+                    overlayClassName="absolute inset-0 z-[200] flex items-end justify-center pb-10 bg-black/50 backdrop-blur-sm"
+                    panelClassName="bg-[var(--color-card)] border border-[var(--color-border)] rounded-3xl p-6 mx-4 w-full max-w-sm shadow-2xl"
+                >
                         <p className="text-base font-bold text-[var(--color-text)] text-center mb-1">{t('map.delete_confirm_title')}</p>
                         <p className="text-sm text-[var(--color-text-secondary)] text-center mb-6">{t('map.delete_confirm_body')}</p>
                         <div className="flex gap-3">
-                            <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 py-3 rounded-2xl border border-[var(--color-border)] text-[var(--color-text)] font-semibold text-sm">
+                            <button ref={deletePingCancelRef} onClick={() => setShowDeleteConfirm(false)} className="flex-1 py-3 rounded-2xl border border-[var(--color-border)] text-[var(--color-text)] font-semibold text-sm">
                                 {t('map.delete_cancel')}
                             </button>
                             <button onClick={doDeletePing} className="flex-1 py-3 rounded-2xl bg-red-500/20 border border-red-500/40 text-red-400 font-bold text-sm">
                                 {t('map.delete_confirm_btn')}
                             </button>
                         </div>
-                    </div>
-                </div>
+                </AccessibleModal>
             )}
 
             {showPingConfirmation && (

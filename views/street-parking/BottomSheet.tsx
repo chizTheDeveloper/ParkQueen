@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useState, useEffect, useRef } from 'react';
+import { useModalAccessibility } from '../../hooks/useModalAccessibility';
 
 interface BottomSheetProps {
     isOpen: boolean;
     onClose: () => void;
     children: React.ReactNode;
-    ariaLabel?: string;
+    ariaLabel: string;
 }
 
 export const BottomSheet: React.FC<BottomSheetProps> = ({ isOpen, onClose, children, ariaLabel }) => {
@@ -21,38 +22,12 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({ isOpen, onClose, child
         }
     }, [isOpen]);
 
-    const dismiss = () => {
+    const dismiss = useCallback(() => {
         setVisible(false);
         setTimeout(onClose, 300);
-    };
+    }, [onClose]);
 
-    useEffect(() => {
-        if (!isOpen) return;
-        const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') dismiss(); };
-        window.addEventListener('keydown', handler);
-        return () => window.removeEventListener('keydown', handler);
-    }, [isOpen, dismiss]);
-
-    useEffect(() => {
-        if (!isOpen) return;
-        const FOCUSABLE = 'button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href],[tabindex]:not([tabindex="-1"])';
-        const trap = (e: KeyboardEvent) => {
-            if (e.key !== 'Tab') return;
-            const container = sheetRef.current;
-            if (!container) return;
-            const focusable = Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE));
-            if (focusable.length === 0) return;
-            const first = focusable[0];
-            const last = focusable[focusable.length - 1];
-            if (e.shiftKey) {
-                if (document.activeElement === first) { e.preventDefault(); last.focus(); }
-            } else {
-                if (document.activeElement === last) { e.preventDefault(); first.focus(); }
-            }
-        };
-        window.addEventListener('keydown', trap);
-        return () => window.removeEventListener('keydown', trap);
-    }, [isOpen]);
+    useModalAccessibility({ isOpen, dialogRef: sheetRef, onEscape: dismiss });
 
     const handleTouchStart = (e: React.TouchEvent) => {
         dragStartY.current = e.touches[0].clientY;
@@ -73,7 +48,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({ isOpen, onClose, child
     if (!isOpen) return null;
 
     return (
-        <div className="absolute inset-0 z-30">
+        <div data-modal-root="" className="absolute inset-0 z-30">
             <div
                 className={`absolute inset-0 bg-black/50 transition-opacity duration-300 ${visible ? 'opacity-100' : 'opacity-0'}`}
                 onClick={dismiss}
