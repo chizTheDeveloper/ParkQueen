@@ -13,6 +13,7 @@ import {
 } from '../utils/phone';
 import type { CountryCode } from '../utils/phone';
 import { clearRecaptchaVerifier, replaceRecaptchaVerifier } from '../utils/recaptchaLifecycle';
+import { LEGAL_PATHS } from '../utils/legalRoutes';
 
 interface CreateAccountViewProps {
     onContinue: (phoneE164: string, confirmationResult: ConfirmationResult) => void;
@@ -229,6 +230,16 @@ export const CreateAccountView: React.FC<CreateAccountViewProps> = ({ onContinue
                         t('create_account.send')
                     )}
                 </button>
+                <p className="mt-3 text-center text-[11px] leading-relaxed text-[var(--color-text-secondary)]">
+                    {t('legal.signup_prefix')}{' '}
+                    <a href={LEGAL_PATHS.terms} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#38bdf8] hover:underline">
+                        {t('legal.terms')}
+                    </a>{' '}
+                    {t('legal.signup_between')}{' '}
+                    <a href={LEGAL_PATHS.privacy} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#38bdf8] hover:underline">
+                        {t('legal.privacy')}
+                    </a>.
+                </p>
             </div>
 
             <div id="recaptcha-container" />

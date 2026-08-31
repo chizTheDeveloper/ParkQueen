@@ -4,6 +4,8 @@ import App from './App';
 import './index.css';
 import { handleVitePreloadError } from './utils/staleChunkRecovery';
 import { initSentry } from './utils/sentryInit';
+import { PublicLegalRoute } from './components/PublicLegalRoute';
+import { resolvePublicLegalRoute } from './utils/legalRoutes';
 
 // Production-only exception monitoring; a no-op in dev/test or when no DSN
 // is configured (see utils/sentryInit.ts for the full privacy contract).
@@ -32,8 +34,18 @@ if (!rootElement) {
 }
 
 const root = ReactDOM.createRoot(rootElement);
+const publicLegalRoute = resolvePublicLegalRoute(window.location.pathname);
+if (publicLegalRoute && window.location.pathname !== publicLegalRoute.canonicalPath) {
+  window.history.replaceState(
+    null,
+    '',
+    `${publicLegalRoute.canonicalPath}${window.location.search}${window.location.hash}`,
+  );
+}
 root.render(
   <React.StrictMode>
-    <App />
+    {publicLegalRoute
+      ? <PublicLegalRoute document={publicLegalRoute.document} onExit={() => window.location.assign('/')} />
+      : <App />}
   </React.StrictMode>
 );

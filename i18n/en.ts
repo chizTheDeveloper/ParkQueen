@@ -1,6 +1,10 @@
 const en: Record<string, string> = {
     // Settings
     'settings.section_legal': 'Legal',
+    'legal.signup_prefix': 'By continuing, you agree to our',
+    'legal.signup_between': 'and acknowledge our',
+    'legal.terms': 'Terms of Use',
+    'legal.privacy': 'Privacy Policy',
     'settings.language.title': 'Language',
     'settings.language.subtitle': 'Choose English or Spanish',
     'language.english': 'English',
