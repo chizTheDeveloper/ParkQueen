@@ -60,6 +60,7 @@ import {
 } from './utils/notificationIntent';
 import { createNotificationIntentQueue, executeNotificationIntent } from './utils/notificationNavigation';
 import { ForegroundNotificationToast } from './components/ForegroundNotificationToast';
+import { AccessibleModal } from './components/AccessibleModal';
 
 // Clears all account-scoped browser state after account deletion.
 // Preserves device-scoped preferences (theme, language) so they survive account transitions.
@@ -95,6 +96,7 @@ export default function App() {
   const prevTitleRef = useRef<string | null>(null);
   const privateEmailRef = useRef<string | undefined>(undefined);
   const [deletePhase, setDeletePhase] = useState<'idle' | 'confirming' | 'deleting' | 'failed' | 'reauth_entering_phone' | 'reauth_verifying_otp'>('idle');
+  const deleteCancelRef = useRef<HTMLButtonElement>(null);
   // phone stores canonical E.164 (e.g. "+15555551234", "+51987654321")
   const [phone, setPhone] = useState('');
   const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
@@ -116,6 +118,11 @@ export default function App() {
     setReauthOtp('');
     setReauthResendCooldown(0);
     setReauthError('');
+  };
+
+  const handleDeleteModalDismiss = () => {
+    clearReauthState();
+    setDeletePhase('idle');
   };
 
   useEffect(() => {
@@ -773,14 +780,20 @@ export default function App() {
       )}
 
       {deletePhase !== 'idle' && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-4">
-          <div className="bg-[var(--color-bg)] border border-[var(--color-border)] rounded-2xl p-6 max-w-sm w-full">
+        <AccessibleModal
+          ariaLabel={t('settings.delete_confirm_title')}
+          initialFocusRef={deleteCancelRef}
+          onDismiss={deletePhase === 'deleting' ? undefined : handleDeleteModalDismiss}
+          overlayClassName="fixed inset-0 z-50 bg-black/70 flex items-end sm:items-center justify-center p-4"
+          panelClassName="bg-[var(--color-bg)] border border-[var(--color-border)] rounded-2xl p-6 max-w-sm w-full"
+        >
             {deletePhase === 'confirming' && (
               <>
                 <h2 className="text-xl font-bold text-red-500 mb-2">{t('settings.delete_confirm_title')}</h2>
                 <p className="text-sm text-[var(--color-text-secondary)] mb-6">{t('settings.delete_confirm_body')}</p>
                 <div className="flex gap-3">
                   <button
+                    ref={deleteCancelRef}
                     onClick={() => setDeletePhase('idle')}
                     className="flex-1 py-3 rounded-xl border border-[var(--color-border)] text-[var(--color-text)] font-medium"
                   >
@@ -803,6 +816,7 @@ export default function App() {
                 <p className="text-center text-red-500 mb-4">{t('settings.delete_failed')}</p>
                 <div className="flex gap-3">
                   <button
+                    ref={deleteCancelRef}
                     onClick={() => setDeletePhase('idle')}
                     className="flex-1 py-3 rounded-xl border border-[var(--color-border)] text-[var(--color-text)]"
                   >
@@ -830,6 +844,7 @@ export default function App() {
                 </p>
                 <div className="flex gap-3">
                   <button
+                    ref={deleteCancelRef}
                     onClick={() => { clearReauthState(); setDeletePhase('idle'); }}
                     className="flex-1 py-3 rounded-xl border border-[var(--color-border)] text-[var(--color-text)] font-medium"
                   >{t('settings.delete_cancel')}</button>
@@ -856,6 +871,7 @@ export default function App() {
                 />
                 <div className="flex gap-3 mb-3">
                   <button
+                    ref={deleteCancelRef}
                     onClick={() => { clearReauthState(); setDeletePhase('idle'); }}
                     className="flex-1 py-3 rounded-xl border border-[var(--color-border)] text-[var(--color-text)] font-medium"
                   >{t('settings.delete_cancel')}</button>
@@ -878,8 +894,7 @@ export default function App() {
             )}
             {/* Invisible reCAPTCHA anchor — must remain in DOM whenever the modal is open */}
             <div id="reauth-recaptcha-anchor" />
-          </div>
-        </div>
+        </AccessibleModal>
       )}
     </div>
   );

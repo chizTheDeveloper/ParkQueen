@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChevronUp, ChevronDown } from 'lucide-react';
+import { t, useLang } from '../../i18n';
 
 export const TimePicker: React.FC<{ initialTime: Date; onTimeChange: (time: Date) => void; }> = ({ initialTime, onTimeChange }) => {
+    useLang();
     const [hour, setHour] = useState(initialTime.getHours() % 12 || 12);
     const [minute, setMinute] = useState(initialTime.getMinutes());
     const [amPm, setAmPm] = useState<'AM' | 'PM'>(initialTime.getHours() >= 12 ? 'PM' : 'AM');
@@ -79,11 +81,15 @@ export const TimePicker: React.FC<{ initialTime: Date; onTimeChange: (time: Date
 
     return (
         <div className="flex items-center justify-center gap-2">
+            <span className="sr-only" aria-live="polite">
+                {t('time_picker.selected', { time: `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')} ${amPm}` })}
+            </span>
             <div className="flex flex-col items-center">
-                <button onClick={incrementHour} className={chevronClass}><ChevronUp size={22} /></button>
+                <button type="button" aria-label={t('time_picker.increase_hour')} onClick={incrementHour} className={chevronClass}><ChevronUp size={22} /></button>
                 <input
                     ref={hourInputRef}
                     type="text"
+                    aria-label={t('time_picker.hour')}
                     inputMode="numeric"
                     pattern="[0-9]*"
                     defaultValue={hour.toString().padStart(2, '0')}
@@ -94,14 +100,15 @@ export const TimePicker: React.FC<{ initialTime: Date; onTimeChange: (time: Date
                     onBlur={handleHourBlur}
                     className={digitInputClass}
                 />
-                <button onClick={decrementHour} className={chevronClass}><ChevronDown size={22} /></button>
+                <button type="button" aria-label={t('time_picker.decrease_hour')} onClick={decrementHour} className={chevronClass}><ChevronDown size={22} /></button>
             </div>
             <span className="text-3xl font-bold text-[var(--color-text)] pb-1">:</span>
             <div className="flex flex-col items-center">
-                <button onClick={incrementMinute} className={chevronClass}><ChevronUp size={22} /></button>
+                <button type="button" aria-label={t('time_picker.increase_minute')} onClick={incrementMinute} className={chevronClass}><ChevronUp size={22} /></button>
                 <input
                     ref={minuteInputRef}
                     type="text"
+                    aria-label={t('time_picker.minute')}
                     inputMode="numeric"
                     pattern="[0-9]*"
                     defaultValue={minute.toString().padStart(2, '0')}
@@ -112,14 +119,14 @@ export const TimePicker: React.FC<{ initialTime: Date; onTimeChange: (time: Date
                     onBlur={handleMinuteBlur}
                     className={digitInputClass}
                 />
-                <button onClick={decrementMinute} className={chevronClass}><ChevronDown size={22} /></button>
+                <button type="button" aria-label={t('time_picker.decrease_minute')} onClick={decrementMinute} className={chevronClass}><ChevronDown size={22} /></button>
             </div>
-            <div className="flex flex-col gap-1.5 ml-2">
-                <button onClick={() => setAmPm('AM')}
+            <div role="group" aria-label={t('time_picker.period')} className="flex flex-col gap-1.5 ml-2">
+                <button type="button" aria-label="AM" aria-pressed={amPm === 'AM'} onClick={() => setAmPm('AM')}
                     className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all ${amPm === 'AM' ? 'bg-blue-500 text-white' : 'bg-[var(--color-overlay)] text-[var(--color-text-secondary)] border border-[var(--color-border)]'}`}>
                     AM
                 </button>
-                <button onClick={() => setAmPm('PM')}
+                <button type="button" aria-label="PM" aria-pressed={amPm === 'PM'} onClick={() => setAmPm('PM')}
                     className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all ${amPm === 'PM' ? 'bg-blue-500 text-white' : 'bg-[var(--color-overlay)] text-[var(--color-text-secondary)] border border-[var(--color-border)]'}`}>
                     PM
                 </button>

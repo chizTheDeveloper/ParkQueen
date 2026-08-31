@@ -105,6 +105,15 @@ const en: Record<string, string> = {
     'ping_modal.back': 'Back',
     'ping_modal.future_time_error': 'Please choose a future time.',
     'ping_modal.reciprocity': "You've claimed {count} spot{s} — thanks for giving back!",
+    'ping_modal.sheet_label': 'Ping your spot',
+    'time_picker.hour': 'Hour',
+    'time_picker.minute': 'Minute',
+    'time_picker.increase_hour': 'Increase hour',
+    'time_picker.decrease_hour': 'Decrease hour',
+    'time_picker.increase_minute': 'Increase minute',
+    'time_picker.decrease_minute': 'Decrease minute',
+    'time_picker.period': 'AM or PM',
+    'time_picker.selected': 'Selected time {time}',
 
     // Spot details card
     'spot_details.badge_en_route': 'En Route',
@@ -140,6 +149,7 @@ const en: Record<string, string> = {
     'parking_activity.hr_ago': '{count} hr ago',
     'parking_activity.none_near': 'No parking activity near {name} right now',
     'parking_activity.explore_area': 'Explore {name} area',
+    'parking_activity.sheet_label': 'Nearby parking activity',
 
     // Ping errors (toast)
     'ping_errors.duplicate': 'You already have an active ping. End it before creating another.',

@@ -108,7 +108,7 @@ export const ParkingActivitySheet: React.FC<ParkingActivitySheetProps> = ({
     const hasActivity = stats && (stats.activePings > 0 || stats.leavingLaterPings > 0);
 
     return (
-        <BottomSheet isOpen={true} onClose={onDismiss}>
+        <BottomSheet isOpen={true} onClose={onDismiss} ariaLabel={t('parking_activity.sheet_label')}>
             <div className="text-center">
                 <div className="flex items-center justify-center gap-2 mb-1">
                     <MapPin size={16} className="text-[#38bdf8]" />

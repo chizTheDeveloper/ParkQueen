@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { AccessibleModal } from '../components/AccessibleModal';
 import { Send, ChevronLeft, MoreVertical, Sparkles, ArrowLeft, MapPin, MessageSquare } from 'lucide-react';
 import { generateSmartReplies, createSmartReplyRequestKey } from '../services/geminiService';
 import { collection, query, where, onSnapshot, addDoc, doc, setDoc, orderBy, serverTimestamp, getDoc, getDocs, limit, startAfter, updateDoc } from 'firebase/firestore';
@@ -89,6 +90,9 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingChat, setDeletingChat] = useState(false);
+  const menuTriggerRef = useRef<HTMLButtonElement>(null);
+  const deleteCancelRef = useRef<HTMLButtonElement>(null);
+  const reportCancelRef = useRef<HTMLButtonElement>(null);
 
   const activeConversation = conversations.find(c => c.id === activeConversationId);
 
@@ -128,6 +132,11 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
     { value: 'Scam or fraud', label: t('messages.report_scam') },
     { value: 'Other', label: t('messages.report_other') },
   ];
+
+  const closeDeleteConfirm = () => {
+    if (deletingChat) return;
+    setShowDeleteConfirm(false);
+  };
 
   const handleBlockUser = async () => {
     if (!activeConversation) return;
@@ -567,7 +576,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
             </div>
           </div>
           <div className="relative">
-            <button onClick={() => setIsMenuOpen(!isMenuOpen)} aria-label={t('messages.menu_aria')} className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)] p-2 hover:bg-white/5 rounded-full transition-colors">
+            <button ref={menuTriggerRef} onClick={() => setIsMenuOpen(!isMenuOpen)} aria-label={t('messages.menu_aria')} className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)] p-2 hover:bg-white/5 rounded-full transition-colors">
               <MoreVertical size={20} />
             </button>
             {isMenuOpen && (
@@ -652,25 +661,36 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
         )}
 
         {showDeleteConfirm && (
-          <div className="absolute inset-0 z-50 bg-black/50 flex items-end justify-center pb-10">
-            <div className="bg-[var(--color-surface)] rounded-3xl p-6 mx-4 w-full max-w-sm border border-[var(--color-border)] shadow-2xl">
+          <AccessibleModal
+            ariaLabel={t('messages.delete_confirm_title')}
+            initialFocusRef={deleteCancelRef}
+            returnFocusRef={menuTriggerRef}
+            onDismiss={deletingChat ? undefined : closeDeleteConfirm}
+            overlayClassName="absolute inset-0 z-50 bg-black/50 flex items-end justify-center pb-10"
+            panelClassName="bg-[var(--color-surface)] rounded-3xl p-6 mx-4 w-full max-w-sm border border-[var(--color-border)] shadow-2xl"
+          >
               <p className="text-base font-bold text-[var(--color-text)] text-center mb-1">{t('messages.delete_confirm_title')}</p>
               <p className="text-sm text-[var(--color-text-secondary)] text-center mb-6">{t('messages.delete_confirm_body')}</p>
               <div className="flex gap-3">
-                <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 py-3 rounded-2xl border border-[var(--color-border)] text-[var(--color-text)] font-semibold text-sm">
+                <button ref={deleteCancelRef} onClick={closeDeleteConfirm} className="flex-1 py-3 rounded-2xl border border-[var(--color-border)] text-[var(--color-text)] font-semibold text-sm">
                   {t('messages.cancel')}
                 </button>
                 <button onClick={doDeleteChat} disabled={deletingChat} className="flex-1 py-3 rounded-2xl bg-red-500/20 border border-red-500/40 text-red-400 font-bold text-sm disabled:opacity-50">
                   {t('messages.delete')}
                 </button>
               </div>
-            </div>
-          </div>
+          </AccessibleModal>
         )}
 
         {showReportModal && (
-          <div className="absolute inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-            <div className="bg-[var(--color-surface)] rounded-3xl p-5 w-full max-w-sm border border-[var(--color-border)] shadow-2xl">
+          <AccessibleModal
+            ariaLabel={t('messages.report_title')}
+            initialFocusRef={reportCancelRef}
+            returnFocusRef={menuTriggerRef}
+            onDismiss={() => setShowReportModal(false)}
+            overlayClassName="absolute inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+            panelClassName="bg-[var(--color-surface)] rounded-3xl p-5 w-full max-w-sm border border-[var(--color-border)] shadow-2xl"
+          >
               <h3 className="font-bold text-[var(--color-text)] mb-3">{t('messages.report_title')}</h3>
               <p className="text-xs text-[var(--color-text-secondary)] mb-4">{t('messages.report_subtitle')}</p>
               <div className="space-y-2">
@@ -681,12 +701,11 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
                   </button>
                 ))}
               </div>
-              <button onClick={() => setShowReportModal(false)}
+              <button ref={reportCancelRef} onClick={() => setShowReportModal(false)}
                 className="w-full mt-3 text-[var(--color-text-secondary)] text-sm text-center py-2">
                 {t('messages.cancel')}
               </button>
-            </div>
-          </div>
+          </AccessibleModal>
         )}
 
         {moderationError && (

@@ -60,7 +60,7 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
     const scheduledDateFull = scheduledDate.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
 
     return (
-        <BottomSheet isOpen={isOpen} onClose={onClose}>
+        <BottomSheet isOpen={isOpen} onClose={onClose} ariaLabel={t('ping_modal.sheet_label')}>
             {view === 'main' ? (
                 <div>
                     <div className="flex flex-col items-center text-center mb-6">
