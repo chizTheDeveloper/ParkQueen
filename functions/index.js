@@ -435,7 +435,7 @@ exports.processScheduledClaims = onSchedule(
       const prefs = prefsSnap.exists ? prefsSnap.data() : {};
       const fcmToken = prefs.fcmToken || null;
       const message = localizeNotification('reminder', prefs.lang, { name: finderName });
-      const claimed = await db.runTransaction(async tx => {
+      const deliveryId = await db.runTransaction(async tx => {
         const fresh = await tx.get(d.ref);
         if (!fresh.exists) return false;
         const current = fresh.data();
@@ -443,7 +443,9 @@ exports.processScheduledClaims = onSchedule(
             current.interestedUserId !== spot.interestedUserId || !current.claimReminderAt ||
             current.claimReminderAt.toMillis() > now.toMillis()) return false;
         const claimId = `claim_${stableId(d.id, snapshotGeneration(fresh), current.interestedUserId)}`;
-        tx.set(db.doc(`spotNotifications/reminder_${claimId}`), {
+        const reminderDeliveryId = `reminder_${claimId}`;
+        const publicDeliveryId = `reminder_${stableId(claimId)}`;
+        tx.set(db.doc(`spotNotifications/${reminderDeliveryId}`), {
           spotId: d.id,
           senderId: null,
           actorType: 'system',
@@ -455,13 +457,19 @@ exports.processScheduledClaims = onSchedule(
           createdAt: now,
         });
         tx.update(d.ref, { claimReminderAt: null, claimReminderSentAt: now });
-        return true;
+        return publicDeliveryId;
       });
-      if (claimed && fcmToken) {
+      if (deliveryId && fcmToken) {
         try {
           const push = {
             token: fcmToken,
             notification: { title: prefs.lang === 'es' ? "🅿️ Lugar abriéndose pronto" : "🅿️ Spot opening soon", body: message },
+            data: {
+              navigationVersion: '1',
+              navigationType: 'ping',
+              spotId: d.id,
+              deliveryId,
+            },
             android: { priority: "high" },
             apns: { payload: { aps: { sound: "default", badge: 1 } } },
           };
@@ -693,7 +701,11 @@ exports.notifyNearbyUsers = onDocumentCreated(
             message: 'A new Ping is available nearby.',
             createdAt: claimedAt,
           });
-          return { ...message, deliveryId };
+          return {
+            ...message,
+            data: { ...message.data, deliveryId },
+            deliveryId,
+          };
         });
       }))).filter(Boolean);
 
@@ -3203,17 +3215,27 @@ exports.scheduleCleaningReminders = onSchedule(
     });
 
     await Promise.all(due.map(async d => {
-      const { fcmToken, streetName, reminderMinutesBefore } = d.data();
+      const { fcmToken, streetName, reminderMinutesBefore, reminderAt, savedAt } = d.data();
+      const savedAtGeneration = savedAt && typeof savedAt.toMillis === 'function'
+        ? savedAt.toMillis()
+        : 'legacy';
+      const deliveryId = `cleaning_${stableId(d.id, savedAtGeneration, reminderAt.toMillis())}`;
       try {
-        await getMessaging().send({
+        const push = {
           token: fcmToken,
           notification: {
             title: 'Move Your Car',
             body: `Street cleaning on ${streetName} starts in ${reminderMinutesBefore} minutes`,
           },
+          data: {
+            navigationVersion: '1',
+            navigationType: 'my_car',
+            deliveryId,
+          },
           android: { priority: 'high' },
           apns: { payload: { aps: { sound: 'default', badge: 1 } } },
-        });
+        };
+        await (_pingNotificationHooks.send?.(push) ?? getMessaging().send(push));
       } catch (e) {
         console.error('FCM send failed for session', d.id.slice(0, 8) + '***', sanitizeError(e));
       }

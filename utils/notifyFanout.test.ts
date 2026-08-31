@@ -209,11 +209,15 @@ describe('buildMessages', () => {
         expect(data).not.toHaveProperty('longitude');
     });
 
-    it('(15) FCM payload contains no finder identity and only spotId', () => {
+    it('(15) FCM payload contains only the approved nearby routing metadata', () => {
         const msgs = buildMessages([{ userId: 'u1', distMiles: 0.3, prefs: validPrefs }], 'spot_xyz');
         expect(msgs[0].data).not.toHaveProperty('finderId');
         expect(msgs[0].data).not.toHaveProperty('finderUid');
-        expect(msgs[0].data).toEqual({ spotId: 'spot_xyz' });
+        expect(msgs[0].data).toEqual({
+            navigationVersion: '1',
+            navigationType: 'ping',
+            spotId: 'spot_xyz',
+        });
     });
 
     it('(10) builds exactly 500 messages without truncation (fits one FCM batch)', () => {
