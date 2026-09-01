@@ -81,6 +81,8 @@ describe('mobile shell layout contract', () => {
 
   it('restores the pre-polish map-shell geometry at the desktop breakpoint', () => {
     const css = read('index.css');
+    const header = read('views/street-parking/HeaderBar.tsx');
+    expect(header).toMatch(/map-search-shell[^"']*\bh-\[56px\]\s+md:h-\[50px\]/);
     expect(css).toMatch(/@media \(min-width: 768px\)[\s\S]*?\.map-search-shell\s*\{[^}]*height:\s*50px/s);
     expect(css).toMatch(/@media \(min-width: 768px\)[\s\S]*?\.map-control-button\s*\{[^}]*width:\s*40px[^}]*height:\s*40px/s);
     expect(css).toMatch(/@media \(min-width: 768px\)[\s\S]*?\.map-primary-cta\s*\{[^}]*min-height:\s*52px/s);

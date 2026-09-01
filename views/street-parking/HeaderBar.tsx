@@ -67,7 +67,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
     useLang();
     return (
         <header style={{ paddingTop: 'env(safe-area-inset-top)' }} className="map-mobile-header w-full flex flex-col gap-2 pointer-events-auto">
-            <div data-tour="search" className="map-search-shell w-full max-w-[380px] mx-auto h-[56px] px-2.5 flex items-center justify-between transition-all duration-300">
+            <div data-tour="search" className="map-search-shell w-full max-w-[380px] mx-auto h-[56px] md:h-[50px] px-2.5 flex items-center justify-between transition-all duration-300">
                 <span data-tour="profile" className="hidden md:inline-flex shrink-0">
                     <UserAvatar user={user} onClick={() => setView(AppView.PROFILE)} />
                 </span>
