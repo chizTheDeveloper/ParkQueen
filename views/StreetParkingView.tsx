@@ -2440,22 +2440,22 @@ export const MapView: React.FC<MapViewProps> = ({
                 />
 
                 {!search.searchOpen && (
-                    <div className="w-full max-w-[380px] mx-auto mt-1 pointer-events-auto">
+                    <div className="map-status-row w-full max-w-[380px] mx-auto pointer-events-auto">
                         {spotCount > 0 ? (
                             <div className="flex items-center gap-1.5 flex-wrap">
                                 <button
                                     onClick={handleNearbyPillClick}
                                     aria-label={spotCount === 1 ? t('map.view_nearby_spot') : t('map.view_nearby_spots')}
-                                    className="inline-flex items-center gap-1.5 bg-[var(--color-card)] backdrop-blur-xl border border-emerald-500/20 rounded-full px-2.5 py-1 text-[10px] font-semibold text-emerald-400 shadow-md cursor-pointer active:scale-95 active:opacity-80 transition-transform"
+                                    className="map-status-chip is-available inline-flex items-center gap-2 text-[11px] font-semibold text-emerald-400 cursor-pointer active:scale-95 active:opacity-80 transition-transform"
                                 >
-                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse motion-reduce:animate-none shrink-0" />
+                                    <div className="map-status-dot bg-emerald-400 animate-pulse motion-reduce:animate-none shrink-0" />
                                     {spotCount === 1 ? t('map.free_spot_singular') : t('map.free_spots_plural', { count: spotCount })}
                                     <ChevronRight size={10} className="opacity-60 shrink-0" />
                                 </button>
                             </div>
                         ) : mapReady && !spotData.activeSpots.find(s => s.finderId === user?.id) && (
-                            <div className="inline-flex items-center gap-1.5 bg-[var(--color-card)] backdrop-blur-xl border border-rose-500/15 rounded-full px-2.5 py-1 text-[10px] font-semibold text-[var(--color-text-secondary)] shadow-md">
-                                <div className="w-1.5 h-1.5 rounded-full bg-rose-700/60 shrink-0" />
+                            <div className="map-status-chip is-empty inline-flex items-center gap-2 text-[11px] font-semibold text-[var(--color-text-secondary)]">
+                                <div className="map-status-dot bg-rose-500/80 shrink-0" />
                                 {t('map.no_spots_nearby')}
                             </div>
                         )}
@@ -2471,7 +2471,7 @@ export const MapView: React.FC<MapViewProps> = ({
                 <div className="mobile-map-controls w-full flex flex-col gap-2 pointer-events-auto mt-auto pb-16 px-4">
 
                     {/* Car (toggle) + Locate stacked vertically on the right */}
-                    <div className="flex flex-col items-end gap-2 max-w-[380px] mx-auto w-full mb-2">
+                    <div className="map-secondary-controls flex flex-col items-end gap-2.5 max-w-[380px] mx-auto w-full mb-2">
                         {userLocation && (
                             <button
                                 data-tour="my-car"
@@ -2481,10 +2481,10 @@ export const MapView: React.FC<MapViewProps> = ({
                                     else setShowSessionSheet(true);
                                 }}
                                 title={t('common.my_car')}
-                                className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-all active:scale-90 backdrop-blur-xl border ${
+                                className={`map-control-button flex items-center justify-center transition-all active:scale-90 ${
                                     savedSpot
-                                        ? 'bg-[#1e75ff] border-[#1e75ff] hover:bg-[#1e75ff]/80'
-                                        : 'bg-[var(--color-card)] border-[#1e75ff]/40 hover:border-[#1e75ff]/70 hover:bg-[#1e75ff]/10'
+                                        ? 'is-active'
+                                        : ''
                                 }`}
                             >
                                 <Car size={17} className={savedSpot ? 'text-white' : 'text-[#1e75ff]'} />
@@ -2492,7 +2492,7 @@ export const MapView: React.FC<MapViewProps> = ({
                         )}
                         <button
                             onClick={handleLocateMe}
-                            className="w-10 h-10 rounded-full flex items-center justify-center shadow-lg transition-all active:scale-90 bg-[var(--color-card)] backdrop-blur-xl border border-[#1e75ff]/40 hover:border-[#1e75ff]/70 hover:bg-[#1e75ff]/10"
+                            className="map-control-button flex items-center justify-center transition-all active:scale-90"
                             title="Locate Me"
                         >
                             <Locate size={18} className="text-[#1e75ff]" />
@@ -2501,7 +2501,7 @@ export const MapView: React.FC<MapViewProps> = ({
 
                     {/* Timer chip — subtle indicator that a reminder is active */}
                     {parkingTimer.timer && savedSpot && (
-                        <div className="max-w-[380px] mx-auto w-full pointer-events-auto">
+                        <div className="map-timer-chip max-w-[380px] mx-auto w-full pointer-events-auto">
                             <button
                                 onClick={() => setShowSessionSheet(true)}
                                 className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-full bg-[var(--color-card)] backdrop-blur-xl border border-[#1e75ff]/20 shadow-md">
@@ -2537,8 +2537,7 @@ export const MapView: React.FC<MapViewProps> = ({
                                     }
                                 }}
                                 disabled={!user}
-                                className="relative mx-auto h-[52px] rounded-full px-14 active:scale-95 text-white disabled:opacity-50 transition-transform duration-200 ping-glow"
-                                style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)', minWidth: '250px' }}
+                                className={`map-primary-cta${isMyCarMode ? ' is-car-mode' : ''} relative mx-auto active:scale-[0.98] text-white disabled:opacity-50 transition-transform duration-200`}
                             >
                                 {isMyCarMode ? (
                                     <div className="flex items-center justify-center gap-2.5 w-full px-8">
@@ -2559,8 +2558,10 @@ export const MapView: React.FC<MapViewProps> = ({
                                     </div>
                                 ) : (
                                     <>
-                                        <MapPin size={24} className="absolute left-9 top-1/2 -translate-y-1/2" />
-                                        <span className="text-[19px] font-bold absolute top-1/2 -translate-y-1/2 whitespace-nowrap" style={{ left: 'calc(50% + 12px)', transform: 'translate(-50%, -50%)' }}>
+                                        <span className="map-primary-cta-icon" aria-hidden="true">
+                                            <MapPin size={21} strokeWidth={2.25} />
+                                        </span>
+                                        <span className="map-primary-cta-label whitespace-nowrap">
                                             {hasActivePing ? t('common.my_ping') : t('common.ping_your_spot')}
                                         </span>
                                     </>
