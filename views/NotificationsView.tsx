@@ -11,6 +11,8 @@ import { buildGeoQueryRanges } from './street-parking/geoQuery';
 import { GeoRegionSubscription } from './street-parking/geoRegionSubscription';
 import { NotificationEnableCard } from '../components/NotificationEnableCard';
 import type { NotificationRuntimeState } from '../utils/notificationRegistration';
+import { AppView } from '../types';
+import { NavigationBar } from './street-parking/NavigationBar';
 
 interface NotificationsViewProps {
     user: any;
@@ -22,6 +24,9 @@ interface NotificationsViewProps {
     notificationBusy?: boolean;
     onEnableNotifications?: () => void;
     onRecheckNotifications?: () => void;
+    setView?: (view: AppView) => void;
+    unreadMessagesCount?: number;
+    pendingUpdatesCount?: number;
 }
 
 const getDistanceKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
@@ -67,7 +72,8 @@ const LOCATION_NEEDED: LocationPermissionState[] = [
 export const NotificationsView: React.FC<NotificationsViewProps> = ({
     user, onBack, onSelectSpot, permissionState, callbacks,
     notificationRuntime, notificationBusy = false,
-    onEnableNotifications, onRecheckNotifications,
+    onEnableNotifications, onRecheckNotifications, setView,
+    unreadMessagesCount = 0, pendingUpdatesCount = 0,
 }) => {
     const [spots, setSpots] = useState<any[]>([]);
     const [spotsLoading, setSpotsLoading] = useState(true);
@@ -211,7 +217,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
         };
 
     return (
-        <div className="h-full bg-[var(--color-bg)] flex flex-col">
+        <div className="mobile-primary-screen h-full bg-[var(--color-bg)] flex flex-col">
             {/* Header */}
             <div
                 className="flex items-center gap-3 px-4 pb-4 border-b border-[var(--color-border)] shrink-0"
@@ -486,6 +492,14 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                     </div>
                 )}
             </div>
+            {setView && (
+                <NavigationBar
+                    currentView={AppView.NOTIFICATIONS}
+                    setView={setView}
+                    unreadMessagesCount={unreadMessagesCount}
+                    pendingUpdatesCount={pendingUpdatesCount}
+                />
+            )}
         </div>
     );
 };

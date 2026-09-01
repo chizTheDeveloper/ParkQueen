@@ -21,6 +21,15 @@ const es: Record<string, string> = {
     'common.location_off': 'Ubicación desactivada',
     'common.location_off_body': 'Mostrando pings recientes sin distancia. Activa tu ubicación para ver qué hay cerca.',
 
+    // Primary navigation
+    'nav.primary': 'Navegación principal',
+    'nav.map': 'Mapa',
+    'nav.nearby': 'Cerca',
+    'nav.messages': 'Mensajes',
+    'nav.profile': 'Perfil',
+    'nav.nearby_new': 'Actividad cercana, {count} nuevas',
+    'nav.messages_unread': 'Mensajes, {count} sin leer',
+
     // Onboarding
     'onboarding.slide1.headline': 'Bienvenida a ParQueen',
     'onboarding.slide1.headline_prefix': 'Bienvenida a',

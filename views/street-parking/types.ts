@@ -52,4 +52,7 @@ export interface MapViewProps {
     pendingMyCarOpen?: boolean;
     onPendingMyCarConsumed?: () => void;
     allowLocationTracking: boolean;
+    showPrimaryNavigation?: boolean;
+    unreadMessagesCount?: number;
+    onPendingUpdatesCountChange?: (count: number) => void;
 }

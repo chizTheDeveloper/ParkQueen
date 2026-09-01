@@ -22,11 +22,12 @@ const STEP_TARGETS = [
 ] as const;
 
 function getTargetRect(target: string): DOMRect | null {
-    const el = document.querySelector<HTMLElement>(`[data-tour="${target}"]`);
-    if (!el) return null;
-    const r = el.getBoundingClientRect();
-    if (r.width === 0 && r.height === 0) return null;
-    return r;
+    const matches = document.querySelectorAll<HTMLElement>(`[data-tour="${target}"]`);
+    for (const element of matches) {
+        const rect = element.getBoundingClientRect();
+        if (rect.width > 0 || rect.height > 0) return rect;
+    }
+    return null;
 }
 
 interface AppTourProps {

@@ -21,6 +21,15 @@ const en: Record<string, string> = {
     'common.location_off': 'Location is off',
     'common.location_off_body': 'Showing recent pings without distance. Turn on location to see what\'s nearby.',
 
+    // Primary navigation
+    'nav.primary': 'Primary navigation',
+    'nav.map': 'Map',
+    'nav.nearby': 'Nearby',
+    'nav.messages': 'Messages',
+    'nav.profile': 'Profile',
+    'nav.nearby_new': 'Nearby Activity, {count} new',
+    'nav.messages_unread': 'Messages, {count} unread',
+
     // Onboarding
     'onboarding.slide1.headline': 'Welcome to ParQueen',
     'onboarding.slide1.headline_prefix': 'Welcome to',

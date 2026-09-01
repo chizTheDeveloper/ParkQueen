@@ -33,7 +33,6 @@ import { SpotModal } from './street-parking/SpotModal';
 import { TimePicker } from './street-parking/TimePicker';
 import { localDateStr, combineDateAndTime } from './street-parking/dateUtils';
 import { useSearch } from './street-parking/useSearch';
-import { useUnreadMessages } from './street-parking/useUnreadMessages';
 import { useSpotData } from './street-parking/useSpotData';
 import { useInterestFlow } from './street-parking/useInterestFlow';
 import { checkPingRateLimit } from './street-parking/pingRateLimit';
@@ -43,12 +42,14 @@ import { BottomSheet } from './street-parking/BottomSheet';
 import { HandoffFlow } from './street-parking/HandoffFlow';
 import { ParkingActivitySheet } from './street-parking/ParkingActivitySheet';
 import { HeaderBar } from './street-parking/HeaderBar';
+import { NavigationBar } from './street-parking/NavigationBar';
 import { StreetIntelligenceCard, StreetIntelligenceUnavailableCard } from './street-parking/StreetIntelligenceCard';
 import { useParkingTimer } from './street-parking/useParkingTimer';
 import { usePingPhaseClock } from './street-parking/usePingPhaseClock';
 import { AppTour, TOUR_KEY } from './street-parking/AppTour';
 import { resolveNotificationPing } from '../utils/notificationPing';
 import { AccessibleModal } from '../components/AccessibleModal';
+import { shouldShowMapPrimaryNavigation } from './street-parking/mobileNavigationVisibility';
 
 
 export const MapView: React.FC<MapViewProps> = ({
@@ -61,6 +62,9 @@ export const MapView: React.FC<MapViewProps> = ({
     pendingMyCarOpen = false,
     onPendingMyCarConsumed,
     allowLocationTracking,
+    showPrimaryNavigation = true,
+    unreadMessagesCount = 0,
+    onPendingUpdatesCountChange,
 }) => {
     useLang(); // re-render on language change
     const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -121,8 +125,6 @@ export const MapView: React.FC<MapViewProps> = ({
     // --- Custom hooks ---
 
     const search = useSearch();
-    const unreadMessagesCount = useUnreadMessages(user?.id);
-
     const spotData = useSpotData({
         userId: user?.id,
         blockedUsers: user?.blockedUsers,
@@ -131,6 +133,9 @@ export const MapView: React.FC<MapViewProps> = ({
         showPaid,
         filterRadiusMiles: mapFilterRadiusMiles,
     });
+    useEffect(() => {
+        onPendingUpdatesCountChange?.(spotData.pendingUpdatesCount);
+    }, [onPendingUpdatesCountChange, spotData.pendingUpdatesCount]);
     const nowMs = usePingPhaseClock(spotData.radiusFilteredItems);
     const currentItems = useMemo(
         () => spotData.radiusFilteredItems.filter(item => !derivePingLifecycle(item, nowMs, user?.id).expired),
@@ -1502,6 +1507,19 @@ export const MapView: React.FC<MapViewProps> = ({
         }
     };
 
+    const mapPrimaryNavigationVisible = shouldShowMapPrimaryNavigation({
+        enabled: showPrimaryNavigation,
+        spotModalOpen: isSpotModalOpen,
+        spotDetailsOpen: !!selectedItem,
+        sessionSheetOpen: showSessionSheet,
+        postSaveOfferOpen: showPostSaveOffer,
+        departureSheetOpen: showDepartureSheet,
+        handoffSheetOpen: interestFlow.handoffStep !== null,
+        stackSheetOpen: !!stackGroup,
+        deleteDialogOpen: showDeleteConfirm,
+        destinationActivitySheetOpen: !!search.selectedDestination,
+    });
+
     return (
         <div className="sp-page">
             <SpotModal
@@ -2450,7 +2468,7 @@ export const MapView: React.FC<MapViewProps> = ({
                 )}
 
 
-                <div className="w-full flex flex-col gap-2 pointer-events-auto mt-auto pb-16 px-4">
+                <div className="mobile-map-controls w-full flex flex-col gap-2 pointer-events-auto mt-auto pb-16 px-4">
 
                     {/* Car (toggle) + Locate stacked vertically on the right */}
                     <div className="flex flex-col items-end gap-2 max-w-[380px] mx-auto w-full mb-2">
@@ -2628,6 +2646,15 @@ export const MapView: React.FC<MapViewProps> = ({
                         </div>
                     )}
                 </div>
+            )}
+
+            {mapPrimaryNavigationVisible && (
+                <NavigationBar
+                    currentView={AppView.MAP}
+                    setView={setView}
+                    unreadMessagesCount={unreadMessagesCount}
+                    pendingUpdatesCount={spotData.pendingUpdatesCount}
+                />
             )}
         </div>
     );

@@ -6,6 +6,7 @@ import { getDistance, NYC_CENTER } from './utils';
 import { buildGeoQueryRanges } from './geoQuery';
 import { GeoRegionSubscription } from './geoRegionSubscription';
 import { filterVisibleSpots } from './filterVisibleSpots';
+import { parsePersistedCount } from '../../utils/persistedCount';
 
 interface UseSpotDataOptions {
     userId: string | undefined;
@@ -26,8 +27,7 @@ export function useSpotData({ userId, blockedUsers, searchCenter, showFree, show
     const [paidListings, setPaidListings] = useState<MapItem[]>([]);
     const [activeSpots, setActiveSpots] = useState<any[]>([]);
     const [pendingUpdatesCount, setPendingUpdatesCount] = useState(() => {
-        const stored = localStorage.getItem('pendingUpdatesCount');
-        return stored ? parseInt(stored, 10) : 3;
+        return parsePersistedCount(localStorage.getItem('pendingUpdatesCount'));
     });
     // The center/radius that freeSpots was actually filtered against — only
     // ever updated atomically with the dataset it describes (see
@@ -133,7 +133,7 @@ export function useSpotData({ userId, blockedUsers, searchCenter, showFree, show
                 } else {
                     const saved = localStorage.getItem('pendingUpdatesCount');
                     if (saved !== null) {
-                        setPendingUpdatesCount(parseInt(saved, 10));
+                        setPendingUpdatesCount(parsePersistedCount(saved));
                     }
                 }
             },

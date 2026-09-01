@@ -11,6 +11,7 @@ import { getInitials } from '../utils/profileAvatar';
 import { validateAvatarUpload } from '../utils/avatarUploadValidation';
 import { deriveImpactCounts } from '../utils/profileImpact';
 import { t, useLang, getLang } from '../i18n';
+import { NavigationBar } from './street-parking/NavigationBar';
 
 // The durable per-user pingsShared counter (users/{uid}.impactStats.pingsShared)
 // only started accumulating with this feature's rollout — historical ping
@@ -20,7 +21,7 @@ import { t, useLang, getLang } from '../i18n';
 // date, which predates and is unrelated to this per-user counter.
 const PINGS_SHARED_TRACKING_SINCE = new Date(2026, 7, 1);
 
-export const ProfileView = ({ user, onBack, setView }) => {
+export const ProfileView = ({ user, onBack, setView, unreadMessagesCount = 0, pendingUpdatesCount = 0 }) => {
   useLang();
   const locale = getLang() === 'es' ? 'es' : 'en-US';
   const [isUploading, setIsUploading] = useState(false);
@@ -241,7 +242,7 @@ export const ProfileView = ({ user, onBack, setView }) => {
     (impactCounts.pingsShared > 0 || impactCounts.successfulHandoffs > 0 || impactCounts.spotsFound > 0);
 
   return (
-    <div className="min-h-full bg-[var(--color-bg)] text-[var(--color-text)] pt-4 pb-20 px-4">
+    <div className="mobile-primary-screen mobile-safe-top min-h-full bg-[var(--color-bg)] text-[var(--color-text)] pt-4 pb-20 px-4">
       {user ? (
         <div className="max-w-md mx-auto flex flex-col">
 
@@ -556,6 +557,14 @@ export const ProfileView = ({ user, onBack, setView }) => {
             </button>
           </div>
         </div>
+      )}
+      {!showCrownsInfo && (
+        <NavigationBar
+          currentView={AppView.PROFILE}
+          setView={setView}
+          unreadMessagesCount={unreadMessagesCount}
+          pendingUpdatesCount={pendingUpdatesCount}
+        />
       )}
     </div>
   );
