@@ -66,14 +66,14 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 }) => {
     useLang();
     return (
-        <header style={{ paddingTop: 'env(safe-area-inset-top)' }} className="w-full flex flex-col gap-1.5 pointer-events-auto">
-            <div data-tour="search" className="w-full max-w-[380px] mx-auto bg-[var(--color-card)] backdrop-blur-xl border border-[var(--color-border)] rounded-full h-[50px] px-3.5 flex items-center justify-between shadow-xl transition-all duration-300">
+        <header style={{ paddingTop: 'env(safe-area-inset-top)' }} className="map-mobile-header w-full flex flex-col gap-2 pointer-events-auto">
+            <div data-tour="search" className="map-search-shell w-full max-w-[380px] mx-auto h-[56px] px-2.5 flex items-center justify-between transition-all duration-300">
                 <span data-tour="profile" className="hidden md:inline-flex shrink-0">
                     <UserAvatar user={user} onClick={() => setView(AppView.PROFILE)} />
                 </span>
 
-                <div className="flex-1 mx-2.5 flex items-center gap-2.5">
-                    <Search size={17} className="text-[var(--color-text-secondary)]" />
+                <div className="flex-1 mx-2.5 flex items-center gap-3">
+                    <Search size={19} strokeWidth={2} className="map-search-icon text-[var(--color-text-secondary)]" />
                     <input
                         ref={inputRef}
                         type="text"
@@ -81,7 +81,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                         aria-expanded={searchOpen && (loading || results.length > 0)}
                         aria-haspopup="listbox"
                         placeholder={t('common.search_placeholder')}
-                        className="bg-transparent border-none outline-none text-[var(--color-text)] text-[14px] w-full placeholder-[var(--color-text-secondary)] font-medium"
+                        className="map-search-input bg-transparent border-none outline-none text-[var(--color-text)] text-[15px] w-full placeholder-[var(--color-text-secondary)] font-medium"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         onFocus={() => setSearchOpen(true)}
@@ -96,10 +96,10 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                         aria-label="AI Sign Scanner"
                         title="AI Sign Scanner"
                         onClick={() => setView(AppView.AI_ASSISTANT)}
-                        className="flex items-center gap-1 bg-[#1e75ff]/15 border border-[#1e75ff]/30 rounded-full px-2 py-1 text-[#38bdf8] hover:bg-[#1e75ff]/25 active:scale-95 transition-all shrink-0"
+                        className="map-ai-action flex items-center gap-1.5 rounded-full px-3 text-[#75b8ff] active:scale-95 transition-all shrink-0"
                     >
-                        <Camera size={13} />
-                        <span className="text-[10px] font-bold tracking-wide">AI</span>
+                        <Camera size={15} strokeWidth={2.1} />
+                        <span className="text-[11px] font-bold tracking-wide">AI</span>
                     </button>
 
                     <button
