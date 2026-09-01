@@ -40,10 +40,10 @@ export const OnboardingView = ({ onComplete, initialSlide = 0 }: { onComplete: (
         demoStarted.current = true;
         const timers = [
             setTimeout(() => setDemoPhase(1), 0),     // location dot (immediate)
-            setTimeout(() => setDemoPhase(2), 2000),  // primary blue ping
-            setTimeout(() => setDemoPhase(3), 2500),  // secondary blue ping
-            setTimeout(() => setDemoPhase(4), 3000),  // yellow leaving-later ping
-            setTimeout(() => setDemoPhase(5), 3500),  // pill + tooltips
+            setTimeout(() => setDemoPhase(2), 220),   // primary blue ping
+            setTimeout(() => setDemoPhase(3), 460),   // secondary blue ping
+            setTimeout(() => setDemoPhase(4), 700),   // yellow leaving-later ping
+            setTimeout(() => setDemoPhase(5), 940),   // pill + tooltips
         ];
         return () => timers.forEach(clearTimeout);
     }, [current, prefersReduced]);

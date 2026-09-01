@@ -9,11 +9,17 @@ import { db } from '../firebase';
 import { moderateMessage } from '../utils/moderation';
 import { reportCriticalActionFailure } from '../utils/errorReporting';
 import { t, useLang } from '../i18n';
+import { AppView } from '../types';
+import { NavigationBar } from './street-parking/NavigationBar';
+import { notifyChatRead } from './street-parking/useUnreadMessages';
 
 interface MessagesViewProps {
   user: any;
   activeChatContext: { userId: string; context: string } | null;
   onBack: () => void;
+  setView?: (view: AppView) => void;
+  unreadMessagesCount?: number;
+  pendingUpdatesCount?: number;
 }
 
 // Realtime window size for the newest messages in an open conversation —
@@ -31,7 +37,9 @@ export function computeRestoredScrollTop(prevScrollTop: number, prevScrollHeight
   return prevScrollTop + (newScrollHeight - prevScrollHeight);
 }
 
-export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatContext, onBack }) => {
+export const MessagesView: React.FC<MessagesViewProps> = ({
+  user, activeChatContext, onBack, setView, unreadMessagesCount = 0, pendingUpdatesCount = 0,
+}) => {
   useLang();
   const [conversations, setConversations] = useState<any[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(
@@ -453,6 +461,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
   useEffect(() => {
     if (activeConversationId) {
       localStorage.setItem(`lastReadChat_${activeConversationId}`, Date.now().toString());
+      notifyChatRead();
     }
     setIsMenuOpen(false);
   }, [activeConversationId, messages.length]);
@@ -554,7 +563,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
       || t('messages.anonymous');
 
     return (
-      <div className="h-full flex flex-col bg-[var(--color-bg)] pt-4 pb-20">
+      <div className="mobile-safe-top h-full flex flex-col bg-[var(--color-bg)] pt-4 pb-20">
         {/* Chat Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
           <div className="flex items-center gap-3">
@@ -746,7 +755,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
   ];
 
   return (
-    <div className="h-full flex flex-col bg-[var(--color-bg)] pt-4 pb-20 max-w-md mx-auto">
+    <div className="mobile-primary-screen mobile-safe-top h-full flex flex-col bg-[var(--color-bg)] pt-4 pb-20 max-w-md mx-auto">
       {/* Header */}
       <div className="flex items-center gap-3 px-4 mb-6">
         {onBack && (
@@ -842,6 +851,14 @@ export const MessagesView: React.FC<MessagesViewProps> = ({ user, activeChatCont
           </div>
         )}
       </div>
+      {setView && (
+        <NavigationBar
+          currentView={AppView.MESSAGES}
+          setView={setView}
+          unreadMessagesCount={unreadMessagesCount}
+          pendingUpdatesCount={pendingUpdatesCount}
+        />
+      )}
     </div>
   );
 };

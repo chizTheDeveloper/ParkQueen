@@ -2,6 +2,13 @@ import { useState, useEffect } from 'react';
 import { db } from '../../firebase';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 
+const CHAT_READ_EVENT = 'parqueen:chat-read';
+
+export function notifyChatRead() {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new Event(CHAT_READ_EVENT));
+}
+
 export function useUnreadMessages(userId: string | undefined) {
     const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
 
@@ -11,9 +18,10 @@ export function useUnreadMessages(userId: string | undefined) {
             collection(db, "chats"),
             where("participants", "array-contains", userId)
         );
-        const unsubscribe = onSnapshot(q, (snap) => {
+        let latestDocs: Array<{ id: string; data: () => any }> = [];
+        const recompute = () => {
             let count = 0;
-            snap.docs.forEach(docSnap => {
+            latestDocs.forEach(docSnap => {
                 const data = docSnap.data();
                 const chatId = docSnap.id;
 
@@ -36,10 +44,18 @@ export function useUnreadMessages(userId: string | undefined) {
                 }
             });
             setUnreadMessagesCount(count);
+        };
+        const unsubscribe = onSnapshot(q, (snap) => {
+            latestDocs = snap.docs;
+            recompute();
         }, (err) => {
             console.warn("Chats snapshot listener error:", err);
         });
-        return () => unsubscribe();
+        window.addEventListener(CHAT_READ_EVENT, recompute);
+        return () => {
+            window.removeEventListener(CHAT_READ_EVENT, recompute);
+            unsubscribe();
+        };
     }, [userId]);
 
     return unreadMessagesCount;

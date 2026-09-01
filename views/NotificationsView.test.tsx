@@ -125,6 +125,16 @@ function emit(docs: any[]) {
     });
 }
 
+describe('NotificationsView — mobile primary navigation', () => {
+    it('keeps Nearby Activity selected on its primary root', async () => {
+        const renderer = await renderNotifications({ setView: vi.fn(), unreadMessagesCount: 2, pendingUpdatesCount: 3 });
+        const nav = renderer.root.findByProps({ 'aria-label': 'Primary navigation' });
+        expect(nav.findByProps({ 'aria-label': 'Nearby Activity, 3 new' }).props['aria-current']).toBe('page');
+        expect(nav.findByProps({ 'aria-label': 'Messages, 2 unread' })).toBeDefined();
+        act(() => renderer.unmount());
+    });
+});
+
 function addresses(renderer: TestRenderer.ReactTestRenderer): string[] {
     return renderer.root.findAll(
         node => node.type === 'p' && typeof node.props.className === 'string'

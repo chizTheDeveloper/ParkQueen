@@ -61,6 +61,8 @@ import {
 import { createNotificationIntentQueue, executeNotificationIntent } from './utils/notificationNavigation';
 import { ForegroundNotificationToast } from './components/ForegroundNotificationToast';
 import { AccessibleModal } from './components/AccessibleModal';
+import { useUnreadMessages } from './views/street-parking/useUnreadMessages';
+import { parsePersistedCount } from './utils/persistedCount';
 
 // Clears all account-scoped browser state after account deletion.
 // Preserves device-scoped preferences (theme, language) so they survive account transitions.
@@ -81,6 +83,10 @@ export default function App() {
   const [pendingSpotId, setPendingSpotId] = useState<string | null>(null);
   const [pendingMyCarOpen, setPendingMyCarOpen] = useState(false);
   const [user, setUser] = useState(null);
+  const unreadMessagesCount = useUnreadMessages(user?.id);
+  const [pendingUpdatesCount, setPendingUpdatesCount] = useState(() => {
+    return parsePersistedCount(localStorage.getItem('pendingUpdatesCount'));
+  });
   const [loading, setLoading] = useState(true);
   const [theme, setTheme] = useState(() => {
     return localStorage.getItem('theme') || 'dark';
@@ -88,6 +94,11 @@ export default function App() {
   const [activeChatContext, setActiveChatContext] = useState<{ userId: string; context: string } | null>(null);
   const [chatReturnSpotId, setChatReturnSpotId] = useState<string | null>(null);
   const [pushToast, setPushToast] = useState<{ title: string; body: string; intent: NotificationIntent } | null>(null);
+
+  const navigatePrimary = (view: AppView) => {
+    if (view === AppView.NOTIFICATIONS) setPendingUpdatesCount(0);
+    setCurrentView(view);
+  };
   const pushToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [notificationRuntime, setNotificationRuntime] = useState<NotificationRuntimeState | null>(null);
   const [notificationBusy, setNotificationBusy] = useState(false);
@@ -616,7 +627,7 @@ export default function App() {
           <MapView
             user={user}
             onMessageUser={handleMessageUser}
-            setView={setCurrentView}
+            setView={navigatePrimary}
             pendingSpotId={pendingSpotId}
             onPendingSpotConsumed={() => setPendingSpotId(null)}
             onPendingSpotUnavailable={() => {
@@ -630,6 +641,9 @@ export default function App() {
             pendingMyCarOpen={pendingMyCarOpen}
             onPendingMyCarConsumed={() => setPendingMyCarOpen(false)}
             allowLocationTracking={locationAccess === 'granted'}
+            showPrimaryNavigation={currentView === AppView.MAP}
+            unreadMessagesCount={unreadMessagesCount}
+            onPendingUpdatesCountChange={setPendingUpdatesCount}
           />
           {currentView === AppView.MESSAGES && (
             <div className="fixed inset-0 z-50 bg-[var(--color-bg)]">
@@ -641,6 +655,9 @@ export default function App() {
                   setChatReturnSpotId(null);
                   setCurrentView(AppView.MAP);
                 }}
+                setView={navigatePrimary}
+                unreadMessagesCount={unreadMessagesCount}
+                pendingUpdatesCount={pendingUpdatesCount}
               />
             </div>
           )}
@@ -698,7 +715,7 @@ export default function App() {
         );
 
       case AppView.PROFILE:
-        return <ProfileView user={user} setView={setCurrentView} onBack={() => setCurrentView(AppView.MAP)} />;
+        return <ProfileView user={user} setView={navigatePrimary} onBack={() => setCurrentView(AppView.MAP)} unreadMessagesCount={unreadMessagesCount} pendingUpdatesCount={pendingUpdatesCount} />;
       case AppView.SETTINGS:
         return <SettingsView user={user} setView={setCurrentView} onBack={() => setCurrentView(AppView.PROFILE)} onLogout={handleLogout} onDeleteAccount={handleDeleteAccount} theme={theme} toggleTheme={toggleTheme} permissionState={nearbyPermissionState(locationAccess)} notificationRuntime={notificationRuntime} />;
       case AppView.NOTIFICATIONS_SETTINGS:
@@ -708,7 +725,7 @@ export default function App() {
       case AppView.LANGUAGE_SETTINGS:
         return <LanguageSettingsView user={user} onBack={() => setCurrentView(AppView.SETTINGS)} />;
       case AppView.NOTIFICATIONS:
-        return <NotificationsView user={user} onBack={() => setCurrentView(AppView.MAP)} onSelectSpot={(id) => { setPendingSpotId(id); setCurrentView(AppView.MAP); }} permissionState={nearbyPermissionState(locationAccess)} callbacks={locationCallbacks} notificationRuntime={notificationRuntime} notificationBusy={notificationBusy} onEnableNotifications={handleEnableNotifications} onRecheckNotifications={handleRecheckNotifications} />;
+        return <NotificationsView user={user} onBack={() => setCurrentView(AppView.MAP)} onSelectSpot={(id) => { setPendingSpotId(id); setCurrentView(AppView.MAP); }} permissionState={nearbyPermissionState(locationAccess)} callbacks={locationCallbacks} notificationRuntime={notificationRuntime} notificationBusy={notificationBusy} onEnableNotifications={handleEnableNotifications} onRecheckNotifications={handleRecheckNotifications} setView={navigatePrimary} unreadMessagesCount={unreadMessagesCount} pendingUpdatesCount={pendingUpdatesCount} />;
       case AppView.ADMIN_LOGIN:
         return <AdminLoginView onVerified={() => setCurrentView(AppView.ADMIN_DASHBOARD)} />;
       case AppView.ADMIN_DASHBOARD:

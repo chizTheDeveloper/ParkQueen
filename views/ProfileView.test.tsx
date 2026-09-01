@@ -59,10 +59,10 @@ function feedbackDoc(id: string, ts: number, outcome: string = 'success') {
     return { id, data: () => ({ userId: 'me', outcome, address: `fb-${id}`, createdAt: { toMillis: () => ts } }) };
 }
 
-async function renderProfile(user: any) {
+async function renderProfile(user: any, navCounts: { unreadMessagesCount?: number; pendingUpdatesCount?: number } = {}) {
     let renderer: TestRenderer.ReactTestRenderer;
     await act(async () => {
-        renderer = TestRenderer.create(React.createElement(ProfileView, { user, onBack: () => { }, setView: () => { } }));
+        renderer = TestRenderer.create(React.createElement(ProfileView, { user, onBack: () => { }, setView: () => { }, ...navCounts }));
     });
     await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); });
     return renderer!;
@@ -92,6 +92,26 @@ function activityAddresses(renderer: TestRenderer.ReactTestRenderer): string[] {
 function queryFor(name: string) {
     return queryLog.find(q => q.name === name)?.constraints ?? [];
 }
+
+describe('ProfileView — mobile primary navigation', () => {
+    it('keeps Profile selected on its primary root', async () => {
+        const renderer = await renderProfile({ id: 'me' }, { unreadMessagesCount: 2, pendingUpdatesCount: 3 });
+        const nav = renderer.root.findByProps({ 'aria-label': 'Primary navigation' });
+        expect(nav.findByProps({ 'aria-label': 'Profile' }).props['aria-current']).toBe('page');
+        expect(nav.findByProps({ 'aria-label': 'Messages, 2 unread' })).toBeDefined();
+        expect(nav.findByProps({ 'aria-label': 'Nearby Activity, 3 new' })).toBeDefined();
+        act(() => renderer.unmount());
+    });
+
+    it('removes the primary navigation while the Crowns dialog is open', async () => {
+        const renderer = await renderProfile({ id: 'me' });
+        const info = renderer.root.findByProps({ 'aria-label': 'What are crowns?' });
+        act(() => info.props.onClick());
+        expect(renderer.root.findAllByProps({ 'aria-label': 'Primary navigation' })).toHaveLength(0);
+        expect(renderer.root.findByProps({ role: 'dialog' })).toBeDefined();
+        act(() => renderer.unmount());
+    });
+});
 
 describe('ProfileView — impact card sourcing', () => {
     beforeEach(() => {

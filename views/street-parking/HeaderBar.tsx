@@ -68,7 +68,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
     return (
         <header style={{ paddingTop: 'env(safe-area-inset-top)' }} className="w-full flex flex-col gap-1.5 pointer-events-auto">
             <div data-tour="search" className="w-full max-w-[380px] mx-auto bg-[var(--color-card)] backdrop-blur-xl border border-[var(--color-border)] rounded-full h-[50px] px-3.5 flex items-center justify-between shadow-xl transition-all duration-300">
-                <span data-tour="profile" className="inline-flex shrink-0">
+                <span data-tour="profile" className="hidden md:inline-flex shrink-0">
                     <UserAvatar user={user} onClick={() => setView(AppView.PROFILE)} />
                 </span>
 
@@ -108,7 +108,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                         aria-label="Chat"
                         title="Chat"
                         onClick={() => setView(AppView.MESSAGES)}
-                        className="p-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-overlay)] rounded-full transition-colors relative shrink-0"
+                        className="hidden md:inline-flex p-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-overlay)] rounded-full transition-colors relative shrink-0"
                     >
                         <div className="relative">
                             <MessageSquare size={17} />
@@ -129,7 +129,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                             setPendingUpdatesCount(0);
                             setView(AppView.NOTIFICATIONS);
                         }}
-                        className="p-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-overlay)] rounded-full transition-colors relative shrink-0"
+                        className="hidden md:inline-flex p-1.5 text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-overlay)] rounded-full transition-colors relative shrink-0"
                     >
                         <div className="relative">
                             <Bell size={17} />

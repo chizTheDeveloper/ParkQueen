@@ -179,6 +179,26 @@ function emitMessages(callIndex: number, docsNewestFirst: any[], changes: Array<
     act(() => { call.onNext({ docs: docsNewestFirst, docChanges: () => changes }); });
 }
 
+describe('MessagesView — mobile primary navigation boundary', () => {
+    it('shows the four-tab navigation in the inbox and hides it inside a conversation', async () => {
+        const renderer = await renderMessages({ setView: vi.fn(), unreadMessagesCount: 2, pendingUpdatesCount: 3 });
+        const nav = renderer.root.findByProps({ 'aria-label': 'Primary navigation' });
+        expect(nav.findByProps({ 'aria-label': 'Messages, 2 unread' }).props['aria-current']).toBe('page');
+        expect(nav.findByProps({ 'aria-label': 'Nearby Activity, 3 new' })).toBeDefined();
+
+        emitChats([chatDoc('chat-a', ['me', 'other'])]);
+        await act(async () => { await Promise.resolve(); });
+        const conversation = renderer.root.findAllByType('button')
+            .find(button => button.props.className?.includes('text-left'));
+        expect(conversation).toBeDefined();
+        act(() => conversation!.props.onClick());
+
+        expect(renderer.root.findAllByProps({ 'aria-label': 'Primary navigation' })).toHaveLength(0);
+        expect(renderer.root.findAll(node => typeof node.props.className === 'string' && node.props.className.includes('mobile-safe-top'))).toHaveLength(1);
+        act(() => renderer.unmount());
+    });
+});
+
 function added(docs: any[]) { return docs.map(doc => ({ type: 'added' as const, doc })); }
 
 function messageBubbleTexts(renderer: TestRenderer.ReactTestRenderer): string[] {
