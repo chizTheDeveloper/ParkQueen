@@ -372,9 +372,15 @@ html, body, #root {
     padding-bottom: var(--mobile-primary-nav-space);
   }
 
-  .map-secondary-controls {
-    width: min(90vw, 390px);
-    margin-bottom: 10px;
+  .mobile-map-controls .map-secondary-controls {
+    position: fixed;
+    right: max(16px, env(safe-area-inset-right, 0px), calc(50% - 195px));
+    bottom: calc(var(--mobile-primary-nav-space) + 16px);
+    z-index: 34;
+    width: auto;
+    margin: 0;
+    flex-direction: column;
+    gap: 10px;
   }
 
   .map-primary-cta {
@@ -596,7 +602,7 @@ html, body, #root {
     font-size: 9px;
   }
 
-  .map-secondary-controls {
+  .mobile-map-controls .map-secondary-controls {
     position: fixed;
     right: max(16px, env(safe-area-inset-right, 0px), calc(50% - 190px));
     bottom: calc(var(--mobile-primary-nav-space) + 10px);

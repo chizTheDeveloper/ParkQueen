@@ -4,6 +4,15 @@ import { describe, expect, it } from 'vitest';
 
 const root = path.resolve(__dirname, '../..');
 const read = (file: string) => fs.readFileSync(path.join(root, file), 'utf8');
+const ruleBetween = (css: string, startMarker: string, endMarker: string, selector: string) => {
+  const start = css.indexOf(startMarker);
+  const end = css.indexOf(endMarker, start + startMarker.length);
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  const match = css.slice(start, end).match(new RegExp(`${selector}\\s*\\{([^}]*)\\}`, 's'));
+  expect(match).not.toBeNull();
+  return match?.[1] ?? '';
+};
 
 describe('mobile shell layout contract', () => {
   it('reserves the complete safe-area-aware navigation footprint for primary content and map controls', () => {
@@ -74,10 +83,28 @@ describe('mobile shell layout contract', () => {
     const map = read('views/StreetParkingView.tsx');
     expect(map).toContain('map-secondary-controls flex flex-col items-end');
     expect(css).toMatch(/@media \(orientation: landscape\) and \(max-height: 430px\)/);
-    expect(css).toMatch(/@media \(orientation: landscape\)[\s\S]*?\.map-secondary-controls\s*\{[^}]*position:\s*fixed[^}]*flex-direction:\s*column[^}]*gap:\s*10px/s);
+    expect(css).toMatch(/@media \(orientation: landscape\)[\s\S]*?\.mobile-map-controls \.map-secondary-controls\s*\{[^}]*position:\s*fixed[^}]*right:\s*max\(16px,\s*env\(safe-area-inset-right,\s*0px\),\s*calc\(50% - 190px\)\)[^}]*bottom:\s*calc\(var\(--mobile-primary-nav-space\) \+ 10px\)[^}]*flex-direction:\s*column[^}]*gap:\s*10px/s);
     expect(css).toMatch(/\.map-control-button\s*\{[^}]*width:\s*50px[^}]*height:\s*50px/s);
     expect(css).toMatch(/@media \(orientation: landscape\)[\s\S]*?\.map-timer-chip\s*\{[^}]*position:\s*fixed/s);
     expect(map).toContain('map-timer-chip');
+  });
+
+  it('anchors portrait map controls above the complete safe-area-aware centered-Ping footprint', () => {
+    const css = read('index.css');
+    const portraitControls = ruleBetween(
+      css,
+      '@media (max-width: 767px)',
+      '.mobile-primary-nav-ping',
+      '\\.mobile-map-controls \\.map-secondary-controls',
+    );
+
+    expect(portraitControls).toMatch(/position:\s*fixed/);
+    expect(portraitControls).toMatch(/right:\s*max\(16px,\s*env\(safe-area-inset-right,\s*0px\),\s*calc\(50% - 195px\)\)/);
+    expect(portraitControls).toMatch(/bottom:\s*calc\(var\(--mobile-primary-nav-space\) \+ 16px\)/);
+    expect(portraitControls).toMatch(/width:\s*auto/);
+    expect(portraitControls).toMatch(/margin:\s*0/);
+    expect(portraitControls).toMatch(/flex-direction:\s*column/);
+    expect(portraitControls).toMatch(/gap:\s*10px/);
   });
 
   it('keeps the center Ping core stationary while suppressing its idle halo for reduced motion', () => {

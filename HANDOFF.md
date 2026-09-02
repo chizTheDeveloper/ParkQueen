@@ -1,5 +1,15 @@
 # ParQueen Engineering Handoff
 
+## Centered-Ping portrait control clearance hotfix — 2026-09-02
+
+- Branch: `fix/centered-ping-control-clearance`; base: `5671d426bb71f632cfc87c9208965205b66198d4`.
+- Scope is limited to viewport-anchoring the portrait Car/Locate utility stack above the existing safe-area-aware centered-Ping footprint. No centered-Ping, dock, desktop, backend, notification, credential, legal, dependency, Squarespace, or Parsona behavior changed.
+- RED reproduced the deployed defect: the portrait rule lacked `position: fixed` and did not derive its bottom edge from `--mobile-primary-nav-space`.
+- GREEN uses `bottom: calc(var(--mobile-primary-nav-space) + 16px)` with safe-area-aware right alignment and a specificity-safe selector; the landscape override uses the same specificity and retains its existing `+ 10px` compact reservation.
+- Temporary rendered harness evidence (removed before commit): portrait Locate-to-dock clearance 26px at 320x568, 375x667, and 375x812; Car/Locate gap 10px; equal sizes and horizontal centers; zero dock or expanded-halo overlap. Landscape 568x320 retains 16px clearance with 44px controls. No ancestor established an unintended fixed-position containing block.
+- Verification: focused shell/navigation/accessibility 4 files / 33 tests; full client 107 files / 1,579 tests; Firestore Rules 286; TypeScript clean; no-upload build 2,060 modules; zero final `.map`, `sourceMappingURL`, Sentry-token-name, or private-key-marker files; current-tree Gitleaks clean.
+- Merge and deployment were not authorized and were not performed. Independent exact-head review and protected PR creation remain the next gates.
+
 ## Email-OTP security hardening — 2026-08-03
 
 - Branch: `codex/fix-generate-email-otp-secure-rng`, created from production `main` at `182e0e432029b57800301d454952b64251b5bbc1`; this milestone began at `da1e018c7c941d05e0cdb88d9f05c806350480d9`.
