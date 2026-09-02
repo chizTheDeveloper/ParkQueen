@@ -1507,6 +1507,22 @@ export const MapView: React.FC<MapViewProps> = ({
         }
     };
 
+    const handlePrimaryMapAction = () => {
+        const myPing = spotData.activeSpots.find(s => s.finderId === user?.id && s.id !== savedSpot?.linkedPingId);
+        if (savedSpot) {
+            if (mapRef.current) {
+                mapRef.current.flyTo({ center: [savedSpot.lng, savedSpot.lat], zoom: 17, duration: 800 });
+            }
+            setTimeout(() => setShowSessionSheet(true), 600);
+        } else if (myPing) {
+            setSelectedItem(myPing);
+            setSelectedItemManageMode(myPing.status !== 'interested');
+        } else {
+            setSelectedItem(null);
+            setSpotModalOpen(true);
+        }
+    };
+
     const mapPrimaryNavigationVisible = shouldShowMapPrimaryNavigation({
         enabled: showPrimaryNavigation,
         spotModalOpen: isSpotModalOpen,
@@ -2420,7 +2436,7 @@ export const MapView: React.FC<MapViewProps> = ({
                 </div>
             )}
 
-            <div className="sp-overlay flex flex-col justify-between p-3 pointer-events-none">
+            <div className="sp-overlay flex flex-col justify-between p-0 md:p-3 pointer-events-none">
                 <HeaderBar
                     user={user}
                     setView={setView}
@@ -2440,13 +2456,13 @@ export const MapView: React.FC<MapViewProps> = ({
                 />
 
                 {!search.searchOpen && (
-                    <div className="map-status-row w-full max-w-[380px] mx-auto pointer-events-auto">
+                    <div className="map-status-row w-full max-w-none md:max-w-[380px] mx-auto pointer-events-auto">
                         {spotCount > 0 ? (
                             <div className="flex items-center gap-1.5 flex-wrap">
                                 <button
                                     onClick={handleNearbyPillClick}
                                     aria-label={spotCount === 1 ? t('map.view_nearby_spot') : t('map.view_nearby_spots')}
-                                    className="map-status-chip is-available inline-flex items-center gap-2 text-[11px] font-semibold text-emerald-400 cursor-pointer active:scale-95 active:opacity-80 transition-transform"
+                                    className="map-status-chip is-available inline-flex items-center gap-2.5 text-[12px] font-medium text-emerald-400 cursor-pointer active:scale-95 active:opacity-80 transition-transform"
                                 >
                                     <div className="map-status-dot bg-emerald-400 animate-pulse motion-reduce:animate-none shrink-0" />
                                     {spotCount === 1 ? t('map.free_spot_singular') : t('map.free_spots_plural', { count: spotCount })}
@@ -2454,7 +2470,7 @@ export const MapView: React.FC<MapViewProps> = ({
                                 </button>
                             </div>
                         ) : mapReady && !spotData.activeSpots.find(s => s.finderId === user?.id) && (
-                            <div className="map-status-chip is-empty inline-flex items-center gap-2 text-[11px] font-semibold text-[var(--color-text-secondary)]">
+                            <div className="map-status-chip is-empty inline-flex items-center gap-2.5 text-[12px] font-medium text-[var(--color-text-secondary)]">
                                 <div className="map-status-dot bg-rose-500/80 shrink-0" />
                                 {t('map.no_spots_nearby')}
                             </div>
@@ -2468,10 +2484,10 @@ export const MapView: React.FC<MapViewProps> = ({
                 )}
 
 
-                <div className="mobile-map-controls w-full flex flex-col gap-2 pointer-events-auto mt-auto pb-16 px-4">
+                <div className="mobile-map-controls w-full flex flex-col gap-3 pointer-events-auto mt-auto pb-0 px-0 md:pb-16 md:px-4">
 
                     {/* Car (toggle) + Locate stacked vertically on the right */}
-                    <div className="map-secondary-controls flex flex-col items-end gap-2.5 max-w-[380px] mx-auto w-full mb-2">
+                    <div className="map-secondary-controls flex flex-col items-end gap-3 max-w-none md:max-w-[380px] mx-auto w-full mb-3">
                         {userLocation && (
                             <button
                                 data-tour="my-car"
@@ -2487,7 +2503,7 @@ export const MapView: React.FC<MapViewProps> = ({
                                         : ''
                                 }`}
                             >
-                                <Car size={17} className={savedSpot ? 'text-white' : 'text-[#1e75ff]'} />
+                                <Car size={21} className={savedSpot ? 'text-white' : 'text-[#1e75ff]'} />
                             </button>
                         )}
                         <button
@@ -2495,7 +2511,7 @@ export const MapView: React.FC<MapViewProps> = ({
                             className="map-control-button flex items-center justify-center transition-all active:scale-90"
                             title="Locate Me"
                         >
-                            <Locate size={18} className="text-[#1e75ff]" />
+                            <Locate size={22} className="text-[#1e75ff]" />
                         </button>
                     </div>
 
@@ -2521,23 +2537,9 @@ export const MapView: React.FC<MapViewProps> = ({
                         return (
                             <button
                                 data-tour="share-spot"
-                                onClick={() => {
-                                    if (isMyCarMode) {
-                                        if (mapRef.current) {
-                                            mapRef.current.flyTo({ center: [savedSpot.lng, savedSpot.lat], zoom: 17, duration: 800 });
-                                        }
-                                        setTimeout(() => setShowSessionSheet(true), 600);
-                                    } else if (hasActivePing) {
-                                        setSelectedItem(myPing);
-                                        // Show claimer view when claimed — owner cannot edit a claimed spot
-                                        setSelectedItemManageMode(myPing?.status !== 'interested');
-                                    } else {
-                                        setSelectedItem(null);
-                                        setSpotModalOpen(true);
-                                    }
-                                }}
+                                onClick={handlePrimaryMapAction}
                                 disabled={!user}
-                                className={`map-primary-cta${isMyCarMode ? ' is-car-mode' : ''} relative mx-auto active:scale-[0.98] text-white disabled:opacity-50 transition-transform duration-200`}
+                                className={`map-primary-cta${isMyCarMode ? ' is-car-mode' : ''} hidden md:inline-flex relative mx-auto active:scale-[0.98] text-white disabled:opacity-50 transition-transform duration-200`}
                             >
                                 {isMyCarMode ? (
                                     <div className="flex items-center justify-center gap-2.5 w-full px-8">
@@ -2559,7 +2561,7 @@ export const MapView: React.FC<MapViewProps> = ({
                                 ) : (
                                     <>
                                         <span className="map-primary-cta-icon" aria-hidden="true">
-                                            <MapPin size={21} strokeWidth={2.25} />
+                                            <MapPin size={26} strokeWidth={2.15} />
                                         </span>
                                         <span className="map-primary-cta-label whitespace-nowrap">
                                             {hasActivePing ? t('common.my_ping') : t('common.ping_your_spot')}
@@ -2655,6 +2657,8 @@ export const MapView: React.FC<MapViewProps> = ({
                     setView={setView}
                     unreadMessagesCount={unreadMessagesCount}
                     pendingUpdatesCount={spotData.pendingUpdatesCount}
+                    onPing={handlePrimaryMapAction}
+                    pingDisabled={!user}
                 />
             )}
         </div>

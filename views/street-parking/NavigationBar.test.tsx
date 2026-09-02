@@ -17,12 +17,14 @@ vi.hoisted(() => {
 describe('mobile primary navigation', () => {
   beforeEach(() => localStorage.clear());
 
-  it('keeps the four approved destinations reachable in their approved order', () => {
+  it('keeps four destinations around the center Ping action in the approved order', () => {
     const setView = vi.fn();
+    const onPing = vi.fn();
     const renderer = TestRenderer.create(
       <NavigationBar
         currentView={AppView.MAP}
         setView={setView}
+        onPing={onPing}
         unreadMessagesCount={2}
         pendingUpdatesCount={3}
       />,
@@ -33,18 +35,23 @@ describe('mobile primary navigation', () => {
     expect(buttons.map(button => button.props['aria-label'])).toEqual([
       'Map',
       'Nearby Activity, 3 new',
+      'Ping Your Spot',
       'Messages, 2 unread',
       'Profile',
     ]);
 
-    const expectedViews = [
+    act(() => buttons[0].props.onClick());
+    act(() => buttons[1].props.onClick());
+    act(() => buttons[2].props.onClick());
+    act(() => buttons[3].props.onClick());
+    act(() => buttons[4].props.onClick());
+    expect(onPing).toHaveBeenCalledOnce();
+    expect(setView.mock.calls.map(([view]) => view)).toEqual([
       AppView.MAP,
       AppView.NOTIFICATIONS,
       AppView.MESSAGES,
       AppView.PROFILE,
-    ];
-    buttons.forEach((button, index) => act(() => button.props.onClick()));
-    expect(setView.mock.calls.map(([view]) => view)).toEqual(expectedViews);
+    ]);
   });
 
   it('exposes one clear current destination and preserves notification badges', () => {
@@ -63,6 +70,19 @@ describe('mobile primary navigation', () => {
       .toEqual(['Messages, 2 unread']);
     expect(renderer.root.findByProps({ 'data-nav-badge': 'activity' }).children).toEqual(['3']);
     expect(renderer.root.findByProps({ 'data-nav-badge': 'messages' }).children).toEqual(['2']);
+    expect(renderer.root.findByProps({ 'aria-label': 'Ping Your Spot' }).props['aria-current']).toBeUndefined();
+  });
+
+  it('uses Ping as an action and safely returns to Map when no map action is supplied', () => {
+    const setView = vi.fn();
+    const renderer = TestRenderer.create(
+      <NavigationBar currentView={AppView.PROFILE} setView={setView} />,
+    );
+
+    const ping = renderer.root.findByProps({ 'aria-label': 'Ping Your Spot' });
+    expect(ping.props['aria-current']).toBeUndefined();
+    act(() => ping.props.onClick());
+    expect(setView).toHaveBeenCalledWith(AppView.MAP);
   });
 
   it('announces singular counts and caps large visual/accessibility counts consistently', () => {

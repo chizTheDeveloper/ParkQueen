@@ -8,7 +8,7 @@ const read = (file: string) => fs.readFileSync(path.join(root, file), 'utf8');
 describe('mobile shell layout contract', () => {
   it('reserves the complete safe-area-aware navigation footprint for primary content and map controls', () => {
     const css = read('index.css');
-    expect(css).toContain('--mobile-primary-nav-space: calc(84px + env(safe-area-inset-bottom, 0px))');
+    expect(css).toContain('--mobile-primary-nav-space: calc(104px + env(safe-area-inset-bottom, 0px))');
     expect(css).toMatch(/\.mobile-primary-screen\s*\{[^}]*padding-bottom:\s*var\(--mobile-primary-nav-space\)/s);
     expect(css).toMatch(/\.mobile-map-controls\s*\{[^}]*padding-bottom:\s*var\(--mobile-primary-nav-space\)/s);
     expect(css).toContain('env(safe-area-inset-top, 0px)');
@@ -17,7 +17,7 @@ describe('mobile shell layout contract', () => {
   it('keeps mobile targets large and keyboard focus visible while desktop retains its header controls', () => {
     const css = read('index.css');
     const header = read('views/street-parking/HeaderBar.tsx');
-    expect(css).toMatch(/\.mobile-primary-nav-item\s*\{[^}]*min-height:\s*54px/s);
+    expect(css).toMatch(/\.mobile-primary-nav-item\s*\{[^}]*min-height:\s*70px/s);
     expect(css).toContain('.mobile-primary-nav-item:focus-visible');
     expect(header).toContain('hidden md:inline-flex');
   });
@@ -52,7 +52,7 @@ describe('mobile shell layout contract', () => {
     expect(css).toContain('--mobile-shell-surface:');
     expect(css).toContain('--mobile-shell-border:');
     expect(css).toContain('--mobile-shell-accent:');
-    expect(css).toContain('--mobile-shell-focus: #1763d5');
+    expect(css).toContain('--mobile-shell-focus: #82bdff');
     expect(css).toMatch(/\.map-search-shell,[^}]*backdrop-filter:\s*blur\(/s);
     expect(css).toMatch(/\.map-ai-action\s*\{[^}]*min-height:\s*44px/s);
     expect(css).toMatch(/\.map-ai-action:focus-visible,[^}]*outline:\s*2px solid var\(--mobile-shell-focus\)/s);
@@ -69,14 +69,23 @@ describe('mobile shell layout contract', () => {
     expect(map).toContain('map-primary-cta');
   });
 
-  it('anchors the primary map action clear of the reserved dock in narrow landscape', () => {
+  it('keeps the car and Locate controls in one aligned vertical utility stack at every mobile viewport', () => {
     const css = read('index.css');
     const map = read('views/StreetParkingView.tsx');
+    expect(map).toContain('map-secondary-controls flex flex-col items-end');
     expect(css).toMatch(/@media \(orientation: landscape\) and \(max-height: 430px\)/);
-    expect(css).toMatch(/@media \(orientation: landscape\)[\s\S]*?\.map-primary-cta\s*\{[^}]*position:\s*fixed[^}]*bottom:\s*calc\(var\(--mobile-primary-nav-space\) \+ 10px\)/s);
-    expect(css).toMatch(/@media \(orientation: landscape\)[\s\S]*?\.map-secondary-controls\s*\{[^}]*position:\s*fixed/s);
+    expect(css).toMatch(/@media \(orientation: landscape\)[\s\S]*?\.map-secondary-controls\s*\{[^}]*position:\s*fixed[^}]*flex-direction:\s*column[^}]*gap:\s*10px/s);
+    expect(css).toMatch(/\.map-control-button\s*\{[^}]*width:\s*50px[^}]*height:\s*50px/s);
     expect(css).toMatch(/@media \(orientation: landscape\)[\s\S]*?\.map-timer-chip\s*\{[^}]*position:\s*fixed/s);
     expect(map).toContain('map-timer-chip');
+  });
+
+  it('keeps the center Ping core stationary while suppressing its idle halo for reduced motion', () => {
+    const css = read('index.css');
+    expect(css).toMatch(/\.mobile-primary-nav-ping-orbit::before\s*\{[^}]*animation:\s*mobile-primary-nav-ping-pulse 2\.8s/s);
+    expect(css).toMatch(/@keyframes mobile-primary-nav-ping-pulse\s*\{[\s\S]*transform:\s*scale\(1\.28\)[\s\S]*opacity:\s*0/s);
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*\.mobile-primary-nav-ping-orbit::before\s*\{[^}]*animation:\s*none[^}]*opacity:\s*0/s);
+    expect(css).not.toMatch(/\.mobile-primary-nav-ping-core\s*\{[^}]*animation:/s);
   });
 
   it('restores the pre-polish map-shell geometry at the desktop breakpoint', () => {
