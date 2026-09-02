@@ -78,6 +78,51 @@ describe('mobile shell layout contract', () => {
     expect(map).toContain('map-primary-cta');
   });
 
+  it('uses one slimmer portrait header grid while retaining touch and responsive geometry', () => {
+    const css = read('index.css');
+
+    expect(css).toContain('--mobile-map-header-width: min(86vw, 372px)');
+    expect(css).toMatch(/\.map-search-shell\s*\{[^}]*width:\s*var\(--mobile-map-header-width\)[^}]*height:\s*54px/s);
+    expect(css).toMatch(/\.map-status-row\s*\{[^}]*width:\s*var\(--mobile-map-header-width\)/s);
+    expect(css).toMatch(/\.map-ai-action\s*\{[^}]*height:\s*44px[^}]*min-height:\s*44px/s);
+    expect(css).toMatch(/@media \(orientation: landscape\)[\s\S]*?\.map-search-shell\s*\{[^}]*height:\s*52px/s);
+    expect(css).toMatch(/@media \(orientation: landscape\)[\s\S]*?\.map-ai-action\s*\{[^}]*height:\s*44px[^}]*min-height:\s*44px/s);
+    expect(css).toMatch(/@media \(min-width: 768px\)[\s\S]*?\.map-search-shell\s*\{[^}]*height:\s*50px/s);
+  });
+
+  it('provides intentional light and dark mobile shell palettes with theme-aware map visibility', () => {
+    const css = read('index.css');
+
+    for (const token of [
+      '--mobile-shell-surface-strong:',
+      '--mobile-shell-text:',
+      '--mobile-shell-text-muted:',
+      '--mobile-map-overlay:',
+      '--mobile-map-edge:',
+      '--mobile-ping-cradle:',
+    ]) {
+      expect(ruleBetween(css, ':root {', '.dark {', ':root')).toContain(token);
+      expect(ruleBetween(css, '.dark {', 'html, body, #root', '\\.dark')).toContain(token);
+    }
+
+    expect(css).toMatch(/\.map-search-icon\s*\{[^}]*color:\s*var\(--mobile-shell-text-muted\)/s);
+    expect(css).toMatch(/\.map-search-input\s*\{[^}]*color:\s*var\(--mobile-shell-text\)/s);
+    expect(css).toMatch(/\.map-status-chip\s*\{[^}]*color:\s*var\(--mobile-shell-text-muted\)/s);
+    expect(css).toMatch(/\.mobile-primary-nav-surface\s*\{[^}]*color:\s*var\(--mobile-shell-text-muted\)/s);
+    expect(css).toMatch(/@media \(max-width: 767px\)[\s\S]*?\.map-blue-tint-overlay\s*\{[^}]*background:\s*var\(--mobile-map-overlay\)/s);
+    expect(css).toMatch(/@media \(max-width: 767px\)[\s\S]*?\.map-blue-tint-soft\s*\{[^}]*background:\s*var\(--mobile-map-edge\)/s);
+  });
+
+  it('keeps the centered Ping geometry while using the lighter theme-aware cradle', () => {
+    const css = read('index.css');
+    const orbit = css.match(/\.mobile-primary-nav-ping-orbit\s*\{([^}]*)\}/s)?.[1] ?? '';
+
+    expect(orbit).toMatch(/width:\s*72px/);
+    expect(orbit).toMatch(/height:\s*72px/);
+    expect(orbit).toMatch(/background:\s*var\(--mobile-ping-cradle\)/);
+    expect(orbit).toMatch(/border:\s*1px solid var\(--mobile-ping-cradle-border\)/);
+  });
+
   it('keeps the car and Locate controls in one aligned vertical utility stack at every mobile viewport', () => {
     const css = read('index.css');
     const map = read('views/StreetParkingView.tsx');
