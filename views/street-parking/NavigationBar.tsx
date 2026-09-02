@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bell, Map, MessageSquare, User } from 'lucide-react';
+import { Bell, Map, MapPin, MessageSquare, User } from 'lucide-react';
 import { t, useLang } from '../../i18n';
 import { AppView } from '../../types';
 
@@ -8,6 +8,8 @@ interface NavigationBarProps {
     setView: (view: AppView) => void;
     unreadMessagesCount?: number;
     pendingUpdatesCount?: number;
+    onPing?: () => void;
+    pingDisabled?: boolean;
 }
 
 const badgeLabel = (count: number) => count > 99 ? '99+' : String(count);
@@ -17,6 +19,8 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({
     setView,
     unreadMessagesCount = 0,
     pendingUpdatesCount = 0,
+    onPing,
+    pingDisabled = false,
 }) => {
     useLang();
 
@@ -63,33 +67,51 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({
         },
     ] as const;
 
+    const renderItem = ({ view, label, visualLabel, Icon, badge, badgeId, tour }: (typeof items)[number]) => {
+        const active = currentView === view;
+        return (
+            <button
+                key={view}
+                type="button"
+                data-tour={tour}
+                aria-label={label}
+                aria-current={active ? 'page' : undefined}
+                onClick={() => navigate(view)}
+                className={`mobile-primary-nav-item${active ? ' is-active' : ''}`}
+            >
+                <span className="mobile-primary-nav-icon-wrap" aria-hidden="true">
+                    <Icon size={20} strokeWidth={active ? 2.4 : 2} />
+                    {!!badge && badge > 0 && badgeId && (
+                        <span data-nav-badge={badgeId} className="mobile-primary-nav-badge">
+                            {badgeLabel(badge)}
+                        </span>
+                    )}
+                </span>
+                <span className="mobile-primary-nav-label">{visualLabel}</span>
+            </button>
+        );
+    };
+
     return (
         <nav className="mobile-primary-nav md:hidden" aria-label={t('nav.primary')}>
             <div className="mobile-primary-nav-surface">
-                {items.map(({ view, label, visualLabel, Icon, badge, badgeId, tour }) => {
-                    const active = currentView === view;
-                    return (
-                        <button
-                            key={view}
-                            type="button"
-                            data-tour={tour}
-                            aria-label={label}
-                            aria-current={active ? 'page' : undefined}
-                            onClick={() => navigate(view)}
-                            className={`mobile-primary-nav-item${active ? ' is-active' : ''}`}
-                        >
-                            <span className="mobile-primary-nav-icon-wrap" aria-hidden="true">
-                                <Icon size={20} strokeWidth={active ? 2.4 : 2} />
-                                {!!badge && badge > 0 && badgeId && (
-                                    <span data-nav-badge={badgeId} className="mobile-primary-nav-badge">
-                                        {badgeLabel(badge)}
-                                    </span>
-                                )}
-                            </span>
-                            <span className="mobile-primary-nav-label">{visualLabel}</span>
-                        </button>
-                    );
-                })}
+                {items.slice(0, 2).map(renderItem)}
+                <button
+                    type="button"
+                    data-tour="share-spot"
+                    aria-label={t('common.ping_your_spot')}
+                    onClick={onPing ?? (() => navigate(AppView.MAP))}
+                    disabled={pingDisabled}
+                    className="mobile-primary-nav-ping"
+                >
+                    <span className="mobile-primary-nav-ping-orbit" aria-hidden="true">
+                        <span className="mobile-primary-nav-ping-core">
+                            <MapPin size={28} strokeWidth={2.15} />
+                        </span>
+                    </span>
+                    <span className="mobile-primary-nav-ping-label">Ping</span>
+                </button>
+                {items.slice(2).map(renderItem)}
             </div>
         </nav>
     );
