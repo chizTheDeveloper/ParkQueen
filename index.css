@@ -1230,3 +1230,16 @@ html, body, #root {
   opacity: 0;
 }
 .map-pin-pulse-2 { animation-delay: 0.7s; }
+
+/* Public legal documents (/privacy, /terms) render outside the map shell,
+   directly into #root. The global body overflow-hidden that the full-screen
+   map depends on leaves them with no vertical scroll owner, so long documents
+   cannot be read to the end on iOS/PWA. This is a build-time class rather than
+   a Tailwind utility so scroll ownership never depends on the CDN loading. */
+.public-legal-scroll {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
