@@ -2456,13 +2456,13 @@ export const MapView: React.FC<MapViewProps> = ({
                 />
 
                 {!search.searchOpen && (
-                    <div className="map-status-row w-full max-w-none md:max-w-[380px] mx-auto pointer-events-auto">
+                    <div className="map-status-row md:w-full max-w-none md:max-w-[380px] mx-auto pointer-events-auto">
                         {spotCount > 0 ? (
                             <div className="flex items-center gap-1.5 flex-wrap">
                                 <button
                                     onClick={handleNearbyPillClick}
                                     aria-label={spotCount === 1 ? t('map.view_nearby_spot') : t('map.view_nearby_spots')}
-                                    className="map-status-chip is-available inline-flex items-center gap-2.5 text-[12px] font-medium text-emerald-400 cursor-pointer active:scale-95 active:opacity-80 transition-transform"
+                                    className="map-status-chip is-available inline-flex items-center gap-2.5 text-[12px] font-medium cursor-pointer active:scale-95 active:opacity-80 transition-transform"
                                 >
                                     <div className="map-status-dot bg-emerald-400 animate-pulse motion-reduce:animate-none shrink-0" />
                                     {spotCount === 1 ? t('map.free_spot_singular') : t('map.free_spots_plural', { count: spotCount })}
@@ -2470,7 +2470,7 @@ export const MapView: React.FC<MapViewProps> = ({
                                 </button>
                             </div>
                         ) : mapReady && !spotData.activeSpots.find(s => s.finderId === user?.id) && (
-                            <div className="map-status-chip is-empty inline-flex items-center gap-2.5 text-[12px] font-medium text-[var(--color-text-secondary)]">
+                            <div className="map-status-chip is-empty inline-flex items-center gap-2.5 text-[12px] font-medium">
                                 <div className="map-status-dot bg-rose-500/80 shrink-0" />
                                 {t('map.no_spots_nearby')}
                             </div>

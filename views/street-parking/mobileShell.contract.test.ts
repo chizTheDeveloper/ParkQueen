@@ -113,6 +113,36 @@ describe('mobile shell layout contract', () => {
     expect(css).toMatch(/@media \(max-width: 767px\)[\s\S]*?\.map-blue-tint-soft\s*\{[^}]*background:\s*var\(--mobile-map-edge\)/s);
   });
 
+  it('keeps production Tailwind utilities from overriding semantic shell geometry and foregrounds', () => {
+    const header = read('views/street-parking/HeaderBar.tsx');
+    const map = read('views/StreetParkingView.tsx');
+    const classNames = (source: string, semanticClass: string) => {
+      const match = source.match(new RegExp(`className="([^"]*\\b${semanticClass}\\b[^"]*)"`));
+      expect(match).not.toBeNull();
+      return match?.[1] ?? '';
+    };
+
+    const searchShell = classNames(header, 'map-search-shell');
+    expect(searchShell).not.toContain('w-full');
+    expect(searchShell).not.toMatch(/(?:^|\s)(?:md:)?h-\[/);
+
+    const searchIcon = classNames(header, 'map-search-icon');
+    expect(searchIcon).not.toContain('text-[var(--color-text-secondary)]');
+
+    const searchInput = classNames(header, 'map-search-input');
+    expect(searchInput).not.toContain('text-[var(--color-text)]');
+    expect(searchInput).not.toContain('placeholder-[var(--color-text-secondary)]');
+
+    const statusRow = classNames(map, 'map-status-row');
+    expect(statusRow).not.toMatch(/(?:^|\s)w-full(?:\s|$)/);
+    expect(statusRow).toContain('md:w-full');
+
+    for (const statusClass of ['is-available', 'is-empty']) {
+      const statusChip = classNames(map, `map-status-chip ${statusClass}`);
+      expect(statusChip).not.toMatch(/(?:^|\s)text-(?:emerald-400|\[var\(--color-text-secondary\)\])(?:\s|$)/);
+    }
+  });
+
   it('keeps the centered Ping geometry while using the lighter theme-aware cradle', () => {
     const css = read('index.css');
     const orbit = css.match(/\.mobile-primary-nav-ping-orbit\s*\{([^}]*)\}/s)?.[1] ?? '';
