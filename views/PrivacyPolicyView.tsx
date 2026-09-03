@@ -86,7 +86,7 @@ export const PrivacyPolicyView = ({ onBack }: { onBack: () => void }) => (
 
       <section aria-labelledby="privacy-contact">
         <h2 id="privacy-contact" className="text-base font-bold text-[var(--color-text)] mb-2">9. Contact</h2>
-        <p>Privacy questions or requests can be sent to <a href="mailto:privacy@parkqueen.app" className="text-[#38bdf8] hover:underline">privacy@parkqueen.app</a>.</p>
+        <p>Privacy questions or requests can be sent to <a href="mailto:privacy@parqueen.app" className="text-[#38bdf8] hover:underline">privacy@parqueen.app</a>.</p>
       </section>
     </article>
   </div>

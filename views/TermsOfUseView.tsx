@@ -83,7 +83,7 @@ export const TermsOfUseView = ({ onBack }: { onBack: () => void }) => (
 
       <section aria-labelledby="terms-contact">
         <h2 id="terms-contact" className="text-base font-bold text-[var(--color-text)] mb-2">12. Contact</h2>
-        <p>Questions about these Terms can be sent to <a href="mailto:support@parkqueen.app" className="text-[#38bdf8] hover:underline">support@parkqueen.app</a>.</p>
+        <p>Questions about these Terms can be sent to <a href="mailto:support@parqueen.app" className="text-[#38bdf8] hover:underline">support@parqueen.app</a>.</p>
       </section>
     </article>
   </div>
