@@ -78,7 +78,7 @@ export const TermsOfUseView = ({ onBack }: { onBack: () => void }) => (
 
       <section aria-labelledby="terms-law">
         <h2 id="terms-law" className="text-base font-bold text-[var(--color-text)] mb-2">11. Governing Law</h2>
-        <p>These Terms are governed by the laws of the Province of Ontario and the federal laws of Canada.</p>
+        <p>These Terms are governed by the laws of the State of New York and the federal laws of the United States.</p>
       </section>
 
       <section aria-labelledby="terms-contact">
