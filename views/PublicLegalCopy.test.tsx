@@ -34,6 +34,16 @@ describe('public legal copy', () => {
     expect(privacy).toContain('nearby parking alerts');
   });
 
+  it('names New York and the United States as the governing jurisdiction', () => {
+    const terms = renderedText(<TermsOfUseView onBack={vi.fn()} />);
+
+    expect(terms).toContain('State of New York');
+    expect(terms).toContain('United States');
+    expect(terms).not.toContain('Ontario');
+    expect(terms).not.toContain('Canada');
+    expect(terms).not.toContain('Province');
+  });
+
   it('uses the public-facing ParQueen brand consistently', () => {
     const legalCopy = [
       renderedText(<PrivacyPolicyView onBack={vi.fn()} />),
