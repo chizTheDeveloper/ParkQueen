@@ -67,13 +67,13 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
     useLang();
     return (
         <header style={{ paddingTop: 'max(env(safe-area-inset-top), 16px)' }} className="map-mobile-header w-full flex flex-col gap-2.5 pointer-events-auto">
-            <div data-tour="search" className="map-search-shell w-full max-w-none md:max-w-[380px] mx-auto h-[60px] md:h-[50px] px-3 md:px-3.5 flex items-center justify-between transition-all duration-300">
+            <div data-tour="search" className="map-search-shell max-w-none md:max-w-[380px] mx-auto px-3 md:px-3.5 flex items-center justify-between transition-all duration-300">
                 <span data-tour="profile" className="hidden md:inline-flex shrink-0">
                     <UserAvatar user={user} onClick={() => setView(AppView.PROFILE)} />
                 </span>
 
                 <div className="map-search-content flex-1 min-w-0 mx-2.5 flex items-center gap-3.5">
-                    <Search size={20} strokeWidth={2} className="map-search-icon text-[var(--color-text-secondary)]" />
+                    <Search size={20} strokeWidth={2} className="map-search-icon" />
                     <input
                         ref={inputRef}
                         type="text"
@@ -81,7 +81,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                         aria-expanded={searchOpen && (loading || results.length > 0)}
                         aria-haspopup="listbox"
                         placeholder={t('common.search_placeholder')}
-                        className="map-search-input bg-transparent border-none outline-none text-[var(--color-text)] text-[15px] md:text-[14px] w-full placeholder-[var(--color-text-secondary)] font-medium"
+                        className="map-search-input bg-transparent border-none outline-none text-[15px] md:text-[14px] w-full font-medium"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         onFocus={() => setSearchOpen(true)}
