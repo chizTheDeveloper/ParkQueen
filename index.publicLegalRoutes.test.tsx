@@ -67,6 +67,22 @@ describe('public legal route bootstrap', () => {
   });
 
   it.each([
+    ['/privacy', 'Privacy Policy'],
+    ['/terms', 'Terms of Use'],
+  ])('owns vertical scrolling for the legal document at %s', async (pathname, heading) => {
+    const renderer = await loadAt(pathname);
+    await vi.waitFor(() => expect(JSON.stringify(renderer.toJSON())).toContain(heading));
+
+    // The global body overflow-hidden leaves no viewport scroll owner, so the
+    // shared legal route must establish its own scroll container.
+    const tree = renderer.toJSON() as TestRenderer.ReactTestRendererJSON;
+    expect(tree.props.className).toContain('public-legal-scroll');
+    // The container is the only scroller once the viewport stops scrolling,
+    // so it must stay keyboard-focusable.
+    expect(tree.props.tabIndex).toBe(0);
+  });
+
+  it.each([
     ['/privacy-policy', '/privacy', 'Privacy Policy'],
     ['/terms-conditions', '/terms', 'Terms of Use'],
   ])('canonicalizes legacy path %s to %s and renders its document', async (legacyPath, canonicalPath, heading) => {

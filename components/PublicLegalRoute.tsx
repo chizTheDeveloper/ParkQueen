@@ -12,9 +12,14 @@ export const PublicLegalRoute = ({
   document: PublicLegalDocument;
   onExit: () => void;
 }) => (
-  <Suspense fallback={<LoadingScreen />}>
-    {document === 'privacy'
-      ? <PrivacyPolicyView onBack={onExit} />
-      : <TermsOfUseView onBack={onExit} />}
-  </Suspense>
+  // tabIndex makes the sole scroll owner keyboard-operable: this container
+  // removes the viewport's own scrollability, and Chrome will not route
+  // Page Down/Space to an unfocusable child scroller (WCAG 2.1.1).
+  <div className="public-legal-scroll" tabIndex={0}>
+    <Suspense fallback={<LoadingScreen />}>
+      {document === 'privacy'
+        ? <PrivacyPolicyView onBack={onExit} />
+        : <TermsOfUseView onBack={onExit} />}
+    </Suspense>
+  </div>
 );
