@@ -484,12 +484,15 @@ html, body, #root {
 .mobile-primary-nav-ping-mark {
   position: absolute;
   left: 50%;
-  top: -11px;
-  width: 66px;
+  top: -31px;
+  width: 85px;
   /* Preflight sets img { max-width: 100% }, which would otherwise clamp the
      mark to the core's width. The source PNG carries wide transparent side
-     margins, so the box is larger than the visible artwork: 66px renders the
-     mark 54px tall, with the crown 10px above the circle's top edge. */
+     margins (artwork is 88.8% of the box height, offset 4% from its top), so
+     the box is larger than the visible artwork: 85px renders the mark 62px
+     tall. The circle's top edge then crosses the artwork at ~45% of its
+     height — past the crown (which ends at 32%) and into the upper half of
+     the P loop (32-72%) — so both break out while the base stays anchored. */
   max-width: none;
   height: auto;
   transform: translateX(-50%);
