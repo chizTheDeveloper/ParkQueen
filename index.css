@@ -19,8 +19,8 @@
   --mobile-shell-accent: #4d94ff;
   --mobile-shell-accent-soft: rgba(42, 121, 255, 0.20);
   --mobile-shell-focus: #82bdff;
-  --mobile-map-overlay: rgba(7, 22, 42, 0.10);
-  --mobile-map-edge: radial-gradient(circle at 50% 48%, rgba(30, 117, 255, 0.01) 0%, rgba(8, 25, 47, 0.08) 74%, rgba(4, 16, 32, 0.16) 100%);
+  --mobile-map-overlay: rgba(7, 22, 42, 0.03);
+  --mobile-map-edge: radial-gradient(circle at 50% 48%, rgba(30, 117, 255, 0.005) 0%, rgba(8, 25, 47, 0.03) 74%, rgba(4, 16, 32, 0.075) 100%);
   --mobile-ping-cradle: rgba(17, 36, 59, 0.84);
   --mobile-ping-cradle-border: rgba(151, 201, 255, 0.32);
 }
@@ -849,15 +849,18 @@ html, body, #root {
 .map-blue-tint-color {
   position: absolute;
   inset: 0;
-  background: rgba(30, 117, 255, 0.04);
+  background: rgba(30, 117, 255, 0.015);
   pointer-events: none;
   z-index: 1;
+}
+.dark .map-blue-tint-color {
+  background: rgba(30, 117, 255, 0.04);
 }
 
 .map-blue-tint-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(10, 30, 60, 0.08);
+  background: rgba(10, 30, 60, 0.025);
   pointer-events: none;
   z-index: 1;
 }
@@ -868,10 +871,14 @@ html, body, #root {
 .map-blue-tint-soft {
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle at center, rgba(30, 117, 255, 0.03) 0%, rgba(5, 13, 28, 0.25) 100%);
+  background: radial-gradient(circle at center, rgba(30, 117, 255, 0.015) 0%, rgba(5, 13, 28, 0.10) 100%);
   pointer-events: none;
   z-index: 1;
 }
+.dark .map-blue-tint-soft {
+  background: radial-gradient(circle at center, rgba(30, 117, 255, 0.03) 0%, rgba(5, 13, 28, 0.25) 100%);
+}
+
 
 @media (max-width: 767px) {
   .map-blue-tint-overlay {

@@ -93,6 +93,8 @@ describe('existing Mapbox functionality preserved', () => {
   });
 
   it('map.on(load) still calls map.resize() for initial sizing', () => {
-    expect(spv).toContain("map.on('load', () => { map.resize(); })");
+    // Matched on intent, not formatting: the load handler also carries the
+    // light-mode label styling, so it is no longer a single line.
+    expect(spv).toMatch(/map\.on\('load',\s*\(\)\s*=>\s*\{[\s\S]{0,200}?map\.resize\(\);/);
   });
 });
