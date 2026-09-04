@@ -435,11 +435,11 @@ html, body, #root {
 .mobile-primary-nav-ping-orbit::after {
   content: '';
   position: absolute;
-  inset: -9px;
+  inset: -13px;
   z-index: -2;
   pointer-events: none;
   border-radius: inherit;
-  background: radial-gradient(circle, rgba(61, 149, 255, 0.48) 0%, rgba(61, 149, 255, 0.20) 55%, rgba(61, 149, 255, 0) 74%);
+  background: radial-gradient(circle at 50% 44%, rgba(74, 161, 255, 0.40) 0%, rgba(61, 149, 255, 0.16) 50%, rgba(61, 149, 255, 0) 73%);
   animation: mobile-primary-nav-ping-glow 2.8s ease-in-out infinite;
 }
 
@@ -484,29 +484,34 @@ html, body, #root {
 .mobile-primary-nav-ping-mark {
   position: absolute;
   left: 50%;
-  top: -11px;
-  width: 66px;
+  top: -20px;
+  width: 76px;
+  /* Preflight sets img { max-width: 100% }, which would clamp the mark to the
+     pedestal's width — the mark is deliberately wider so it floats in front. */
+  max-width: none;
   height: auto;
   transform: translateX(-50%);
   object-fit: contain;
-  filter: brightness(0) invert(1);
-  opacity: 0.97;
+  /* Brand colours, with a hairline white edge for separation against the
+     pedestal plus a soft blue bloom so the glow reads as coming off the mark. */
+  filter: drop-shadow(0 0 1.2px rgba(255, 255, 255, 0.75)) drop-shadow(0 4px 10px rgba(10, 60, 150, 0.55));
   pointer-events: none;
   user-select: none;
 }
 
+/* Pedestal, not container: a smaller recessed disc the brand mark stands in
+   front of, rather than a solid blue circle the logo is trapped inside. */
 .mobile-primary-nav-ping-core {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(196, 226, 255, 0.46);
+  position: absolute;
+  left: 50%;
+  bottom: 3px;
+  width: 44px;
+  height: 44px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(150, 200, 255, 0.28);
   border-radius: inherit;
-  background: linear-gradient(145deg, #3f9bff 0%, #1f72eb 56%, #1557c2 100%);
-  color: #fff;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.38), inset 0 -8px 14px rgba(5, 46, 119, 0.18), 0 8px 20px rgba(21, 104, 226, 0.30), 0 0 16px rgba(61, 149, 255, 0.12);
+  background: radial-gradient(circle at 50% 32%, rgba(38, 96, 186, 0.62), rgba(10, 38, 92, 0.72));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 6px 18px rgba(12, 60, 140, 0.40);
 }
 
 .mobile-primary-nav-ping-label {
