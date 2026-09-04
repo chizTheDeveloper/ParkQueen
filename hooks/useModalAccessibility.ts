@@ -80,7 +80,10 @@ function focusableWithin(container: HTMLElement | null): HTMLElement[] {
 function focusSafely(element: HTMLElement | null | undefined): boolean {
   if (!canFocus(element)) return false;
   try {
-    element.focus();
+    // preventScroll: focusing an element scrolls every scrollable ancestor to
+    // reveal it — including the overflow:hidden .sp-page map shell, which then
+    // visibly jumps the map up on open and back down on dismiss.
+    element.focus({ preventScroll: true });
     return document.activeElement === element;
   } catch {
     return false;
@@ -90,7 +93,7 @@ function focusSafely(element: HTMLElement | null | undefined): boolean {
 function focusInsideDialog(dialog: HTMLElement, preferred?: HTMLElement | null) {
   if (focusSafely(preferred) || focusSafely(focusableWithin(dialog)[0])) return;
   dialog.tabIndex = -1;
-  try { dialog.focus(); } catch { /* no focus target available */ }
+  try { dialog.focus({ preventScroll: true }); } catch { /* no focus target available */ }
 }
 
 function modalRootIsSuspended(modalRoot: HTMLElement | null): boolean {
@@ -158,7 +161,7 @@ export function useModalAccessibility({
       const focusable = focusableWithin(dialog);
       if (focusable.length === 0) {
         event.preventDefault();
-        try { dialog.focus(); } catch { /* no focus target available */ }
+        try { dialog.focus({ preventScroll: true }); } catch { /* no focus target available */ }
         return;
       }
       const first = focusable[0];
@@ -166,13 +169,13 @@ export function useModalAccessibility({
       const active = document.activeElement;
       if (!dialog.contains(active)) {
         event.preventDefault();
-        (event.shiftKey ? last : first).focus();
+        (event.shiftKey ? last : first).focus({ preventScroll: true });
       } else if (event.shiftKey && active === first) {
         event.preventDefault();
-        last.focus();
+        last.focus({ preventScroll: true });
       } else if (!event.shiftKey && active === last) {
         event.preventDefault();
-        first.focus();
+        first.focus({ preventScroll: true });
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -197,7 +200,7 @@ export function useModalAccessibility({
       if (persistentMain && persistentMain.isConnected !== false) {
         const priorTabIndex = persistentMain.getAttribute('tabindex');
         persistentMain.tabIndex = -1;
-        try { persistentMain.focus(); } catch { /* fail closed without throwing */ }
+        try { persistentMain.focus({ preventScroll: true }); } catch { /* fail closed without throwing */ }
         if (priorTabIndex === null) persistentMain.removeAttribute('tabindex');
         else persistentMain.setAttribute('tabindex', priorTabIndex);
       }
