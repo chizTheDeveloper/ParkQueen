@@ -2,7 +2,7 @@ import React from 'react';
 import { Bell, Map, MessageSquare, User } from 'lucide-react';
 import { t, useLang } from '../../i18n';
 import { AppView } from '../../types';
-import parqueenMark from '../../assets/Parqueen_Logo.png';
+import parqueenMark from '../../assets/Parqueen_Pin.png';
 
 interface NavigationBarProps {
     currentView: AppView;

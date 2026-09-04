@@ -484,18 +484,14 @@ html, body, #root {
 .mobile-primary-nav-ping-mark {
   position: absolute;
   left: 50%;
-  top: -31px;
-  width: 85px;
-  /* Preflight sets img { max-width: 100% }, which would otherwise clamp the
-     mark to the core's width. The source PNG carries wide transparent side
-     margins (artwork is 88.8% of the box height, offset 4% from its top), so
-     the box is larger than the visible artwork: 85px renders the mark 62px
-     tall. The circle's top edge then crosses the artwork at ~45% of its
-     height — past the crown (which ends at 32%) and into the upper half of
-     the P loop (32-72%) — so both break out while the base stays anchored. */
+  top: 50%;
+  /* Parqueen_Pin.png is the P + map-pin symbol cropped from the full logo
+     (crown and base shape removed), so it is tight to the artwork and can be
+     centred directly. Height-driven because the symbol is taller than wide. */
+  height: 34px;
+  width: auto;
   max-width: none;
-  height: auto;
-  transform: translateX(-50%);
+  transform: translate(-50%, -50%);
   object-fit: contain;
   filter: brightness(0) invert(1);
   opacity: 0.97;
