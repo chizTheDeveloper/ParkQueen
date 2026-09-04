@@ -846,7 +846,24 @@ export const MapView: React.FC<MapViewProps> = ({
             setSearchCenter(center);
             setMapReady(true);
 
-            map.on('load', () => { map.resize(); });
+            map.on('load', () => {
+                map.resize();
+                // The light basemap ships very pale label text (hsl(220,1%,49%)),
+                // which reads as washed out over the map. Darken it in light mode
+                // only; dark mode keeps the style's own colors untouched.
+                if (!isDark) {
+                    try {
+                        map.setPaintProperty('road-label-simple', 'text-color', '#42505f');
+                        map.setPaintProperty('road-label-simple', 'text-halo-color', '#ffffff');
+                        map.setPaintProperty('road-label-simple', 'text-halo-width', 1.2);
+                        ['settlement-subdivision-label', 'settlement-minor-label', 'poi-label']
+                            .forEach(id => map.setPaintProperty(id, 'text-color', '#55606e'));
+                    } catch {
+                        // Layer ids come from the hosted Mapbox style; if it changes,
+                        // keep the default labels rather than failing the map load.
+                    }
+                }
+            });
 
             // ResizeObserver keeps the Mapbox canvas in sync with the wrapper whenever
             // the viewport changes (mobile chrome show/hide, orientation change, etc.).
