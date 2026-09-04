@@ -435,11 +435,11 @@ html, body, #root {
 .mobile-primary-nav-ping-orbit::after {
   content: '';
   position: absolute;
-  inset: -7px;
+  inset: -9px;
   z-index: -2;
   pointer-events: none;
   border-radius: inherit;
-  background: radial-gradient(circle, rgba(61, 149, 255, 0.30) 0%, rgba(61, 149, 255, 0.10) 55%, rgba(61, 149, 255, 0) 72%);
+  background: radial-gradient(circle, rgba(61, 149, 255, 0.48) 0%, rgba(61, 149, 255, 0.20) 55%, rgba(61, 149, 255, 0) 74%);
   animation: mobile-primary-nav-ping-glow 2.8s ease-in-out infinite;
 }
 
@@ -482,8 +482,12 @@ html, body, #root {
    would read blue-on-blue against the core's gradient, so it is rendered as a
    white silhouette — same visual weight as the icon it replaces. */
 .mobile-primary-nav-ping-mark {
-  width: 40px;
-  height: 40px;
+  position: absolute;
+  left: 50%;
+  top: -11px;
+  width: 66px;
+  height: auto;
+  transform: translateX(-50%);
   object-fit: contain;
   filter: brightness(0) invert(1);
   opacity: 0.97;
@@ -492,6 +496,7 @@ html, body, #root {
 }
 
 .mobile-primary-nav-ping-core {
+  position: relative;
   width: 100%;
   height: 100%;
   display: flex;
