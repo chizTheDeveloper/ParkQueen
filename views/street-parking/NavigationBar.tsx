@@ -1,7 +1,8 @@
 import React from 'react';
-import { Bell, Map, MapPin, MessageSquare, User } from 'lucide-react';
+import { Bell, Map, MessageSquare, User } from 'lucide-react';
 import { t, useLang } from '../../i18n';
 import { AppView } from '../../types';
+import parqueenMark from '../../assets/Parqueen_Logo.png';
 
 interface NavigationBarProps {
     currentView: AppView;
@@ -106,7 +107,13 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({
                 >
                     <span className="mobile-primary-nav-ping-orbit" aria-hidden="true">
                         <span className="mobile-primary-nav-ping-core">
-                            <MapPin size={28} strokeWidth={2.15} />
+                            <img
+                                src={parqueenMark}
+                                alt=""
+                                aria-hidden="true"
+                                draggable={false}
+                                className="mobile-primary-nav-ping-mark"
+                            />
                         </span>
                     </span>
                     <span className="mobile-primary-nav-ping-label">Ping</span>

@@ -432,6 +432,22 @@ html, body, #root {
   box-shadow: inset 0 1px 0 var(--mobile-shell-highlight), 0 10px 22px rgba(0, 5, 17, 0.32);
 }
 
+.mobile-primary-nav-ping-orbit::after {
+  content: '';
+  position: absolute;
+  inset: -7px;
+  z-index: -2;
+  pointer-events: none;
+  border-radius: inherit;
+  background: radial-gradient(circle, rgba(61, 149, 255, 0.30) 0%, rgba(61, 149, 255, 0.10) 55%, rgba(61, 149, 255, 0) 72%);
+  animation: mobile-primary-nav-ping-glow 2.8s ease-in-out infinite;
+}
+
+@keyframes mobile-primary-nav-ping-glow {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+
 .mobile-primary-nav-ping-orbit::before {
   content: '';
   position: absolute;
@@ -460,6 +476,19 @@ html, body, #root {
     transform: scale(1.28);
     opacity: 0;
   }
+}
+
+/* Brand mark inside the Ping core. The logo is cyan on transparent, which
+   would read blue-on-blue against the core's gradient, so it is rendered as a
+   white silhouette — same visual weight as the icon it replaces. */
+.mobile-primary-nav-ping-mark {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  filter: brightness(0) invert(1);
+  opacity: 0.97;
+  pointer-events: none;
+  user-select: none;
 }
 
 .mobile-primary-nav-ping-core {
@@ -776,6 +805,11 @@ html, body, #root {
   .map-control-button,
   .map-primary-cta {
     transition: none;
+  }
+
+  .mobile-primary-nav-ping-orbit::after {
+    animation: none;
+    opacity: 0.7;
   }
 
   .mobile-primary-nav-ping-orbit::before {
