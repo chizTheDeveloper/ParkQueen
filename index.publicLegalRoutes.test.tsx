@@ -83,6 +83,22 @@ describe('public legal route bootstrap', () => {
   });
 
   it.each([
+    ['/privacy', 'Privacy Policy'],
+    ['/terms', 'Terms of Use'],
+  ])('returns to the marketing site when Back is pressed at %s', async (pathname, heading) => {
+    const renderer = await loadAt(pathname);
+    await vi.waitFor(() => expect(JSON.stringify(renderer.toJSON())).toContain(heading));
+
+    // Publicly opened legal pages have no app to go back to, so Back must
+    // leave for the marketing site rather than the app host root.
+    const back = renderer.root.findAllByType('button')[0];
+    await act(async () => back.props.onClick());
+
+    expect(window.location.assign).toHaveBeenCalledWith('https://parqueen.app');
+    expect(window.location.assign).not.toHaveBeenCalledWith('/');
+  });
+
+  it.each([
     ['/privacy-policy', '/privacy', 'Privacy Policy'],
     ['/terms-conditions', '/terms', 'Terms of Use'],
   ])('canonicalizes legacy path %s to %s and renders its document', async (legacyPath, canonicalPath, heading) => {

@@ -33,6 +33,11 @@ if (!rootElement) {
   throw new Error("Could not find root element to mount to");
 }
 
+// Publicly opened legal pages are reached from the marketing site, the app
+// stores and external links, so Back returns there rather than to the app host
+// root. In-app legal navigation is wired separately in App.tsx.
+const PUBLIC_LEGAL_EXIT_URL = 'https://parqueen.app';
+
 const root = ReactDOM.createRoot(rootElement);
 const publicLegalRoute = resolvePublicLegalRoute(window.location.pathname);
 if (publicLegalRoute && window.location.pathname !== publicLegalRoute.canonicalPath) {
@@ -45,7 +50,7 @@ if (publicLegalRoute && window.location.pathname !== publicLegalRoute.canonicalP
 root.render(
   <React.StrictMode>
     {publicLegalRoute
-      ? <PublicLegalRoute document={publicLegalRoute.document} onExit={() => window.location.assign('/')} />
+      ? <PublicLegalRoute document={publicLegalRoute.document} onExit={() => window.location.assign(PUBLIC_LEGAL_EXIT_URL)} />
       : <App />}
   </React.StrictMode>
 );
