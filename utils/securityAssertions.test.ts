@@ -20,9 +20,9 @@ describe('index.html security assertions', () => {
   it('does not load any unapproved external scripts', () => {
     const externalScripts = [...indexHtml.matchAll(/<script[^>]+src="(https?:\/\/[^"]+)"/g)]
       .map(m => m[1]);
-    const allowList = [
-      'https://cdn.tailwindcss.com',
-    ];
+    // Tailwind is compiled locally through PostCSS/Vite now, so index.html
+    // must load no third-party scripts at all.
+    const allowList: string[] = [];
     for (const src of externalScripts) {
       expect(allowList, `Unexpected external script: ${src}`).toContain(src);
     }
