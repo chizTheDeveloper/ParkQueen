@@ -1291,3 +1291,21 @@ html, body, #root {
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   TAILWIND MUST STAY LAST IN THIS FILE. DO NOT MOVE IT ABOVE THE RULES ABOVE.
+
+   The Tailwind Play CDN used to append its compiled <style> to document.head at
+   runtime, which put base + components + utilities AFTER the bundled stylesheet
+   this file becomes. Utilities therefore won every equal-specificity conflict
+   with the semantic classes above (.sp-overlay vs p-0/md:p-3, .map-status-row
+   vs md:w-full, and others). Emitting these directives here — at the bottom of
+   the last stylesheet in <head> — reproduces that exact cascade position.
+
+   Putting `@tailwind base` at the top of this file instead would flip every one
+   of those conflicts and silently change the layout. Guarded by
+   utils/tailwindCascade.test.ts.
+   ───────────────────────────────────────────────────────────────────────────── */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
