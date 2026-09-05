@@ -60,9 +60,13 @@ describe('PWA install boundary', () => {
     expect(cacheControl('/firebase-messaging-sw.js')).toBe('no-cache');
     expect(cacheControl('/manifest.webmanifest')).toBe('no-cache');
 
+    // Enforced now, not report-only. The service worker is served from this same
+    // '**' block, so its importScripts() of the gstatic Firebase compat SDK is
+    // governed by this policy's script-src — verified live under enforcement.
     const globalCsp = headers.find(entry => entry.source === '**')?.headers
-      .find(header => header.key === 'Content-Security-Policy-Report-Only')?.value;
+      .find(header => header.key === 'Content-Security-Policy')?.value;
     expect(globalCsp).toContain("worker-src 'self' blob:");
+    expect(globalCsp).toContain('https://www.gstatic.com');
   });
 
   it('aligns the worker Firebase compat SDK with the installed page SDK', () => {
@@ -71,7 +75,10 @@ describe('PWA install boundary', () => {
     const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
     expect(worker).toContain(`/firebasejs/${pageVersion}/firebase-app-compat.js`);
     expect(worker).toContain(`/firebasejs/${pageVersion}/firebase-messaging-compat.js`);
-    expect(html).toContain(`https://esm.sh/firebase@${pageVersion}/messaging`);
-    expect(html).not.toContain('https://esm.sh/firebase@10.8.0/');
+    // The page half of this pairing was the esm.sh importmap, removed when CSP
+    // moved to enforcement: it pulled nothing (Vite bundles every dependency)
+    // but was the app's only inline script, so it was the sole violation.
+    expect(html).not.toContain('importmap');
+    expect(html).not.toContain('esm.sh');
   });
 });
