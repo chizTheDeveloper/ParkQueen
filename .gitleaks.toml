@@ -68,3 +68,14 @@ paths = [
 regexes = [
   '''TOUR_KEY\s*=\s*["']parqueenAppTourSeen_v1["']'''
 ]
+
+  [[rules.allowlists]]
+description = "Sentry DSN PUBLIC key in the CSP report-uri — not a credential. The same value is compiled into the shipped client bundle by design, so it is already public; it authorises submitting reports to one project, never reading them. The release-upload token is a separate secret and is not in the repo."
+condition = "AND"
+regexTarget = "line"
+paths = [
+  '''^firebase\.json$'''
+]
+regexes = [
+  '''report-uri https://o[0-9]+\.ingest\.[a-z0-9.]+sentry\.io/api/[0-9]+/security/\?sentry_key=[a-f0-9]{32}'''
+]
