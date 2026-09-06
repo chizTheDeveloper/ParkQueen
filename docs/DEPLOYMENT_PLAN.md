@@ -17,7 +17,7 @@ Read-only comparison of `main` source vs current Firebase production environment
 |---|---|---|---|
 | Build artifacts | Pre-audit build (2026-07-24) | Audit-hardened source; `dist/` from clean `npm run build` | Full redeployment required |
 | Security headers (HSTS, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy) | **None** | All present in `firebase.json` `hosting.headers` | Not yet live |
-| `Content-Security-Policy-Report-Only` | **None** | Full directive set in `firebase.json` (TM-22 partial fix) | Not yet live |
+| `Content-Security-Policy` (enforced) | **None** | Full directive set in `firebase.json`, enforced, with `report-uri` to Sentry | Live |
 | Cache-Control (`immutable` for `*.js/css/woff2`; `no-cache` for `/index.html`) | Unknown | Present in `firebase.json` | Not yet live |
 | SPA rewrite (`**` → `/index.html`) | Present | Present | Verify on redeployment |
 | `functions` source target | `functions/` | `functions/` | Unchanged |
@@ -126,7 +126,7 @@ npx ts-node utils/migration/privatizeContactFields.ts
 
 ### 3.9 Security headers summary
 
-Security headers are delivered via Hosting. All headers (HSTS, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy, CSP-Report-Only) will go live automatically when Hosting is redeployed (Section 3.1). No separate deployment step is needed.
+Security headers are delivered via Hosting. All headers (HSTS, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy, and the enforced Content-Security-Policy) go live automatically when Hosting is redeployed (Section 3.1). No separate deployment step is needed.
 
 ---
 
@@ -252,7 +252,7 @@ firebase deploy --only hosting --project parkqueen-46475363-ccf36
 ```
 1. Visit https://parkqueen-46475363-ccf36.web.app — confirm app loads
 2. Sign in via phone OTP — confirm auth flow works
-3. Open browser DevTools → Console — confirm no CSP-Report-Only violations for normal flows
+3. Open browser DevTools → Console — confirm no CSP violations for normal flows (the policy is enforced, so a violation now blocks the resource as well as reporting it to Sentry)
 4. Open browser DevTools → Network — confirm response headers include:
    Strict-Transport-Security: max-age=31536000; includeSubDomains
    X-Content-Type-Options: nosniff

@@ -69,7 +69,7 @@ Expected savings: ~500 kB from StreetParkingView chunk, cached separately from b
 
 ### PERF-02 (HIGH): Replace CDN Tailwind with bundled CSS
 
-Remove `<script src="https://cdn.tailwindcss.com">` from `index.html`. Configure Vite to generate a Tailwind CSS file during build:
+**RESOLVED (#117).** The Play CDN `<script>` was removed and Tailwind is compiled through Vite/PostCSS. Retained below for context:
 
 ```ts
 // vite.config.ts
@@ -90,7 +90,7 @@ Expected savings: eliminates runtime JIT compiler (~38 kB gzip CDN script + full
 
 ### PERF-05 (LOW): Replace importmap external CDN modules with Vite-bundled imports
 
-The importmap in `index.html` is a fallback mechanism that conflicts with Vite's bundling. Remove the importmap or ensure all production paths go through the Vite-bundled entry point only.
+**RESOLVED (#120).** The importmap was removed. It resolved nothing (Vite bundles every dependency) and was the app's only inline script, so it was also the sole violation blocking CSP enforcement.
 
 ---
 

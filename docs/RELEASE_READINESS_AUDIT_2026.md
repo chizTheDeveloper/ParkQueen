@@ -61,13 +61,14 @@ Commit: `2d8d0cc` — `privacy: complete account deletion — all linked collect
 
 **Remaining manual items:** Legal sign-off on `adminAuditLog` and `moderationLog` retention periods; production data migration for existing accounts (`utils/migration/privatizeContactFields.ts`).
 
-### BLK-04 (HIGH): No Content-Security-Policy — **FIXED IN SOURCE (report-only)**
+### BLK-04 (HIGH): No Content-Security-Policy — **RESOLVED — ENFORCED IN PRODUCTION**
 
 `firebase.json` now includes a full `headers` block: HSTS (`max-age=31536000; includeSubDomains`), `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy`, `Content-Security-Policy-Report-Only` covering all required origins, and `Cache-Control` for assets and `index.html`. `utils/cspConfig.test.ts` (8 tests) asserts the policy is present and structurally correct.
 
 Phase 2 (separate PR): flip to enforced `Content-Security-Policy` after bundling Tailwind and FontAwesome (removes `'unsafe-inline'` dependency and CDN script-src entries).
 
-Commit: `608cbb5` — `security: add Firebase Hosting security headers with CSP report-only`
+Commits: `608cbb5` (report-only) -> #118 (flipped to enforced `Content-Security-Policy`, report-only header removed) -> #120 (added `report-uri` to the project's Sentry security endpoint).
+The enforced policy carries no `'unsafe-inline'`/`'unsafe-eval'`/`blob:` in `script-src`; `style-src` retains `'unsafe-inline'` because React writes inline style attributes. `utils/cspConfig.test.ts` and `utils/cspReporting.test.ts` pin it.
 
 ### BLK-05 (HIGH): Phone number in public user document — **FIXED IN SOURCE**
 
@@ -145,7 +146,7 @@ The following packages are declared in root `package.json` but are not exercised
 
 ### ARC-05: Tailwind loaded from CDN in production
 
-`index.html` loads Tailwind CSS from `cdn.tailwindcss.com` via a `<script>` tag. The project also declares `tailwindcss` as an npm devDependency. The CDN script runs the full Tailwind JIT compiler in the browser on every page load, which is a performance and security concern (untrusted-script execution). The build pipeline should use the npm package to generate a static CSS file.
+**RESOLVED (#117).** Tailwind is compiled at build time via `tailwind.config.js` + `postcss.config.js`; the Play CDN `<script>` and its inline runtime config are gone, and the CDN origin was removed from the CSP. The `@tailwind` directives sit at the *end* of `index.css` so utilities keep the cascade position the CDN gave them at runtime — `utils/tailwindCascade.test.ts` pins that ordering.
 
 ### ARC-06: `updateUser` exported from `database.ts` with no callers
 
@@ -252,7 +253,7 @@ Vite recommends chunks below 500 kB minified. The StreetParkingView chunk at 1.8
 
 ### PERF-02: Tailwind JIT in browser
 
-Loading `cdn.tailwindcss.com/tailwindcss` runs the full JIT compiler in the browser. Replace with a bundled Tailwind CSS file generated during the Vite build.
+**RESOLVED (#117)** — Tailwind is now compiled during the Vite build; no browser-side JIT.
 
 ### PERF-03: Firestore real-time listener surface
 
@@ -288,7 +289,7 @@ Both `i18n/en.ts` and `i18n/es.ts` contain matching key counts for translated st
 | No BLK-01 (voice agent script) | **PASS (fixed in source)** | `index.html` — script removed; securityAssertions confirms absent in source and dist |
 | No BLK-02 (Rules deployed) | **PENDING** | Source correct, 81 tests pass; requires separate authorized deployment |
 | Account deletion complete | **PASS (fixed in source)** | `deleteAccount` covers all collections + Storage; pending deployment |
-| CSP deployed | **PASS (report-only in source)** | `firebase.json` headers block added; pending deployment |
+| CSP deployed | **PASS (enforced, live)** | Enforced `Content-Security-Policy` with `report-uri` verified on live production response headers |
 | Phone out of public doc | **PASS (fixed in source)** | `database.ts`, `App.tsx`, `functions/index.js` all corrected; Firestore denylist updated |
 | Storage Rules in repo | **FAIL** | No `storage.rules` — requires console export (TM-06) |
 | App Check configured | **FAIL** | TM-12 — provider decision required |

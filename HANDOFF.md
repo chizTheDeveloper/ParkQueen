@@ -731,14 +731,20 @@ firebase use parkqueen-46475363-ccf36
 ### Environment Variables
 | Variable | Location | Purpose |
 |---|---|---|
-| `SENDGRID_API_KEY` | `functions/.env` | Email OTP delivery via SendGrid REST API |
-| `SOCRATA_APP_TOKEN` | `functions/.env` | NYC Open Data app token — optional but strongly recommended; without it, fallback is rate-limited to 1000 req/day unauthenticated |
-| `GEMINI_API_KEY` | Firebase Secret Manager v3 | Gemini AI — accessed server-side only via Cloud Functions; not present in frontend |
+| `SENDGRID_API_KEY` | Firebase Secret Manager (`defineSecret`) | Email OTP delivery via SendGrid REST API |
+| `EMAIL_RATE_LIMIT_PEPPER` | Firebase Secret Manager (`defineSecret`) | HMAC pepper for per-inbox OTP rate-limit keys |
+| `GEMINI_API_KEY` | Firebase Secret Manager (`defineSecret`) | Gemini AI — accessed server-side only via Cloud Functions; not present in frontend |
+| `SOCRATA_APP_TOKEN` | Not configured (`process.env`, unset) | NYC Open Data app token. Optional: `functions/index.js` falls back to unauthenticated access, rate-limited to 1000 req/day, and logs a warning |
 | `VITE_MAPBOX_TOKEN` | Root `.env.local` for development; approved production environment for releases | Map rendering, geocoding, and directions |
+| `VITE_FIREBASE_APPCHECK_SITE_KEY`, `VITE_SENTRY_DSN`, `VITE_FIREBASE_VAPID_KEY` | Root `.env.production.local` (build time) | App Check, Sentry, and FCM push. Absent at build time means the corresponding feature is silently compiled out — see `firebaseConfig.ts` |
 
-`functions/.env` is in `.gitignore`. Create it manually:
-```
-SENDGRID_API_KEY=SG.xxxxx
+There is **no `functions/.env`**, and one should not be created. Every Cloud Functions
+secret is declared with `defineSecret(...)` in `functions/index.js` and resolved from
+Firebase Secret Manager at deploy time; the function is redeployed to bind a new
+version. To add or rotate one:
+
+```bash
+firebase functions:secrets:set SENDGRID_API_KEY --project parkqueen-46475363-ccf36
 ```
 
 ### Local Development
@@ -788,7 +794,7 @@ The deployed app is at: https://parkqueen-46475363-ccf36.web.app
 - **NYC Open Data ambiguous block** — on long avenues (Broadway, Grand Concourse) where multiple block faces are returned and cross-street scoring doesn't resolve a winner, the fallback returns `nyc_open_data_ambiguous_block`. UI shows unavailable/Check Again. Cross-street context from Overpass helps but doesn't guarantee resolution.
 - **`segmentId` retry** — when My Car sheet opens before the `createSegmentFromSweepNYC` call completes, `segmentId` can be null. No retry is implemented yet.
 - **Client archived segment filtering** — `matchNearestSegment` does not yet filter out archived candidates before calling the CF.
-- **SOCRATA_APP_TOKEN not set in production** — fallback works unauthenticated but is rate-limited to 1000 req/day. Add token to `functions/.env` before scaling.
+- **SOCRATA_APP_TOKEN not set in production** — fallback works unauthenticated but is rate-limited to 1000 req/day. Set it via Firebase Secret Manager (and read it through `defineSecret`/`defineString` rather than bare `process.env`) before scaling.
 - **Block-face selection Phase 1.2 ceiling** — partial cross-street match (score 3–5) selected only when that candidate is uniquely best. Cross-street data comes from Overpass within 130m; this may miss cross streets at wide intersections.
 
 ### Low Priority
@@ -829,7 +835,7 @@ The deployed app is at: https://parkqueen-46475363-ccf36.web.app
 - **Duplicate profanity/moderation lists** — the banned word list exists in both `functions/index.js` (server) and `utils/moderation.ts` (client). They should stay in sync but are maintained separately.
 - **`handleSaveSpot` in StreetParkingView has 3 nearly identical `addDoc` call sites** — the new-spot creation logic is duplicated for "has userLocation", "needs getCurrentPosition", and "editing existing spot" paths.
 - **`radiusFilteredItems` useMemo doesn't include `blockedUsers` in its dependency array** — blocked user filtering happens at the snapshot level, not the memo level, so it works, but the architecture is fragile.
-- **The `firebase/` importmap catch-all in index.html** — was previously pointing to firebase@^12.8.0 (wrong major version). Fixed to 10.8.0 but all Firebase sub-packages should be explicitly listed to prevent future mismatches.
+- **The `firebase/` importmap in index.html is gone** — it was removed when CSP moved to enforcement, because it was the app's only inline script. It resolved nothing (Vite bundles every dependency), so the historical version-mismatch class of bug is no longer reachable from it.
 - **Several views still import from `../firebase` while others import from `../firebaseConfig`** — these are two different files (`firebase.ts` re-exports `db`, `firebaseConfig.ts` exports `auth`, `db`, `getFCM`). Should be consolidated.
 
 ---
@@ -855,7 +861,7 @@ The deployed app is at: https://parkqueen-46475363-ccf36.web.app
 | `types.ts` | AppView enum, StreetSpot interface |
 | `database.ts` | `saveUserProfile`, `logoutUser`, `updateUser`, `deleteUser` |
 | `firebaseConfig.ts` | Firebase app init, auth, db, FCM exports |
-| `index.html` | Tailwind config, importmap (Firebase SDK versions), inline styles |
+| `index.html` | Document shell and one inline `<style>` block. Tailwind is compiled at build time (`tailwind.config.js` + `postcss.config.js`); the esm.sh importmap has been removed |
 | `index.css` | CSS custom properties (light/dark theme), glass effects, ping-glow animation |
 | `utils/crowns.ts` | Title thresholds and lookup functions (getTitleForCrowns, getNextTitle) — must stay in sync with CF |
 | `utils/sweepnyc.ts` | Client-side SweepNYC sign parser (simpler than CF version; no streetCtx, strict regex) |
@@ -865,7 +871,7 @@ The deployed app is at: https://parkqueen-46475363-ccf36.web.app
 | `functions/index.js` | All Cloud Functions (~2500 lines; SweepNYC pipeline, NYC Open Data fallback, trust, admin, crowns, notifications) |
 | `functions/nycOpenDataNormalizer.js` | Street name normalization (`osmNameToDOT`, `streetNameToLikePattern`, `selectBlockFace`, `nycOdSegmentDocId`) |
 | `functions/nycOpenDataNormalizer.test.js` | 103 unit tests for normalizer + block-face selection |
-| `functions/.env` | SENDGRID_API_KEY, optionally SOCRATA_APP_TOKEN (not in git, see Section 9) |
+| Firebase Secret Manager | SENDGRID_API_KEY, EMAIL_RATE_LIMIT_PEPPER, GEMINI_API_KEY — bound via `defineSecret` at deploy time (see Section 9) |
 | `firestore.rules` | Security rules for all collections (see Section 7) |
 | `services/geminiService.ts` | Client-side Gemini AI for smart replies + sign analysis |
 | `.firebaserc` | Firebase project alias mapping |
@@ -895,7 +901,7 @@ The deployed app is at: https://parkqueen-46475363-ccf36.web.app
 ### Street Intelligence (immediate)
 1. **`segmentId` retry** — when My Car sheet opens before `createSegmentFromSweepNYC` completes, `segmentId` is null. Add a retry/poll after 1–2 seconds.
 2. **Client archived segment filtering** — `matchNearestSegment` should filter out `status: 'archived'` candidates before calling the CF.
-3. **Add `SOCRATA_APP_TOKEN`** to `functions/.env` to raise the NYC Open Data rate limit above 1000 req/day before field testing at scale.
+3. **Add `SOCRATA_APP_TOKEN`** via Firebase Secret Manager to raise the NYC Open Data rate limit above 1000 req/day before field testing at scale.
 4. **Admin parse failure review** — build a simple admin UI card for the `parseFailures` collection so unrecognized signs can be triaged.
 
 ### General
@@ -913,7 +919,7 @@ The deployed app is at: https://parkqueen-46475363-ccf36.web.app
 The user expects `commit → merge to main → push → build → deploy` as one atomic operation. See Section 9 for full build/deploy commands. Always use `--project parkqueen-46475363-ccf36`.
 
 ### Firebase SDK Version
-All Firebase imports must resolve to **10.8.0**. The importmap in `index.html` pins explicit paths for `firebase/app`, `firebase/auth`, `firebase/firestore`, `firebase/messaging`, `firebase/storage`, `firebase/functions`. The catch-all `firebase/` also points to 10.8.0. A version mismatch between these caused a critical auth bug (phone auth "operation-not-allowed") that took significant debugging to identify.
+Firebase resolves to a single version from `package-lock.json` (currently **10.14.1**), because Vite bundles it — there is no importmap to keep in sync any more. Historically the importmap could pin a different major than the installed package, and that mismatch caused a critical phone-auth bug ("operation-not-allowed") that took significant debugging to find. `public/firebase-messaging-sw.js` is the one place still pinning a version by hand, and `utils/pwaInstall.test.ts` asserts it matches the installed SDK.
 
 ### The User's Working Style
 - Prefers product/UX discussion before implementation ("I don't want to implement anything yet")
@@ -928,7 +934,7 @@ All Firebase imports must resolve to **10.8.0**. The importmap in `index.html` p
 - **Marker click closures** — markers capture `item` at creation time. Use `itemsRef.current` (a ref holding latest `radiusFilteredItems`) to read fresh data on click.
 - **`onCall` Cloud Functions need public IAM** — v2 `onCall` functions require the Cloud Run service to allow unauthenticated invocations. The user has Cloud Functions Admin role but deployment may still fail on IAM if the role was revoked.
 - **The `useEffect` sync for `selectedItem`** clears the selection when a spot disappears from data (occupied/expired/deleted), but skips clearing if `interestFlow.showFeedback` is true (so the feedback prompt retains the spot reference).
-- **`functions/.env`** — see Section 9 for env var setup. Must exist in `functions/` for email OTP to work.
+- **Firebase Secret Manager** — see Section 9. `SENDGRID_API_KEY` and `EMAIL_RATE_LIMIT_PEPPER` must be set and bound to `generateEmailOTP` for email OTP to work; there is no `functions/.env`.
 
 ### Active Plugins
 - **Ponytail** (full mode) — enforces laziest working solution
