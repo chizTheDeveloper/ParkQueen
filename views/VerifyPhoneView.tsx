@@ -50,6 +50,21 @@ export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({
 
     useEffect(() => () => clearRecaptchaVerifier(recaptchaRef), []);
 
+    // Focus the hidden OTP input as soon as this screen mounts, so the code can be
+    // typed (and pasted/autofilled) without tapping the cells first. On platforms
+    // that allow programmatic focus this also opens the numeric keyboard; iOS may
+    // still require a tap, which the cells' onClick already handles.
+    useEffect(() => {
+        inputRef.current?.focus();
+    }, []);
+
+    // A rejected code re-enables the input on the next commit; focus it then so the
+    // user can retype immediately. Keyed on the state rather than called inline in
+    // the catch, because the input cannot take focus until that render lands.
+    useEffect(() => {
+        if (!verifying && error) inputRef.current?.focus();
+    }, [verifying, error]);
+
     const doVerify = async (codeToVerify: string) => {
         if (verifyingRef.current) return;
         verifyingRef.current = true;
@@ -62,6 +77,11 @@ export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({
         } catch (e: any) {
             console.error('OTP verification failed:', e?.code);
             setError(t(otpErrorKey(e?.code ?? '')));
+            // Firebase never accepts a rejected code on a retry, so the digits are
+            // dead weight. Leaving them stranded was the bug: maxLength=6 meant a
+            // full field silently swallowed every further keystroke, so the only
+            // way out looked like going back to the phone-number step.
+            setCode('');
             verifyingRef.current = false;
             setVerifying(false);
         }
@@ -167,7 +187,7 @@ export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({
                         value={code}
                         onChange={handleInput}
                         maxLength={6}
-                        disabled={verifying}
+                        readOnly={verifying}
                         aria-label={t('verify_phone.otp_label')}
                         className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-text"
                     />
