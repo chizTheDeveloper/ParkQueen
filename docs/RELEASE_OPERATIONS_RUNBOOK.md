@@ -237,9 +237,18 @@ Do not print secret values. Only verify that active versions exist and are recen
 
 ---
 
-## Firebase Hosting headers (to add before release)
+## Firebase Hosting headers
 
-The following block should be added to `firebase.json` hosting configuration after CSP is defined:
+**These are already live.** `firebase.json` is the single source of truth — read the
+`hosting.headers` block there rather than this snippet, which is kept only to show the
+original shape and has since diverged from production in several ways: the policy is
+enforced with a `report-uri` to Sentry, `style-src` needs `'unsafe-inline'` for React's
+inline style attributes, `firebaseio.com` was dropped (the app is Firestore-only), no
+nonce is used (there are no inline scripts), and `Cache-Control: no-cache` now defaults
+on `**` so SPA routes cannot serve stale HTML. Pinned by `utils/cspConfig.test.ts`,
+`utils/cspReporting.test.ts` and `utils/hostingCacheControl.test.ts`.
+
+Historical proposal:
 
 ```json
 "headers": [

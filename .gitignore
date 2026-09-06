@@ -36,3 +36,8 @@ firebase-debug.log
 **/__pycache__/
 **/*.pyc
 .claude/settings.local.json
+
+# Generated test output and local audit worktrees (previously only in
+# .git/info/exclude, which is local-only and not shared with clones)
+test-results/
+.audit-worktrees/
