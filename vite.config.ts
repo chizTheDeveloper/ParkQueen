@@ -53,6 +53,15 @@ export default defineConfig(({ mode }) => {
         // discover them — and they're deleted from dist/ after upload above.
         // Without upload credentials, no maps are generated at all.
         sourcemap: uploadConfigPresent ? 'hidden' : false,
+        // Vite 8 minifies CSS with lightningcss by default, which prunes vendor
+        // prefixes it judges redundant for its browser targets. That silently
+        // dropped the unprefixed `backdrop-filter` from .glass-panel,
+        // .glass-button and the map search/status/control shells, keeping only
+        // -webkit-. Chrome and Safari accept the -webkit- form, but Firefox
+        // supports ONLY the unprefixed property, so the glass blur disappeared
+        // there. index.css hand-writes both variants on purpose; esbuild
+        // preserves authored declarations verbatim, which is what Vite 5 did.
+        cssMinify: 'esbuild',
       },
       test: {
         environment: 'node',
