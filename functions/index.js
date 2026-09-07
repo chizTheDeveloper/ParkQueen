@@ -74,6 +74,10 @@ function _emailOtpMatches(storedCode, suppliedCode) {
 exports._emailOtpMatches = _emailOtpMatches;
 
 async function _deliverEmailOtp(email, code, fetchFn = fetch) {
+  // Numeric HTTP status only, carried on the thrown error for the caller to log.
+  // The response body is still discarded unread: SendGrid echoes the recipient
+  // address back in its error payloads, so it can never be logged or inspected.
+  let status;
   try {
     const res = await fetchFn('https://api.sendgrid.com/v3/mail/send', {
       method: 'POST',
@@ -87,11 +91,17 @@ async function _deliverEmailOtp(email, code, fetchFn = fetch) {
       signal: AbortSignal.timeout(10000),
     });
     if (!res || res.ok !== true) {
+      if (typeof res?.status === 'number') status = res.status;
       await res?.body?.cancel?.();
       throw new Error('Email delivery failed');
     }
   } catch {
-    throw new Error('Email delivery failed');
+    // Same opaque message as before — the status rides alongside it, never in it.
+    // Stays undefined when there was no HTTP response at all (network error or
+    // the 10s AbortSignal timeout), because then there is no status to report.
+    const err = new Error('Email delivery failed');
+    if (status !== undefined) err.status = status;
+    throw err;
   }
 }
 
@@ -793,12 +803,20 @@ exports.generateEmailOTP = onCall(
         }
         tx.update(docRef, { status: 'active' });
       });
-    } catch {
+    } catch (e) {
       await db.runTransaction(async tx => {
         const current = await tx.get(docRef);
         if (current.exists && current.data().requestId === requestId) tx.delete(docRef);
       }).catch(() => {});
-      console.error('Email OTP delivery failed');
+      // A bare "delivery failed" line cost real time during a production outage:
+      // it could not distinguish a rejected key (401/403) from a bad payload
+      // (400) from a SendGrid outage (5xx). The numeric status is the one field
+      // that separates those and carries nothing about the recipient. Absent for
+      // network/timeout failures and for the superseded-request path above, in
+      // which case the log line is exactly what it was before.
+      const status = typeof e?.status === 'number' ? e.status : undefined;
+      if (status === undefined) console.error('Email OTP delivery failed');
+      else console.error('Email OTP delivery failed', { status });
       throw new HttpsError("internal", "Failed to send verification email.");
     }
     return { success: true };
