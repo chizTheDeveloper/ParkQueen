@@ -62,6 +62,17 @@ describe('CSP hardening invariants', () => {
     expect(csp).toContain("default-src 'self'");
   });
 
+  it('carries no Google Analytics origins — the integration was removed', () => {
+    // firebase.ts called getAnalytics() while the project had no linked GA4
+    // property and no measurementId, so gtag loaded with id=undefined and
+    // collected nothing. The call is gone; these origins existed only for it.
+    // If Analytics is ever set up for real, add them back deliberately along
+    // with a measurementId and the matching privacy disclosure.
+    expect(csp).not.toContain('googletagmanager.com');
+    expect(csp).not.toContain('google-analytics.com');
+    expect(csp).not.toContain('analytics.google.com');
+  });
+
   it('never readmits the Tailwind Play CDN', () => {
     expect(csp).not.toContain('cdn.tailwindcss.com');
   });
@@ -89,11 +100,9 @@ describe('CSP allows every origin production actually depends on', () => {
     // importScripts() the Firebase compat SDK from this origin.
     expect(s).toContain('https://www.gstatic.com');
     expect(s).toContain('https://apis.google.com');
-    // Firebase Analytics loads gtag from here — omitting it broke Analytics.
-    expect(s).toContain('https://www.googletagmanager.com');
   });
 
-  it('connect-src covers Firebase, Cloud Functions, Mapbox, Sentry and Analytics', () => {
+  it('connect-src covers Firebase, Cloud Functions, Mapbox and Sentry', () => {
     const c = directive('connect-src');
     expect(c).toContain("'self'");
     // Firestore, Auth, App Check, Installations, FCM registration, Storage.
@@ -104,8 +113,6 @@ describe('CSP allows every origin production actually depends on', () => {
     // Sentry ingest — absent from the old policy, so enforcement would have
     // silently killed error reporting.
     expect(c).toContain('https://o4511989351448576.ingest.us.sentry.io');
-    expect(c).toContain('https://www.googletagmanager.com');
-    expect(c).toContain('https://*.google-analytics.com');
   });
 
   it('style-src and font-src cover FontAwesome', () => {

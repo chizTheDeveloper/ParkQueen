@@ -2,7 +2,6 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { getAuth, signInAnonymously, setPersistence, browserLocalPersistence } from "firebase/auth";
-import { getAnalytics } from "firebase/analytics";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCKSqWVd6JqpcrNUG6hei8Ug1njaIkAI7Y",
@@ -24,7 +23,6 @@ const app = (() => {
 })();
 
 export const db = app ? getFirestore(app) : null;
-export const analytics = app && typeof window !== 'undefined' ? getAnalytics(app) : null;
 
 export const auth = app ? getAuth(app) : null;
 if (auth) {
