@@ -146,6 +146,83 @@ describe('GE — email OTP security contract', () => {
         await cleanup(uid, [email]);
     });
 
+    it('GE-8a logs the numeric SendGrid status and nothing else from the response', async () => {
+        // The status is the whole point: 403 (rejected key / unverified sender)
+        // must be distinguishable from 400 (bad payload) and 5xx (outage).
+        const uid = nextUid('status403');
+        const email = 'status.recipient@example.com';
+        const bodyText = 'The from address does not match a verified Sender Identity ' + email;
+        let cancelled = false;
+        const fakeFetch = async () => ({
+            ok: false,
+            status: 403,
+            body: { cancel: async () => { cancelled = true; } },
+            text: async () => bodyText,
+            json: async () => ({ errors: [{ message: bodyText }] }),
+        });
+        indexModule._emailOtpHooks.deliver = (to, code) =>
+            indexModule._deliverEmailOtp(to, code, fakeFetch);
+        const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        const { error } = await call(indexModule.generateEmailOTP, uid, { email });
+
+        expect(error).toMatchObject({ code: 'internal', message: 'Failed to send verification email.' });
+        // structured field, not string interpolation
+        expect(log).toHaveBeenCalledWith('Email OTP delivery failed', { status: 403 });
+        // the body was discarded unread, exactly as before
+        expect(cancelled).toBe(true);
+        const rendered = JSON.stringify(log.mock.calls);
+        expect(rendered).not.toContain(bodyText);
+        expect(rendered).not.toContain('verified Sender Identity');
+        expect(rendered).not.toContain(email);
+        expect(rendered).not.toContain('Bearer');
+        expect(rendered).not.toContain('api.sendgrid.com');
+        expect(rendered).not.toMatch(/\d{6}/);   // no OTP
+        // rollback still removes the pending code
+        expect((await db.doc(`emailVerificationCodes/${uid}`).get()).exists).toBe(false);
+        await cleanup(uid, [email]);
+    });
+
+    it('GE-8b omits the status when the failure had no HTTP response', async () => {
+        // Network error / AbortSignal timeout: there is no status to report, so the
+        // log line stays exactly what it was before this change.
+        const uid = nextUid('statusnone');
+        const email = 'timeout.recipient@example.com';
+        const fakeFetch = async () => { throw new Error('network down'); };
+        indexModule._emailOtpHooks.deliver = (to, code) =>
+            indexModule._deliverEmailOtp(to, code, fakeFetch);
+        const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        const { error } = await call(indexModule.generateEmailOTP, uid, { email });
+
+        expect(error).toMatchObject({ code: 'internal', message: 'Failed to send verification email.' });
+        expect(log).toHaveBeenCalledWith('Email OTP delivery failed');
+        expect(JSON.stringify(log.mock.calls)).not.toContain(email);
+        expect((await db.doc(`emailVerificationCodes/${uid}`).get()).exists).toBe(false);
+        await cleanup(uid, [email]);
+    });
+
+    it('GE-8c a 2xx response still succeeds and logs no delivery error', async () => {
+        const uid = nextUid('status200');
+        const email = 'ok.recipient@example.com';
+        const fakeFetch = async () => ({ ok: true, status: 202, body: null });
+        indexModule._emailOtpHooks.deliver = (to, code) =>
+            indexModule._deliverEmailOtp(to, code, fakeFetch);
+        indexModule._emailOtpHooks.generateCode = () => '456789';
+        const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        const { result, error } = await call(indexModule.generateEmailOTP, uid, { email });
+
+        expect(error).toBeUndefined();
+        expect(result).toMatchObject({ success: true });
+        expect(log).not.toHaveBeenCalledWith('Email OTP delivery failed', expect.anything());
+        expect(log).not.toHaveBeenCalledWith('Email OTP delivery failed');
+        const snap = await db.doc(`emailVerificationCodes/${uid}`).get();
+        expect(snap.exists).toBe(true);
+        expect(snap.data()).toMatchObject({ status: 'active' });   // not rolled back
+        await cleanup(uid, [email]);
+    });
+
     it('GE-9 concurrent requests for one UID leave exactly one authoritative code', async () => {
         const uid = nextUid('race');
         const email = 'race@example.com';
