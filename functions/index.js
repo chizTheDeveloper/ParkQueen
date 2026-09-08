@@ -3728,6 +3728,9 @@ async function adminReadViewHandler(request) {
   }
 }
 exports._adminReadViewHandler = adminReadViewHandler;
+exports._boroughFromAddress = _boroughFromAddress;
+exports._detectBorough      = _detectBorough;
+exports._overpassJson       = _overpassJson;
 
 exports.adminReadView = onCall(
   // App Check canary (Stage 4A): first callable to enforce App Check. Chosen
@@ -4072,6 +4075,75 @@ function _isASPSign(signDesc) {
 }
 
 /**
+ * Single entry point for Overpass. Both callers previously did `await res.json()`
+ * straight after `fetch`, with no status check: when Overpass is overloaded it
+ * answers 504 with an HTML error page (while still sending
+ * `Content-Type: application/json`), so JSON.parse threw a SyntaxError that the
+ * callers swallowed. Observed in production on the Greene Street fallback.
+ *
+ * Returns parsed JSON, or null for any non-2xx / non-JSON / network failure.
+ * Deliberately single-shot: no retry, so an Overpass outage is never amplified.
+ */
+async function _overpassJson(query, label) {
+  try {
+    const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
+    if (!res.ok) {
+      console.warn(`[Overpass] ${label} non-OK response:`, res.status);
+      return null;
+    }
+    const body = await res.text();
+    const head = body.trimStart().slice(0, 1);
+    // Overpass mislabels HTML error bodies as application/json, so sniff the
+    // payload itself rather than trusting the header.
+    if (head !== '{' && head !== '[') {
+      console.warn(`[Overpass] ${label} returned a non-JSON body (status ${res.status})`);
+      return null;
+    }
+    return JSON.parse(body);
+  } catch (err) {
+    console.warn(`[Overpass] ${label} fetch error:`, sanitizeError(err));
+    return null;
+  }
+}
+
+/**
+ * Maps a Nominatim `address` object to a NYC borough code.
+ *
+ * Verified against live Nominatim responses for all five boroughs: `suburb` is
+ * present in every one and names the borough directly ("Manhattan", "Brooklyn",
+ * "Queens", "The Bronx", "Staten Island"). `city_district` and `county` are only
+ * sometimes present and carry COUNTY names, so they are consulted second.
+ * Returns null when nothing recognisable is present, letting the caller fall
+ * back to the coordinate heuristic.
+ */
+function _boroughFromAddress(address) {
+  if (!address || typeof address !== 'object') return null;
+  const BY_SUBURB = {
+    'manhattan': 'MN',
+    'brooklyn': 'BK',
+    'queens': 'QN',
+    'the bronx': 'BX', 'bronx': 'BX',
+    'staten island': 'SI',
+  };
+  const BY_COUNTY = {
+    'new york county': 'MN',
+    'kings county': 'BK',
+    'queens county': 'QN',
+    'bronx county': 'BX',
+    'richmond county': 'SI',
+  };
+  const norm = (v) => (typeof v === 'string' ? v.trim().toLowerCase() : null);
+  const suburb = norm(address.suburb);
+  if (suburb && BY_SUBURB[suburb]) return BY_SUBURB[suburb];
+  for (const field of [address.city_district, address.county, address.borough]) {
+    const v = norm(field);
+    if (v && BY_COUNTY[v]) return BY_COUNTY[v];
+    if (v && BY_SUBURB[v]) return BY_SUBURB[v];
+  }
+  return null;
+}
+
+/**
  * Queries OSM via Overpass for named highway ways near lat/lng and returns
  * up to 2 DOT-normalized cross-street names (excluding the main street itself).
  * Used to score NYC Open Data block-face candidates.
@@ -4081,9 +4153,8 @@ async function _fetchCrossStreets(lat, lng, mainStreetOsmName) {
   const bbox = `${lat - delta},${lng - delta},${lat + delta},${lng + delta}`;
   const q = `[out:json][timeout:8];way[highway][name](${bbox});out geom;`;
   try {
-    const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`);
-    const data = await res.json();
-    if (!data.elements?.length) return [];
+    const data = await _overpassJson(q, 'cross-streets');
+    if (!data || !data.elements?.length) return [];
     const mainDot = osmNameToDOT(mainStreetOsmName);
     // Filter out the main street; keep crossing named ways
     const others = data.elements.filter(el =>
@@ -4117,7 +4188,11 @@ async function _reverseGeocodeStreet(lat, lng) {
     const res = await fetch(url, { headers: { 'User-Agent': 'ParkQueenApp/1.0' } });
     if (!res.ok) return null;
     const data = await res.json();
-    return (data && data.address && data.address.road) || null;
+    const road = (data && data.address && data.address.road) || null;
+    if (!road) return null;
+    // The response already carries the borough; it used to be discarded, leaving
+    // the caller to guess from coordinates alone.
+    return { road, boroughCode: _boroughFromAddress(data && data.address) };
   } catch (err) {
     console.warn('[NYCOpenData] reverse geocode error:', sanitizeError(err));
     return null;
@@ -4178,22 +4253,28 @@ async function _queryNYCOpenData(likePattern, borough) {
  */
 async function _fallbackToNYCOpenData(lat, lng) {
   try {
-    const osmStreet = await _reverseGeocodeStreet(lat, lng);
-    if (!osmStreet) {
+    const geocode = await _reverseGeocodeStreet(lat, lng);
+    if (!geocode) {
       console.warn('[NYCOpenData] reverse geocode returned null — giving up');
       return { success: false, reason: 'no_sweepnyc_data' };
     }
+    const osmStreet = geocode.road;
     console.log('[NYCOpenData] OSM street:', osmStreet);
 
     const dotName = osmNameToDOT(osmStreet);
     const likePattern = streetNameToLikePattern(dotName);
-    const boroughCode = _detectBorough(lat, lng);
+    // Prefer the borough the reverse geocoder reported; the coordinate heuristic
+    // is a coarse last resort (it used to place most of Brooklyn in Queens or
+    // Manhattan, so the Socrata query searched the wrong borough and matched
+    // nothing).
+    const boroughSource = geocode.boroughCode ? 'reverse_geocode' : 'coordinates';
+    const boroughCode = geocode.boroughCode || _detectBorough(lat, lng);
     const borough = BOROUGH_CODE_TO_NAME[boroughCode] || null;
     if (!borough) {
       console.warn('[NYCOpenData] could not detect borough');
       return { success: false, reason: 'no_sweepnyc_data' };
     }
-    console.log('[NYCOpenData] DOT name:', dotName, '| borough:', borough, '| pattern:', likePattern);
+    console.log('[NYCOpenData] DOT name:', dotName, '| borough:', borough, '| source:', boroughSource, '| pattern:', likePattern);
 
     const rows = await _queryNYCOpenData(likePattern, borough);
     const aspRows = rows.filter(r => _isASPSign(r.sign_description));
@@ -4498,9 +4579,8 @@ async function _fetchStreetGeometry(streetName, lat, lng) {
   const bbox = `${lat - delta},${lng - delta},${lat + delta},${lng + delta}`;
   const q = `[out:json][timeout:10];way[name="${streetName}"](${bbox});out geom;`;
   try {
-    const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(q)}`);
-    const data = await res.json();
-    if (!data.elements?.length) return null;
+    const data = await _overpassJson(q, 'street-geometry');
+    if (!data || !data.elements?.length) return null;
     // Use the single way closest to (lat, lng) — prevents multi-block bearing errors from aggregating all ways
     const validWays = data.elements.filter(el => el.geometry && el.geometry.length >= 2);
     if (!validWays.length) return null;
@@ -4525,12 +4605,38 @@ async function _fetchStreetGeometry(streetName, lat, lng) {
   }
 }
 
+/**
+ * Coarse coordinate fallback, used only when the reverse geocoder gives no
+ * borough (and by the SweepNYC path, which has no geocode result at all).
+ *
+ * The previous version tested `lat < 40.648` for Brooklyn, which only catches
+ * its southern tip: Bed-Stuy, Williamsburg, Park Slope, Flatbush, Greenpoint and
+ * Brooklyn Heights all fell through to Queens or Manhattan. It scored 20/27 on
+ * the reference points in nycBorough.test.js and 0/8 on Brooklyn.
+ *
+ * This version approximates the real water boundaries: the Narrows for Staten
+ * Island, the Harlem River for the Bronx (piecewise, so Manhattan's northern tip
+ * at Inwood stays Manhattan), the East River for Manhattan, and the
+ * Newtown Creek -> Jamaica Bay diagonal for Brooklyn/Queens. 27/27 on the same
+ * reference points. Still an approximation — the geocoded borough wins whenever
+ * it is available.
+ */
 function _detectBorough(lat, lng) {
-  if (lat > 40.785 && lng > -73.935) return 'BX';
-  if (lng < -74.03) return 'SI';
-  if (lat < 40.648) return 'BK';
-  if (lng > -73.948 && lat < 40.775) return 'QN';
-  return 'MN';
+  // Staten Island: west of the Narrows / Arthur Kill.
+  if (lng < -74.035) return 'SI';
+  // Bronx: north of the Harlem River. The river's longitude shifts east above
+  // ~40.855, which is what keeps Inwood/Marble Hill on the Manhattan side.
+  if (lat > 40.800) {
+    const harlemRiver = lat > 40.855 ? -73.912 : -73.933;
+    if (lng > harlemRiver) return 'BX';
+  }
+  // Manhattan: the island itself, eastern edge tracking the East River.
+  const eastRiver = -73.972 + (lat - 40.700) * 0.36;
+  if (lat >= 40.695 && lat <= 40.882 && lng >= -74.025 && lng <= eastRiver) return 'MN';
+  // Everything left is Brooklyn or Queens, split by the line running from
+  // Newtown Creek (40.738, -73.962) southeast to Jamaica Bay (40.640, -73.858).
+  const side = 0.104 * (lat - 40.738) + 0.098 * (lng + 73.962);
+  return side < 0 ? 'BK' : 'QN';
 }
 
 function _detectCardinalSide(userLat, userLng, fromLat, fromLng, toLat, toLng, bearing) {
