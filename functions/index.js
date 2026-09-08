@@ -4074,6 +4074,12 @@ function _isASPSign(signDesc) {
   return upper.startsWith('NO PARKING') && /\d+(?::\d+)?\s*[AP]M/i.test(signDesc);
 }
 
+// Both OSM-family services (Nominatim and Overpass) expect a real application
+// identifier. Overpass answers 406 with an HTML body to User-Agent-less requests,
+// which is what left cross-street lookups permanently empty. One constant so the
+// two call sites cannot drift apart.
+const OSM_USER_AGENT = 'ParkQueenApp/1.0';
+
 /**
  * Single entry point for Overpass. Both callers previously did `await res.json()`
  * straight after `fetch`, with no status check: when Overpass is overloaded it
@@ -4083,10 +4089,16 @@ function _isASPSign(signDesc) {
  *
  * Returns parsed JSON, or null for any non-2xx / non-JSON / network failure.
  * Deliberately single-shot: no retry, so an Overpass outage is never amplified.
+ *
+ * Sends OSM_USER_AGENT: Overpass rejects User-Agent-less requests with 406 and an
+ * HTML body, so before this header every cross-street lookup came back empty and
+ * the NYC Open Data fallback could never disambiguate a block face.
  */
 async function _overpassJson(query, label) {
   try {
-    const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
+    const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`, {
+      headers: { 'User-Agent': OSM_USER_AGENT },
+    });
     if (!res.ok) {
       console.warn(`[Overpass] ${label} non-OK response:`, res.status);
       return null;
@@ -4185,7 +4197,7 @@ async function _fetchCrossStreets(lat, lng, mainStreetOsmName) {
 async function _reverseGeocodeStreet(lat, lng) {
   try {
     const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=17`;
-    const res = await fetch(url, { headers: { 'User-Agent': 'ParkQueenApp/1.0' } });
+    const res = await fetch(url, { headers: { 'User-Agent': OSM_USER_AGENT } });
     if (!res.ok) return null;
     const data = await res.json();
     const road = (data && data.address && data.address.road) || null;

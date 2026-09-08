@@ -26,7 +26,8 @@ const HTML_504 = `<?xml version="1.0" encoding="UTF-8"?>
 
 let calls;
 const origFetch = globalThis.fetch;
-const stub = (impl) => { globalThis.fetch = async (...a) => { calls.push(a[0]); return impl(...a); }; };
+// records [url, init] per outbound request so header assertions are possible
+const stub = (impl) => { globalThis.fetch = async (...a) => { calls.push({ url: a[0], init: a[1] }); return impl(...a); }; };
 
 beforeEach(() => { calls = []; });
 afterEach(() => { globalThis.fetch = origFetch; });
@@ -123,5 +124,59 @@ describe('Overpass callers use the guarded helper', () => {
     expect(INDEX_SRC).toMatch(/nyc_open_data_ambiguous_block/);
     const i = INDEX_SRC.indexOf('ambiguous block face');
     expect(i).toBeGreaterThan(-1);
+  });
+});
+
+describe('Overpass User-Agent', () => {
+  const UA = 'ParkQueenApp/1.0';
+
+  it('sends an explicit application User-Agent on every Overpass request', async () => {
+    stub(() => res(200, JSON.stringify({ elements: [] })));
+    await _overpassJson('q', 'test');
+    expect(calls).toHaveLength(1);
+    expect(calls[0].init?.headers?.['User-Agent']).toBe(UA);
+  });
+
+  it('sends it on non-2xx responses too (the header is on the request, not the branch)', async () => {
+    stub(() => res(504, HTML_504));
+    await _overpassJson('q', 'test');
+    expect(calls[0].init?.headers?.['User-Agent']).toBe(UA);
+  });
+
+  it('still issues exactly one request per operation with the header', async () => {
+    stub(() => res(406, HTML_504));
+    await _overpassJson('q', 'test');
+    expect(calls).toHaveLength(1);
+    expect(calls[0].init?.headers?.['User-Agent']).toBe(UA);
+  });
+
+  it('406 (the missing-UA signature) still degrades to null, never throws', async () => {
+    stub(() => res(406, HTML_504));
+    await expect(_overpassJson('q', 'test')).resolves.toBeNull();
+  });
+
+  it('both Overpass consumers inherit the header via the shared helper', () => {
+    // Only one place fetches Overpass, so the header cannot be missed by a caller.
+    const sites = INDEX_SRC.match(/fetch\(`https:\/\/overpass-api\.de/g) || [];
+    expect(sites).toHaveLength(1);
+    expect(INDEX_SRC).toMatch(/async function _fetchCrossStreets\([\s\S]{0,900}_overpassJson\(q, 'cross-streets'\)/);
+    expect(INDEX_SRC).toMatch(/async function _fetchStreetGeometry\([\s\S]{0,900}_overpassJson\(q, 'street-geometry'\)/);
+  });
+
+  it('shares one constant with the Nominatim request so they cannot drift', () => {
+    expect(INDEX_SRC).toMatch(/const OSM_USER_AGENT = 'ParkQueenApp\/1\.0';/);
+    const uses = INDEX_SRC.match(/'User-Agent': OSM_USER_AGENT/g) || [];
+    expect(uses).toHaveLength(2); // Overpass + Nominatim
+    // no duplicated literal left behind
+    expect(INDEX_SRC).not.toMatch(/'User-Agent': 'ParkQueenApp\/1\.0'/);
+  });
+
+  it('adds no retry: a failing request is attempted once', async () => {
+    let n = 0;
+    stub(() => { n++; return res(500, HTML_504); });
+    await _overpassJson('q', 'test');
+    expect(n).toBe(1);
+    expect(INDEX_SRC.slice(INDEX_SRC.indexOf('async function _overpassJson('), INDEX_SRC.indexOf('\n}', INDEX_SRC.indexOf('async function _overpassJson('))))
+      .not.toMatch(/for \(|while \(|retry/i);
   });
 });
