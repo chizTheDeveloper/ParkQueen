@@ -4139,10 +4139,16 @@ async function _queryNYCOpenData(likePattern, borough) {
 
   for (let page = 0; page < MAX_PAGES; page++) {
     const params = new URLSearchParams({
-      $where: `record_type='Current' AND borough='${borough}' AND street LIKE '${likePattern}'`,
+      // nfid-uabd names the street column `on_street`; there is no `street`
+      // column, and querying one 400s the whole page (which is what silently
+      // reduced this fallback to zero rows). Ordering uses Socrata's `:id`
+      // system field rather than a domain column: it is present regardless of
+      // dataset schema and is the documented key for stable $offset paging,
+      // so pages cannot overlap or drop rows mid-scan.
+      $where: `record_type='Current' AND borough='${borough}' AND on_street LIKE '${likePattern}'`,
       $limit: String(PAGE),
       $offset: String(page * PAGE),
-      $order: 'objectid ASC',
+      $order: ':id',
     });
     if (token) params.set('$$app_token', token);
 
@@ -4283,7 +4289,7 @@ async function _fallbackToNYCOpenData(lat, lng) {
       : streetCtx.side;
 
     const now = Timestamp.now();
-    const sourceOrderNumbers = bestGroup.map(r => r.order_no || r.objectid).filter(Boolean);
+    const sourceOrderNumbers = bestGroup.map(r => r.order_number).filter(Boolean);
     const provenance = {
       provider: 'nyc_open_data',
       fetchedAt: now,
