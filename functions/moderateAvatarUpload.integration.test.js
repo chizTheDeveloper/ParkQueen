@@ -105,6 +105,48 @@ const waitFor = async (predicate, { timeoutMs = 15000, intervalMs = 300 } = {}) 
     throw new Error('waitFor: timed out');
 };
 
+/**
+ * A Vision hook that reports when the function under test has actually entered
+ * it, and hands back the resolver.
+ *
+ * Coordinating on a fixed sleep instead was the cause of
+ * "TypeError: resolveVision is not a function": `resolveVision` only exists once
+ * the function reaches hooks.visionSafeSearch(), and on a loaded runner the
+ * image pipeline and Storage emulator can take longer than the sleep, so the
+ * test acted before the hook had been entered. `entered` makes that ordering
+ * explicit rather than assumed.
+ */
+function pendingVisionHook() {
+    let signalEntered, resolveResult;
+    const entered = new Promise(res => { signalEntered = res; });
+    const hook = () => new Promise(res => { resolveResult = res; signalEntered(); });
+    return {
+        hook,
+        entered,
+        resolve: (value = { adult: 'VERY_UNLIKELY', racy: 'VERY_UNLIKELY' }) => {
+            if (resolveResult) resolveResult(value);
+        },
+    };
+}
+
+/**
+ * Asserts a storage object is gone, polling until it is.
+ *
+ * The production cleanup paths delete best-effort — `file.delete().catch(() => {})`
+ * — precisely so a cleanup hiccup cannot fail avatar moderation, with
+ * _cleanOrphans as the backstop (MOD-34/39/40/41). Asserting a single immediate
+ * exists() therefore reads a best-effort operation as if it were synchronous and
+ * strongly consistent. Polling keeps the assertion exactly as strong — the object
+ * must still be gone — while tolerating the emulator's observation lag.
+ */
+async function expectObjectGone(path, label) {
+    const gone = await waitFor(async () => {
+        const [exists] = await bucket.file(path).exists();
+        return exists === false;
+    }, { timeoutMs: 20000, intervalMs: 250 }).catch(() => false);
+    expect(gone, `${label || path} should have been deleted`).toBe(true);
+}
+
 async function runFn(event) {
     await fn.run(event);
 }
@@ -139,6 +181,13 @@ describe('§MOD — moderateAvatarUpload integration tests', () => {
         await db.doc(`users/__warmup__`).set({ warmup: true }).catch(() => {});
     });
 
+    // A test that throws before its own assignment would otherwise inherit the
+    // previous test's hook, which is exactly the kind of cross-test coupling that
+    // makes a failure in one case cascade into unrelated ones.
+    afterEach(() => {
+        hooks.visionSafeSearch = null;
+    });
+
     afterAll(async () => {
         hooks.visionSafeSearch = null;
     });
@@ -159,10 +208,8 @@ describe('§MOD — moderateAvatarUpload integration tests', () => {
         expect(userSnap.data()?.avatarUrl).toBeTruthy();
 
         // Source and candidate must be deleted after approval
-        const [srcExists] = await bucket.file(`avatarUploads/${uid}/${upId}/original`).exists();
-        const [candExists] = await bucket.file(`avatarCandidates/${uid}/${upId}.webp`).exists();
-        expect(srcExists).toBe(false);
-        expect(candExists).toBe(false);
+        await expectObjectGone(`avatarUploads/${uid}/${upId}/original`, 'MOD-01 source');
+        await expectObjectGone(`avatarCandidates/${uid}/${upId}.webp`, 'MOD-01 candidate');
 
         await nuke(uid);
     });
@@ -289,8 +336,7 @@ describe('§MOD — moderateAvatarUpload integration tests', () => {
         const mod = await getMod(uid);
         expect(mod?.status).toBe('rejected');
         expect(mod?.failureReason).toBe('content_policy');
-        const [candExists] = await bucket.file(`avatarCandidates/${uid}/${upId}.webp`).exists();
-        expect(candExists).toBe(false);
+        await expectObjectGone(`avatarCandidates/${uid}/${upId}.webp`, 'MOD-10 candidate');
         await nuke(uid);
     });
 
@@ -499,21 +545,28 @@ describe('§MOD — moderateAvatarUpload integration tests', () => {
         await db.doc(`users/${uid}`).set({ id: uid });
         await uploadOriginal(uid, upId, JPEG_1x1, 'image/jpeg');
 
-        // Vision hangs (never resolves in this sub-call; we check before it finishes)
-        let resolveVision;
-        hooks.visionSafeSearch = () => new Promise(res => { resolveVision = res; });
+        // Vision hangs until we release it, so we can observe the mid-flight state.
+        const vision = pendingVisionHook();
+        hooks.visionSafeSearch = vision.hook;
 
         // Start the function but don't await it
         const fnPromise = runFn(await buildEvent(uid, upId)).catch(() => {});
 
-        // Check user doc before Vision resolves — avatarUrl must not be set yet
-        await new Promise(res => setTimeout(res, 500));
-        const snapMid = await db.doc(`users/${uid}`).get();
-        expect(snapMid.data()?.avatarUrl).toBeFalsy();
-
-        // Resolve Vision and let the function finish
-        resolveVision({ adult: 'VERY_UNLIKELY', racy: 'VERY_UNLIKELY' });
-        await fnPromise;
+        try {
+            // Wait for the function to actually be inside Vision, rather than
+            // guessing with a sleep. This also makes the assertion meaningful:
+            // it now runs at a moment when approval is provably still pending.
+            await vision.entered;
+            const snapMid = await db.doc(`users/${uid}`).get();
+            expect(snapMid.data()?.avatarUrl).toBeFalsy();
+        } finally {
+            // Always release Vision and drain the run, even if the assertion
+            // above throws — otherwise the function is left hanging on an
+            // unresolved promise and its emulator connections dangle into
+            // teardown.
+            vision.resolve();
+            await fnPromise;
+        }
         await nuke(uid);
     });
 
@@ -705,8 +758,7 @@ describe('§MOD — moderateAvatarUpload integration tests', () => {
         const mod = await getMod(uid);
         expect(mod?.status).toBe('failed');
         expect(mod?.failureReason).toBe('max_retries_exhausted');
-        const [srcExists] = await bucket.file(`avatarUploads/${uid}/${upId}/original`).exists();
-        expect(srcExists).toBe(false); // source cleaned up
+        await expectObjectGone(`avatarUploads/${uid}/${upId}/original`, 'MOD-31 source');
         await nuke(uid);
     });
 
@@ -721,8 +773,7 @@ describe('§MOD — moderateAvatarUpload integration tests', () => {
         hooks.visionSafeSearch = safeMock();
         await runFn(await buildEvent(uid, upIdA));
         expect(await getMod(uid)).toBeNull(); // A was skipped entirely
-        const [srcAExists] = await bucket.file(`avatarUploads/${uid}/${upIdA}/original`).exists();
-        expect(srcAExists).toBe(false); // source A cleaned up on skip
+        await expectObjectGone(`avatarUploads/${uid}/${upIdA}/original`, 'MOD-32 source A');
         await nuke(uid);
     });
 
@@ -745,10 +796,8 @@ describe('§MOD — moderateAvatarUpload integration tests', () => {
         };
         await runFn(await buildEvent(uid, upId1));
         // Upload-1's approval was aborted; both its objects must be deleted.
-        const [src1Exists] = await bucket.file(`avatarUploads/${uid}/${upId1}/original`).exists();
-        const [cand1Exists] = await bucket.file(`avatarCandidates/${uid}/${upId1}.webp`).exists();
-        expect(src1Exists).toBe(false);
-        expect(cand1Exists).toBe(false);
+        await expectObjectGone(`avatarUploads/${uid}/${upId1}/original`, 'MOD-33 source');
+        await expectObjectGone(`avatarCandidates/${uid}/${upId1}.webp`, 'MOD-33 candidate');
         await nuke(uid);
     });
 
@@ -769,10 +818,8 @@ describe('§MOD — moderateAvatarUpload integration tests', () => {
         // Pass Infinity cutoff so all objects are treated as stale.
         await cleanFn(bucket, db, Infinity);
 
-        const [srcExists] = await bucket.file(`avatarUploads/${uid}/${upId}/original`).exists();
-        const [candExists] = await bucket.file(`avatarCandidates/${uid}/${upId}.webp`).exists();
-        expect(srcExists).toBe(false);
-        expect(candExists).toBe(false);
+        await expectObjectGone(`avatarUploads/${uid}/${upId}/original`, 'MOD-34 source');
+        await expectObjectGone(`avatarCandidates/${uid}/${upId}.webp`, 'MOD-34 candidate');
         await nuke(uid);
     });
 
