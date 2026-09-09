@@ -104,11 +104,11 @@ describe('Overpass callers use the guarded helper', () => {
     expect(overpassDirect).toBeNull();
   });
 
-  it('_fetchCrossStreets routes through _overpassJson and degrades to []', () => {
-    const start = INDEX_SRC.indexOf('async function _fetchCrossStreets(');
-    const body = INDEX_SRC.slice(start, start + 900);
-    expect(body).toMatch(/_overpassJson\(q, 'cross-streets'\)/);
-    expect(body).toMatch(/if \(!data \|\| !data\.elements\?\.length\) return \[\];/);
+  it('_fetchBlockContext routes through _overpassJson and degrades to empty context', () => {
+    const start = INDEX_SRC.indexOf('async function _fetchBlockContext(');
+    const body = INDEX_SRC.slice(start, start + 1400);
+    expect(body).toMatch(/_overpassJson\(q, 'block-context'\)/);
+    expect(body).toMatch(/if \(!data \|\| !data\.elements\?\.length\) return EMPTY;/);
   });
 
   it('_fetchStreetGeometry routes through _overpassJson and degrades to null', () => {
@@ -159,7 +159,7 @@ describe('Overpass User-Agent', () => {
     // Only one place fetches Overpass, so the header cannot be missed by a caller.
     const sites = INDEX_SRC.match(/fetch\(`https:\/\/overpass-api\.de/g) || [];
     expect(sites).toHaveLength(1);
-    expect(INDEX_SRC).toMatch(/async function _fetchCrossStreets\([\s\S]{0,900}_overpassJson\(q, 'cross-streets'\)/);
+    expect(INDEX_SRC).toMatch(/async function _fetchBlockContext\([\s\S]{0,1400}_overpassJson\(q, 'block-context'\)/);
     expect(INDEX_SRC).toMatch(/async function _fetchStreetGeometry\([\s\S]{0,900}_overpassJson\(q, 'street-geometry'\)/);
   });
 

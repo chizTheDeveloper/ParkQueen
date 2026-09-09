@@ -162,80 +162,111 @@ describe('selectBlockFace — block-face selection safety', () => {
   });
 });
 
-describe('selectBlockFace — cross-street scoring (V1.2)', () => {
+describe('selectBlockFace — bounding pair + side', () => {
   // Groups keyed by "from|to|side"
   const rows = n => [{ sign_description: `NO PARKING 8AM-9AM ${n}` }];
   const g72 = { 'WEST 72 STREET|WEST 73 STREET|W': rows(1) };
   const g100 = { 'WEST 100 STREET|WEST 101 STREET|W': rows(2) };
   const gBoth = { ...g72, ...g100 };
 
-  it('exact match: both cross streets match from+to → exact_cross_street_match, score 6', () => {
-    const result = selectBlockFace(g72, ['WEST 72 STREET', 'WEST 73 STREET']);
-    expect(result).not.toBeNull();
-    expect(result.selectionReason).toBe('exact_cross_street_match');
-    expect(result.score).toBe(6);
+  // Both faces of one block: the case that used to be an unbreakable tie,
+  // because side_of_street was never part of the score.
+  const gSides = {
+    'ATLANTIC AVENUE|PACIFIC STREET|E': rows('e'),
+    'ATLANTIC AVENUE|PACIFIC STREET|W': rows('w'),
+  };
+  const BOUNDS = ['ATLANTIC AVENUE', 'PACIFIC STREET'];
+
+  it('both bounding streets matched wins outright when only one face exists', () => {
+    const r = selectBlockFace(g72, ['WEST 72 STREET', 'WEST 73 STREET'], null);
+    expect(r).not.toBeNull();
+    expect(r.selectionReason).toBe('bounding_pair');
+    expect(r.group).toBe(g72['WEST 72 STREET|WEST 73 STREET|W']);
   });
 
-  it('exact match selects correct block face among multiple candidates', () => {
-    const result = selectBlockFace(gBoth, ['WEST 72 STREET', 'WEST 73 STREET']);
-    expect(result).not.toBeNull();
-    expect(result.selectionReason).toBe('exact_cross_street_match');
-    // group should be the 72–73 block, not 100–101
-    expect(result.group).toBe(g72['WEST 72 STREET|WEST 73 STREET|W']);
+  it('picks the right block among several candidates', () => {
+    const r = selectBlockFace(gBoth, ['WEST 72 STREET', 'WEST 73 STREET'], null);
+    expect(r).not.toBeNull();
+    expect(r.group).toBe(g72['WEST 72 STREET|WEST 73 STREET|W']);
   });
 
-  it('reversed cross-street order still selects correct block (from matches cs[1], to matches cs[0])', () => {
-    // DOT lists from_street=WEST 72, to_street=WEST 73; OSM detection finds them in reverse order
-    const result = selectBlockFace(g72, ['WEST 73 STREET', 'WEST 72 STREET']);
-    expect(result).not.toBeNull();
-    expect(result.score).toBe(6);
+  it('treats from/to as an unordered pair (the dataset stores both orderings)', () => {
+    const a = selectBlockFace(g72, ['WEST 72 STREET', 'WEST 73 STREET'], null);
+    const b = selectBlockFace(g72, ['WEST 73 STREET', 'WEST 72 STREET'], null);
+    expect(a.group).toBe(b.group);
+    expect(a.score).toBe(b.score);
   });
 
-  it('partial match: only from_street matches → partial_cross_street_match, score 3', () => {
-    const result = selectBlockFace(g72, ['WEST 72 STREET', 'AMSTERDAM AVENUE']);
-    expect(result).not.toBeNull();
-    expect(result.selectionReason).toBe('partial_cross_street_match');
-    expect(result.score).toBe(3);
+  it('side breaks the tie between the two faces of the same block', () => {
+    const west = selectBlockFace(gSides, BOUNDS, 'West');
+    const east = selectBlockFace(gSides, BOUNDS, 'East');
+    expect(west.group).toBe(gSides['ATLANTIC AVENUE|PACIFIC STREET|W']);
+    expect(east.group).toBe(gSides['ATLANTIC AVENUE|PACIFIC STREET|E']);
+    expect(west.selectionReason).toBe('bounding_pair_and_side');
   });
 
-  it('partial match with unique candidate → selected', () => {
-    const result = selectBlockFace(g72, ['WEST 72 STREET', 'UNRELATED AVE']);
-    expect(result).not.toBeNull();
-    expect(result.selectionReason).toBe('partial_cross_street_match');
+  it('opposite sides of the same block resolve to different faces', () => {
+    expect(selectBlockFace(gSides, BOUNDS, 'West').group)
+      .not.toBe(selectBlockFace(gSides, BOUNDS, 'East').group);
   });
 
-  it('tie: both candidates score equally → null (ambiguous)', () => {
-    // Each group matches one different cross street → score 3 each → tie
+  it('stays ambiguous when both faces exist and the side is unknown', () => {
+    expect(selectBlockFace(gSides, BOUNDS, null)).toBeNull();
+  });
+
+  it('a side that matches no candidate cannot invent a winner', () => {
+    // N/S side against an E/W-sided block: neither candidate earns the bonus.
+    expect(selectBlockFace(gSides, BOUNDS, 'North')).toBeNull();
+  });
+
+  it('side never overrides wrong cross streets', () => {
+    // The 100–101 face carries the matching side, but the bounds point at 72–73.
+    const groups = {
+      'WEST 72 STREET|WEST 73 STREET|E': rows(1),
+      'WEST 100 STREET|WEST 101 STREET|W': rows(2),
+    };
+    const r = selectBlockFace(groups, ['WEST 72 STREET', 'WEST 73 STREET'], 'West');
+    expect(r).not.toBeNull();
+    expect(r.group).toBe(groups['WEST 72 STREET|WEST 73 STREET|E']);
+  });
+
+  it('partial evidence (one bound only) never forces a choice', () => {
+    expect(selectBlockFace(g72, ['WEST 72 STREET', 'AMSTERDAM AVENUE'], null)).toBeNull();
+    expect(selectBlockFace(g72, ['WEST 72 STREET', 'UNRELATED AVE'], 'West')).toBeNull();
+  });
+
+  it('candidates each matching a different single bound stay ambiguous', () => {
     const groups = {
       'WEST 72 STREET|WEST 73 STREET|W': rows(1),
       'WEST 100 STREET|WEST 101 STREET|W': rows(2),
     };
-    const result = selectBlockFace(groups, ['WEST 72 STREET', 'WEST 100 STREET']);
-    expect(result).toBeNull();
+    expect(selectBlockFace(groups, ['WEST 72 STREET', 'WEST 100 STREET'], 'West')).toBeNull();
   });
 
-  it('no cross-street context with multiple groups → null (V1.1 fallback)', () => {
-    expect(selectBlockFace(gBoth, [])).toBeNull();
+  it('no bounding context with multiple groups stays ambiguous', () => {
+    expect(selectBlockFace(gBoth, [], 'West')).toBeNull();
   });
 
-  it('no cross-street context with single group → single_candidate', () => {
-    const result = selectBlockFace(g72, []);
-    expect(result).not.toBeNull();
-    expect(result.selectionReason).toBe('single_candidate');
+  it('no bounding context with a single group is still a safe single_candidate', () => {
+    const r = selectBlockFace(g72, [], null);
+    expect(r).not.toBeNull();
+    expect(r.selectionReason).toBe('single_candidate');
   });
 
-  it('score < 3: cross streets exist but none match any candidate → null', () => {
-    const result = selectBlockFace(gBoth, ['PARK AVENUE', 'LEXINGTON AVENUE']);
-    expect(result).toBeNull();
+  it('bounds that match nothing stay ambiguous', () => {
+    expect(selectBlockFace(gBoth, ['PARK AVENUE', 'LEXINGTON AVENUE'], 'West')).toBeNull();
+  });
+
+  it('never returns a face merely because it is first in the object', () => {
+    const groups = {
+      'AAA STREET|BBB STREET|E': rows(1),
+      'CCC STREET|DDD STREET|W': rows(2),
+    };
+    expect(selectBlockFace(groups, ['ZZZ STREET', 'YYY STREET'], 'East')).toBeNull();
   });
 
   it('normalizer: EAST numbered street survives round-trip for scoring', () => {
-    // osmNameToDOT → used in _fetchCrossStreets; DOT from_street → used in scoring
-    // Both sides must land on the same string for a match
     expect(osmNameToDOT('East 85th Street')).toBe('EAST 85 STREET');
-    // Simulated DOT from_street value (already normalized by normalizeStreetName in scoring)
-    const fromDot = 'EAST 85 STREET';
-    const crossStreet = osmNameToDOT('East 85th Street');
-    expect(crossStreet).toBe(fromDot);
+    expect(osmNameToDOT('East 85th Street')).toBe('EAST 85 STREET');
   });
 });

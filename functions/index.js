@@ -17,7 +17,7 @@ const { geohashForLocation } = require('geofire-common');
 const sendgridApiKey = defineSecret("SENDGRID_API_KEY");
 // Operator action: firebase functions:secrets:set EMAIL_RATE_LIMIT_PEPPER (random 32-byte hex)
 const emailRateLimitPepper = defineSecret("EMAIL_RATE_LIMIT_PEPPER");
-const { osmNameToDOT, streetNameToLikePattern, dotSideToCardinal, BOROUGH_CODE_TO_NAME, nycOdSegmentDocId, selectBlockFace } = require('./nycOpenDataNormalizer');
+const { osmNameToDOT, streetNameToLikePattern, dotSideToCardinal, BOROUGH_CODE_TO_NAME, nycOdSegmentDocId, selectBlockFace, findBlockContext } = require('./nycOpenDataNormalizer');
 const { redactForLog, sanitizeError } = require('./redactForLog');
 const { checkRateLimit } = require('./rateLimiter');
 const { requireCurrentAdmin, requireCurrentAuthenticatedUser } = require('./adminAuth');
@@ -4080,6 +4080,15 @@ function _isASPSign(signDesc) {
 // two call sites cannot drift apart.
 const OSM_USER_AGENT = 'ParkQueenApp/1.0';
 
+// Only real carriageways can bound a block. Footpaths, cycleways, alleys and
+// pedestrian plazas cross the target street without being intersections a DOT
+// block face is ever named after (Greene Street's "GREENE STREET WALK").
+const OSM_ROAD_TYPES = new Set([
+  'motorway', 'trunk', 'primary', 'secondary', 'tertiary',
+  'unclassified', 'residential', 'living_street',
+  'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link',
+]);
+
 /**
  * Single entry point for Overpass. Both callers previously did `await res.json()`
  * straight after `fetch`, with no status check: when Overpass is overloaded it
@@ -4156,42 +4165,43 @@ function _boroughFromAddress(address) {
 }
 
 /**
- * Queries OSM via Overpass for named highway ways near lat/lng and returns
- * up to 2 DOT-normalized cross-street names (excluding the main street itself).
- * Used to score NYC Open Data block-face candidates.
+ * Determines the block the user is standing on, from one Overpass request.
+ *
+ * Returns the two cross streets that BOUND the block along the target street
+ * (in along-street order) plus the cardinal side the user is on. Both are
+ * required before a block face may be chosen.
+ *
+ * This replaces a nearest-midpoint heuristic that returned whichever named ways
+ * happened to be closest in a straight line. Those are frequently parallel
+ * streets that never meet the target at all — at Bed-Stuy it returned SAINT
+ * ANDREWS PLACE, so no candidate could ever match both bounds and every lookup
+ * ended as nyc_open_data_ambiguous_block.
+ *
+ * The bbox is wider than the old ~130 m because a bounding intersection can sit
+ * a full long block away; selection is by actual crossing now, not proximity, so
+ * the extra ways cost nothing but are filtered to real roads to keep footpaths
+ * and service alleys from being treated as intersections.
  */
-async function _fetchCrossStreets(lat, lng, mainStreetOsmName) {
-  const delta = 0.0012; // ~130 m — tight enough to stay within one block
+async function _fetchBlockContext(lat, lng, mainStreetOsmName) {
+  const delta = 0.004; // ~440 m: enough to contain both bounds of a long block
   const bbox = `${lat - delta},${lng - delta},${lat + delta},${lng + delta}`;
-  const q = `[out:json][timeout:8];way[highway][name](${bbox});out geom;`;
+  const q = `[out:json][timeout:15];way[highway][name](${bbox});out geom;`;
+  const EMPTY = { crossStreets: [], side: null, bearing: null };
   try {
-    const data = await _overpassJson(q, 'cross-streets');
-    if (!data || !data.elements?.length) return [];
-    const mainDot = osmNameToDOT(mainStreetOsmName);
-    // Filter out the main street; keep crossing named ways
-    const others = data.elements.filter(el =>
-      el.tags?.name && el.geometry?.length >= 2 && osmNameToDOT(el.tags.name) !== mainDot
-    );
-    // Sort by midpoint proximity to user
-    others.sort((a, b) => {
-      const mA = a.geometry[Math.floor(a.geometry.length / 2)];
-      const mB = b.geometry[Math.floor(b.geometry.length / 2)];
-      return ((mA.lat - lat) ** 2 + (mA.lon - lng) ** 2) - ((mB.lat - lat) ** 2 + (mB.lon - lng) ** 2);
-    });
-    // Collect up to 2 unique DOT names
-    const seen = new Set();
-    const result = [];
-    for (const el of others) {
-      const d = osmNameToDOT(el.tags.name);
-      if (!seen.has(d)) { seen.add(d); result.push(d); if (result.length === 2) break; }
-    }
-    console.log('[NYCOpenData] cross streets detected:', result);
-    return result;
+    const data = await _overpassJson(q, 'block-context');
+    if (!data || !data.elements?.length) return EMPTY;
+    const ways = data.elements
+      .filter(el => el.tags?.name && el.geometry?.length >= 2 && OSM_ROAD_TYPES.has(el.tags.highway))
+      .map(el => ({ name: osmNameToDOT(el.tags.name), geometry: el.geometry }));
+    const ctx = findBlockContext(ways, lat, lng, osmNameToDOT(mainStreetOsmName));
+    console.log('[NYCOpenData] block bounds:', ctx.crossStreets, '| side:', ctx.side, '| bearing:', ctx.bearing == null ? null : Math.round(ctx.bearing));
+    return ctx;
   } catch (err) {
-    console.warn('[NYCOpenData] cross-street fetch error:', sanitizeError(err));
-    return [];
+    console.warn('[NYCOpenData] block-context fetch error:', sanitizeError(err));
+    return EMPTY;
   }
 }
+
 
 /** Reverse geocodes lat/lng via Nominatim → OSM road name. */
 async function _reverseGeocodeStreet(lat, lng) {
@@ -4306,17 +4316,20 @@ async function _fallbackToNYCOpenData(lat, lng) {
     const groupKeys = Object.keys(groups);
     console.log('[NYCOpenData] block face candidates:', groupKeys.length, '| keys:', groupKeys.join(' / '));
 
-    // Fetch cross streets for scoring (V1.2); falls back to [] if Overpass fails
-    const crossStreets = await _fetchCrossStreets(lat, lng, osmStreet);
-    console.log('[NYCOpenData] cross streets for scoring:', crossStreets);
+    // Block bounds + side from OSM geometry; both empty if Overpass is unavailable,
+    // in which case selection stays conservative rather than guessing.
+    const blockCtx = await _fetchBlockContext(lat, lng, osmStreet);
+    const crossStreets = blockCtx.crossStreets;
+    const userSide = blockCtx.side;
+    console.log('[NYCOpenData] bounding cross streets:', crossStreets, '| user side:', userSide);
 
-    const selection = selectBlockFace(groups, crossStreets);
+    const selection = selectBlockFace(groups, crossStreets, userSide);
     if (!selection) {
-      console.warn('[NYCOpenData] ambiguous block face — ' + groupKeys.length + ' candidates, crossStreets:', crossStreets, '— returning ambiguous.');
+      console.warn('[NYCOpenData] ambiguous block face — ' + groupKeys.length + ' candidates, crossStreets:', crossStreets, '| side:', userSide, '— returning ambiguous.');
       return {
         success: false,
         reason: 'nyc_open_data_ambiguous_block',
-        _diag: { stage: 'nyc_od_ambiguous', onStreet: dotName, borough, candidateCount: groupKeys.length, candidates: groupKeys, crossStreets },
+        _diag: { stage: 'nyc_od_ambiguous', onStreet: dotName, borough, candidateCount: groupKeys.length, candidates: groupKeys, crossStreets, userSide },
       };
     }
     const { group: bestGroup, selectionReason, score: selectionScore } = selection;
