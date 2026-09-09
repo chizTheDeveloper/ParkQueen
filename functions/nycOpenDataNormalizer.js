@@ -96,58 +96,279 @@ function nycOdSegmentDocId(boroughCode, dotName, fromStreet, toStreet, side) {
 /**
  * Selects a single block face from grouped NYC Open Data rows.
  *
- * @param {{ [key: string]: object[] }} groups  — keyed by "from_street|to_street|side"
- * @param {string[]} crossStreets               — up to 2 DOT-normalized cross-street names
- *                                                derived from OSM near user position
+ * @param {{ [key: string]: object[] }} groups  keyed by "from_street|to_street|side"
+ * @param {string[]} crossStreets  the two streets BOUNDING the user's block, in
+ *        along-street order, DOT-normalised (see findBlockContext). These are the
+ *        intersections immediately before and after the user along the target
+ *        street — not merely nearby roads.
+ * @param {string|null} userSide  cardinal side the user stands on ('North'|'South'
+ *        |'East'|'West'), or null when geometry could not determine it.
  * @returns {{ group: object[], selectionReason: string, score: number } | null}
  *
- * Selection rules:
- *   No crossStreets  → single candidate wins; multiple → null (ambiguous, V1.1 behavior).
- *   With crossStreets → score each group; require score ≥ 3 AND strictly beat second place.
- *   selectionReason values:
- *     'single_candidate'          — 1 group, no cross-street context needed
- *     'exact_cross_street_match'  — both from+to matched (score 6)
- *     'partial_cross_street_match'— one of from/to matched (score 3–5)
- *     null return                 — ambiguous; caller returns nyc_open_data_ambiguous_block
+ * Evidence model. from_street/to_street name the two ends of a DOT block face and
+ * the dataset uses both orderings for the same physical block, so the pair is
+ * compared as an unordered SET. side_of_street is the cardinal side perpendicular
+ * to the street's local bearing, which is directly comparable to userSide.
+ *
+ *   block evidence   both bounding streets matched  -> 6   (the only decisive level)
+ *                    exactly one matched            -> 3   (never sufficient alone)
+ *                    neither                        -> 0
+ *   side evidence    candidate side === userSide    -> +1
+ *
+ * Scored as block * 10 + side, so side can only ever separate candidates that are
+ * already tied on block evidence — it can never drag a wrong block above a right
+ * one. A winner must have the full bounding pair AND strictly beat second place;
+ * anything else stays ambiguous rather than guessing. That is what distinguishes
+ * the two faces of one block (E vs W), which is otherwise a genuine tie.
+ *
+ * selectionReason values:
+ *   'single_candidate'          1 group, no cross-street context needed
+ *   'bounding_pair_and_side'    both bounds matched and side broke the tie
+ *   'bounding_pair'             both bounds matched and it won outright
+ *   null return                 ambiguous; caller returns nyc_open_data_ambiguous_block
  */
-function selectBlockFace(groups, crossStreets = []) {
+function selectBlockFace(groups, crossStreets = [], userSide = null) {
   const keys = Object.keys(groups);
   if (!keys.length) return null;
 
-  // No cross-street context: V1.1 conservative behavior
+  // No cross-street context: only an unambiguous single candidate is safe.
   if (!crossStreets.length) {
     if (keys.length === 1) return { group: groups[keys[0]], selectionReason: 'single_candidate', score: 0 };
     return null;
   }
 
-  // Score each group by how many cross streets match from_street / to_street
-  const scored = keys.map(key => {
-    const [fromStr, toStr] = key.split('|');
-    const fromDot = String(fromStr || '').toUpperCase().replace(/\s+/g, ' ').trim();
-    const toDot   = String(toStr   || '').toUpperCase().replace(/\s+/g, ' ').trim();
-    let score = 0;
-    for (const cs of crossStreets) {
-      if (cs === fromDot) score += 3;
-      if (cs === toDot)   score += 3;
-    }
-    return { key, score };
-  });
-  scored.sort((a, b) => b.score - a.score);
+  const norm = v => String(v || '').toUpperCase().replace(/\s+/g, ' ').trim();
+  const bounds = new Set(crossStreets.map(norm).filter(Boolean));
+  const wantSide = norm(userSide);
 
-  const best   = scored[0];
+  const scored = keys.map(key => {
+    const [fromStr, toStr, sideStr] = key.split('|');
+    const from = norm(fromStr), to = norm(toStr);
+    // Unordered comparison: the dataset stores A|B and B|A for the same block.
+    let block = 0;
+    if (bounds.size >= 2 && bounds.has(from) && bounds.has(to) && from !== to) block = 6;
+    else if (bounds.has(from) || bounds.has(to)) block = 3;
+    const sideCardinal = norm(dotSideToCardinal(sideStr));
+    const side = wantSide && sideCardinal && sideCardinal === wantSide ? 1 : 0;
+    return { key, block, side, total: block * 10 + side };
+  });
+  scored.sort((a, b) => b.total - a.total);
+
+  const best = scored[0];
   const second = scored[1];
 
-  // Require at least one definite match
-  if (best.score < 3) return null;
-  // Tie with next candidate → ambiguous
-  if (second && best.score === second.score) return null;
+  // Partial evidence must never force a choice.
+  if (best.block < 6) return null;
+  // Still indistinguishable (e.g. both faces of the block, side unknown).
+  if (second && best.total === second.total) return null;
 
-  const selectionReason = best.score >= 6 ? 'exact_cross_street_match' : 'partial_cross_street_match';
-  return { group: groups[best.key], selectionReason, score: best.score };
+  return {
+    group: groups[best.key],
+    selectionReason: best.side ? 'bounding_pair_and_side' : 'bounding_pair',
+    score: best.total,
+  };
+}
+
+// ── Block-face geometry ───────────────────────────────────────────────────────
+// Pure helpers: they take OSM way geometry (already fetched by the caller's
+// single Overpass request) plus the user's coordinate, and work out which BLOCK
+// the user stands on and which SIDE of it they are on.
+//
+// The previous approach took the two named ways whose midpoints were nearest the
+// user, which routinely returned a parallel street that does not bound the block
+// at all — Bed-Stuy returned SAINT ANDREWS PLACE, which never meets Brooklyn
+// Avenue. Bounding streets are a question of order ALONG the target street, not
+// straight-line proximity, so the user is projected onto the target centreline
+// and the nearest true crossing on each side is taken.
+
+// Longitude degrees are shorter than latitude degrees; scaling by cos(lat) makes
+// planar maths accurate enough over the ~1 km windows used here.
+const NYC_LNG_SCALE = Math.cos((40.7 * Math.PI) / 180);
+const toXY = (lat, lng) => ({ x: lng * NYC_LNG_SCALE, y: lat });
+
+function projectOnSegment(p, a, b) {
+  const vx = b.x - a.x, vy = b.y - a.y;
+  const wx = p.x - a.x, wy = p.y - a.y;
+  const len2 = vx * vx + vy * vy;
+  if (len2 === 0) return { t: 0, d2: wx * wx + wy * wy };
+  const t = Math.max(0, Math.min(1, (wx * vx + wy * vy) / len2));
+  const dx = p.x - (a.x + t * vx), dy = p.y - (a.y + t * vy);
+  return { t, d2: dx * dx + dy * dy };
+}
+
+/** Closest point on a polyline: its cumulative distance along, and the segment hit. */
+function projectOnPolyline(p, pts) {
+  let best = null, acc = 0;
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const a = pts[i], b = pts[i + 1];
+    const segLen = Math.hypot(b.x - a.x, b.y - a.y);
+    const pr = projectOnSegment(p, a, b);
+    const along = acc + pr.t * segLen;
+    if (!best || pr.d2 < best.d2) best = { d2: pr.d2, along, a, b };
+    acc += segLen;
+  }
+  return best;
+}
+
+function segmentsIntersect(a, b, c, d) {
+  const rx = b.x - a.x, ry = b.y - a.y;
+  const sx = d.x - c.x, sy = d.y - c.y;
+  const den = rx * sy - ry * sx;
+  if (den === 0) return null; // parallel or collinear
+  const t = ((c.x - a.x) * sy - (c.y - a.y) * sx) / den;
+  const u = ((c.x - a.x) * ry - (c.y - a.y) * rx) / den;
+  if (t < 0 || t > 1 || u < 0 || u > 1) return null;
+  return t;
+}
+
+/**
+ * Distance along `target` at which `other` crosses it, or null if it never does.
+ * Falls back to a near-touch test within `tol` so T-junctions whose OSM geometry
+ * stops a few metres short still count as intersections.
+ */
+function crossingAlong(target, other, tol) {
+  let acc = 0, best = null;
+  for (let i = 0; i + 1 < target.length; i++) {
+    const a = target[i], b = target[i + 1];
+    const segLen = Math.hypot(b.x - a.x, b.y - a.y);
+    for (let j = 0; j + 1 < other.length; j++) {
+      const t = segmentsIntersect(a, b, other[j], other[j + 1]);
+      if (t !== null) {
+        const along = acc + t * segLen;
+        if (best === null || along < best) best = along;
+      }
+    }
+    acc += segLen;
+  }
+  if (best !== null) return best;
+  for (const pt of other) {
+    const pr = projectOnPolyline(pt, target);
+    if (pr && Math.sqrt(pr.d2) <= tol && (best === null || pr.along < best)) best = pr.along;
+  }
+  return best;
+}
+
+const CHAIN_GAP = 0.0006; // ~60 m: beyond this, a fragment is a different run
+
+/**
+ * Joins the target street's way fragments into one polyline, seeded at the
+ * fragment the user actually stands on and grown in BOTH directions. Seeding
+ * arbitrarily can leave the user at an end of the chain, which silently loses the
+ * cross street on one side of them.
+ */
+function chainWays(segs, seedPoint) {
+  if (!segs.length) return [];
+  const near = (p, q) => Math.hypot(p.x - q.x, p.y - q.y);
+  const remaining = segs.slice();
+  let seedIdx = 0;
+  if (seedPoint) {
+    let bestD = Infinity;
+    remaining.forEach((sg, i) => {
+      for (let j = 0; j + 1 < sg.length; j++) {
+        const pr = projectOnSegment(seedPoint, sg[j], sg[j + 1]);
+        if (pr.d2 < bestD) { bestD = pr.d2; seedIdx = i; }
+      }
+    });
+  }
+  let chain = remaining.splice(seedIdx, 1)[0].slice();
+  for (;;) {
+    let bestI = -1, bestD = Infinity, mode = null;
+    for (let i = 0; i < remaining.length; i++) {
+      const sg = remaining[i];
+      const opts = [
+        [near(chain[chain.length - 1], sg[0]), 'tail-head'],
+        [near(chain[chain.length - 1], sg[sg.length - 1]), 'tail-tail'],
+        [near(chain[0], sg[sg.length - 1]), 'head-tail'],
+        [near(chain[0], sg[0]), 'head-head'],
+      ];
+      for (const [d, m] of opts) if (d < bestD) { bestD = d; bestI = i; mode = m; }
+    }
+    if (bestI < 0 || bestD > CHAIN_GAP) break;
+    const sg = remaining.splice(bestI, 1)[0];
+    if (mode === 'tail-head') chain = chain.concat(sg.slice(1));
+    else if (mode === 'tail-tail') chain = chain.concat(sg.slice().reverse().slice(1));
+    else if (mode === 'head-tail') chain = sg.slice(0, -1).concat(chain);
+    else chain = sg.slice().reverse().slice(0, -1).concat(chain);
+  }
+  return chain;
+}
+
+/**
+ * Which cardinal side of the roadway a point lies on.
+ *
+ * nfid-uabd's side_of_street is the cardinal side PERPENDICULAR to the street's
+ * local bearing — verified against the live dataset: N/S-running streets use
+ * E/W (BROOKLYN AVENUE W=175 E=151), E/W-running streets use N/S (ATLANTIC
+ * AVENUE N=530 S=524), and diagonal Broadway uses E/W. The bearing must be
+ * normalised to [0,180] first, the same convention _detectCardinalSide relies on.
+ */
+function cardinalSideOf(point, a, b) {
+  let brg = ((Math.atan2(b.x - a.x, b.y - a.y) * 180) / Math.PI + 360) % 360;
+  let A = a, B = b;
+  if (brg > 180) { A = b; B = a; brg = (brg + 180) % 360; }
+  const cross = (B.x - A.x) * (point.y - A.y) - (B.y - A.y) * (point.x - A.x);
+  const positive = cross > 0;
+  if (brg < 45) return positive ? 'West' : 'East';
+  if (brg < 135) return positive ? 'North' : 'South';
+  return positive ? 'East' : 'West';
+}
+
+const TOUCH_TOL = 0.00025; // ~25 m
+
+/**
+ * Works out the block the user is standing on.
+ *
+ * @param {{name: string, geometry: {lat: number, lon: number}[]}[]} ways
+ *        Named road ways from one Overpass response, names already DOT-normalised.
+ * @param {number} lat
+ * @param {number} lng
+ * @param {string} mainDotName  target street, DOT-normalised
+ * @returns {{ crossStreets: string[], side: string|null, bearing: number|null }}
+ *          crossStreets holds the two bounding streets in along-street order.
+ *          Fewer than two means the block could not be bounded, and the caller
+ *          must not guess a face from it.
+ */
+function findBlockContext(ways, lat, lng, mainDotName) {
+  const empty = { crossStreets: [], side: null, bearing: null };
+  if (!Array.isArray(ways) || !ways.length) return empty;
+  const target = ways.filter(w => w.name === mainDotName && w.geometry && w.geometry.length >= 2);
+  if (!target.length) return empty;
+
+  const user = toXY(lat, lng);
+  const poly = chainWays(target.map(w => w.geometry.map(g => toXY(g.lat, g.lon))), user);
+  if (poly.length < 2) return empty;
+  const proj = projectOnPolyline(user, poly);
+  if (!proj) return empty;
+
+  const nearest = new Map();
+  for (const w of ways) {
+    if (w.name === mainDotName || !w.geometry || w.geometry.length < 2) continue;
+    const along = crossingAlong(poly, w.geometry.map(g => toXY(g.lat, g.lon)), TOUCH_TOL);
+    if (along === null) continue; // never meets the target street, so cannot bound it
+    const prev = nearest.get(w.name);
+    if (prev === undefined || Math.abs(along - proj.along) < Math.abs(prev - proj.along)) {
+      nearest.set(w.name, along);
+    }
+  }
+
+  const ordered = [...nearest.entries()].map(([name, along]) => ({ name, along }))
+    .sort((p, q) => p.along - q.along);
+  const before = [...ordered].filter(c => c.along <= proj.along).pop() || null;
+  const after = ordered.find(c => c.along > proj.along) || null;
+
+  let bearing = ((Math.atan2(proj.b.x - proj.a.x, proj.b.y - proj.a.y) * 180) / Math.PI + 360) % 360;
+  if (bearing > 180) bearing = (bearing + 180) % 360;
+
+  return {
+    crossStreets: [before && before.name, after && after.name].filter(Boolean),
+    side: cardinalSideOf(user, proj.a, proj.b),
+    bearing,
+  };
 }
 
 module.exports = {
   osmNameToDOT, normalizeStreetName, streetNameToLikePattern,
   dotSideToCardinal, BOROUGH_CODE_TO_NAME,
   nycOdSegmentDocId, selectBlockFace,
+  findBlockContext, cardinalSideOf, chainWays, projectOnPolyline, crossingAlong,
 };
