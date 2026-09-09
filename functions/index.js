@@ -17,7 +17,7 @@ const { geohashForLocation } = require('geofire-common');
 const sendgridApiKey = defineSecret("SENDGRID_API_KEY");
 // Operator action: firebase functions:secrets:set EMAIL_RATE_LIMIT_PEPPER (random 32-byte hex)
 const emailRateLimitPepper = defineSecret("EMAIL_RATE_LIMIT_PEPPER");
-const { osmNameToDOT, streetNameToLikePattern, dotSideToCardinal, BOROUGH_CODE_TO_NAME, nycOdSegmentDocId, selectBlockFace, findBlockContext } = require('./nycOpenDataNormalizer');
+const { osmNameToDOT, streetNameToLikePattern, dotSideToCardinal, BOROUGH_CODE_TO_NAME, nycOdSegmentDocId, selectBlockFace, findBlockContext, parseNYCOpenDataSign } = require('./nycOpenDataNormalizer');
 const { redactForLog, sanitizeError } = require('./redactForLog');
 const { checkRateLimit } = require('./rateLimiter');
 const { requireCurrentAdmin, requireCurrentAuthenticatedUser } = require('./adminAuth');
@@ -4358,12 +4358,23 @@ async function _fallbackToNYCOpenData(lat, lng) {
       fromCross: fromStreet,
       toCross: toStreet,
     };
+    // nfid-uabd writes a different sign grammar from SweepNYC — trailing arrows
+    // and (SUPERSEDES ...) metadata defeated _parseSweepNYCSign's end anchor, so
+    // every row failed and the fallback died at nyc_od_parse with a block face
+    // already correctly selected. Source-specific parser, same canonical shape.
     const parsed = [];
+    const unparsed = [];
     for (const r of bestGroup) {
-      const result = _parseSweepNYCSign(r.sign_description, streetCtx);
+      const result = parseNYCOpenDataSign(r.sign_description, streetCtx);
       if (result) parsed.push(result);
+      else if (r.sign_description) unparsed.push(r.sign_description);
     }
     console.log('[NYCOpenData] parsed', parsed.length, '/', bestGroup.length, 'signs');
+    if (unparsed.length) {
+      // Left unparsed on purpose: a sign that cannot be read confidently must not
+      // contribute an invented schedule. Logged so the grammar gap is visible.
+      console.warn('[NYCOpenData] unparsed sign text:', redactForLog(unparsed[0]).slice(0, 160));
+    }
     if (!parsed.length) {
       return { success: false, reason: 'no_sweepnyc_data',
         _diag: { stage: 'nyc_od_parse', aspCount: aspRows.length, groupCount: groupKeys.length, selectionReason } };

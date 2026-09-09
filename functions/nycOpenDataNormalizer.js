@@ -366,9 +366,210 @@ function findBlockContext(ways, lat, lng, mainDotName) {
   };
 }
 
+// ── NYC Open Data ASP sign parsing ────────────────────────────────────────────
+// nfid-uabd writes a different grammar from SweepNYC, which is why
+// _parseSweepNYCSign rejected every row: its regex is anchored on
+// "...<time>-<time> [on <street>] [(Side: X)]$", and DOT text carries trailing
+// arrows and (SUPERSEDES ...) metadata, so the anchor never matched.
+//
+// Grammar observed across 337 distinct ASP texts sampled from all five boroughs:
+//
+//   modern  NO PARKING (SANITATION BROOM SYMBOL) MONDAY THURSDAY 8:30AM-10AM <-> (SUPERSEDES SP-369C)
+//   legacy  NO PARKING (SANITATION BROOM SYMBOL) 9:30-11AM TUES & FRI <-----> (SUPERSEDED BY SP-63C)
+//   except  NO PARKING 8AM-1PM EXCEPT SUNDAY --> (SUPERSEDES SP-211CA)
+//
+// Day semantics, established from the data rather than from English: a HYPHEN is
+// a range (MONDAY-FRIDAY, 32 rows) and WHITESPACE/& is a discrete list. The list
+// reading is forced by the three- and four-token cases — MONDAY WEDNESDAY FRIDAY
+// (10 rows) and MONDAY TUESDAY THURSDAY FRIDAY (8 rows) — which cannot be ranges.
+// So "MONDAY THURSDAY" is Monday AND Thursday, not Monday through Thursday.
+//
+// Arrow semantics: <->, -->, <--, <-, ->, <-----> and the phrase W/SINGLE ARROW
+// mark how far the regulation extends along the block from the sign post. They
+// are independent of the schedule — the same day/time patterns appear with both
+// <-> (126 distinct time tails) and --> (106) — and the block face is already
+// pinned by from_street/to_street/side before parsing, so they carry no schedule
+// meaning here. They are stripped from the schedule parse and returned in
+// `provenance` rather than discarded.
+
+const _NYCOD_DAYS = {
+  MONDAY: 'Mon', TUESDAY: 'Tue', WEDNESDAY: 'Wed', THURSDAY: 'Thu',
+  FRIDAY: 'Fri', SATURDAY: 'Sat', SUNDAY: 'Sun',
+  MON: 'Mon', TUE: 'Tue', TUES: 'Tue', WED: 'Wed', WEDS: 'Wed',
+  THU: 'Thu', THUR: 'Thu', THURS: 'Thu', FRI: 'Fri', SAT: 'Sat', SUN: 'Sun',
+};
+const _NYCOD_WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+// Parentheticals that are pictogram or administrative notes, never schedule.
+const _NYCOD_NOISE = [
+  /\(SANITATION BROOM SYMBOL\)/gi,
+  /\(MOON\s*&\s*STARS\s*\(SYMBOLS\)\)/gi,
+  /MOON\s*&\s*STARS\s*\(SYMBOLS\)/gi,
+  /W\/\s*\(MOON\/STARS SYMBOLS\)/gi,
+  /\(SUPERSEDES[^)]*\)/gi,
+  /\(SUPERSEDED BY[^)]*\)/gi,
+  /\(DON'?T LITTER\)/gi,
+  /\(SINGLE ARROW\)/gi,
+  /W\/\s*SINGLE ARROW/gi,
+];
+const _NYCOD_ARROWS = /<-+>|-+>|<-+/g;
+
+/** Splits a sign into schedule text and the non-schedule metadata removed from it. */
+function stripNYCODNoise(text) {
+  const provenance = { arrows: [], notes: [] };
+  let out = String(text || '');
+  const arrows = out.match(_NYCOD_ARROWS);
+  if (arrows) provenance.arrows = arrows.map(a => a.trim());
+  if (/W\/\s*SINGLE ARROW/i.test(out)) provenance.arrows.push('W/SINGLE ARROW');
+  for (const re of _NYCOD_NOISE) {
+    const hits = out.match(re);
+    if (hits) provenance.notes.push(...hits.map(h => h.trim()));
+    out = out.replace(re, ' ');
+  }
+  out = out.replace(_NYCOD_ARROWS, ' ');
+  // Any remaining parenthetical is unrecognised: keep it as provenance, and the
+  // caller treats its presence as a reason to be careful rather than to guess.
+  const leftovers = out.match(/\([^)]*\)/g);
+  if (leftovers) provenance.notes.push(...leftovers.map(h => h.trim()));
+  out = out.replace(/\([^)]*\)/g, ' ');
+  return { text: out.replace(/\s+/g, ' ').trim(), provenance, unknownParens: !!leftovers };
+}
+
+/** "8:30AM" / "9:30" / "MIDNIGHT" / "NOON" → minutes since midnight, or null. */
+function parseNYCODClock(raw, inheritMeridiem) {
+  const t = String(raw || '').toUpperCase().replace(/\./g, '').replace(/\s+/g, '');
+  if (t === 'MIDNIGHT') return 0;
+  if (t === 'NOON') return 12 * 60;
+  const m = t.match(/^(\d{1,2})(?::(\d{2}))?(AM|PM)?$/);
+  if (!m) return null;
+  let h = parseInt(m[1], 10);
+  const min = m[2] ? parseInt(m[2], 10) : 0;
+  const mer = m[3] || inheritMeridiem;
+  if (!mer) return null;                    // never assume AM or PM
+  if (h < 1 || h > 12 || min > 59) return null;
+  if (mer === 'PM' && h !== 12) h += 12;
+  if (mer === 'AM' && h === 12) h = 0;
+  return h * 60 + min;
+}
+
+const _fmtClock = mins => `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+const _meridiemOf = raw => {
+  const t = String(raw || '').toUpperCase();
+  if (t.includes('MIDNIGHT')) return 'AM';
+  if (t.includes('NOON')) return 'PM';
+  const m = t.match(/(AM|PM)/);
+  return m ? m[1] : null;
+};
+
+/**
+ * Day list. Hyphen ranges expand; whitespace/&/comma separate discrete days.
+ * Returns [] when a token is not a recognised day so the caller can refuse the
+ * sign rather than parse a partial week.
+ */
+function parseNYCODDays(raw) {
+  const cleaned = String(raw || '').toUpperCase().replace(/\bAND\b/g, ' ').replace(/&/g, ' ').replace(/,/g, ' ').trim();
+  if (!cleaned) return [];
+  // "ALL DAYS" is an explicit every-day marker in the source text, not an
+  // inference drawn from a missing day list.
+  if (/^ALL\s+DAYS?$/.test(cleaned) || cleaned === 'DAILY') return _NYCOD_WEEK.slice();
+  const range = cleaned.match(/^([A-Z]+)\s*(?:-|THRU|THROUGH)\s*([A-Z]+)$/);
+  if (range) {
+    const a = _NYCOD_DAYS[range[1]], b = _NYCOD_DAYS[range[2]];
+    if (!a || !b) return [];
+    const i = _NYCOD_WEEK.indexOf(a), j = _NYCOD_WEEK.indexOf(b);
+    if (i < 0 || j < 0) return [];
+    const out = [];
+    for (let k = i; ; k = (k + 1) % 7) { out.push(_NYCOD_WEEK[k]); if (k === j) break; if (out.length > 7) return []; }
+    return out;
+  }
+  const out = [];
+  for (const tok of cleaned.split(/\s+/)) {
+    if (!tok) continue;
+    if (tok === 'HOLIDAYS' || tok === 'HOLIDAY') continue; // not a weekday
+    const d = _NYCOD_DAYS[tok];
+    if (!d) return [];                       // unknown token: refuse the whole sign
+    if (!out.includes(d)) out.push(d);
+  }
+  return out;
+}
+
+const _NYCOD_TIME = String.raw`(\d{1,2}(?::\d{2})?\s*(?:AM|PM)?|MIDNIGHT|NOON)`;
+
+/**
+ * Parses an nfid-uabd ASP sign into the same canonical shape as
+ * _parseSweepNYCSign: { street, fromCross, toCross, side, days, startTime,
+ * endTime }, plus `source` and `provenance` so the raw metadata survives.
+ *
+ * Returns null whenever the schedule is not fully determined. It never invents a
+ * day or a time: an unreadable sign must leave the block unparsed rather than
+ * imply that parking is allowed.
+ */
+function parseNYCOpenDataSign(signText, streetCtx) {
+  if (!signText || typeof signText !== 'string') return null;
+  const ctx = streetCtx || {};
+  const raw = signText;
+  const { text, provenance } = stripNYCODNoise(raw.toUpperCase());
+  // Check the prefix AFTER whitespace is collapsed: the dataset contains rows
+  // written "NO   PARKING", which a raw startsWith would reject.
+  if (!text.startsWith('NO PARKING')) return null;
+  const body = text.replace(/^NO PARKING\s*/, '').trim();
+  if (!body) return null;
+
+  const timeRange = String.raw`${_NYCOD_TIME}\s*(?:-|–|\bTO\b)\s*${_NYCOD_TIME}`;
+
+  let daysRaw = null, startRaw = null, endRaw = null, exceptRaw = null;
+
+  // days then time  — NO PARKING MONDAY THURSDAY 8:30AM-10AM
+  let m = body.match(new RegExp(String.raw`^([A-Z\s&,\-]*?)\s*${timeRange}\s*$`));
+  if (m && m[1].trim()) { daysRaw = m[1]; startRaw = m[2]; endRaw = m[3]; }
+
+  // time then EXCEPT days — NO PARKING 8AM-1PM EXCEPT SUNDAY
+  if (!daysRaw) {
+    m = body.match(new RegExp(String.raw`^${timeRange}\s*EXCEPT\s+([A-Z\s&,]+?)\s*$`));
+    if (m) { startRaw = m[1]; endRaw = m[2]; exceptRaw = m[3]; }
+  }
+
+  // time then days (legacy) — NO PARKING 9:30-11AM TUES & FRI
+  if (!daysRaw && !exceptRaw) {
+    m = body.match(new RegExp(String.raw`^${timeRange}\s+([A-Z\s&,\-]+?)\s*$`));
+    if (m) { startRaw = m[1]; endRaw = m[2]; daysRaw = m[3]; }
+  }
+
+  if (!startRaw || !endRaw) return null;
+
+  // A first time without AM/PM inherits the second's ("9:30-11AM" is 9:30 AM).
+  const endMer = _meridiemOf(endRaw);
+  const start = parseNYCODClock(startRaw, _meridiemOf(startRaw) ? null : endMer);
+  const end = parseNYCODClock(endRaw, null);
+  if (start === null || end === null || start === end) return null;
+
+  let days;
+  if (exceptRaw) {
+    const excluded = parseNYCODDays(exceptRaw);
+    if (!excluded.length) return null;
+    days = _NYCOD_WEEK.filter(d => !excluded.includes(d));
+  } else {
+    days = parseNYCODDays(daysRaw);
+  }
+  if (!days.length) return null;
+
+  return {
+    street: ctx.street || 'Unknown Street',
+    fromCross: ctx.fromCross || null,
+    toCross: ctx.toCross || null,
+    side: ctx.side || null,
+    days,
+    startTime: _fmtClock(start),
+    endTime: _fmtClock(end),
+    source: 'nyc_open_data',
+    provenance: { rawText: raw, arrows: provenance.arrows, notes: provenance.notes },
+  };
+}
+
 module.exports = {
   osmNameToDOT, normalizeStreetName, streetNameToLikePattern,
   dotSideToCardinal, BOROUGH_CODE_TO_NAME,
   nycOdSegmentDocId, selectBlockFace,
   findBlockContext, cardinalSideOf, chainWays, projectOnPolyline, crossingAlong,
+  parseNYCOpenDataSign, parseNYCODDays, parseNYCODClock, stripNYCODNoise,
 };
