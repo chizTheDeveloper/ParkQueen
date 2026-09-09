@@ -42,14 +42,17 @@ function extractFn(src, name) {
 }
 
 // Runs the REAL production function with an injected fetch — not a re-implementation.
-function loadQueryFn(fetchImpl, warn) {
+// `_socrataToken` is injected too: in production it reads the bound Secret Manager
+// param, which is not available to a unit run.
+function loadQueryFn(fetchImpl, warn, token) {
   const body = extractFn(INDEX_SRC, '_queryNYCOpenData');
   // eslint-disable-next-line no-new-func
-  return new Function('fetch', 'console', 'process', 'sanitizeError', body + '; return _queryNYCOpenData;')(
+  return new Function('fetch', 'console', 'process', 'sanitizeError', '_socrataToken', body + '; return _queryNYCOpenData;')(
     fetchImpl,
     { log: () => {}, warn: warn || (() => {}) },
     { env: {} },
     sanitizeError,
+    () => token || '',
   );
 }
 
