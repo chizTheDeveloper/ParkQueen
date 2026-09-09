@@ -17,6 +17,7 @@ const { geohashForLocation } = require('geofire-common');
 const sendgridApiKey = defineSecret("SENDGRID_API_KEY");
 // Operator action: firebase functions:secrets:set EMAIL_RATE_LIMIT_PEPPER (random 32-byte hex)
 const emailRateLimitPepper = defineSecret("EMAIL_RATE_LIMIT_PEPPER");
+const socrataAppToken = defineSecret("SOCRATA_APP_TOKEN");
 const { osmNameToDOT, streetNameToLikePattern, dotSideToCardinal, BOROUGH_CODE_TO_NAME, nycOdSegmentDocId, selectBlockFace, findBlockContext, parseNYCOpenDataSign } = require('./nycOpenDataNormalizer');
 const { redactForLog, sanitizeError } = require('./redactForLog');
 const { checkRateLimit } = require('./rateLimiter');
@@ -4036,7 +4037,7 @@ const _SWEEPNYC_FALLBACK_REASONS = new Set([
 ]);
 
 exports.createSegmentFromSweepNYC = onCall(
-  { region: 'us-central1', serviceAccount: 'parqueen-user@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
+  { region: 'us-central1', secrets: [socrataAppToken], serviceAccount: 'parqueen-user@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'Must be signed in.');
 
@@ -4222,12 +4223,34 @@ async function _reverseGeocodeStreet(lat, lng) {
 }
 
 /**
+ * Reads the Socrata application token at request time.
+ *
+ * Production gets it from Secret Manager through the bound `socrataAppToken`
+ * param. `.value()` throws when the secret is not bound — which is the normal
+ * case for emulator and unit runs — so that falls back to the environment,
+ * leaving local testing functional while production always uses the secret.
+ *
+ * The return value is a credential: it is only ever attached as an X-App-Token
+ * header (never a query parameter, which would put it in URLs and access logs)
+ * and is never logged.
+ */
+function _socrataToken() {
+  try {
+    const v = socrataAppToken.value();
+    if (v) return v;
+  } catch {
+    // Not bound in this runtime; fall through to the environment.
+  }
+  return process.env.SOCRATA_APP_TOKEN || '';
+}
+
+/**
  * Queries NYC Open Data nfid-uabd for sign records matching a LIKE street pattern in a borough.
  * Paginates up to 3000 rows to handle long avenues (Broadway, 3rd Ave, Grand Concourse).
  */
 async function _queryNYCOpenData(likePattern, borough) {
   const BASE = 'https://data.cityofnewyork.us/resource/nfid-uabd.json';
-  const token = process.env.SOCRATA_APP_TOKEN || '';
+  const token = _socrataToken();
   if (!token) console.warn('[NYCOpenData] SOCRATA_APP_TOKEN not set — using unauthenticated rate limit');
 
   const PAGE = 1000;
@@ -4247,10 +4270,13 @@ async function _queryNYCOpenData(likePattern, borough) {
       $offset: String(page * PAGE),
       $order: ':id',
     });
-    if (token) params.set('$$app_token', token);
 
     try {
-      const res = await fetch(`${BASE}?${params}`, { headers: { 'Accept': 'application/json' } });
+      // Header, never `$$app_token` in the query string: a token in the URL ends
+      // up in proxy and access logs. Socrata accepts X-App-Token for SODA2.
+      const headers = { 'Accept': 'application/json' };
+      if (token) headers['X-App-Token'] = token;
+      const res = await fetch(`${BASE}?${params}`, { headers });
       if (!res.ok) {
         console.warn('[NYCOpenData] API error:', res.status);
         break;
