@@ -56,5 +56,14 @@ jobs:
       - name: Install root dependencies
         run: npm ci
 
+      # The root vitest suite globs in functions/*.test.js, and two of those —
+      # nycBorough.test.js and overpassJson.test.js — require functions/index.js,
+      # which pulls in firebase-functions. Those packages live in
+      # functions/node_modules, so they must be installed from the Functions
+      # lockfile before any root test run or the suite fails with
+      # "Cannot find module 'firebase-functions/v2/scheduler'".
+      - name: Install functions dependencies
+        run: npm ci --prefix functions
+
       - name: Run unit tests
         run: npm test
