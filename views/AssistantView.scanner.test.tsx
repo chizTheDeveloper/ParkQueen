@@ -55,7 +55,7 @@ async function mount() {
   return r!;
 }
 async function choosePhoto(r: TestRenderer.ReactTestRenderer) {
-  await act(async () => { buttonWith(r, 'Scan Sign').props.onClick(); });
+  await act(async () => { buttonWith(r, 'Scan a Parking Sign').props.onClick(); });
   await act(async () => {
     r.root.findAllByType('input')[0].props.onChange({ target: { files: [{}], value: '' } });
     await Promise.resolve();
@@ -69,44 +69,72 @@ beforeEach(() => {
   clearRecentScans();
 });
 
-describe('Sign Scanner — hub', () => {
-  it('renders the scanner card, both Soon cards and the how-it-works steps', async () => {
+describe('AI Parking Assistant — hub', () => {
+  it('leads with the three tools', async () => {
     const r = await mount();
     const text = textOf(r);
+    expect(text).toContain('AI Parking Assistant');
     expect(text).toContain('Scan a Parking Sign');
-    expect(text).toContain('Scan Sign');
     expect(text).toContain('Check Hydrant Distance');
     expect(text).toContain('Am I Safe Here?');
-    expect(text).toContain('Snap');
-    expect(text).toContain('Read');
-    expect(text).toContain('Understand');
   });
 
-  it('marks the unbuilt features as disabled rather than fake-navigable', async () => {
+  it('shows one header and one back control at a time', async () => {
     const r = await mount();
-    const soon = r.root.findAllByType('button').filter(b => collectText(b).includes('Soon'));
-    expect(soon.length).toBe(2);
-    for (const b of soon) {
-      expect(b.props.disabled).toBe(true);
-      expect(b.props['aria-disabled']).toBe('true');
-      expect(String(b.props['aria-label'])).toContain('coming soon');
-      // A disabled control must not carry a click handler that could navigate.
-      expect(b.props.onClick).toBeUndefined();
+    const headings = () => r.root.findAllByType('h1');
+    const backs = () => r.root.findAllByType('button').filter(b => /Back to/.test(b.props['aria-label'] ?? ''));
+    expect(headings()).toHaveLength(1);
+    expect(collectText(headings()[0])).toBe('AI Parking Assistant');
+    expect(backs()).toHaveLength(1);
+    expect(backs()[0].props['aria-label']).toBe('Back to the map');
+
+    await act(async () => { buttonWith(r, 'Scan a Parking Sign').props.onClick(); });
+    expect(headings()).toHaveLength(1);
+    expect(collectText(headings()[0])).toBe('Scan a Parking Sign');
+    expect(backs()).toHaveLength(1);
+    expect(backs()[0].props['aria-label']).toBe('Back to the assistant home');
+  });
+
+  it('sends the hub back control out of the assistant', async () => {
+    const onBack = vi.fn();
+    let r: TestRenderer.ReactTestRenderer;
+    await act(async () => { r = TestRenderer.create(<AssistantView onBack={onBack} />); });
+    const back = r!.root.findAllByType('button').find(b => b.props['aria-label'] === 'Back to the map')!;
+    await act(async () => { back.props.onClick(); });
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('moves the scanner steps off the hub and into the scan flow', async () => {
+    const r = await mount();
+    expect(textOf(r)).not.toContain('HOW IT WORKS');
+    await act(async () => { buttonWith(r, 'Scan a Parking Sign').props.onClick(); });
+    expect(textOf(r)).toContain('Take a clear photo of the parking sign.');
+  });
+
+  it('has no Soon badge and no disabled tool left on the hub', async () => {
+    const r = await mount();
+    expect(textOf(r)).not.toContain('Soon');
+    const buttons = r.root.findAllByType('button');
+    expect(buttons.some(b => b.props.disabled)).toBe(false);
+    // Every tool card is a real destination with a working handler.
+    for (const title of ['Scan a Parking Sign', 'Check Hydrant Distance', 'Am I Safe Here?']) {
+      const card = buttons.find(b => b.props['aria-label'] === title);
+      expect(card).toBeDefined();
+      expect(typeof card!.props.onClick).toBe('function');
     }
   });
 
-  it('names the scanner card itself rather than reciting the whole card', async () => {
+  it('names each tool card rather than reciting its whole contents', async () => {
     const r = await mount();
-    const card = r.root.findAllByType('button').find(b => collectText(b).includes('Scan Sign'))!;
+    const card = r.root.findAllByType('button').find(b => collectText(b).includes('AI VISION'))!;
     expect(card.props['aria-label']).toBe('Scan a Parking Sign');
   });
 
-  it('does not claim accuracy in the trust indicators', async () => {
+  it('does not claim accuracy or guarantee safety anywhere on the hub', async () => {
     const text = textOf(await mount());
-    expect(text).toContain('Fast');
-    expect(text).toContain('NYC rules');
-    expect(text).toContain('Plain-English answer');
-    expect(text).not.toContain('Accurate');
+    for (const banned of ['Accurate', 'GUARANTEED', '100% SAFE', 'LEGAL', 'LIVE']) {
+      expect(text).not.toContain(banned);
+    }
   });
 
   it('shows an empty state rather than sample scans', async () => {
@@ -122,8 +150,11 @@ describe('Sign Scanner — hub', () => {
       await Promise.resolve(); await Promise.resolve();
     });
     await act(async () => { buttonWith(r, 'Scan another sign').props.onClick(); });
-    // back to hub via the compact header's text back control
-    await act(async () => { buttonWith(r, 'Assistant').props.onClick(); });
+    // back to the hub via the single header's back control
+    await act(async () => {
+      r.root.findAllByType('button')
+        .find(b => b.props['aria-label'] === 'Back to the assistant home')!.props.onClick();
+    });
     expect(textOf(r)).toContain('Parking allowed after 6pm.');
   });
 });

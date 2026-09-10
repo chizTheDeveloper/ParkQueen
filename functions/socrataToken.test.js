@@ -129,12 +129,18 @@ describe('Socrata app token — scope and wiring', () => {
     expect(helper.slice(0, 400)).toContain('process.env.SOCRATA_APP_TOKEN');
   });
 
-  it('is bound only to createSegmentFromSweepNYC', () => {
+  it('is bound only to the two callables that query Socrata', () => {
+    // createSegmentFromSweepNYC (street rules) and checkHydrantDistance (NYC DEP
+    // hydrants) are the only consumers, and both reuse this one secret rather
+    // than defining another.
     const bindings = INDEX_SRC.match(/secrets: \[[^\]]*socrataAppToken[^\]]*\]/g) || [];
-    expect(bindings).toHaveLength(1);
-    const start = INDEX_SRC.indexOf('exports.createSegmentFromSweepNYC');
-    const opts = INDEX_SRC.slice(start, start + 320);
-    expect(opts).toContain('secrets: [socrataAppToken]');
+    expect(bindings).toHaveLength(2);
+    for (const fn of ['exports.createSegmentFromSweepNYC', 'exports.checkHydrantDistance']) {
+      const start = INDEX_SRC.indexOf(fn);
+      expect(start).toBeGreaterThan(-1);
+      expect(INDEX_SRC.slice(start, start + 420)).toContain('secrets: [socrataAppToken]');
+    }
+    expect(INDEX_SRC.match(/defineSecret\("SOCRATA_APP_TOKEN"\)/g)).toHaveLength(1);
   });
 
   it('does not disturb the other secret bindings', () => {
@@ -169,13 +175,15 @@ describe('Socrata app token — scope and wiring', () => {
     expect(nominatim).toContain('OSM_USER_AGENT');
   });
 
-  it('the X-App-Token header is assigned in exactly one place', () => {
+  it('the X-App-Token header is the only way the token is attached', () => {
+    // One assignment per Socrata consumer, and nothing else carries the token.
     const assignments = INDEX_SRC.match(/headers\['X-App-Token'\]\s*=/g) || [];
-    expect(assignments).toHaveLength(1);
+    expect(assignments).toHaveLength(2);
     // Other mentions are prose in comments, which carry no credential.
     const codeLines = INDEX_SRC.split('\n')
       .filter(l => l.includes('X-App-Token') && !l.trim().startsWith('*') && !l.trim().startsWith('//'));
-    expect(codeLines).toHaveLength(1);
+    expect(codeLines).toHaveLength(2);
+    for (const line of codeLines) expect(line).toMatch(/headers\['X-App-Token'\] = token/);
   });
 
   it('the token is never committed to the repo', () => {

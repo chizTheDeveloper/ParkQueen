@@ -63,7 +63,7 @@ function buttonWith(renderer: TestRenderer.ReactTestRenderer, label: string) {
 
 /** Drives hub -> scan -> photo chosen -> analyze, the real production path. */
 async function runScan(renderer: TestRenderer.ReactTestRenderer) {
-  await act(async () => { buttonWith(renderer, 'Scan Sign').props.onClick(); });
+  await act(async () => { buttonWith(renderer, 'Scan a Parking Sign').props.onClick(); });
   const input = renderer.root.findAllByType('input')[0];
   await act(async () => {
     input.props.onChange({ target: { files: [{}], value: '' } });
