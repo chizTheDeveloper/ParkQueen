@@ -1462,6 +1462,97 @@ html, body, #root {
   .pq-scan-card:active, .pq-cta:active { transform: none; }
 }
 
+/* ── AI Parking Assistant — tool cards & results ─────────────────────────────
+   One visual family for all three tools. Colours come from the theme variables
+   so light mode is a real design rather than an inversion. Sits above the
+   @tailwind directives with the rest of the semantic rules — see the banner
+   below, and utils/tailwindCascade.test.ts.
+   ───────────────────────────────────────────────────────────────────────── */
+.pq-tool-card {
+  position: relative;
+  background:
+    linear-gradient(180deg, rgba(56, 189, 248, 0.05), rgba(56, 189, 248, 0) 60%),
+    var(--color-card);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 6px 18px rgba(2, 8, 20, 0.28);
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+.pq-tool-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(140deg, rgba(56, 189, 248, 0.40), rgba(56, 189, 248, 0) 45%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  pointer-events: none;
+}
+.pq-tool-card:hover { border-color: rgba(56, 189, 248, 0.34); }
+.pq-tool-card:active { transform: scale(0.985); }
+
+.pq-tool-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: linear-gradient(150deg, #1e75ff, #38bdf8);
+  box-shadow: 0 4px 14px rgba(30, 117, 255, 0.32);
+}
+/* Each tool keeps its own accent while staying in the family. */
+.pq-tool--hydrant .pq-tool-icon { background: linear-gradient(150deg, #d9384f, #f97362); box-shadow: 0 4px 14px rgba(217, 56, 79, 0.30); }
+.pq-tool--check   .pq-tool-icon { background: linear-gradient(150deg, #0f9d6b, #34d399); box-shadow: 0 4px 14px rgba(15, 157, 107, 0.30); }
+.pq-tool--hydrant::before { background: linear-gradient(140deg, rgba(249, 115, 98, 0.34), rgba(249, 115, 98, 0) 45%); }
+.pq-tool--check::before   { background: linear-gradient(140deg, rgba(52, 211, 153, 0.34), rgba(52, 211, 153, 0) 45%); }
+
+/* Result surfaces. Tone is reinforced by an icon and words, never colour alone. */
+.pq-result { background: var(--color-card); border: 1px solid var(--color-border); }
+.pq-result--ok      { border-color: rgba(52, 211, 153, 0.34); }
+.pq-result--warn    { border-color: rgba(250, 204, 21, 0.34); }
+.pq-result--danger  { border-color: rgba(248, 113, 113, 0.38); }
+.pq-result--neutral { border-color: var(--color-border); }
+.pq-result--ok      .pq-result-icon, .pq-result--ok      .pq-result-title { color: #34d399; }
+.pq-result--warn    .pq-result-icon, .pq-result--warn    .pq-result-title { color: #facc15; }
+.pq-result--danger  .pq-result-icon, .pq-result--danger  .pq-result-title { color: #f87171; }
+.pq-result--neutral .pq-result-icon, .pq-result--neutral .pq-result-title { color: var(--color-text); }
+
+/* Distance visualisation. The band is the uncertainty range, drawn as a span so
+   the picture never implies more precision than the reading has. */
+.pq-distance-track {
+  position: relative;
+  height: 10px;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, rgba(248, 113, 113, 0.22), rgba(52, 211, 153, 0.18));
+  border: 1px solid var(--color-border);
+}
+.pq-distance-threshold {
+  position: absolute; top: -4px; bottom: -4px; width: 2px;
+  background: var(--color-text-secondary); opacity: 0.75; transform: translateX(-1px);
+}
+.pq-distance-band {
+  position: absolute; top: 1px; bottom: 1px;
+  border-radius: 9999px; background: rgba(56, 189, 248, 0.30);
+  border: 1px solid rgba(56, 189, 248, 0.55);
+}
+.pq-distance-hydrant {
+  position: absolute; top: 50%; width: 9px; height: 9px; margin-top: -4.5px; margin-left: -4.5px;
+  border-radius: 9999px; background: #38bdf8; box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.22);
+}
+
+.pq-tip-dot {
+  width: 5px; height: 5px; margin-top: 6px;
+  border-radius: 9999px; background: #38bdf8; opacity: 0.75;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pq-tool-card { transition: none; }
+  .pq-tool-card:active { transform: none; }
+}
+
 /* ─────────────────────────────────────────────────────────────────────────────
    TAILWIND MUST STAY LAST IN THIS FILE. DO NOT MOVE IT ABOVE THE RULES ABOVE.
 

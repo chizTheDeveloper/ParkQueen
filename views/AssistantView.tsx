@@ -1,9 +1,12 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useFocusOnMount } from '../hooks/useFocusOnMount';
 import {
-  Camera, AlertCircle, CheckCircle2, Clock, Bell, ChevronLeft,
-  Ruler, Shield, Sparkles, Zap, Building2, MessageSquareText, ImageIcon, X, ScanLine,
+  Camera, AlertCircle, CheckCircle2, Clock, Bell, ChevronLeft, ChevronRight,
+  ShieldCheck, ImageIcon, X, ScanLine,
 } from 'lucide-react';
+import { HydrantDistanceTool } from './assistant/HydrantDistanceTool';
+import { ParkingCheckTool } from './assistant/ParkingCheckTool';
+import { HydrantIcon } from './assistant/HydrantIcon';
 import { analyzeParkingSign, SignAnalysisResult } from '../services/geminiService';
 import { useParkingTimer } from './street-parking/useParkingTimer';
 import { t, useLang } from '../i18n';
@@ -32,9 +35,18 @@ function splitExplanation(text: string): { headline: string | null; body: string
   return { headline: text.slice(0, idx).trim(), body: text.slice(idx + 1).trim() };
 }
 
-export const AssistantView = () => {
+type ToolMode = 'hub' | 'scan' | 'hydrant' | 'check';
+
+interface AssistantViewProps {
+  /** Leaves the assistant entirely. The hub's back control calls this. */
+  onBack?: () => void;
+  /** Opens the map's My Car flow, for the empty states that need a saved spot. */
+  onOpenMyCar?: () => void;
+}
+
+export const AssistantView = ({ onBack, onOpenMyCar }: AssistantViewProps = {}) => {
   useLang();
-  const [mode, setMode] = useState<'hub' | 'scan'>('hub');
+  const [mode, setMode] = useState<ToolMode>('hub');
   const [scanState, setScanState] = useState<ScanState>('idle');
   const [image, setImage] = useState<string | null>(null);
   const [imageData, setImageData] = useState<string | null>(null);
@@ -121,150 +133,91 @@ export const AssistantView = () => {
 
   return (
     <div className="pq-assist pb-24 px-4 h-full bg-[var(--color-bg)] overflow-y-auto no-scrollbar">
-      {/* ── Hero intro (hub) ───────────────────────────────────────────────── */}
-      {mode === 'hub' ? (
-        <section className="pq-assist-hero relative overflow-hidden rounded-3xl px-5 py-5 mb-4">
-          <div className="pq-assist-skyline" aria-hidden="true" />
-          <div className="relative">
-            <p className="text-[10px] font-bold tracking-[0.18em] text-[#38bdf8] mb-1.5">
-              {t('assistant.eyebrow')}
-            </p>
-            <h2
-              ref={headingRef}
-              tabIndex={-1}
-              className="text-2xl font-extrabold text-[var(--color-text)] leading-tight focus:outline-none"
-            >
-              {t('assistant.hero_title')}
-            </h2>
-            <p className="text-sm text-[var(--color-text-secondary)] mt-1 max-w-[34ch]">
-              {t('assistant.hero_sub')}
-            </p>
-          </div>
-        </section>
-      ) : (
-        /* Compact header while scanning. The screen already sits under the
-           app-level "Sign Scanner" bar, so repeating the full hero here is what
-           made the original screen feel stacked and crowded. */
-        <div className="mb-4">
-          {/* A text pill, not another round chevron: the app bar directly above
-              already owns a circular back button, and two identical controls
-              both labelled "Back" are ambiguous by sight and by screen reader. */}
-          <button
-            type="button"
-            onClick={backToHub}
-            aria-label={t('assistant.back_hub_aria')}
-            className="inline-flex items-center gap-1 min-h-[44px] pr-3 -ml-1 pl-1 rounded-full text-sm font-semibold text-[var(--color-text-secondary)] hover:text-[var(--color-text)] focus-visible:ring-2 focus-visible:ring-[#38bdf8] focus-visible:outline-none transition-colors"
-          >
-            <ChevronLeft size={16} aria-hidden="true" />
-            {t('assistant.back_hub')}
-          </button>
-          <h2
-            ref={headingRef}
-            tabIndex={-1}
-            className="text-lg font-extrabold text-[var(--color-text)] focus:outline-none"
-          >
-            {t('assistant.scan_title')}
-          </h2>
-        </div>
-      )}
+      {/* ── One header, whichever tool is open ──────────────────────────────
+           The app-level bar used to render its own title and back button on top
+           of this view's hero, so the screen opened with two headers, two
+           subtitles and two back affordances stacked. AssistantView now owns the
+           header outright and App.tsx renders none. */}
+      <header
+        className="flex items-center gap-3 mb-5 -mx-1"
+        style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top, 0px))' }}
+      >
+        <button
+          type="button"
+          onClick={mode === 'hub' ? (onBack ?? (() => {})) : backToHub}
+          aria-label={mode === 'hub' ? t('assistant.back_map_aria') : t('assistant.back_hub_aria')}
+          className="w-11 h-11 rounded-full flex items-center justify-center bg-[var(--color-overlay)] border border-[var(--color-border)] text-[var(--color-text)] hover:bg-white/10 active:scale-95 focus-visible:ring-2 focus-visible:ring-[#38bdf8] focus-visible:outline-none transition-all shrink-0"
+        >
+          <ChevronLeft size={20} />
+        </button>
+        <h1
+          ref={headingRef}
+          tabIndex={-1}
+          className="text-xl font-extrabold text-[var(--color-text)] tracking-tight truncate focus:outline-none"
+        >
+          {mode === 'hub' ? t('assistant.hub_title')
+            : mode === 'scan' ? t('assistant.scan_title')
+            : mode === 'hydrant' ? t('assistant.hydrant_title')
+            : t('assistant.check_title')}
+        </h1>
+      </header>
 
       {/* ── Hub ────────────────────────────────────────────────────────────── */}
       {mode === 'hub' && (
-        <div className="space-y-4">
-          {/* Primary scanner card. The whole card is the control, so it carries
-              an explicit aria-label — otherwise its accessible name is the
-              concatenated card text, which opens with "POWERED BY AI". */}
-          <button
-            type="button"
-            onClick={openScanner}
-            aria-label={t('assistant.scan_title')}
-            className="pq-scan-card group w-full text-left rounded-3xl p-5 relative overflow-hidden focus-visible:ring-2 focus-visible:ring-[#38bdf8] focus-visible:outline-none"
-          >
-            {/* In flow, not absolute: at 390px an absolutely positioned badge
-                overlapped the wrapped title no matter how much padding the
-                title reserved. */}
-            <span className="mb-3 inline-flex items-center gap-1 text-[10px] font-bold tracking-wider px-2.5 py-1 rounded-full bg-[#38bdf8]/12 text-[#38bdf8] border border-[#38bdf8]/30">
-              <Sparkles size={11} aria-hidden="true" /> {t('assistant.powered_by_ai')}
-            </span>
-
-            <div className="flex items-center gap-4 mb-4">
-              <span className="pq-scan-orb shrink-0" aria-hidden="true">
-                <Camera size={30} className="text-white" />
-              </span>
-              <span className="block min-w-0">
-                <span className="block font-extrabold text-lg text-[var(--color-text)] leading-snug">
-                  {t('assistant.scan_title')}
-                </span>
-                <span className="block text-sm text-[var(--color-text-secondary)] mt-1 leading-snug">
-                  {t('assistant.scan_desc_long')}
-                </span>
-              </span>
-            </div>
-
-            <span className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-4">
-              {[
-                { icon: <Zap size={13} aria-hidden="true" />, label: t('assistant.chip_fast') },
-                { icon: <Building2 size={13} aria-hidden="true" />, label: t('assistant.chip_nyc') },
-                { icon: <MessageSquareText size={13} aria-hidden="true" />, label: t('assistant.chip_plain') },
-              ].map(c => (
-                <span key={c.label} className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--color-text-secondary)]">
-                  <span className="text-[#38bdf8]">{c.icon}</span>{c.label}
-                </span>
-              ))}
-            </span>
-
-            <span className="pq-cta block w-full text-center py-3 rounded-2xl font-bold text-white text-sm">
-              {t('assistant.cta_scan')}
-            </span>
-          </button>
-
-          {/* Secondary — not built yet */}
-          {[
-            { icon: <Ruler size={20} aria-hidden="true" />, title: t('assistant.hydrant_title'), desc: t('assistant.hydrant_desc') },
-            { icon: <Shield size={20} aria-hidden="true" />, title: t('assistant.safe_title'), desc: t('assistant.safe_desc') },
-          ].map(card => (
+        <div className="space-y-3.5">
+          {/* Three tools, one visual family. Each is a real destination — there
+              are no disabled cards and no "Soon" badges on this screen. */}
+          {([
+            {
+              key: 'scan',
+              title: t('assistant.scan_title'),
+              desc: t('assistant.scan_desc_long'),
+              tag: t('assistant.tag_ai_vision'),
+              icon: <ScanLine size={22} aria-hidden="true" />,
+              tone: 'pq-tool--scan',
+              go: openScanner,
+            },
+            {
+              key: 'hydrant',
+              title: t('assistant.hydrant_title'),
+              desc: t('assistant.hydrant_desc'),
+              tag: t('assistant.tag_15ft'),
+              icon: <HydrantIcon />,
+              tone: 'pq-tool--hydrant',
+              go: () => setMode('hydrant'),
+            },
+            {
+              key: 'check',
+              title: t('assistant.check_title'),
+              desc: t('assistant.check_desc'),
+              tag: t('assistant.tag_parking_check'),
+              icon: <ShieldCheck size={22} aria-hidden="true" />,
+              tone: 'pq-tool--check',
+              go: () => setMode('check'),
+            },
+          ] as const).map(tool => (
             <button
-              key={card.title}
+              key={tool.key}
               type="button"
-              disabled
-              aria-disabled="true"
-              aria-label={`${card.title} — ${t('assistant.coming_soon_aria')}`}
-              className="pq-soon-card w-full text-left rounded-3xl p-4 flex items-center gap-4 cursor-not-allowed"
+              onClick={tool.go}
+              aria-label={tool.title}
+              className={`pq-tool-card ${tool.tone} w-full text-left rounded-[22px] p-4 flex items-center gap-4 focus-visible:ring-2 focus-visible:ring-[#38bdf8] focus-visible:outline-none`}
             >
-              <span className="pq-soon-icon shrink-0" aria-hidden="true">{card.icon}</span>
+              <span className="pq-tool-icon shrink-0" aria-hidden="true">{tool.icon}</span>
               <span className="block flex-1 min-w-0">
-                <span className="flex items-center gap-2 flex-wrap">
-                  <span className="font-bold text-sm text-[var(--color-text)]">{card.title}</span>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/8 text-[var(--color-text-secondary)] border border-[var(--color-border)]">
-                    {t('assistant.coming_soon')}
-                  </span>
+                <span className="block text-[9.5px] font-bold tracking-[0.16em] text-[#38bdf8] mb-1">
+                  {tool.tag}
                 </span>
-                <span className="block text-xs text-[var(--color-text-secondary)] mt-1 leading-snug">{card.desc}</span>
+                <span className="block font-extrabold text-[15px] text-[var(--color-text)] leading-tight">
+                  {tool.title}
+                </span>
+                <span className="block text-xs text-[var(--color-text-secondary)] mt-1 leading-snug">
+                  {tool.desc}
+                </span>
               </span>
+              <ChevronRight size={18} aria-hidden="true" className="shrink-0 text-[var(--color-text-secondary)]" />
             </button>
           ))}
-
-          {/* How it works */}
-          <section className="rounded-3xl p-5 bg-[var(--color-card)] border border-[var(--color-border)]">
-            <h3 className="text-[10px] font-bold tracking-[0.18em] text-[var(--color-text-secondary)] mb-4">
-              {t('assistant.how_title')}
-            </h3>
-            <ol className="space-y-3.5">
-              {[
-                { n: '1', title: t('assistant.how_1_t'), desc: t('assistant.how_1_d') },
-                { n: '2', title: t('assistant.how_2_t'), desc: t('assistant.how_2_d') },
-                { n: '3', title: t('assistant.how_3_t'), desc: t('assistant.how_3_d') },
-              ].map(step => (
-                <li key={step.n} className="flex items-start gap-3.5">
-                  <span className="pq-step shrink-0" aria-hidden="true">{step.n}</span>
-                  <span className="block min-w-0">
-                    <span className="block font-bold text-sm text-[var(--color-text)]">{step.title}</span>
-                    <span className="block text-xs text-[var(--color-text-secondary)] mt-0.5 leading-snug">{step.desc}</span>
-                  </span>
-                </li>
-              ))}
-            </ol>
-          </section>
 
           {/* Recent scans — real local history only */}
           <section className="rounded-3xl p-5 bg-[var(--color-card)] border border-[var(--color-border)]">
@@ -296,6 +249,16 @@ export const AssistantView = () => {
             )}
           </section>
         </div>
+      )}
+
+      {mode === 'hydrant' && <HydrantDistanceTool onOpenMyCar={onOpenMyCar} />}
+
+      {mode === 'check' && (
+        <ParkingCheckTool
+          onOpenMyCar={onOpenMyCar}
+          onScanSign={openScanner}
+          onViewOnMap={onBack}
+        />
       )}
 
       {/* ── Scan flow ──────────────────────────────────────────────────────── */}
@@ -336,6 +299,17 @@ export const AssistantView = () => {
               <p className="text-[11px] text-[var(--color-text-secondary)] text-center mt-6 leading-relaxed px-4">
                 {t('assistant.privacy_note')}
               </p>
+
+              {/* Scanner tips live here, where they are about to be used, rather
+                  than on the hub where they only lengthened a multi-tool screen. */}
+              <ul className="mt-6 space-y-1.5 text-[11px] text-[var(--color-text-secondary)]">
+                {[t('assistant.how_1_d'), t('assistant.how_2_d'), t('assistant.how_3_d')].map(tip => (
+                  <li key={tip} className="flex items-start gap-2">
+                    <span className="pq-tip-dot shrink-0" aria-hidden="true" />
+                    <span className="leading-snug">{tip}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
 

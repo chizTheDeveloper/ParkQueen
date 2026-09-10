@@ -880,6 +880,7 @@ const _callableHooks = {
   sweepNYCResult: null,  // (lat, lng) => Promise<result> — replaces SweepNYC + fallback
   geminiResponse: null,  // (features) => Promise<{text}> — replaces GoogleGenAI call
   analyzeSignResponse: null,  // (imageBase64, mimeType) => Promise<{text}> — replaces GoogleGenAI vision call
+  hydrantResponse: null,  // (lat, lng) => Promise<{ok, meters}> — replaces the NYC DEP lookup
   smartRepliesResponse: null,  // (lastMessage, context) => Promise<{text}> — replaces GoogleGenAI call
 };
 exports._callableHooks = _callableHooks;
@@ -4036,6 +4037,160 @@ const _SWEEPNYC_FALLBACK_REASONS = new Set([
   'no_sweepnyc_data', 'no_sweepnyc_notes', 'no_signs', 'parse_failed',
 ]);
 
+// ─── Hydrant proximity (NYC DEP) ─────────────────────────────────────────────
+// NYC prohibits parking within 15 ft of either side of a hydrant. The nearest
+// hydrant is resolved server-side so the client never handles the Socrata
+// token and never pulls the 109k-row citywide dataset.
+//
+// Dataset: 5bgh-vtsn "Hydrants", attributed to the Department of Environmental
+// Protection — the SODA-queryable table behind the NYCDEP Citywide Hydrants
+// map asset (6pui-xhxz), which is a map type and exposes no tabular columns.
+// Verified fields: the_geom (Point), latitude, longitude, unitid, boro.
+const HYDRANT_DATASET = '5bgh-vtsn';
+const HYDRANT_SEARCH_RADIUS_M = 60;
+const HYDRANT_MAX_ROWS = 50;
+
+/**
+ * Great-circle distance in metres.
+ *
+ * Degree-space arithmetic is not usable here: at NYC's latitude a degree of
+ * longitude is about 24% shorter than a degree of latitude, which at a 15 ft
+ * threshold is the whole answer.
+ */
+function _haversineMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371008.8; // IUGG mean Earth radius
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+/** Pulls a usable lat/lng out of a hydrant row, tolerating string columns. */
+function _hydrantRowLatLng(row) {
+  if (!row || typeof row !== 'object') return null;
+  const geom = row.the_geom;
+  if (geom && Array.isArray(geom.coordinates) && geom.coordinates.length >= 2) {
+    const lng = geom.coordinates[0];
+    const lat = geom.coordinates[1];
+    if (typeof lat === 'number' && typeof lng === 'number'
+      && Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+  }
+  // Number(null) and Number('') are both 0, which is finite — without this
+  // guard a row with empty coordinate columns becomes a hydrant at (0, 0).
+  const num = (v) => {
+    if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+    if (typeof v !== 'string' || v.trim() === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  const lat = num(row.latitude);
+  const lng = num(row.longitude);
+  if (lat !== null && lng !== null) return { lat, lng };
+  return null;
+}
+
+/**
+ * Nearest hydrant to a point, or null when the search radius holds none.
+ * Returns metres only — the caller decides what that means.
+ */
+async function _nearestHydrantMeters(lat, lng) {
+  const token = _socrataToken();
+  const params = new URLSearchParams({
+    // Header auth only; a token in the query string lands in access logs.
+    $where: `within_circle(the_geom, ${lat}, ${lng}, ${HYDRANT_SEARCH_RADIUS_M})`,
+    $select: 'the_geom,latitude,longitude',
+    $limit: String(HYDRANT_MAX_ROWS),
+  });
+  const headers = { Accept: 'application/json' };
+  if (token) headers['X-App-Token'] = token;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  let rows;
+  try {
+    const res = await fetch(
+      `https://data.cityofnewyork.us/resource/${HYDRANT_DATASET}.json?${params}`,
+      { headers, signal: controller.signal },
+    );
+    if (!res.ok) {
+      // Status only — never the URL, which carries the queried coordinate.
+      console.warn(`[checkHydrantDistance] provider status ${res.status}`);
+      return { ok: false, meters: null };
+    }
+    rows = await res.json();
+  } catch (err) {
+    console.warn(`[checkHydrantDistance] provider unreachable: ${err?.name ?? 'error'}`);
+    return { ok: false, meters: null };
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!Array.isArray(rows)) {
+    console.warn('[checkHydrantDistance] provider returned a non-array payload');
+    return { ok: false, meters: null };
+  }
+
+  let nearest = null;
+  for (const row of rows) {
+    const point = _hydrantRowLatLng(row);
+    if (!point) continue;
+    const d = _haversineMeters(lat, lng, point.lat, point.lng);
+    if (nearest === null || d < nearest) nearest = d;
+  }
+  return { ok: true, meters: nearest };
+}
+
+// NYC bounding box, generous enough to cover all five boroughs. Points outside
+// it cannot be answered from a NYC-only dataset, and saying so beats returning
+// "no hydrant nearby" for an address in another city.
+function _isWithinNYC(lat, lng) {
+  return lat >= 40.45 && lat <= 40.95 && lng >= -74.30 && lng <= -73.68;
+}
+
+exports.checkHydrantDistance = onCall(
+  {
+    region: 'us-central1',
+    secrets: [socrataAppToken],
+    enforceAppCheck: true,
+    serviceAccount: 'parqueen-user@parkqueen-46475363-ccf36.iam.gserviceaccount.com',
+  },
+  async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Must be signed in.');
+
+    const { lat, lng } = request.data || {};
+    if (typeof lat !== 'number' || typeof lng !== 'number'
+      || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+      throw new HttpsError('invalid-argument', 'lat and lng must be numbers.');
+    }
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      throw new HttpsError('invalid-argument', 'lat and lng must be valid coordinates.');
+    }
+
+    await checkRateLimit(request.auth.uid, 'checkHydrantDistance', { limit: 60, windowSec: 3600 });
+
+    if (!_isWithinNYC(lat, lng)) {
+      return { status: 'out_of_area', meters: null, radiusMeters: HYDRANT_SEARCH_RADIUS_M };
+    }
+
+    const hook = _callableHooks.hydrantResponse;
+    const result = hook
+      ? await hook(lat, lng)
+      : await _nearestHydrantMeters(lat, lng);
+
+    if (!result || result.ok !== true) {
+      return { status: 'unavailable', meters: null, radiusMeters: HYDRANT_SEARCH_RADIUS_M };
+    }
+    if (result.meters === null || result.meters === undefined) {
+      return { status: 'none_nearby', meters: null, radiusMeters: HYDRANT_SEARCH_RADIUS_M };
+    }
+    // The submitted coordinate is never written to Firestore and never logged;
+    // only the derived distance leaves this function.
+    return { status: 'found', meters: result.meters, radiusMeters: HYDRANT_SEARCH_RADIUS_M };
+  }
+);
+
 exports.createSegmentFromSweepNYC = onCall(
   { region: 'us-central1', secrets: [socrataAppToken], serviceAccount: 'parqueen-user@parkqueen-46475363-ccf36.iam.gserviceaccount.com' },
   async (request) => {
@@ -4925,6 +5080,9 @@ function _logGeminiShortfall(fn, response, cap, category) {
 
 // Declared after the consts above: the main export block runs earlier in the
 // file, where these are still in the temporal dead zone.
+exports._haversineMeters    = _haversineMeters;
+exports._hydrantRowLatLng   = _hydrantRowLatLng;
+exports._isWithinNYC        = _isWithinNYC;
 exports._parseSignAnalysis  = _parseSignAnalysis;
 exports._signAnalysisConfig = {
   schema: SIGN_ANALYSIS_SCHEMA,

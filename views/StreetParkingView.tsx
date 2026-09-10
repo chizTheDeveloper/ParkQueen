@@ -45,6 +45,7 @@ import { HeaderBar } from './street-parking/HeaderBar';
 import { NavigationBar } from './street-parking/NavigationBar';
 import { StreetIntelligenceCard, StreetIntelligenceUnavailableCard } from './street-parking/StreetIntelligenceCard';
 import { useParkingTimer } from './street-parking/useParkingTimer';
+import { SAVED_SPOT_KEY, readSavedSpot, type SavedSpot } from '../utils/savedSpot';
 import { usePingPhaseClock } from './street-parking/usePingPhaseClock';
 import { AppTour, TOUR_KEY } from './street-parking/AppTour';
 import { resolveNotificationPing } from '../utils/notificationPing';
@@ -203,29 +204,6 @@ export const MapView: React.FC<MapViewProps> = ({
 
     const parkingTimer = useParkingTimer();
 
-    const SAVED_SPOT_KEY = 'pq_saved_spot';
-    type SavedSpot = {
-        lat: number;
-        lng: number;
-        address: string;
-        savedAt: number;
-        sessionId: string;        // stable ID for deterministic ping creation
-        linkedPingId: string | null; // set after first successful ping — prevents duplicates
-        // Street Intelligence — null if no segment matched
-        segmentId: string | null;
-        parkingSide: string | null;
-        restrictionVersionId: string | null;
-        segmentStreetName: string | null;
-        // Street Intelligence lookup outcome
-        streetIntelStatus: 'found' | 'unavailable' | 'failed' | null;
-        streetIntelReason: string | null;
-        streetIntelCheckedAt: string | null;
-        // Side confidence — drives whether to show Safe Until or ask user to confirm
-        gpsAccuracyMeters: number | null;
-        sideConfidence: 'high' | 'low' | 'unknown';
-        confirmedParkingSide: string | null;
-    };
-
     type SegmentMatch = {
         segmentId: string | null;
         parkingSide: string | null;
@@ -240,27 +218,9 @@ export const MapView: React.FC<MapViewProps> = ({
         return reason && unavailableReasons.includes(reason) ? 'unavailable' : 'failed';
     };
 
-    const [savedSpot, setSavedSpot] = useState<SavedSpot | null>(() => {
-        try {
-            const s: SavedSpot | null = JSON.parse(localStorage.getItem(SAVED_SPOT_KEY) || 'null');
-            if (!s) return null;
-            // Auto-expire after 24 hours if no timer was set
-            if (Date.now() - s.savedAt > 24 * 60 * 60 * 1000) {
-                localStorage.removeItem(SAVED_SPOT_KEY);
-                return null;
-            }
-            // Migrate sessions that predate sessionId/linkedPingId fields
-            let changed = false;
-            if (!s.sessionId) { s.sessionId = Date.now().toString(36); changed = true; }
-            if (s.linkedPingId === undefined) { (s as any).linkedPingId = null; changed = true; }
-            // Migrate sessions that predate sideConfidence fields — treat as low/unknown so card asks user
-            if ((s as any).gpsAccuracyMeters === undefined) { (s as any).gpsAccuracyMeters = null; changed = true; }
-            if (!(s as any).sideConfidence) { (s as any).sideConfidence = s.parkingSide ? 'low' : 'unknown'; changed = true; }
-            if ((s as any).confirmedParkingSide === undefined) { (s as any).confirmedParkingSide = null; changed = true; }
-            if (changed) localStorage.setItem(SAVED_SPOT_KEY, JSON.stringify(s));
-            return s;
-        } catch { return null; }
-    });
+    // Read/expiry/back-fill now live in utils/savedSpot so the assistant reads
+    // the same record through the same parser. Key and shape are unchanged.
+    const [savedSpot, setSavedSpot] = useState<SavedSpot | null>(() => readSavedSpot());
     // Always-current mirror of savedSpot.linkedPingId — set synchronously before any
     // Firestore write so the marker filter is correct even before React re-renders.
     const linkedPingIdRef = useRef<string | null>(savedSpot?.linkedPingId ?? null);

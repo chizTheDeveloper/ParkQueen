@@ -699,26 +699,15 @@ export default function App() {
       case AppView.EDIT_PROFILE:
         return <EditProfileView onBack={() => setCurrentView(AppView.SETTINGS)} />;
       case AppView.AI_ASSISTANT:
+        // AssistantView owns its own header. The app-level bar used to render a
+        // second title, subtitle and back button directly above the view's own,
+        // which is what made the screen read as stacked and crowded.
         return (
           <div className="h-full flex flex-col bg-[var(--color-bg)]">
-            <div
-              className="px-4 pb-2 flex items-center gap-4 mb-2 shrink-0"
-              style={{ paddingTop: 'max(1rem, env(safe-area-inset-top, 0px))' }}
-            >
-              <button
-                type="button"
-                onClick={() => setCurrentView(AppView.MAP)}
-                aria-label={t('assistant.back_aria')}
-                className="w-11 h-11 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] text-[var(--color-text)] hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-[#38bdf8] focus-visible:outline-none transition-all shrink-0"
-              >
-                <ChevronLeft size={20} />
-              </button>
-              <div className="min-w-0">
-                <h1 className="text-xl font-bold text-[var(--color-text)] tracking-wide truncate">{t('assistant.screen_title')}</h1>
-                <p className="text-xs text-[var(--color-text-secondary)]">{t('assistant.screen_subtitle')}</p>
-              </div>
-            </div>
-            <AssistantView />
+            <AssistantView
+              onBack={() => setCurrentView(AppView.MAP)}
+              onOpenMyCar={() => { setPendingMyCarOpen(true); setCurrentView(AppView.MAP); }}
+            />
           </div>
         );
 
