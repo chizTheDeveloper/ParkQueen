@@ -195,7 +195,7 @@ describe('nearby_activity i18n — English keys present', () => {
         'nearby_activity.error_body',
         'nearby_activity.error_retry',
         'nearby_activity.loading_headline',
-        'nearby_activity.empty_headline',
+        'nearby_activity.empty_title',
         'nearby_activity.empty_body',
         'nearby_activity.query_error_headline',
         'nearby_activity.query_error_retry',
@@ -209,8 +209,11 @@ describe('nearby_activity i18n — English keys present', () => {
         });
     }
 
-    it('empty_headline says "No Pings nearby yet"', () => {
-        expect(t('nearby_activity.empty_headline')).toBe('No Pings nearby yet');
+    it('the empty state leads with "No live Pings nearby"', () => {
+        // Renamed from empty_headline with the radar redesign; the sibling
+        // empty_watching line carries the radius alongside it.
+        expect(t('nearby_activity.empty_title')).toBe('No live Pings nearby');
+        expect(t('nearby_activity.empty_watching')).toContain('{radius}');
     });
 
     it('open_settings says "Open Settings"', () => {

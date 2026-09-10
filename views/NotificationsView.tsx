@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useFocusOnMount } from '../hooks/useFocusOnMount';
 import { t, useLang } from '../i18n';
-import { ArrowLeft, MapPin, Bell, LocateFixed, WifiOff } from 'lucide-react';
+import { MapPin, Bell, BellOff, LocateFixed, WifiOff, ChevronRight, Check, Clock, Zap, Plus } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, where, onSnapshot, orderBy, Timestamp } from 'firebase/firestore';
 import { deriveNearbyState, resolveBlockedCTA, type LocationPermissionState, type LocationCallbacks } from '../utils/nearbyActivity';
@@ -13,6 +13,13 @@ import { NotificationEnableCard } from '../components/NotificationEnableCard';
 import type { NotificationRuntimeState } from '../utils/notificationRegistration';
 import { AppView } from '../types';
 import { NavigationBar } from './street-parking/NavigationBar';
+import { doc, updateDoc } from 'firebase/firestore';
+import { RADIUS_OPTIONS, normalizeRadius, formatRadius } from '../utils/notificationRadius';
+import {
+    derivePingCard, distanceKm, kmToMiles, formatDistance, formatAvailableAt,
+    summarizeFeed, MAX_VISIBLE_PINGS,
+} from '../utils/nearbyFeed';
+import { deriveNotificationPresentation } from '../utils/notificationPresentation';
 
 interface NotificationsViewProps {
     user: any;
@@ -29,24 +36,6 @@ interface NotificationsViewProps {
     pendingUpdatesCount?: number;
 }
 
-const getDistanceKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-    const R = 6371;
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-};
-
-const NEARBY_RADIUS_MILES = 2;
-const KM_TO_MILES = 0.621371;
-
-const formatDistance = (km: number): string => {
-    const miles = km * KM_TO_MILES;
-    if (miles < 0.1) return `${Math.round(km * 3280.84)} ft`;
-    return `${miles.toFixed(1)} mi`;
-};
 
 const relativeTime = (ts: any): string => {
     if (!ts) return '';
@@ -84,7 +73,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
     const [requesting, setRequesting] = useState(false);
     const headingRef = useRef<HTMLHeadingElement>(null);
     useFocusOnMount(headingRef);
-    useLang();
+    const lang = useLang();
 
     const lastViewed = parseInt(localStorage.getItem('lastViewedNotifications') || '0', 10);
 
@@ -110,11 +99,48 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
         setRequesting(false);
     }, [permissionState]); // eslint-disable-line react-hooks/exhaustive-deps
 
+    // One source of truth: the same notificationRadius preference that controls
+    // push alerts also bounds this feed. It streams in live from the private
+    // preferences snapshot in App.tsx, so changing it anywhere re-runs the
+    // subscription effect below and the feed follows immediately.
+    const locale = lang === 'es' ? 'es-US' : 'en-US';
+    const radiusMiles = normalizeRadius(user?.notificationRadius);
+    const [radiusSheetOpen, setRadiusSheetOpen] = useState(false);
+    const [radiusSaving, setRadiusSaving] = useState(false);
+
+    const setRadius = useCallback(async (miles: number) => {
+        setRadiusSheetOpen(false);
+        if (!user?.id || miles === radiusMiles) return;
+        setRadiusSaving(true);
+        try {
+            // The existing preference write path — the same document
+            // NotificationsSettingsView writes, so alerts and feed cannot drift.
+            await updateDoc(doc(db, 'users', user.id, 'private', 'preferences'), {
+                notificationRadius: miles,
+            });
+        } catch {
+            // The live snapshot is authoritative; a failed write simply leaves
+            // the previous radius in place rather than desyncing the UI.
+        } finally {
+            setRadiusSaving(false);
+        }
+    }, [user?.id, radiusMiles]);
+
+    // One navigation per tap. A fast double-tap on a card would otherwise fire
+    // onSelectSpot/onBack twice and push two view transitions.
+    const navigatingRef = useRef(false);
+    const selectSpot = useCallback((spotId: string) => {
+        if (navigatingRef.current) return;
+        navigatingRef.current = true;
+        onSelectSpot?.(spotId);
+        onBack();
+    }, [onSelectSpot, onBack]);
+
     const subscriptionRef = useRef<GeoRegionSubscription<any, undefined> | null>(null);
     const hasUsableLocation = permissionState === 'granted' && !!userLocation && !locationError;
 
     // Geo-bound spots listener: one Firestore range subscription per geohash
-    // range covering NEARBY_RADIUS_MILES around the resolved location,
+    // range covering the user's chosen alert radius around the resolved location,
     // reusing the same GeoRegionSubscription/buildGeoQueryRanges
     // infrastructure the map already relies on (see street-parking/useSpotData.ts).
     // Without a usable location there is no bare/citywide fallback — the
@@ -136,7 +162,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
         // generation shares this exact Timestamp rather than each computing
         // its own `Timestamp.now()`, matching the PR #75 expiration contract.
         const subscriptionTimestamp = Timestamp.now();
-        const ranges = buildGeoQueryRanges(lat, lng, NEARBY_RADIUS_MILES);
+        const ranges = buildGeoQueryRanges(lat, lng, radiusMiles);
 
         const subscription = new GeoRegionSubscription<any, undefined>({
             subscribeRange: (range, onSnapshotCb, onErrorCb) => {
@@ -172,7 +198,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
             subscription.dispose();
             if (subscriptionRef.current === subscription) subscriptionRef.current = null;
         };
-    }, [user?.id, hasUsableLocation, userLocation]);
+    }, [user?.id, hasUsableLocation, userLocation, radiusMiles]);
 
     // Reuses the same self-rescheduling clock the map already uses
     // (usePingPhaseClock/derivePingLifecycle) so a spot disappears at its
@@ -184,10 +210,14 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
     const unexpiredSpots = spots.filter(s => !derivePingLifecycle(s, nowMs).expired);
 
     const filteredSpots = userLocation
-        ? unexpiredSpots.filter(s => getDistanceKm(userLocation[0], userLocation[1], s.lat, s.lng) * KM_TO_MILES <= NEARBY_RADIUS_MILES)
+        ? unexpiredSpots.filter(s =>
+            kmToMiles(distanceKm(userLocation[0], userLocation[1], s.lat, s.lng)) <= radiusMiles)
         : unexpiredSpots;
-    const nearbySpots = filteredSpots.slice(0, 10);
-    const hasMore = filteredSpots.length > 10;
+    // The displayed count and the queried radius come from the same numbers,
+    // so the summary line can never claim a different radius than it filtered on.
+    const feedCounts = summarizeFeed(filteredSpots.length);
+    const nearbySpots = filteredSpots.slice(0, MAX_VISIBLE_PINGS);
+    const hasMore = feedCounts.hiddenByCap > 0;
     const showNoLocationBanner = !userLocation && spots.length > 0 && permissionState === 'granted';
 
     const renderState = deriveNearbyState({
@@ -201,6 +231,20 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
     });
 
     const isLocationNeeded = (LOCATION_NEEDED as string[]).includes(renderState);
+
+    // Runtime capability stays authoritative — a compact "Alerts on" chip is
+    // only shown for a genuinely registered runtime, never for the product
+    // preference alone. Anything needing action keeps the full card.
+    const notifPresentation = deriveNotificationPresentation(
+        user?.notificationsEnabled !== false,
+        notificationRuntime ?? null,
+    );
+    const notifNeedsAction = notifPresentation.action !== 'none'
+        || notifPresentation.kind === 'ios_install_required'
+        || notifPresentation.kind === 'unsupported';
+    const notifCompact = !notifNeedsAction && notifPresentation.kind !== 'checking';
+    // "LIVE" means a bounded subscription is actually attached and reporting.
+    const isFeedLive = hasUsableLocation && !spotsError && !spotsLoading;
 
     // CTA for each location-needed sub-state — label and action are capability-derived
     // so a web button never says "Open Settings" when it can't open settings.
@@ -218,35 +262,63 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
 
     return (
         <div className="mobile-primary-screen h-full bg-[var(--color-bg)] flex flex-col">
-            {/* Header */}
+            {/* Header — no Back control. This is a primary bottom-nav
+                destination (Map | Nearby | Ping | Messages | Profile), and a
+                back arrow made it read as a pushed secondary screen. `onBack`
+                is still used to return to the map when a Ping is selected. */}
             <div
-                className="flex items-center gap-3 px-4 pb-4 border-b border-[var(--color-border)] shrink-0"
-                style={{ paddingTop: 'calc(env(safe-area-inset-top) + 16px)' }}
+                className="px-4 pb-3 shrink-0"
+                style={{ paddingTop: 'calc(env(safe-area-inset-top) + 14px)' }}
             >
-                <button
-                    onClick={onBack}
-                    className="w-11 h-11 rounded-full flex items-center justify-center hover:bg-white/5 text-[var(--color-text)] transition-colors shrink-0"
-                    aria-label="Back"
+                <h1
+                    ref={headingRef}
+                    tabIndex={-1}
+                    className="text-[22px] font-extrabold text-[var(--color-text)] focus:outline-none leading-tight tracking-tight"
                 >
-                    <ArrowLeft size={20} />
-                </button>
-                <div>
-                    <h1
-                        ref={headingRef}
-                        tabIndex={-1}
-                        className="text-[18px] font-bold text-[var(--color-text)] focus:outline-none leading-tight"
+                    {t('common.nearby_activity')}
+                </h1>
+                <p className="text-[12px] text-[var(--color-text-secondary)] mt-0.5">
+                    {t('nearby_activity.subtitle')}
+                </p>
+
+                {/* Compact status strip. Replaces the full-width "alerts are
+                    enabled" card whenever notifications are healthy — that card
+                    only earns prime space when it needs an action. */}
+                <div className="flex items-center gap-2 mt-3 flex-wrap">
+                    {isFeedLive && (
+                        <span className="pq-live-chip" aria-label={t('nearby_activity.live_aria')}>
+                            <span className="pq-live-dot" aria-hidden="true" />
+                            {t('nearby_activity.live')}
+                        </span>
+                    )}
+                    {notifCompact && (
+                        <span className={`pq-status-chip ${notifPresentation.kind === 'enabled' ? 'pq-status-chip--ok' : ''}`}>
+                            {notifPresentation.kind === 'enabled'
+                                ? <Check size={12} aria-hidden="true" />
+                                : <BellOff size={12} aria-hidden="true" />}
+                            {notifPresentation.kind === 'enabled'
+                                ? t('nearby_activity.alerts_on')
+                                : t('nearby_activity.alerts_off')}
+                        </span>
+                    )}
+                    <button
+                        type="button"
+                        onClick={() => setRadiusSheetOpen(true)}
+                        disabled={radiusSaving || !user?.id}
+                        aria-haspopup="dialog"
+                        aria-expanded={radiusSheetOpen}
+                        aria-label={t('nearby_activity.radius_aria', { radius: formatRadius(radiusMiles) })}
+                        className="pq-radius-pill"
                     >
-                        {t('common.nearby_activity')}
-                    </h1>
-                    <p className="text-[11px] text-[var(--color-text-secondary)] mt-0.5">
-                        {t('nearby_activity.subtitle')}
-                    </p>
+                        {formatRadius(radiusMiles)}
+                        <ChevronRight size={12} aria-hidden="true" className="rotate-90" />
+                    </button>
                 </div>
             </div>
 
             {/* Body */}
             <div className="flex-1 overflow-y-auto no-scrollbar">
-                {onEnableNotifications && onRecheckNotifications && (
+                {onEnableNotifications && onRecheckNotifications && notifNeedsAction && (
                     <div className="px-4 pt-4 max-w-md mx-auto">
                         <NotificationEnableCard
                             runtime={notificationRuntime ?? null}
@@ -355,45 +427,76 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
 
                 {/* ── empty ───────────────────────────────────────────────── */}
                 {renderState === 'empty' && (
-                    <div aria-live="polite" className="flex flex-col items-center justify-center px-8 py-24 text-center gap-3">
-                        <div className="w-16 h-16 rounded-full bg-[#1e75ff]/10 border border-[#1e75ff]/20 flex items-center justify-center mb-1">
-                            <Bell size={28} className="text-[#38bdf8]" />
+                    <div className="flex flex-col items-center px-6 pt-6 pb-10 text-center">
+                        {/* Radar — concentric rings sweeping outward, the same
+                            idea as the feed watching a radius around you. */}
+                        <div className="pq-radar" aria-hidden="true">
+                            <span className="pq-radar-ring" />
+                            <span className="pq-radar-ring pq-radar-ring--2" />
+                            <span className="pq-radar-ring pq-radar-ring--3" />
+                            <span className="pq-radar-core">
+                                <MapPin size={20} />
+                            </span>
                         </div>
-                        <p className="text-[17px] font-bold text-[var(--color-text)]">
-                            {t('nearby_activity.empty_headline')}
+
+                        <h2 className="text-[19px] font-extrabold text-[var(--color-text)] mt-6">
+                            {t('nearby_activity.empty_title')}
+                        </h2>
+                        <p className="text-[13px] text-[var(--color-text-secondary)] mt-1.5 max-w-[30ch] leading-relaxed">
+                            {t('nearby_activity.empty_watching', { radius: formatRadius(radiusMiles) })}
                         </p>
-                        <p className="text-[13px] text-[var(--color-text-secondary)] leading-relaxed max-w-[240px]">
+                        <p className="text-[13px] text-[var(--color-text-secondary)] mt-1 max-w-[32ch] leading-relaxed">
                             {t('nearby_activity.empty_body')}
                         </p>
+
+                        {notifCompact && notifPresentation.kind === 'enabled' && (
+                            <p className="flex items-center gap-1.5 text-[12px] text-emerald-400 font-semibold mt-4">
+                                <Check size={13} aria-hidden="true" />
+                                {t('nearby_activity.empty_will_alert')}
+                            </p>
+                        )}
+
+                        <div className="w-full max-w-[300px] mt-7 space-y-2.5">
+                            {setView && (
+                                <button
+                                    type="button"
+                                    onClick={() => setView(AppView.MAP)}
+                                    className="pq-cta w-full py-3 rounded-2xl font-bold text-white text-sm inline-flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-[#38bdf8] focus-visible:outline-none"
+                                >
+                                    <Plus size={16} aria-hidden="true" />
+                                    {t('nearby_activity.empty_ping_cta')}
+                                </button>
+                            )}
+                        </div>
                     </div>
                 )}
 
-                {/* ── query_error ─────────────────────────────────────────── */}
+                {/* Distinct from a location failure: the subscription itself
+                    errored. Kept as its own state with its own retry rather
+                    than folded into a generic error. */}
                 {renderState === 'query_error' && (
-                    <div className="flex flex-col items-center justify-center px-6 py-12 text-center gap-4">
-                        <div className="w-16 h-16 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center mb-1">
-                            <WifiOff size={24} className="text-rose-400" />
+                    <div className="flex flex-col items-center justify-center px-6 py-12 text-center">
+                        <div className="w-16 h-16 rounded-full bg-rose-500/10 border border-rose-500/25 flex items-center justify-center">
+                            <WifiOff size={24} className="text-rose-400" aria-hidden="true" />
                         </div>
-                        <p className="text-[17px] font-bold text-[var(--color-text)]">
+                        <h2 className="text-[18px] font-extrabold text-[var(--color-text)] mt-5">
                             {t('nearby_activity.query_error_headline')}
-                        </p>
-                        <p className="text-[13px] text-[var(--color-text-secondary)] leading-relaxed max-w-[240px]">
+                        </h2>
+                        <p className="text-[13px] text-[var(--color-text-secondary)] leading-relaxed max-w-[260px] mt-1.5">
                             {t('nearby_activity.query_error_body')}
                         </p>
                         <button
                             type="button"
                             onClick={() => { setSpotsError(false); setSpotsLoading(true); }}
-                            className="mt-2 px-8 h-[44px] rounded-full font-semibold text-[14px] text-white border border-[#1e75ff]/40 active:scale-[0.985] transition-transform"
-                            style={{ background: '#0d1a2e' }}
+                            className="pq-cta mt-6 px-8 h-[44px] rounded-2xl font-bold text-[14px] text-white focus-visible:ring-2 focus-visible:ring-[#38bdf8] focus-visible:outline-none"
                         >
                             {t('nearby_activity.query_error_retry')}
                         </button>
                     </div>
                 )}
 
-                {/* ── results ─────────────────────────────────────────────── */}
                 {renderState === 'results' && (
-                    <div className="px-3 py-3 flex flex-col gap-2 pb-10">
+                    <div className="px-3 pt-1 flex flex-col gap-2.5 pb-10">
                         {showNoLocationBanner && (
                             <div className="flex items-start gap-3 px-4 py-3 rounded-2xl bg-amber-500/10 border border-amber-500/25 mb-1">
                                 <MapPin size={16} className="text-amber-400 shrink-0 mt-0.5" />
@@ -406,78 +509,101 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                             </div>
                         )}
 
-                        <p className="text-[10px] font-bold text-[#1e75ff] tracking-widest uppercase px-1 pb-1">
-                            {nearbySpots.length} {nearbySpots.length === 1 ? 'ping' : 'pings'}{userLocation ? ` within ${NEARBY_RADIUS_MILES} mi` : ' nearby'}
-                        </p>
+                        {/* Activity summary — the count and the radius are the
+                            same values the filter used, so it cannot overstate. */}
+                        <div className="px-1 pb-0.5" aria-live="polite" aria-atomic="true">
+                            <p className="text-[10px] font-bold text-[#38bdf8] tracking-[0.16em] uppercase">
+                                {t('nearby_activity.live_nearby')}
+                            </p>
+                            <p className="text-[15px] font-extrabold text-[var(--color-text)] mt-0.5">
+                                {userLocation
+                                    ? t(feedCounts.total === 1 ? 'nearby_activity.count_one' : 'nearby_activity.count_many',
+                                        { count: String(feedCounts.total), radius: formatRadius(radiusMiles) })
+                                    : t(feedCounts.total === 1 ? 'nearby_activity.count_one_nolocation' : 'nearby_activity.count_many_nolocation',
+                                        { count: String(feedCounts.total) })}
+                            </p>
+                        </div>
 
                         {nearbySpots.map(spot => {
                             const km = userLocation
-                                ? getDistanceKm(userLocation[0], userLocation[1], spot.lat, spot.lng)
+                                ? distanceKm(userLocation[0], userLocation[1], spot.lat, spot.lng)
                                 : null;
                             const distStr = km !== null ? formatDistance(km) : null;
                             const time = relativeTime(spot.reportedAt);
-                            const isNew = (spot.reportedAt?.toMillis?.() || 0) > lastViewed;
-                            const expiringSoon = (spot.expiresAt?.toMillis?.() || 0) > 0 &&
-                                (spot.expiresAt.toMillis() - nowMs) < 5 * 60 * 1000;
-                            const address = spot.address || 'Shared spot nearby';
-                            const finderName = spot.finderName || spot.username || 'Someone nearby';
+                            const card = derivePingCard(spot, nowMs, lastViewed);
+                            const address = spot.address || t('nearby_activity.shared_spot');
+                            const finderName = spot.finderName || spot.username || t('nearby_activity.someone_nearby');
                             const initial = finderName.charAt(0).toUpperCase();
                             const avatarBg = avatarGradients[initial.charCodeAt(0) % avatarGradients.length];
+
+                            const statusLabel = card.kind === 'leaving_later'
+                                ? t('nearby_activity.leaving_later')
+                                : t('nearby_activity.available_now');
+                            // Status, address and distance in the accessible name:
+                            // the driver's actual decision, not "X pinged a spot".
+                            const ariaLabel = [statusLabel, address, distStr
+                                ? t('nearby_activity.distance_away', { dist: distStr }) : null]
+                                .filter(Boolean).join(', ');
 
                             return (
                                 <button
                                     key={spot.id}
-                                    onClick={() => { onSelectSpot?.(spot.id); onBack(); }}
-                                    aria-label={t('nearby_activity.open_ping_aria', { name: finderName })}
-                                    className={`w-full text-left rounded-2xl px-4 py-3.5 flex items-start gap-3 active:scale-[0.99] transition-transform border ${
-                                        isNew
-                                            ? 'bg-[#0d1f35] border-[#1e75ff]/20'
-                                            : 'bg-[var(--color-card)] border-[var(--color-border)]'
-                                    }`}
+                                    onClick={() => selectSpot(spot.id)}
+                                    aria-label={ariaLabel}
+                                    className={`pq-ping-card pq-ping-card--${card.kind}${card.expiringSoon ? ' pq-ping-card--urgent' : ''} w-full text-left rounded-[22px] p-4 flex items-center gap-3.5 focus-visible:ring-2 focus-visible:ring-[#38bdf8] focus-visible:outline-none`}
                                 >
-                                    <div className="relative shrink-0 mt-0.5">
-                                        <div
-                                            className="w-9 h-9 rounded-[10px] flex items-center justify-center text-[15px] font-extrabold text-white"
+                                    <span className="relative shrink-0" aria-hidden="true">
+                                        <span
+                                            className="w-11 h-11 rounded-[14px] flex items-center justify-center text-[16px] font-extrabold text-white"
                                             style={{ background: avatarBg }}
                                         >
                                             {initial}
-                                        </div>
-                                        {isNew && (
-                                            <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[#38bdf8] border-2 border-[var(--color-card)]" />
-                                        )}
-                                    </div>
+                                        </span>
+                                        {card.isNew && <span className="pq-new-dot" />}
+                                    </span>
 
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-baseline justify-between gap-2 mb-0.5">
-                                            <p className="text-[13px] text-[var(--color-text)] leading-snug truncate">
-                                                <span className={isNew ? 'font-extrabold' : 'font-semibold'}>{finderName}</span>
-                                                <span className="text-[var(--color-text-secondary)] font-normal"> {t('nearby_activity.pinged_a_spot')}</span>
-                                            </p>
-                                            {time && (
-                                                <span className="text-[11px] text-[var(--color-text-secondary)] shrink-0">{time}</span>
-                                            )}
-                                        </div>
-
-                                        <p className="text-[12px] text-[var(--color-text-secondary)] truncate mb-2">{address}</p>
-
-                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                            {distStr && (
-                                                <span className="text-[11px] text-[var(--color-text-secondary)]">{t('nearby_activity.distance_away', { dist: distStr })}</span>
-                                            )}
-                                            {distStr && (
-                                                <span className="text-[var(--color-border)] text-[10px] leading-none">·</span>
-                                            )}
-                                            {expiringSoon ? (
-                                                <span className="text-[11px] font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/25 px-2 py-0.5 rounded-full">
-                                                    {t('nearby_activity.expiring_soon')}
-                                                </span>
-                                            ) : (
-                                                <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/25 px-2 py-0.5 rounded-full">
-                                                    {t('nearby_activity.available_now')}
+                                    <span className="block flex-1 min-w-0">
+                                        {/* 1. the opportunity */}
+                                        <span className="flex items-center gap-1.5 flex-wrap">
+                                            <span className={`pq-ping-status pq-ping-status--${card.kind}`}>
+                                                {card.kind === 'leaving_later'
+                                                    ? <Clock size={11} aria-hidden="true" />
+                                                    : <Zap size={11} aria-hidden="true" />}
+                                                {statusLabel}
+                                            </span>
+                                            {card.expiringSoon && (
+                                                <span className="pq-ping-status pq-ping-status--urgent">
+                                                    {card.minutesLeft !== null
+                                                        ? t('nearby_activity.expiring_in', { mins: String(card.minutesLeft) })
+                                                        : t('nearby_activity.expiring_soon')}
                                                 </span>
                                             )}
-                                        </div>
-                                    </div>
+                                            {card.isNew && (
+                                                <span className="pq-ping-status pq-ping-status--new">{t('nearby_activity.new')}</span>
+                                            )}
+                                        </span>
+
+                                        {/* 2. the address */}
+                                        <span className="block text-[15px] font-bold text-[var(--color-text)] leading-snug truncate mt-1.5">
+                                            {address}
+                                        </span>
+
+                                        {/* 3/4. distance and freshness */}
+                                        <span className="flex items-center gap-2 mt-1 text-[12px] text-[var(--color-text-secondary)]">
+                                            {distStr && <span className="font-semibold text-[var(--color-text)]">{t('nearby_activity.distance_away', { dist: distStr })}</span>}
+                                            {distStr && time && <span aria-hidden="true">.</span>}
+                                            {card.kind === 'leaving_later' && card.availableAtMs
+                                                ? <span>{t('nearby_activity.free_at', { time: formatAvailableAt(card.availableAtMs, locale) })}</span>
+                                                : time && <span>{time}</span>}
+                                        </span>
+
+                                        {/* 5. contributor, last */}
+                                        <span className="block text-[11px] text-[var(--color-text-secondary)] mt-1.5 truncate">
+                                            {t('nearby_activity.shared_by', { name: finderName })}
+                                        </span>
+                                    </span>
+
+                                    <ChevronRight size={18} aria-hidden="true" className="shrink-0 text-[var(--color-text-secondary)]" />
                                 </button>
                             );
                         })}
@@ -485,13 +611,53 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                         {hasMore && (
                             <p className="text-center text-[11px] text-[var(--color-text-secondary)] pt-1 pb-2">
                                 {userLocation
-                                    ? t('nearby_activity.showing_closest', { more: filteredSpots.length - 10 })
-                                    : t('nearby_activity.showing_recent', { more: filteredSpots.length - 10 })}
+                                    ? t('nearby_activity.showing_closest', { more: String(feedCounts.hiddenByCap) })
+                                    : t('nearby_activity.showing_recent', { more: String(feedCounts.hiddenByCap) })}
                             </p>
                         )}
                     </div>
                 )}
             </div>
+            {radiusSheetOpen && (
+                <div
+                    className="pq-sheet-overlay fixed inset-0 flex items-end justify-center"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label={t('nearby_activity.radius_sheet_title')}
+                >
+                    <button
+                        type="button"
+                        aria-label={t('common.close')}
+                        onClick={() => setRadiusSheetOpen(false)}
+                        className="absolute inset-0 bg-black/60"
+                    />
+                    <div className="pq-sheet relative w-full max-w-md rounded-t-[26px] p-5"
+                        // Clears the fixed bottom nav; inline so it beats
+                        // the Tailwind padding utility emitted after our CSS.
+                        style={{ paddingBottom: 'calc(var(--mobile-primary-nav-space, 104px) + 8px)' }}>
+                        <h2 className="text-[17px] font-extrabold text-[var(--color-text)]">
+                            {t('nearby_activity.radius_sheet_title')}
+                        </h2>
+                        <p className="text-[12px] text-[var(--color-text-secondary)] mt-1 leading-relaxed">
+                            {t('nearby_activity.radius_sheet_body')}
+                        </p>
+                        <div className="grid grid-cols-4 gap-2 mt-4">
+                            {RADIUS_OPTIONS.map(r => (
+                                <button
+                                    key={r}
+                                    type="button"
+                                    onClick={() => setRadius(r)}
+                                    aria-pressed={r === radiusMiles}
+                                    className={r === radiusMiles ? 'pq-radius-opt pq-radius-opt--on' : 'pq-radius-opt'}
+                                >
+                                    {r} mi
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {setView && (
                 <NavigationBar
                     currentView={AppView.NOTIFICATIONS}
