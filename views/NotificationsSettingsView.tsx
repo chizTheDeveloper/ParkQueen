@@ -5,6 +5,7 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { NotificationEnableCard } from '../components/NotificationEnableCard';
 import { deriveNotificationPresentation } from '../utils/notificationPresentation';
+import { RADIUS_OPTIONS, DEFAULT_RADIUS } from '../utils/notificationRadius';
 import type { NotificationRuntimeState } from '../utils/notificationRegistration';
 
 interface NotificationsSettingsViewProps {
@@ -29,7 +30,7 @@ const Toggle = ({ checked, onChange, disabled }: { checked: boolean; onChange: (
     </button>
 );
 
-const RADIUS_OPTIONS = [1, 2, 3, 5];
+// Imported, not redeclared: the Nearby Activity feed queries this same list.
 
 export const NotificationsSettingsView: React.FC<NotificationsSettingsViewProps> = ({
     user,
@@ -41,7 +42,7 @@ export const NotificationsSettingsView: React.FC<NotificationsSettingsViewProps>
 }) => {
     useLang();
     const [enabled, setEnabled] = useState<boolean>(user?.notificationsEnabled ?? true);
-    const [radius, setRadius] = useState<number>(user?.notificationRadius ?? 1);
+    const [radius, setRadius] = useState<number>(user?.notificationRadius ?? DEFAULT_RADIUS);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     useEffect(() => {
@@ -61,7 +62,7 @@ export const NotificationsSettingsView: React.FC<NotificationsSettingsViewProps>
             setError(t('settings.pref_save_error'));
             // revert local state
             if (field === 'notificationsEnabled') setEnabled(v => !v);
-            if (field === 'notificationRadius') setRadius(user?.notificationRadius ?? 1);
+            if (field === 'notificationRadius') setRadius(user?.notificationRadius ?? DEFAULT_RADIUS);
         } finally {
             setSaving(false);
         }

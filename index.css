@@ -1553,6 +1553,213 @@ html, body, #root {
   .pq-tool-card:active { transform: none; }
 }
 
+/* -- Nearby Activity ------------------------------------------------------
+   Live-feed visual language. Same family as the AI Parking Assistant cards:
+   theme variables for both modes, restrained accents, motion that a reduced
+   motion preference switches off. Sits above the @tailwind directives with the
+   rest of the semantic rules.
+   ------------------------------------------------------------------------- */
+
+/* Compact status strip */
+.pq-live-chip,
+.pq-status-chip,
+.pq-radius-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  border: 1px solid var(--color-border);
+  background: var(--color-card);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+.pq-live-chip {
+  color: #34d399;
+  border-color: rgba(52, 211, 153, 0.36);
+  background: rgba(52, 211, 153, 0.10);
+  text-transform: uppercase;
+}
+.pq-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background: #34d399;
+  box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.55);
+  animation: pq-live-pulse 2.2s ease-out infinite;
+}
+@keyframes pq-live-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.55); }
+  70%  { box-shadow: 0 0 0 7px rgba(52, 211, 153, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
+}
+.pq-status-chip--ok { color: #34d399; border-color: rgba(52, 211, 153, 0.30); }
+
+/* The radius pill is a real control, so it reads as pressable */
+.pq-radius-pill {
+  color: var(--color-text);
+  border-color: rgba(56, 189, 248, 0.34);
+  background: rgba(56, 189, 248, 0.10);
+  transition: background 140ms ease, transform 120ms ease;
+}
+.pq-radius-pill:hover { background: rgba(56, 189, 248, 0.16); }
+.pq-radius-pill:active { transform: scale(0.96); }
+.pq-radius-pill:disabled { opacity: 0.5; }
+
+/* Ping cards */
+.pq-ping-card {
+  position: relative;
+  background:
+    linear-gradient(180deg, rgba(56, 189, 248, 0.05), rgba(56, 189, 248, 0) 62%),
+    var(--color-card);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 6px 18px rgba(2, 8, 20, 0.26);
+  transition: transform 140ms ease, border-color 140ms ease;
+}
+.pq-ping-card:active { transform: scale(0.99); }
+.pq-ping-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 16px;
+  bottom: 16px;
+  width: 3px;
+  border-radius: 9999px;
+  background: #38bdf8;
+  opacity: 0.9;
+}
+.pq-ping-card--available::before    { background: #34d399; }
+.pq-ping-card--leaving_later::before { background: #f5b942; }
+.pq-ping-card--urgent::before        { background: #f87171; }
+.pq-ping-card--available    { border-color: rgba(52, 211, 153, 0.24); }
+.pq-ping-card--leaving_later { border-color: rgba(245, 185, 66, 0.24); }
+.pq-ping-card--urgent        { border-color: rgba(248, 113, 113, 0.30); }
+
+/* Status pills carry an icon and words, never colour alone */
+.pq-ping-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.pq-ping-status--available    { color: #34d399; background: rgba(52, 211, 153, 0.12); border: 1px solid rgba(52, 211, 153, 0.30); }
+.pq-ping-status--leaving_later { color: #f5b942; background: rgba(245, 185, 66, 0.12); border: 1px solid rgba(245, 185, 66, 0.30); }
+.pq-ping-status--urgent        { color: #f87171; background: rgba(248, 113, 113, 0.12); border: 1px solid rgba(248, 113, 113, 0.32); }
+.pq-ping-status--new           { color: #38bdf8; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.32); }
+
+.pq-new-dot {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 11px;
+  height: 11px;
+  border-radius: 9999px;
+  background: #38bdf8;
+  border: 2px solid var(--color-card);
+}
+
+/* Empty-state radar */
+.pq-radar {
+  position: relative;
+  width: 136px;
+  height: 136px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 18px;
+}
+.pq-radar-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  animation: pq-radar-sweep 3.6s ease-out infinite;
+}
+.pq-radar-ring--2 { animation-delay: 1.2s; }
+.pq-radar-ring--3 { animation-delay: 2.4s; }
+@keyframes pq-radar-sweep {
+  0%   { transform: scale(0.35); opacity: 0.85; }
+  100% { transform: scale(1);    opacity: 0; }
+}
+.pq-radar-core {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: linear-gradient(150deg, #1e75ff, #38bdf8);
+  box-shadow: 0 4px 18px rgba(30, 117, 255, 0.36);
+}
+
+/* Radius sheet. The primary bottom nav is position:fixed at z-index 35, so the
+   sheet sits above it explicitly. Its surface is opaque rather than
+   var(--color-card), which is 60% transparent — the nav bar was showing
+   straight through the modal. Bottom clearance is applied in the JSX, because
+   Tailwind's padding utility is emitted after these rules and would win. */
+.pq-sheet-overlay { z-index: 60; }
+.pq-sheet {
+  background: #0b1220;
+  border: 1px solid var(--color-border);
+  border-bottom: 0;
+  box-shadow: 0 -12px 40px rgba(2, 8, 20, 0.45);
+}
+.pq-radius-opt {
+  height: 44px;
+  border-radius: 14px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-text-secondary);
+  background: var(--color-overlay);
+  border: 1px solid var(--color-border);
+  transition: background 140ms ease, color 140ms ease;
+}
+.pq-radius-opt:hover { color: var(--color-text); }
+.pq-radius-opt--on {
+  color: #fff;
+  background: linear-gradient(150deg, #1e75ff, #38bdf8);
+  border-color: transparent;
+}
+
+/* Light mode is designed, not inverted: the cards lift off the page with a
+   real shadow instead of the dark build's inner highlight. */
+:root:not(.dark) .pq-sheet { background: #ffffff; }
+:root:not(.dark) .pq-ping-card,
+:root:not(.dark) .pq-sheet {
+  box-shadow: 0 1px 2px rgba(15, 32, 60, 0.06), 0 8px 24px rgba(15, 32, 60, 0.08);
+}
+:root:not(.dark) .pq-ping-card {
+  background: linear-gradient(180deg, rgba(56, 189, 248, 0.06), rgba(255, 255, 255, 0) 60%), #ffffff;
+}
+:root:not(.dark) .pq-live-chip { background: rgba(16, 163, 116, 0.10); color: #0f8a63; border-color: rgba(16, 163, 116, 0.30); }
+:root:not(.dark) .pq-live-dot { background: #0f8a63; }
+:root:not(.dark) .pq-status-chip--ok { color: #0f8a63; border-color: rgba(16, 163, 116, 0.28); }
+:root:not(.dark) .pq-ping-status--available    { color: #0f8a63; background: rgba(16, 163, 116, 0.10); border-color: rgba(16, 163, 116, 0.28); }
+:root:not(.dark) .pq-ping-status--leaving_later { color: #a86a05; background: rgba(245, 185, 66, 0.14); border-color: rgba(168, 106, 5, 0.28); }
+:root:not(.dark) .pq-ping-status--urgent        { color: #c0392b; background: rgba(192, 57, 43, 0.10); border-color: rgba(192, 57, 43, 0.26); }
+:root:not(.dark) .pq-ping-card--available::before    { background: #0f8a63; }
+:root:not(.dark) .pq-ping-card--leaving_later::before { background: #d99413; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pq-live-dot { animation: none; }
+  .pq-radar-ring { animation: none; opacity: 0.30; }
+  .pq-radar-ring--2 { transform: scale(0.75); }
+  .pq-radar-ring--3 { transform: scale(0.5); }
+  .pq-ping-card, .pq-radius-pill { transition: none; }
+  .pq-ping-card:active, .pq-radius-pill:active { transform: none; }
+}
+
 /* ─────────────────────────────────────────────────────────────────────────────
    TAILWIND MUST STAY LAST IN THIS FILE. DO NOT MOVE IT ABOVE THE RULES ABOVE.
 
