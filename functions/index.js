@@ -3,7 +3,7 @@ const { onDocumentCreated, onDocumentDeleted } = require("firebase-functions/v2/
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { onObjectFinalized } = require("firebase-functions/v2/storage");
 const { defineString, defineSecret } = require("firebase-functions/params");
-const { GoogleGenAI } = require("@google/genai");
+const { GoogleGenAI, Type } = require("@google/genai");
 const geminiApiKey = defineSecret("GEMINI_API_KEY");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, Timestamp, FieldValue } = require("firebase-admin/firestore");
@@ -4739,6 +4739,89 @@ async function _logParseFailure(rawNotes, sweepNYCObjectId, rawSignText, lat, ln
 
 const GEMINI_MODEL = "gemini-3.5-flash";
 
+// analyzeSign only — deliberately NOT shared with generateSmartReplies or
+// generateListingDescription, which have their own generation configs.
+//
+// Why a responseSchema and not just responseMimeType: with the mime type alone
+// the model opened its reply with the prose preamble "Here is the JSON
+// requested:" instead of a JSON object. A schema constrains decoding, so the
+// first token is the object itself.
+//
+// Fields mirror the client's SignAnalysisResult exactly (services/geminiService.ts).
+// Nothing is added here that the UI does not already consume.
+const SIGN_ANALYSIS_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    status: { type: Type.STRING, enum: ["YES", "NO", "CONDITIONAL"] },
+    explanation: { type: Type.STRING },
+    restrictionStartsAt: { type: Type.STRING, nullable: true },
+    restrictionEndsAt: { type: Type.STRING, nullable: true },
+    actionableAdvice: { type: Type.STRING, nullable: true },
+  },
+  required: ["status", "explanation"],
+  propertyOrdering: ["status", "explanation", "restrictionStartsAt", "restrictionEndsAt", "actionableAdvice"],
+};
+
+// Thinking tokens are drawn from maxOutputTokens. The previous cap of 300 was
+// spent almost entirely on thinking (measured: 288 thought tokens, 8 output
+// tokens, finishReason MAX_TOKENS), so the reply was truncated mid-preamble and
+// never parsed. Sign reading is structured extraction rather than multi-step
+// reasoning, so thinking is disabled and the whole budget goes to the answer.
+// A complete answer measured 176 output tokens; 512 leaves roughly 3x headroom
+// for a crowded multi-sign pole while still capping cost per call.
+const SIGN_ANALYSIS_MAX_OUTPUT_TOKENS = 512;
+const SIGN_ANALYSIS_THINKING_BUDGET = 0;
+
+/**
+ * Turns raw model text into the client contract, or a conservative ERROR.
+ *
+ * Every failure mode — empty, truncated, malformed, blocked, or a status the
+ * allowlist does not recognise — resolves to ERROR. Uncertainty must never
+ * become permission to park, so there is no path here that invents a YES.
+ */
+function _parseSignAnalysis(text) {
+  if (typeof text !== "string" || text.trim() === "") {
+    return { status: "ERROR", explanation: "Could not read a result from the sign analysis." };
+  }
+  const cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
+  let parsed;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    return { status: "ERROR", explanation: "Could not parse sign analysis response." };
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { status: "ERROR", explanation: "Could not parse sign analysis response." };
+  }
+  // Model output is untrusted data, not a pass-through payload, however
+  // well-formed the JSON is.
+  const ALLOWED_STATUS = new Set(["YES", "NO", "CONDITIONAL"]);
+  const boundStr = (v, max) => (typeof v === "string" ? v.slice(0, max) : null);
+  // Trimmed: a whitespace-only explanation is no explanation, and would
+  // otherwise sail through the emptiness check below as a definitive verdict.
+  const explanation = (boundStr(parsed.explanation, 300) || "").trim();
+  // A verdict with no explanation behind it is not something to show as fact.
+  if (!ALLOWED_STATUS.has(parsed.status) || explanation === "") {
+    return { status: "ERROR", explanation: "Could not parse sign analysis response." };
+  }
+  return {
+    status: parsed.status,
+    explanation,
+    restrictionStartsAt: boundStr(parsed.restrictionStartsAt, 40),
+    restrictionEndsAt: boundStr(parsed.restrictionEndsAt, 40),
+    actionableAdvice: boundStr(parsed.actionableAdvice, 150),
+  };
+}
+
+// Declared after the consts above: the main export block runs earlier in the
+// file, where these are still in the temporal dead zone.
+exports._parseSignAnalysis  = _parseSignAnalysis;
+exports._signAnalysisConfig = {
+  schema: SIGN_ANALYSIS_SCHEMA,
+  maxOutputTokens: SIGN_ANALYSIS_MAX_OUTPUT_TOKENS,
+  thinkingBudget: SIGN_ANALYSIS_THINKING_BUDGET,
+};
+
 // Narrow image-format allowlist for analyzeSign — checked against the decoded
 // byte prefix (not the client-asserted MIME, which the client never sends)
 // so a non-image payload can't reach the paid vision API at all. JPEG/PNG/WEBP
@@ -4811,44 +4894,44 @@ exports.analyzeSign = onCall(
             parts: [
               { inlineData: { mimeType, data: imageBase64 } },
               {
+                // The shape is enforced by SIGN_ANALYSIS_SCHEMA, so the prompt
+                // no longer restates it — it carries the reading rules and the
+                // conservative-status rule instead.
                 text: `You are a NYC parking expert. Analyze this parking sign image.
 Crucially, there may be MULTIPLE stacked signs on this pole. Read all of them carefully. Resolve any conflicting rules (e.g. temporary construction signs override permanent signs).
-Respond strictly in JSON format with the following structure:
-{
-  "status": "YES", "NO", or "CONDITIONAL",
-  "explanation": "A one sentence explanation of the rules.",
-  "restrictionStartsAt": "ISO timestamp or null if unknown/not applicable",
-  "restrictionEndsAt": "ISO timestamp or null if unknown/not applicable",
-  "actionableAdvice": "Short advice, e.g., 'Move car by 4 PM'"
-}
-Do not include Markdown formatting. Just output the raw JSON object.`,
+Report whether a driver may park at this spot right now: "YES" only if parking is clearly permitted, "NO" if clearly prohibited, and "CONDITIONAL" whenever the answer depends on the day or time, or the sign is ambiguous or only partly legible.
+Give restrictionStartsAt and restrictionEndsAt as ISO timestamps, or null when unknown or not applicable. Keep the explanation to one sentence and the advice short, e.g. "Move car by 4 PM".`,
               },
             ],
           },
-          config: { maxOutputTokens: 300, responseMimeType: "application/json" },
+          config: {
+            maxOutputTokens: SIGN_ANALYSIS_MAX_OUTPUT_TOKENS,
+            responseMimeType: "application/json",
+            responseSchema: SIGN_ANALYSIS_SCHEMA,
+            thinkingConfig: { thinkingBudget: SIGN_ANALYSIS_THINKING_BUDGET },
+          },
         });
       }
     } catch (err) {
       classifyGeminiError("analyzeSign", err);
     }
-    const text = (response.text || "{}").replace(/```json/g, "").replace(/```/g, "").trim();
-    let parsed;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      return { status: "ERROR", explanation: "Could not parse sign analysis response." };
+    const result = _parseSignAnalysis(response?.text);
+    if (result.status === "ERROR") {
+      // Metadata only — never the model text, the image, or the API key. This
+      // is what was missing when the 300-token cap silently broke every scan:
+      // the failure was invisible in logs because nothing recorded it.
+      const usage = response?.usageMetadata || {};
+      console.error(
+        `[analyzeSign] unusable model response — model:${GEMINI_MODEL}` +
+        ` finish:${response?.candidates?.[0]?.finishReason ?? "unknown"}` +
+        ` block:${response?.promptFeedback?.blockReason ?? "none"}` +
+        ` textLen:${typeof response?.text === "string" ? response.text.length : -1}` +
+        ` thoughtTokens:${usage.thoughtsTokenCount ?? 0}` +
+        ` outputTokens:${usage.candidatesTokenCount ?? 0}` +
+        ` maxOutputTokens:${SIGN_ANALYSIS_MAX_OUTPUT_TOKENS}`
+      );
     }
-    // Bound/allowlist the parsed fields — model output is untrusted data, not a
-    // pass-through payload, regardless of how well-formed the JSON is.
-    const ALLOWED_STATUS = new Set(["YES", "NO", "CONDITIONAL"]);
-    const boundStr = (v, max) => (typeof v === "string" ? v.slice(0, max) : null);
-    return {
-      status: ALLOWED_STATUS.has(parsed?.status) ? parsed.status : "ERROR",
-      explanation: boundStr(parsed?.explanation, 300) || "",
-      restrictionStartsAt: boundStr(parsed?.restrictionStartsAt, 40),
-      restrictionEndsAt: boundStr(parsed?.restrictionEndsAt, 40),
-      actionableAdvice: boundStr(parsed?.actionableAdvice, 150),
-    };
+    return result;
   }
 );
 

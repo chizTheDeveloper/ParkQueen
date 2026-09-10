@@ -480,8 +480,13 @@ describe('AI-S analyzeSign — callable behavioral tests', () => {
         const { result, error } = await callDirect(indexModule.analyzeSign, uid, {}, { imageBase64: fakeJpegBase64() });
         expect(error).toBeUndefined();
         expect(result.status).toBe('ERROR'); // invalid enum value falls back safely
+        // A status outside the allowlist means the response is not trustworthy,
+        // so none of the model's own prose is forwarded — the client gets the
+        // fixed failure copy instead of 5000 characters of attacker-chosen text.
+        expect(result.explanation).toBe('Could not parse sign analysis response.');
         expect(result.explanation.length).toBeLessThanOrEqual(300);
-        expect(result.actionableAdvice.length).toBeLessThanOrEqual(150);
+        expect(result.explanation).not.toContain('x'.repeat(50));
+        expect(result.actionableAdvice).toBeUndefined();
         expect(result.extraField).toBeUndefined();
     });
 
