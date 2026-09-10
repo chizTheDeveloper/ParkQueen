@@ -167,17 +167,18 @@ describe('analyzeSign generation config', () => {
 });
 
 describe('unrelated Gemini callables keep their own configuration', () => {
-  it('does not apply the sign schema or thinking budget to the other two', () => {
+  it('does not apply the sign schema or budget to the other two', () => {
+    // The other callables have since been given their own schema and thinking
+    // budget, so the property under test is that none of analyzeSign's
+    // constants reach them — not that they lack a config of their own.
     const smart = INDEX_SRC.slice(INDEX_SRC.indexOf('exports.generateSmartReplies'), INDEX_SRC.indexOf('exports.generateSmartReplies') + 3000);
     const listing = INDEX_SRC.slice(INDEX_SRC.indexOf('exports.generateListingDescription'), INDEX_SRC.indexOf('exports.generateListingDescription') + 3000);
     for (const src of [smart, listing]) {
       expect(src).not.toContain('SIGN_ANALYSIS_SCHEMA');
-      expect(src).not.toContain('thinkingConfig');
-      expect(src).not.toContain('responseSchema');
+      expect(src).not.toContain('SIGN_ANALYSIS_MAX_OUTPUT_TOKENS');
+      expect(src).not.toContain('SIGN_ANALYSIS_THINKING_BUDGET');
+      expect(src).not.toContain('_parseSignAnalysis');
     }
-    // Their existing caps are untouched.
-    expect(INDEX_SRC).toContain('config: { maxOutputTokens: 60 }');
-    expect(INDEX_SRC).toContain('config: { maxOutputTokens: 120 }');
   });
 
   it('keeps analyzeSign on the shared model constant', () => {

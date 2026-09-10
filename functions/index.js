@@ -4813,6 +4813,116 @@ function _parseSignAnalysis(text) {
   };
 }
 
+// ─── generateSmartReplies ────────────────────────────────────────────────────
+// Same regression as analyzeSign: thinking tokens are drawn from
+// maxOutputTokens, so the 60-token cap left 2 tokens for the answer (measured:
+// 54 thought / 2 output, finishReason MAX_TOKENS, a 3-character result).
+//
+// The old contract asked for a comma-separated list and split on ",", which
+// also broke on any reply containing a comma and turned an empty response into
+// [""] — a blank suggestion pill that sent an empty message when tapped.
+const SMART_REPLY_COUNT = 3;
+const MAX_REPLY_LENGTH = 80;
+const SMART_REPLIES_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    replies: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+      minItems: String(SMART_REPLY_COUNT),
+      maxItems: String(SMART_REPLY_COUNT),
+    },
+  },
+  required: ["replies"],
+};
+// A complete answer measured 43 output tokens with thinking disabled. The hard
+// ceiling is 3 replies x MAX_REPLY_LENGTH plus JSON syntax, well under this.
+const SMART_REPLIES_MAX_OUTPUT_TOKENS = 192;
+const SMART_REPLIES_THINKING_BUDGET = 0;
+
+/**
+ * Returns at most SMART_REPLY_COUNT clean, distinct suggestions, or [] when the
+ * model output is unusable.
+ *
+ * [] is deliberate: MessagesView renders the strip only when replies.length > 0,
+ * so an empty array degrades to showing nothing. Never return a partial or
+ * empty-string reply — the UI turns each entry into a tappable send button.
+ */
+function _parseSmartReplies(text) {
+  if (typeof text !== "string" || text.trim() === "") return [];
+  let parsed;
+  try {
+    parsed = JSON.parse(text.replace(/```json/g, "").replace(/```/g, "").trim());
+  } catch {
+    return [];
+  }
+  if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.replies)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const raw of parsed.replies) {
+    if (typeof raw !== "string") continue;
+    const reply = raw.trim().slice(0, MAX_REPLY_LENGTH).trim();
+    if (reply === "") continue;
+    const key = reply.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(reply);
+    if (out.length === SMART_REPLY_COUNT) break;
+  }
+  return out;
+}
+
+// ─── generateListingDescription ──────────────────────────────────────────────
+// Measured: 112 thought / 4 output tokens against the old 120-token cap, so the
+// client received a ~20-character fragment. A fragment is truthy, so it also
+// slipped past the `|| fallback` guard the old code relied on.
+const MAX_DESCRIPTION_LENGTH = 400;
+const LISTING_DESCRIPTION_SCHEMA = {
+  type: Type.OBJECT,
+  properties: { description: { type: Type.STRING } },
+  required: ["description"],
+};
+// A complete answer measured 45 output tokens with thinking disabled; this also
+// leaves room for a description that runs to the full MAX_DESCRIPTION_LENGTH.
+const LISTING_DESCRIPTION_MAX_OUTPUT_TOKENS = 256;
+const LISTING_DESCRIPTION_THINKING_BUDGET = 0;
+const LISTING_DESCRIPTION_FALLBACK = "A great parking spot in the heart of the city.";
+
+/** Returns a trimmed, bounded description, or null when the output is unusable. */
+function _parseListingDescription(text) {
+  if (typeof text !== "string" || text.trim() === "") return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(text.replace(/```json/g, "").replace(/```/g, "").trim());
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || typeof parsed.description !== "string") return null;
+  const description = parsed.description.trim().slice(0, MAX_DESCRIPTION_LENGTH).trim();
+  return description === "" ? null : description;
+}
+
+/**
+ * Safe failure logging shared by the Gemini callables.
+ *
+ * Records only shape and budget metadata. Never the prompt, the conversation,
+ * the model text or the key — smart replies carry private message content, so
+ * there is nothing here that could echo it.
+ */
+function _logGeminiShortfall(fn, response, cap, category) {
+  const usage = response?.usageMetadata || {};
+  console.error(
+    `[${fn}] unusable model response — model:${GEMINI_MODEL}` +
+    ` finish:${response?.candidates?.[0]?.finishReason ?? "unknown"}` +
+    ` block:${response?.promptFeedback?.blockReason ?? "none"}` +
+    ` textLen:${typeof response?.text === "string" ? response.text.length : -1}` +
+    ` thoughtTokens:${usage.thoughtsTokenCount ?? 0}` +
+    ` outputTokens:${usage.candidatesTokenCount ?? 0}` +
+    ` maxOutputTokens:${cap}` +
+    ` category:${category}`
+  );
+}
+
 // Declared after the consts above: the main export block runs earlier in the
 // file, where these are still in the temporal dead zone.
 exports._parseSignAnalysis  = _parseSignAnalysis;
@@ -4820,6 +4930,22 @@ exports._signAnalysisConfig = {
   schema: SIGN_ANALYSIS_SCHEMA,
   maxOutputTokens: SIGN_ANALYSIS_MAX_OUTPUT_TOKENS,
   thinkingBudget: SIGN_ANALYSIS_THINKING_BUDGET,
+};
+exports._parseSmartReplies       = _parseSmartReplies;
+exports._parseListingDescription = _parseListingDescription;
+exports._smartRepliesConfig = {
+  schema: SMART_REPLIES_SCHEMA,
+  maxOutputTokens: SMART_REPLIES_MAX_OUTPUT_TOKENS,
+  thinkingBudget: SMART_REPLIES_THINKING_BUDGET,
+  replyCount: SMART_REPLY_COUNT,
+  maxReplyLength: MAX_REPLY_LENGTH,
+};
+exports._listingDescriptionConfig = {
+  schema: LISTING_DESCRIPTION_SCHEMA,
+  maxOutputTokens: LISTING_DESCRIPTION_MAX_OUTPUT_TOKENS,
+  thinkingBudget: LISTING_DESCRIPTION_THINKING_BUDGET,
+  maxDescriptionLength: MAX_DESCRIPTION_LENGTH,
+  fallback: LISTING_DESCRIPTION_FALLBACK,
 };
 
 // Narrow image-format allowlist for analyzeSign — checked against the decoded
@@ -4964,20 +5090,36 @@ exports.generateSmartReplies = onCall(
         const ai = new GoogleGenAI({ apiKey: geminiApiKey.value() });
         response = await ai.models.generateContent({
           model: GEMINI_MODEL,
+          // The array shape is enforced by SMART_REPLIES_SCHEMA, so the prompt
+          // no longer asks for a comma-separated list to be split apart.
           contents: `You are an AI assistant in a parking app called ParQueen.
 The user just received this message: "${safeMessage}".
 Context: ${safeContext}.
-Generate 3 short, natural, polite responses (max 5 words each) that the user might want to send back.
-Return them as a comma-separated list.`,
-          config: { maxOutputTokens: 60 },
+Suggest exactly ${SMART_REPLY_COUNT} short, natural, polite replies the user might send back. Each must be at most 5 words, and all ${SMART_REPLY_COUNT} must be different from each other.`,
+          config: {
+            maxOutputTokens: SMART_REPLIES_MAX_OUTPUT_TOKENS,
+            responseMimeType: "application/json",
+            responseSchema: SMART_REPLIES_SCHEMA,
+            thinkingConfig: { thinkingBudget: SMART_REPLIES_THINKING_BUDGET },
+          },
         });
       }
     } catch (err) {
       classifyGeminiError("generateSmartReplies", err);
     }
-    const text = response.text || "";
-    const MAX_REPLY_LENGTH = 80;
-    return { replies: text.split(",").map((s) => s.trim().slice(0, MAX_REPLY_LENGTH)).slice(0, 3) };
+    // A truncated reply is not a shorter reply, it is a broken one, so a
+    // MAX_TOKENS finish is rejected even if what arrived happens to parse.
+    const truncated = response?.candidates?.[0]?.finishReason === "MAX_TOKENS";
+    const replies = truncated ? [] : _parseSmartReplies(response?.text);
+    if (replies.length === 0) {
+      _logGeminiShortfall(
+        "generateSmartReplies", response, SMART_REPLIES_MAX_OUTPUT_TOKENS,
+        truncated ? "truncated" : "unusable"
+      );
+    }
+    // Empty means "no suggestions": the chat strip hides itself rather than
+    // offering a blank pill that would send an empty message when tapped.
+    return { replies };
   }
 );
 
@@ -5009,14 +5151,27 @@ exports.generateListingDescription = onCall(
         response = await ai.models.generateContent({
           model: GEMINI_MODEL,
           contents: `Write a catchy, short marketing description (max 2 sentences) for a parking spot in NYC with these features: ${features.join(", ")}. Use a premium, trustworthy tone.`,
-          config: { maxOutputTokens: 120 },
+          config: {
+            maxOutputTokens: LISTING_DESCRIPTION_MAX_OUTPUT_TOKENS,
+            responseMimeType: "application/json",
+            responseSchema: LISTING_DESCRIPTION_SCHEMA,
+            thinkingConfig: { thinkingBudget: LISTING_DESCRIPTION_THINKING_BUDGET },
+          },
         });
       }
     } catch (err) {
       classifyGeminiError("generateListingDescription", err);
     }
-    const MAX_DESCRIPTION_LENGTH = 400;
-    const description = (response.text || "A great parking spot in the heart of the city.").slice(0, MAX_DESCRIPTION_LENGTH);
-    return { description };
+    // A cut-off sentence is still a truthy string, which is how the old
+    // `|| fallback` guard let ~20-character fragments through to the client.
+    const truncated = response?.candidates?.[0]?.finishReason === "MAX_TOKENS";
+    const parsed = truncated ? null : _parseListingDescription(response?.text);
+    if (parsed === null) {
+      _logGeminiShortfall(
+        "generateListingDescription", response, LISTING_DESCRIPTION_MAX_OUTPUT_TOKENS,
+        truncated ? "truncated" : "unusable"
+      );
+    }
+    return { description: parsed ?? LISTING_DESCRIPTION_FALLBACK };
   }
 );
