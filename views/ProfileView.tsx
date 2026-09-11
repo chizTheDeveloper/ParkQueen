@@ -3,10 +3,11 @@ import { useFocusOnMount } from '../hooks/useFocusOnMount';
 import { getStorage, ref, uploadBytes } from 'firebase/storage';
 import { doc, setDoc, serverTimestamp, onSnapshot, collection, query, where, orderBy, limit, getDocs, getCountFromServer } from 'firebase/firestore';
 import { db } from '../firebase';
-import { ChevronLeft, ChevronRight, Edit, Clock, Info, Settings, Crown, MapPin, Handshake, ParkingSquare } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Camera, Clock, Info, Settings, Crown, MapPin, Handshake, ParkingSquare, Plus, AlertTriangle, History } from 'lucide-react';
 import { VehicleIcon } from '../utils/vehicleIcon';
 import { AppView } from '../types';
-import { getNextTitle, getTierForCrowns, TIER_VISUALS, getProgressPct } from '../utils/crowns';
+import { getNextTitle, getTierForCrowns, getProgressPct, TITLE_THRESHOLDS } from '../utils/crowns';
+import { CrownBadge } from '../utils/CrownBadge';
 import { getInitials } from '../utils/profileAvatar';
 import { validateAvatarUpload } from '../utils/avatarUploadValidation';
 import { deriveImpactCounts } from '../utils/profileImpact';
@@ -20,6 +21,17 @@ import { NavigationBar } from './street-parking/NavigationBar';
 // boundary, not the incrementTotalSpotsPinged marker's own 2026-08-04 start
 // date, which predates and is unrelated to this per-user counter.
 const PINGS_SHARED_TRACKING_SINCE = new Date(2026, 7, 1);
+
+// The current rank band, straight from the existing threshold helpers: the
+// bar, the "X / Y" readout and "N to go" all read these same numbers.
+export function describeJourney(crowns: number) {
+  const tier = getTierForCrowns(crowns);
+  const next = getNextTitle(crowns);
+  const from = TITLE_THRESHOLDS[tier].crowns;
+  return next
+    ? { tier, next, from, to: crowns + next.crownsNeeded, pct: getProgressPct(crowns) }
+    : { tier, next: null, from, to: from, pct: 100 };
+}
 
 export const ProfileView = ({ user, onBack, setView, unreadMessagesCount = 0, pendingUpdatesCount = 0 }) => {
   useLang();
@@ -138,19 +150,11 @@ export const ProfileView = ({ user, onBack, setView, unreadMessagesCount = 0, pe
     fetchActivity();
   }, [user?.id]);
 
-  const activityIcon = (key: string) => {
-    const map: Record<string, { icon: React.ReactNode; bg: string; color: string }> = {
-      handshake: { icon: <Handshake size={13} />, bg: 'bg-yellow-400/15', color: 'text-yellow-400' },
-      parking:   { icon: <ParkingSquare size={13} />, bg: 'bg-green-400/15', color: 'text-green-400' },
-      pin:       { icon: <MapPin size={13} />, bg: 'bg-[#1e75ff]/15', color: 'text-[#38bdf8]' },
-      clock:     { icon: <Clock size={13} />, bg: 'bg-orange-400/15', color: 'text-orange-400' },
-    };
-    const m = map[key] || map['pin'];
-    return (
-      <div className={`w-7 h-7 rounded-lg ${m.bg} ${m.color} flex items-center justify-center shrink-0`}>
-        {m.icon}
-      </div>
-    );
+  const activityIcons: Record<string, React.ReactNode> = {
+    handshake: <Handshake size={16} />,
+    parking: <ParkingSquare size={16} />,
+    pin: <MapPin size={16} />,
+    clock: <Clock size={16} />,
   };
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -232,297 +236,330 @@ export const ProfileView = ({ user, onBack, setView, unreadMessagesCount = 0, pe
   const triggerUpload = () => fileInputRef.current?.click();
 
   const crowns = user?.crowns || 0;
-  const tier = getTierForCrowns(crowns);
-  const visual = TIER_VISUALS[tier];
-  const next = getNextTitle(crowns);
-  const pct = getProgressPct(crowns);
+  const journey = describeJourney(crowns);
   const initials = getInitials(user?.username, user?.fullName);
+  const currentTitle = user?.title || t('profile.newcomer');
+  const num = (n: number) => n.toLocaleString(locale);
+  const crownLabel = crowns === 1 ? t('profile.crowns_singular', { count: crowns }) : t('profile.crowns_plural', { count: num(crowns) });
+  const displayName = user?.username?.startsWith('user_')
+    ? (user.fullName || t('profile.username_fallback'))
+    : (user?.username || user?.fullName || t('profile.username_fallback'));
+  const joined = (() => {
+    const ts = user?.createdAt;
+    if (!ts) return null;
+    const d = typeof ts.toDate === 'function' ? ts.toDate() : new Date(ts);
+    return t('profile.joined', { date: d.toLocaleDateString(locale, { month: 'long', year: 'numeric' }) });
+  })();
 
-  const hasImpact = impactState === 'loaded' &&
-    (impactCounts.pingsShared > 0 || impactCounts.successfulHandoffs > 0 || impactCounts.spotsFound > 0);
+  const vehicleColor = user?.vehicleColor ? (colorLabels[user.vehicleColor] ?? user.vehicleColor) : '';
+  const vehicleType = user?.vehicleType ? (typeLabels[user.vehicleType] ?? user.vehicleType) : '';
+  const vehicleName = [vehicleColor, user?.vehicleBrand].filter(Boolean).join(' ');
+  const hasVehicle = !!(user?.vehicleBrand || user?.vehicleColor || user?.vehicleType);
+  // Only the parts that exist: "Yellow Alfa Romeo" over "Compact", or just the type.
+  const vehiclePrimary = vehicleName || vehicleType;
+  const vehicleSecondary = vehicleName ? vehicleType : '';
+
+  const stats = [
+    { key: 'pings', value: impactCounts.pingsShared, icon: <MapPin size={15} />, one: 'profile.pings_shared_one', many: 'profile.pings_shared', since: true },
+    { key: 'handoffs', value: impactCounts.successfulHandoffs, icon: <Handshake size={15} />, one: 'profile.successful_handoffs_one', many: 'profile.successful_handoffs', since: false },
+    { key: 'spots', value: impactCounts.spotsFound, icon: <ParkingSquare size={15} />, one: 'profile.spots_found_one', many: 'profile.spots_found', since: false },
+  ];
+  const focusRing = 'focus-visible:ring-2 focus-visible:ring-[#38bdf8] focus-visible:outline-none';
 
   return (
-    <div className="mobile-primary-screen mobile-safe-top min-h-full bg-[var(--color-bg)] text-[var(--color-text)] pt-4 pb-20 px-4">
+    <div className="mobile-primary-screen mobile-safe-top md:pt-4 md:pb-20 min-h-full bg-[var(--color-bg)] text-[var(--color-text)] px-4">
       {user ? (
         <div className="max-w-md mx-auto flex flex-col">
 
-          {/* ── Header ─────────────────────────────────────────────────── */}
-          <div className="flex items-center justify-between mb-4">
+          {/* ── Header — no Back on phones: Profile is a bottom-nav tab. The
+              nav is md:hidden, so wider screens keep Back as their way out. */}
+          <header className="relative flex items-center justify-center h-11">
             <button
               onClick={onBack}
               aria-label={t('profile.back_aria')}
-              className="w-11 h-11 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] text-[var(--color-text)] hover:bg-white/10 active:scale-95 transition-all shrink-0"
+              className={`pq-icon-btn hidden md:flex absolute left-0 top-0 bg-[var(--color-overlay)] border border-[var(--color-border)] ${focusRing}`}
             >
-              <ChevronLeft size={20} />
+              <ChevronLeft size={20} aria-hidden="true" />
             </button>
-            <h2
+            <h1
               ref={headingRef}
               tabIndex={-1}
-              className="text-xl font-bold text-[var(--color-text)] tracking-wide focus:outline-none"
+              className="text-[17px] font-extrabold tracking-tight focus:outline-none"
             >
               {t('profile.title')}
-            </h2>
+            </h1>
             <button
               onClick={() => setView(AppView.SETTINGS)}
               aria-label={t('profile.settings_aria')}
-              className="w-11 h-11 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] text-[#38bdf8] hover:bg-white/10 active:scale-95 transition-all shrink-0"
+              className={`pq-icon-btn absolute right-0 top-0 bg-[var(--color-overlay)] border border-[var(--color-border)] ${focusRing}`}
             >
-              <Settings size={20} />
+              <Settings size={20} aria-hidden="true" />
             </button>
-          </div>
+          </header>
 
-          <div className="space-y-3">
-
-            {/* ── Identity Card ──────────────────────────────────────── */}
-            <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-[22px] overflow-hidden">
-              <div className="flex items-center gap-4 px-4 py-4">
-
-                {/* Avatar */}
-                <div className="relative shrink-0">
-                  <div
-                    className="w-[92px] h-[92px] rounded-full border-[3px] border-[#1e75ff] overflow-hidden flex items-center justify-center shadow-lg shadow-[#1e75ff]/20"
-                    aria-hidden="true"
-                  >
-                    {user.avatarUrl ? (
-                      <img src={user.avatarUrl} alt="" className="w-full h-full object-cover" />
-                    ) : initials ? (
-                      <span
-                        className="text-[30px] font-extrabold text-white select-none leading-none"
-                        style={{ background: 'linear-gradient(135deg, #0d1a2e 0%, #1e3a5f 100%)', width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                      >
-                        {initials}
-                      </span>
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #0d1a2e 0%, #1e3a5f 100%)' }}>
-                        <svg viewBox="0 0 24 24" fill="none" className="w-10 h-10 text-[#38bdf8]/60" stroke="currentColor" strokeWidth={1.5}>
-                          <circle cx="12" cy="8" r="4" />
-                          <path d="M4 20c0-4 3.58-7 8-7s8 3 8 7" strokeLinecap="round" />
-                        </svg>
-                      </div>
-                    )}
-                    {isUploading && (
-                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                        <div className="animate-spin motion-reduce:animate-none rounded-full h-7 w-7 border-b-2 border-white" />
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Edit badge */}
-                  <button
-                    onClick={triggerUpload}
-                    disabled={isUploading}
-                    aria-label={t('profile.upload_photo_aria')}
-                    className="absolute -bottom-1 -right-1 w-10 h-10 flex items-end justify-end pb-0.5 pr-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <div className="w-6 h-6 rounded-full bg-[#1e75ff] border-2 border-[var(--color-bg)] flex items-center justify-center text-white shadow-md hover:bg-blue-600 active:scale-95 transition-all pointer-events-none">
-                      <Edit size={11} />
-                    </div>
-                  </button>
-
-                  <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/jpeg,image/png,image/webp" className="hidden" />
-                </div>
-
-                {/* Identity text */}
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-[18px] font-extrabold text-[var(--color-text)] leading-tight truncate">
-                    {user.username?.startsWith('user_') ? (user.fullName || t('profile.username_fallback')) : (user.username || user.fullName || t('profile.username_fallback'))}
-                  </h3>
-
-                  {user.username?.startsWith('user_') && (
-                    <button
-                      onClick={() => setView(AppView.EDIT_PROFILE)}
-                      className="mt-1 px-2.5 py-0.5 rounded-full bg-[#1e75ff]/15 border border-[#1e75ff]/30 text-[#38bdf8] text-xs font-semibold active:scale-95 transition-transform"
-                    >
-                      {t('profile.complete_profile')}
-                    </button>
+          {/* ── Identity hero — open, no card ─────────────────────────────── */}
+          <div className="relative flex flex-col items-center text-center pt-4 pb-7">
+            <div className="pq-hero-glow" aria-hidden="true" />
+            <div className="relative">
+              <div className="pq-avatar-ring">
+                <div
+                  className="relative w-[96px] h-[96px] rounded-full overflow-hidden flex items-center justify-center"
+                  style={{ background: 'linear-gradient(135deg, #0d1a2e 0%, #1e3a5f 100%)' }}
+                  aria-hidden="true"
+                >
+                  {user.avatarUrl ? (
+                    <img src={user.avatarUrl} alt="" className="w-full h-full object-cover" />
+                  ) : initials ? (
+                    <span className="text-[32px] font-extrabold text-white select-none leading-none">{initials}</span>
+                  ) : (
+                    <svg viewBox="0 0 24 24" fill="none" className="w-11 h-11 text-[#38bdf8]/60" stroke="currentColor" strokeWidth={1.5}>
+                      <circle cx="12" cy="8" r="4" />
+                      <path d="M4 20c0-4 3.58-7 8-7s8 3 8 7" strokeLinecap="round" />
+                    </svg>
                   )}
-
-                  {(() => {
-                    const ts = user.createdAt;
-                    if (!ts) return null;
-                    const d = typeof ts.toDate === 'function' ? ts.toDate() : new Date(ts);
-                    return (
-                      <p className="text-xs text-[var(--color-text-secondary)] mt-1">
-                        {t('profile.joined', { date: d.toLocaleDateString(locale, { month: 'long', year: 'numeric' }) })}
-                      </p>
-                    );
-                  })()}
-
-                  {uploadStatus && (
-                    <p aria-live="polite" className={`text-xs mt-1 font-semibold ${uploadError ? 'text-red-400' : 'text-blue-400'}`}>
-                      {uploadStatus}
-                    </p>
+                  {isUploading && (
+                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                      <div className="animate-spin motion-reduce:animate-none rounded-full h-7 w-7 border-b-2 border-white" />
+                    </div>
                   )}
                 </div>
               </div>
+              {/* 44px target around a 30px badge */}
+              <button
+                onClick={triggerUpload}
+                disabled={isUploading}
+                aria-label={t('profile.upload_photo_aria')}
+                className={`absolute -bottom-2 -right-2 w-11 h-11 rounded-full flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed ${focusRing}`}
+              >
+                <span className="pq-avatar-edit pointer-events-none"><Camera size={14} aria-hidden="true" /></span>
+              </button>
+              <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/jpeg,image/png,image/webp" className="hidden" />
             </div>
 
-            {/* ── Community Progress Card ────────────────────────────── */}
-            <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-[22px] overflow-hidden">
-              <div className="px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]">
-                <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">{t('profile.section_progress')}</p>
-              </div>
-              <div className="px-4 py-4 flex flex-col items-center text-center">
+            <h2 className="pq-profile-name mt-4 max-w-full truncate text-[24px] font-extrabold tracking-tight leading-tight" title={displayName}>
+              {displayName}
+            </h2>
 
-                {/* Rank title */}
-                <p className="text-sm font-bold leading-tight" style={{ color: visual.textColor }}>
-                  {user.title || t('profile.newcomer')}
-                </p>
+            <p className="mt-2 flex items-center justify-center gap-1.5 text-[14px] font-semibold">
+              <CrownBadge tier={journey.tier} size={17} />
+              <span>{currentTitle}</span>
+              <span aria-hidden="true" className="text-[var(--color-text-secondary)]">·</span>
+              <span className="text-[var(--color-text-secondary)]">{crownLabel}</span>
+            </p>
+            {joined && <p className="text-[12.5px] text-[var(--color-text-secondary)] mt-1">{joined}</p>}
 
-                {/* Crown count + info */}
-                <div className="flex items-center gap-1.5 mt-2">
-                  <Crown size={14} className="text-yellow-400 shrink-0" aria-hidden="true" />
-                  <span className="text-[13px] font-bold text-[var(--color-text)]">
-                    {crowns !== 1 ? t('profile.crowns_plural', { count: crowns }) : t('profile.crowns_singular', { count: crowns })}
-                  </span>
-                  <button
-                    onClick={() => setShowCrownsInfo(true)}
-                    aria-label={t('profile.crowns_what_are')}
-                    className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors active:scale-90 p-1"
-                  >
-                    <Info size={13} />
-                  </button>
-                </div>
-
-                {/* Progress bar */}
-                {next ? (
-                  <div className="w-full mt-3">
-                    <div
-                      role="progressbar"
-                      aria-valuenow={Math.round(pct)}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      aria-label={`${crowns} ${crowns !== 1 ? t('profile.crowns_plural', { count: crowns }) : t('profile.crowns_singular', { count: crowns })} — ${next.crownsNeeded} ${t('profile.crowns_until_next')} ${next.title}`}
-                      className="w-full max-w-[260px] mx-auto h-1.5 bg-white/10 rounded-full overflow-hidden"
-                    >
-                      <div
-                        className="h-full rounded-full transition-[width] duration-700 motion-reduce:transition-none"
-                        style={{ width: `${Math.min(pct, 100)}%`, background: 'linear-gradient(90deg, #1e75ff, #38bdf8)' }}
-                      />
-                    </div>
-                    <p className="text-[11px] text-[var(--color-text-secondary)] mt-1.5">
-                      <span className="font-semibold text-[var(--color-text)]">{next.crownsNeeded}</span>{' '}
-                      {t('profile.crowns_until_next')}{' '}
-                      <span className="font-semibold" style={{ color: TIER_VISUALS[next.tier].textColor }}>{next.title}</span>
-                    </p>
-                  </div>
-                ) : (
-                  <p className="text-xs font-bold text-[#38bdf8] mt-2">{t('profile.max_rank')}</p>
-                )}
-              </div>
-            </div>
-
-            {/* ── Impact Card (only after load, only if nonzero) ─────── */}
-            {hasImpact && (
-              <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-[22px] overflow-hidden">
-                <div className="px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]">
-                  <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">{t('profile.section_impact')}</p>
-                </div>
-                <div className="px-4 py-4 grid grid-cols-3 gap-3">
-                  <div className="flex flex-col items-center text-center">
-                    <span className="text-[22px] font-extrabold text-[var(--color-text)] leading-none">{impactCounts.pingsShared}</span>
-                    <span className="text-[10px] text-[var(--color-text-secondary)] mt-1 leading-snug">{t('profile.pings_shared')}</span>
-                    <span className="text-[9px] text-[var(--color-text-secondary)] opacity-70 leading-snug">
-                      {t('profile.pings_shared_since', { date: PINGS_SHARED_TRACKING_SINCE.toLocaleDateString(locale, { month: 'short', year: 'numeric' }) })}
-                    </span>
-                  </div>
-                  <div className="flex flex-col items-center text-center border-x border-[var(--color-border)]">
-                    <span className="text-[22px] font-extrabold text-[var(--color-text)] leading-none">{impactCounts.successfulHandoffs}</span>
-                    <span className="text-[10px] text-[var(--color-text-secondary)] mt-1 leading-snug">{t('profile.successful_handoffs')}</span>
-                  </div>
-                  <div className="flex flex-col items-center text-center">
-                    <span className="text-[22px] font-extrabold text-[var(--color-text)] leading-none">{impactCounts.spotsFound}</span>
-                    <span className="text-[10px] text-[var(--color-text-secondary)] mt-1 leading-snug">{t('profile.spots_found')}</span>
-                  </div>
-                </div>
-              </div>
+            {user.username?.startsWith('user_') && (
+              <button
+                onClick={() => setView(AppView.EDIT_PROFILE)}
+                className={`mt-3 min-h-[44px] px-4 rounded-full bg-[#1e75ff]/12 border border-[#1e75ff]/30 pq-accent-text text-[13px] font-semibold active:scale-95 transition-transform ${focusRing}`}
+              >
+                {t('profile.complete_profile')}
+              </button>
             )}
 
-            {/* ── Vehicle Card ───────────────────────────────────────── */}
-            <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-[20px] overflow-hidden">
-              <div className="px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]">
-                <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">{t('profile.section_vehicle')}</p>
-              </div>
+            {uploadStatus && (
+              <p aria-live="polite" className={`text-[12.5px] mt-2 font-semibold ${uploadError ? 'pq-inline-note--error' : 'pq-accent-text'}`}>
+                {uploadStatus}
+              </p>
+            )}
+          </div>
+
+          {/* ── Your Journey — the one strong card ────────────────────────── */}
+          <section aria-labelledby="pq-journey-heading" className="pq-journey px-5 pt-4 pb-5">
+            <div className="flex items-center justify-between">
+              <h2 id="pq-journey-heading" className="pq-section-label">{t('profile.section_journey')}</h2>
               <button
-                onClick={() => setView(AppView.EDIT_VEHICLE)}
-                className="w-full px-4 py-3.5 flex items-center justify-between text-left hover:bg-white/5 active:bg-white/10 transition-colors"
+                onClick={() => setShowCrownsInfo(true)}
+                aria-label={t('profile.crowns_what_are')}
+                className={`pq-icon-btn -mr-3 text-[var(--color-text-secondary)] ${focusRing}`}
               >
-                <div className="flex items-center gap-3">
-                  <div className="shrink-0 flex items-center justify-center w-9">
-                    <VehicleIcon type={user.vehicleType} color={user.vehicleColor} size={26} />
-                  </div>
-                  <div>
-                    {user.vehicleBrand || user.vehicleColor || user.vehicleType ? (
-                      <p className="text-sm font-semibold text-[var(--color-text)] text-left">
-                        {[colorLabels[user.vehicleColor] ?? user.vehicleColor, user.vehicleBrand].filter(Boolean).join(' ')}
-                        {user.vehicleType ? (
-                          <span className="text-[var(--color-text-secondary)] font-normal"> · {typeLabels[user.vehicleType] ?? user.vehicleType}</span>
-                        ) : null}
-                      </p>
-                    ) : (
-                      <>
-                        <p className="text-sm font-semibold text-[var(--color-text)]">{t('profile.no_vehicle')}</p>
-                        <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('profile.no_vehicle_hint')}</p>
-                      </>
-                    )}
-                  </div>
-                </div>
-                <ChevronRight size={16} className="text-[var(--color-text-secondary)] shrink-0" aria-hidden="true" />
+                <Info size={17} aria-hidden="true" />
               </button>
             </div>
 
-            {/* Incomplete vehicle banner */}
+            {journey.next ? (
+              <>
+                <div className="flex items-end justify-between gap-3 mt-1">
+                  <p className="flex items-center gap-1.5 min-w-0 text-[17px] font-extrabold leading-tight">
+                    <CrownBadge tier={journey.tier} size={17} />
+                    <span className="truncate">{currentTitle}</span>
+                  </p>
+                  <div className="min-w-0 text-right">
+                    <p className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-[var(--color-text-secondary)]">{t('profile.next_label')}</p>
+                    <p className="flex items-center justify-end gap-1.5 mt-0.5 text-[13.5px] font-semibold text-[var(--color-text-secondary)]">
+                      <CrownBadge tier={journey.next.tier} size={13} />
+                      <span className="truncate">{journey.next.title}</span>
+                    </p>
+                  </div>
+                </div>
+                <div
+                  role="progressbar"
+                  aria-label={t('profile.section_journey')}
+                  aria-valuemin={journey.from}
+                  aria-valuemax={journey.to}
+                  aria-valuenow={crowns}
+                  aria-valuetext={t('profile.progress_valuetext', { count: crowns, total: journey.to, title: journey.next.title })}
+                  className="pq-progress-track mt-3.5"
+                >
+                  <div className="pq-progress-fill" style={{ width: `${journey.pct}%` }} />
+                </div>
+                <div className="flex items-center justify-between mt-2 text-[12.5px]">
+                  <span className="font-semibold">
+                    {journey.next.crownsNeeded === 1
+                      ? t('profile.crowns_to_go_one')
+                      : t('profile.crowns_to_go', { count: num(journey.next.crownsNeeded) })}
+                  </span>
+                  <span className="tabular-nums text-[var(--color-text-secondary)]" aria-hidden="true">{num(crowns)} / {num(journey.to)}</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="flex items-center gap-1.5 mt-1 text-[17px] font-extrabold leading-tight">
+                  <CrownBadge tier={journey.tier} size={17} />
+                  <span className="truncate">{currentTitle}</span>
+                </p>
+                <div
+                  role="progressbar"
+                  aria-label={t('profile.section_journey')}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={100}
+                  aria-valuetext={t('profile.max_rank')}
+                  className="pq-progress-track mt-3.5"
+                >
+                  <div className="pq-progress-fill pq-progress-fill--max" style={{ width: '100%' }} />
+                </div>
+                <p className="mt-2 text-[12.5px] font-semibold">{t('profile.max_rank')}</p>
+              </>
+            )}
+
+            <div className="pq-journey-divider my-4" />
+
+            {/* Impact. A failed count shows the existing error line, never a fake 0. */}
+            {impactState === 'error' ? (
+              <p className="text-[12.5px] text-[var(--color-text-secondary)] text-center py-1">{t('profile.impact_loading_error')}</p>
+            ) : (
+              <dl className="grid grid-cols-3 gap-2" aria-busy={impactState === 'loading'}>
+                {stats.map(s => (
+                  <div key={s.key} className="flex flex-col items-center text-center min-w-0">
+                    <span className="pq-stat-icon mb-2" aria-hidden="true">{s.icon}</span>
+                    <dt className="order-2 mt-1.5 text-[11.5px] leading-snug text-[var(--color-text-secondary)]">
+                      {t(s.value === 1 ? s.one : s.many)}
+                      {s.since && (
+                        <span className="pq-stat-since block text-[10px] opacity-80">
+                          {t('profile.pings_shared_since', { date: PINGS_SHARED_TRACKING_SINCE.toLocaleDateString(locale, { month: 'short', year: 'numeric' }) })}
+                        </span>
+                      )}
+                    </dt>
+                    <dd className="order-1">
+                      {impactState === 'loaded'
+                        ? <span className="pq-stat-value">{num(s.value)}</span>
+                        : <span className="pq-skeleton block w-8 h-[26px]" />}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+          </section>
+
+          {/* ── Your Vehicle — compact utility row ────────────────────────── */}
+          <section aria-labelledby="pq-vehicle-heading" className="mt-7">
+            <h2 id="pq-vehicle-heading" className="pq-section-label px-1 mb-2.5">{t('profile.section_vehicle')}</h2>
+            <button
+              onClick={() => setView(AppView.EDIT_VEHICLE)}
+              className={`pq-util-card w-full min-h-[72px] px-3.5 py-3 flex items-center gap-3.5 text-left ${focusRing}`}
+            >
+              <span className="pq-vehicle-tile" aria-hidden="true">
+                {hasVehicle
+                  ? <VehicleIcon type={user.vehicleType} color={user.vehicleColor} size={22} />
+                  : <Plus size={20} className="pq-stat-icon" />}
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block truncate text-[15px] font-bold">{hasVehicle ? vehiclePrimary : t('profile.no_vehicle')}</span>
+                {(hasVehicle ? vehicleSecondary : true) && (
+                  <span
+                    className="block mt-0.5 text-[12.5px] leading-snug text-[var(--color-text-secondary)]"
+                    style={{ textWrap: 'pretty' } as React.CSSProperties}
+                  >
+                    {hasVehicle ? vehicleSecondary : t('profile.no_vehicle_hint')}
+                  </span>
+                )}
+              </span>
+              <ChevronRight size={18} className="text-[var(--color-text-secondary)] shrink-0" aria-hidden="true" />
+            </button>
+
             {(user.vehicleType || user.vehicleBrand) && !user.vehicleColor && (
               <button
                 onClick={() => setView(AppView.EDIT_VEHICLE)}
-                className="w-full flex items-center gap-2.5 px-4 py-3 rounded-[20px] bg-amber-500/10 border border-amber-500/25 text-amber-400 active:scale-[0.99] transition-all"
+                className={`pq-warn-banner mt-2.5 w-full min-h-[44px] px-4 rounded-2xl flex items-center gap-2.5 text-left active:scale-[0.99] transition-transform ${focusRing}`}
               >
-                <span className="text-base leading-none" aria-hidden="true">⚠️</span>
-                <span className="flex-1 text-left text-xs font-semibold">{t('vehicle.incomplete_banner')}</span>
-                <ChevronRight size={13} className="shrink-0 opacity-70" aria-hidden="true" />
+                <AlertTriangle size={15} className="shrink-0" aria-hidden="true" />
+                <span className="flex-1 text-[12.5px] font-semibold">{t('vehicle.incomplete_banner')}</span>
               </button>
             )}
+          </section>
 
-            {/* ── Recent Activity Card ───────────────────────────────── */}
-            <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-[20px] overflow-hidden">
-              <div className="px-4 pt-3.5 pb-2 border-b border-[var(--color-border)]">
-                <p className="text-[10px] font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">{t('profile.section_activity')}</p>
+          {/* ── Recent Activity — a plain list, not another card ──────────── */}
+          <section aria-labelledby="pq-activity-heading" className="mt-7">
+            <h2 id="pq-activity-heading" className="pq-section-label px-1 mb-1">{t('profile.section_activity')}</h2>
+
+            {impactState === 'loading' ? (
+              <div aria-hidden="true">
+                {[0, 1].map(i => (
+                  <div key={i} className="pq-activity-row flex items-center gap-3 py-3 px-1">
+                    <span className="pq-skeleton w-[38px] h-[38px] rounded-xl" />
+                    <span className="flex-1 space-y-1.5"><span className="pq-skeleton block h-3.5 w-2/5" /><span className="pq-skeleton block h-3 w-3/5" /></span>
+                  </div>
+                ))}
               </div>
-              {recentActivity.length === 0 ? (
-                <div className="px-4 py-4 text-center">
-                  <p className="text-xs text-[var(--color-text-secondary)]">{t('profile.no_activity')}</p>
-                  <p className="text-xs text-[var(--color-text-secondary)] mt-0.5 opacity-60">{t('profile.no_activity_hint')}</p>
-                </div>
-              ) : (
-                <div className="divide-y divide-[var(--color-border)]">
-                  {recentActivity.map(item => (
-                    <div key={item.id} className="px-4 py-3 flex items-center gap-3">
-                      {activityIcon(item.icon)}
-                      <p className="flex-1 text-xs font-semibold text-[var(--color-text)] truncate">
-                        {t(item.actionKey)}
-                        {item.address ? <span className="text-[var(--color-text-secondary)] font-normal"> · {item.address}</span> : null}
-                        <span className="text-[var(--color-text-secondary)] font-normal"> · {fmt(item.ts)}</span>
-                      </p>
-                      {item.reward && (
-                        <div className="flex items-center gap-0.5 shrink-0" aria-label={`${item.reward} Crowns`}>
-                          <span className="text-xs font-bold text-yellow-400">{item.reward}</span>
-                          <Crown size={11} className="text-yellow-400" aria-hidden="true" />
-                        </div>
+            ) : impactState === 'error' ? (
+              <p className="py-4 px-1 text-[12.5px] text-[var(--color-text-secondary)]">{t('profile.activity_load_error')}</p>
+            ) : recentActivity.length === 0 ? (
+              <div className="flex items-center gap-3 py-3 px-1">
+                <span className="pq-activity-icon pq-activity-icon--pin" aria-hidden="true"><History size={16} /></span>
+                <span className="min-w-0">
+                  <span className="block text-[14px] font-semibold">{t('profile.no_activity')}</span>
+                  <span className="block text-[12.5px] text-[var(--color-text-secondary)] mt-0.5">{t('profile.no_activity_hint')}</span>
+                </span>
+              </div>
+            ) : (
+              <ul>
+                {recentActivity.map(item => (
+                  <li key={item.id} className="pq-activity-row flex items-center gap-3 py-3 px-1">
+                    <span className={`pq-activity-icon pq-activity-icon--${item.icon}`} aria-hidden="true">
+                      {activityIcons[item.icon] ?? activityIcons.pin}
+                    </span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block truncate text-[14px] font-semibold">{t(item.actionKey)}</span>
+                      {item.address && (
+                        <span className="pq-activity-address block truncate mt-0.5 text-[12.5px] text-[var(--color-text-secondary)]">{item.address}</span>
                       )}
-                    </div>
-                  ))}
-                </div>
-              )}
-              <button
-                onClick={() => setView(AppView.PARKING_SPACE)}
-                className="w-full py-3 flex items-center justify-center gap-1.5 text-xs font-semibold text-[#38bdf8] border-t border-[var(--color-border)] hover:bg-white/5 active:bg-white/10 transition-colors"
-              >
-                {t('profile.view_all_activity')}
-                <ChevronRight size={13} aria-hidden="true" />
-              </button>
-            </div>
+                    </span>
+                    <span className="shrink-0 flex flex-col items-end gap-1">
+                      <span className="text-[11.5px] tabular-nums text-[var(--color-text-secondary)]">{fmt(item.ts)}</span>
+                      {item.reward && (
+                        <span
+                          className="pq-reward inline-flex items-center gap-0.5 text-[12px] font-bold"
+                          aria-label={item.reward === '+1' ? t('profile.crowns_singular', { count: item.reward }) : t('profile.crowns_plural', { count: item.reward })}
+                        >
+                          {item.reward}<Crown size={11} aria-hidden="true" />
+                        </span>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
 
-          </div>
+            <button
+              onClick={() => setView(AppView.PARKING_SPACE)}
+              className={`pq-accent-text w-full min-h-[44px] mt-1 px-1 flex items-center justify-between text-[13.5px] font-semibold rounded-xl ${focusRing}`}
+            >
+              {t('profile.view_all_activity')}
+              <ChevronRight size={17} aria-hidden="true" />
+            </button>
+          </section>
+
         </div>
       ) : (
         <div className="text-center py-10">{t('profile.not_logged_in')}</div>
