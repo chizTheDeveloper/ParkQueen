@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useFocusOnMount } from '../hooks/useFocusOnMount';
 import { t, useLang } from '../i18n';
-import { MapPin, Bell, BellOff, LocateFixed, WifiOff, ChevronRight, Check, Clock, Zap, Plus } from 'lucide-react';
+import { MapPin, Bell, BellOff, LocateFixed, WifiOff, ChevronRight, Check, Clock, Zap } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, where, onSnapshot, orderBy, Timestamp } from 'firebase/firestore';
 import { deriveNearbyState, resolveBlockedCTA, type LocationPermissionState, type LocationCallbacks } from '../utils/nearbyActivity';
@@ -267,8 +267,8 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                 back arrow made it read as a pushed secondary screen. `onBack`
                 is still used to return to the map when a Ping is selected. */}
             <div
-                className="px-4 pb-3 shrink-0"
-                style={{ paddingTop: 'calc(env(safe-area-inset-top) + 14px)' }}
+                className="px-5 pb-2 shrink-0 text-center"
+                style={{ paddingTop: 'calc(env(safe-area-inset-top) + 18px)' }}
             >
                 <h1
                     ref={headingRef}
@@ -277,14 +277,14 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                 >
                     {t('common.nearby_activity')}
                 </h1>
-                <p className="text-[12px] text-[var(--color-text-secondary)] mt-0.5">
+                <p className="text-[13px] text-[var(--color-text-secondary)] mt-1">
                     {t('nearby_activity.subtitle')}
                 </p>
 
                 {/* Compact status strip. Replaces the full-width "alerts are
                     enabled" card whenever notifications are healthy — that card
                     only earns prime space when it needs an action. */}
-                <div className="flex items-center gap-2 mt-3 flex-wrap">
+                <div className="flex items-center justify-center gap-2 mt-3.5 flex-wrap">
                     {isFeedLive && (
                         <span className="pq-live-chip" aria-label={t('nearby_activity.live_aria')}>
                             <span className="pq-live-dot" aria-hidden="true" />
@@ -317,9 +317,11 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
             </div>
 
             {/* Body */}
-            <div className="flex-1 overflow-y-auto no-scrollbar">
+            {/* Column flex so the empty state can take the leftover height and
+                sit centred between the header and the nav. */}
+            <div className="flex-1 overflow-y-auto no-scrollbar flex flex-col">
                 {onEnableNotifications && onRecheckNotifications && notifNeedsAction && (
-                    <div className="px-4 pt-4 max-w-md mx-auto">
+                    <div className="px-4 pt-4 w-full max-w-md mx-auto">
                         <NotificationEnableCard
                             runtime={notificationRuntime ?? null}
                             productPreferenceEnabled={user?.notificationsEnabled !== false}
@@ -332,7 +334,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
 
                 {/* ── Unified location-needed state ───────────────────────── */}
                 {isLocationNeeded && (
-                    <div className="flex flex-col items-center justify-center px-6 py-10 text-center gap-4 min-h-[420px]">
+                    <div className="flex-1 flex flex-col items-center justify-center px-6 pt-4 pb-14 text-center gap-4">
                         {/* Illustration */}
                         <div className="relative mb-2">
                             <div className="w-24 h-24 rounded-full bg-[#1e75ff]/10 border border-[#1e75ff]/20 flex items-center justify-center">
@@ -366,13 +368,13 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                             {locationCTA.label}
                         </button>
 
-                        <p className="text-[12px] leading-snug max-w-[240px]" style={{ color: 'rgba(255,255,255,0.40)' }}>
+                        <p className="pq-helper-text text-[12px] leading-snug max-w-[240px]">
                             {t('nearby_activity.enable_reassurance')}
                         </p>
 
                         {/* Concise browser guidance for permanently_blocked on web */}
                         {blockedAction === 'recheck' && renderState === 'permanently_blocked' && (
-                            <p className="text-[11px] leading-snug max-w-[240px] text-center" style={{ color: 'rgba(255,255,255,0.30)' }}>
+                            <p className="pq-helper-text text-[11px] leading-snug max-w-[240px] text-center">
                                 {t('nearby_activity.blocked_web_hint')}
                             </p>
                         )}
@@ -427,7 +429,9 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
 
                 {/* ── empty ───────────────────────────────────────────────── */}
                 {renderState === 'empty' && (
-                    <div className="flex flex-col items-center px-6 pt-6 pb-10 text-center">
+                    // No create CTA here: the nav's central Ping is the one
+                    // share action, and this tab is for watching, not creating.
+                    <div className="flex-1 flex flex-col items-center justify-center px-8 pt-2 pb-14 text-center">
                         {/* Radar — concentric rings sweeping outward, the same
                             idea as the feed watching a radius around you. */}
                         <div className="pq-radar" aria-hidden="true">
@@ -439,35 +443,23 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                             </span>
                         </div>
 
-                        <h2 className="text-[19px] font-extrabold text-[var(--color-text)] mt-6">
+                        <h2 className="text-[20px] font-extrabold text-[var(--color-text)] tracking-tight mt-7">
                             {t('nearby_activity.empty_title')}
                         </h2>
-                        <p className="text-[13px] text-[var(--color-text-secondary)] mt-1.5 max-w-[30ch] leading-relaxed">
-                            {t('nearby_activity.empty_watching', { radius: formatRadius(radiusMiles) })}
-                        </p>
-                        <p className="text-[13px] text-[var(--color-text-secondary)] mt-1 max-w-[32ch] leading-relaxed">
+                        <p
+                            className="text-[14px] text-[var(--color-text-secondary)] mt-2 max-w-[31ch] leading-relaxed"
+                            style={{ textWrap: 'pretty' } as React.CSSProperties}
+                        >
+                            {t('nearby_activity.empty_watching', { radius: formatRadius(radiusMiles) })}{' '}
                             {t('nearby_activity.empty_body')}
                         </p>
 
                         {notifCompact && notifPresentation.kind === 'enabled' && (
-                            <p className="flex items-center gap-1.5 text-[12px] text-emerald-400 font-semibold mt-4">
+                            <p className="pq-empty-alert mt-5">
                                 <Check size={13} aria-hidden="true" />
                                 {t('nearby_activity.empty_will_alert')}
                             </p>
                         )}
-
-                        <div className="w-full max-w-[300px] mt-7 space-y-2.5">
-                            {setView && (
-                                <button
-                                    type="button"
-                                    onClick={() => setView(AppView.MAP)}
-                                    className="pq-cta w-full py-3 rounded-2xl font-bold text-white text-sm inline-flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-[#38bdf8] focus-visible:outline-none"
-                                >
-                                    <Plus size={16} aria-hidden="true" />
-                                    {t('nearby_activity.empty_ping_cta')}
-                                </button>
-                            )}
-                        </div>
                     </div>
                 )}
 
@@ -496,7 +488,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                 )}
 
                 {renderState === 'results' && (
-                    <div className="px-3 pt-1 flex flex-col gap-2.5 pb-10">
+                    <div className="px-4 pt-3 flex flex-col gap-2.5 pb-10">
                         {showNoLocationBanner && (
                             <div className="flex items-start gap-3 px-4 py-3 rounded-2xl bg-amber-500/10 border border-amber-500/25 mb-1">
                                 <MapPin size={16} className="text-amber-400 shrink-0 mt-0.5" />
@@ -591,7 +583,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                                         {/* 3/4. distance and freshness */}
                                         <span className="flex items-center gap-2 mt-1 text-[12px] text-[var(--color-text-secondary)]">
                                             {distStr && <span className="font-semibold text-[var(--color-text)]">{t('nearby_activity.distance_away', { dist: distStr })}</span>}
-                                            {distStr && time && <span aria-hidden="true">.</span>}
+                                            {distStr && time && <span aria-hidden="true">·</span>}
                                             {card.kind === 'leaving_later' && card.availableAtMs
                                                 ? <span>{t('nearby_activity.free_at', { time: formatAvailableAt(card.availableAtMs, locale) })}</span>
                                                 : time && <span>{time}</span>}
