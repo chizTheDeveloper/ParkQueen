@@ -286,7 +286,7 @@ export const EditProfileView = ({ onBack }: { onBack: () => void }) => {
           <div className="border-b border-[var(--color-border)]">
             <div className="px-4 pt-3 pb-1">
               <span className={microLabel}>{t('edit_profile.parking_area_label')}</span>
-              <span className="text-[10px] text-[var(--color-text-secondary)] ml-1.5 opacity-50">{t('edit_profile.optional')}</span>
+              <span className="text-[10px] text-[var(--color-text-secondary)] ml-1.5">{t('edit_profile.optional')}</span>
             </div>
             <input
               type="text"
@@ -302,7 +302,7 @@ export const EditProfileView = ({ onBack }: { onBack: () => void }) => {
           <div className="relative">
             <div className="px-4 pt-3 pb-1">
               <span className={microLabel}>{t('edit_profile.parking_routine_label')}</span>
-              <span className="text-[10px] text-[var(--color-text-secondary)] ml-1.5 opacity-50">{t('edit_profile.optional')}</span>
+              <span className="text-[10px] text-[var(--color-text-secondary)] ml-1.5">{t('edit_profile.optional')}</span>
             </div>
             <select
               aria-label={t('edit_profile.parking_routine_label')}
@@ -331,7 +331,7 @@ export const EditProfileView = ({ onBack }: { onBack: () => void }) => {
           <div className="relative border-b border-[var(--color-border)]">
             <div className="px-4 pt-3 pb-1">
               <span className={microLabel}>{t('edit_profile.age_range_label')}</span>
-              <span className="text-[10px] text-[var(--color-text-secondary)] ml-1.5 opacity-50">{t('edit_profile.optional')}</span>
+              <span className="text-[10px] text-[var(--color-text-secondary)] ml-1.5">{t('edit_profile.optional')}</span>
             </div>
             <select
               aria-label={t('edit_profile.age_range_label')}
@@ -352,7 +352,7 @@ export const EditProfileView = ({ onBack }: { onBack: () => void }) => {
             <div className="relative">
               <div className="px-4 pt-3 pb-1">
                 <span className={microLabel}>{t('edit_profile.gender_label')}</span>
-                <span className="text-[10px] text-[var(--color-text-secondary)] ml-1.5 opacity-50">{t('edit_profile.optional')}</span>
+                <span className="text-[10px] text-[var(--color-text-secondary)] ml-1.5">{t('edit_profile.optional')}</span>
               </div>
               <select
                 aria-label={t('edit_profile.gender_label')}

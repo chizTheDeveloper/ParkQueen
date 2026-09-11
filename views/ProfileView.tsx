@@ -446,7 +446,7 @@ export const ProfileView = ({ user, onBack, setView, unreadMessagesCount = 0, pe
                     <dt className="order-2 mt-1.5 text-[11.5px] leading-snug text-[var(--color-text-secondary)]">
                       {t(s.value === 1 ? s.one : s.many)}
                       {s.since && (
-                        <span className="pq-stat-since block text-[10px] opacity-80">
+                        <span className="pq-stat-since block text-[10px]">
                           {t('profile.pings_shared_since', { date: PINGS_SHARED_TRACKING_SINCE.toLocaleDateString(locale, { month: 'short', year: 'numeric' }) })}
                         </span>
                       )}

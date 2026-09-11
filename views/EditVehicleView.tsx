@@ -457,7 +457,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
                     className={`relative flex flex-col items-center gap-2 py-4 px-2 rounded-2xl border transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
                       active
                         ? 'bg-[#0f2044] border-[#1e75ff] shadow-[0_0_0_1px_rgba(30,117,255,0.10)]'
-                        : 'bg-[#0d1829] border-[#1e2d42]'
+                        : 'pq-choice-tile'
                     } ${prefersReduced ? '' : 'auth-fade-in'}`}
                     style={prefersReduced ? {} : { animationDelay: `${50 + i * 25}ms` }}
                   >

@@ -261,7 +261,7 @@ export const GarageRentalView = () => {
           </div>
           <div className="p-5 space-y-8 pb-32">
               <section>
-                  <h3 className="text-[var(--color-text-secondary)] text-sm mb-3">Upload Space Photo <span className="text-xs opacity-50 block">Max 2 Mb File Upload</span></h3>
+                  <h3 className="text-[var(--color-text-secondary)] text-sm mb-3">Upload Space Photo <span className="text-xs block">Max 2 Mb File Upload</span></h3>
                   <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2">
                       <button className="w-24 h-24 shrink-0 rounded-2xl border-2 border-dashed border-queen-500/50 bg-queen-500/10 flex items-center justify-center text-queen-500 hover:bg-queen-500/20 transition-colors">
                           <Camera size={24} />

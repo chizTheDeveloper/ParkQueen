@@ -598,14 +598,14 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
                 </div>
 
                 {/* Details card */}
-                <div className="rounded-2xl border border-[#1e3a5f] bg-[#0d1f35] p-4 mb-4 space-y-3">
+                <div className="pq-own-ping-card rounded-2xl border p-4 mb-4 space-y-3">
                     <div className="flex items-center gap-2">
                         <MapPin size={14} className="text-[#38bdf8] shrink-0" />
                         <span className="text-sm font-semibold text-[var(--color-text)] truncate">
                             {selectedItem.title || spotAddress || 'Street Parking Spot'}
                         </span>
                     </div>
-                    <div className="flex items-center justify-between border-t border-[#1e3a5f] pt-3">
+                    <div className="flex items-center justify-between border-t pq-own-ping-divider pt-3">
                         <div className="flex items-center gap-2">
                             <Clock size={14} className={isScheduled ? 'text-amber-400 shrink-0' : 'text-emerald-400 shrink-0'} />
                             <span className="text-sm font-bold text-[var(--color-text)]">
@@ -621,7 +621,7 @@ const SpotDetailsCardInner: React.FC<Omit<SpotDetailsCardProps, 'backLabel' | 'o
                 <p className="text-[11px] text-[#334155] text-center mb-5">{t('spot_details.spot_live_hint')}</p>
 
                 <button onClick={() => onEditSpot(selectedItem)}
-                    className="w-full bg-[#1a2d4a] hover:bg-[#1e3a5f] border border-[#2a4a72] text-[var(--color-text)] font-bold py-3.5 rounded-2xl transition-all text-[15px] active:scale-95 mb-2.5">
+                    className="pq-own-ping-edit w-full border text-[var(--color-text)] font-bold py-3.5 rounded-2xl transition-all text-[15px] active:scale-95 mb-2.5">
                     {t('spot_details.edit_ping')}
                 </button>
                 <button onClick={onDeletePing}
