@@ -744,6 +744,8 @@ const en: Record<string, string> = {
     'settings.email_send_code': 'Send code',
     'settings.email_send_failed': 'Failed to send code.',
     'settings.email_verify_failed': 'Verification failed.',
+    'settings.email_placeholder': 'you@example.com',
+    'settings.email_code_digit': 'Digit {n} of 6',
     'settings.section_preferences': 'Preferences',
     'settings.notifications': 'Notifications',
     'settings.notifications_subtitle': 'Spot alerts and updates',
