@@ -1578,11 +1578,18 @@ html, body, #root {
   color: var(--color-text-secondary);
   white-space: nowrap;
 }
+/* Status chips are read-only: tint only, no outline, so the outlined radius
+   pill is the one thing in the row that looks pressable. */
+.pq-live-chip,
+.pq-status-chip {
+  border-color: transparent;
+  background: rgba(255, 255, 255, 0.05);
+}
 .pq-live-chip {
   color: #34d399;
-  border-color: rgba(52, 211, 153, 0.36);
   background: rgba(52, 211, 153, 0.10);
   text-transform: uppercase;
+  letter-spacing: 0.1em;
 }
 .pq-live-dot {
   width: 7px;
@@ -1597,14 +1604,21 @@ html, body, #root {
   70%  { box-shadow: 0 0 0 7px rgba(52, 211, 153, 0); }
   100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
 }
-.pq-status-chip--ok { color: #34d399; border-color: rgba(52, 211, 153, 0.30); }
+.pq-status-chip--ok { color: #34d399; }
 
 /* The radius pill is a real control, so it reads as pressable */
 .pq-radius-pill {
+  position: relative;
   color: var(--color-text);
-  border-color: rgba(56, 189, 248, 0.34);
-  background: rgba(56, 189, 248, 0.10);
+  border-color: rgba(56, 189, 248, 0.45);
+  background: rgba(56, 189, 248, 0.12);
   transition: background 140ms ease, transform 120ms ease;
+}
+/* 28px visual, 44px tap target */
+.pq-radius-pill::after {
+  content: '';
+  position: absolute;
+  inset: -8px -4px;
 }
 .pq-radius-pill:hover { background: rgba(56, 189, 248, 0.16); }
 .pq-radius-pill:active { transform: scale(0.96); }
@@ -1644,11 +1658,11 @@ html, body, #root {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 8px;
+  padding: 2px 7px;
   border-radius: 9999px;
   font-size: 10px;
   font-weight: 800;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 .pq-ping-status--available    { color: #34d399; background: rgba(52, 211, 153, 0.12); border: 1px solid rgba(52, 211, 153, 0.30); }
@@ -1675,7 +1689,14 @@ html, body, #root {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-top: 18px;
+}
+.pq-empty-alert {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #34d399;
 }
 .pq-radar-ring {
   position: absolute;
@@ -1742,9 +1763,12 @@ html, body, #root {
 :root:not(.dark) .pq-ping-card {
   background: linear-gradient(180deg, rgba(56, 189, 248, 0.06), rgba(255, 255, 255, 0) 60%), #ffffff;
 }
-:root:not(.dark) .pq-live-chip { background: rgba(16, 163, 116, 0.10); color: #0f8a63; border-color: rgba(16, 163, 116, 0.30); }
+:root:not(.dark) .pq-live-chip { background: rgba(16, 163, 116, 0.10); color: #0f8a63; }
 :root:not(.dark) .pq-live-dot { background: #0f8a63; }
-:root:not(.dark) .pq-status-chip--ok { color: #0f8a63; border-color: rgba(16, 163, 116, 0.28); }
+:root:not(.dark) .pq-status-chip { background: rgba(15, 32, 60, 0.05); }
+:root:not(.dark) .pq-status-chip--ok,
+:root:not(.dark) .pq-empty-alert { color: #0f8a63; }
+:root:not(.dark) .pq-radius-pill { border-color: rgba(14, 116, 190, 0.40); }
 :root:not(.dark) .pq-ping-status--available    { color: #0f8a63; background: rgba(16, 163, 116, 0.10); border-color: rgba(16, 163, 116, 0.28); }
 :root:not(.dark) .pq-ping-status--leaving_later { color: #a86a05; background: rgba(245, 185, 66, 0.14); border-color: rgba(168, 106, 5, 0.28); }
 :root:not(.dark) .pq-ping-status--urgent        { color: #c0392b; background: rgba(192, 57, 43, 0.10); border-color: rgba(192, 57, 43, 0.26); }

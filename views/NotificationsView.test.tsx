@@ -638,6 +638,25 @@ describe('NotificationsView — primary-tab presentation', () => {
         act(() => renderer.unmount());
     });
 
+    it('leaves Ping creation to the bottom nav in the healthy empty state', async () => {
+        const renderer = await renderNotifications({
+            setView: vi.fn(),
+            user: { id: 'me', notificationRadius: 1, notificationsEnabled: true },
+            notificationRuntime: { capability: 'supported', permission: 'granted', registration: 'registered' } as any,
+        });
+        emit([]);
+        const text = (n: any): string => typeof n === 'string' ? n : (n.children ?? []).map(text).join('');
+        const body = text(renderer.toJSON());
+        expect(body).toContain('No live Pings nearby');
+        expect(body).toContain("We're watching within 1 mi.");
+        expect(body).toContain("We'll alert you when one appears.");
+        expect(renderer.root.findAll(n => n.type === 'button' && text(n).includes('Ping a spot'))).toHaveLength(0);
+        // The nav's central Ping stays the one creation action.
+        const nav = renderer.root.findByProps({ 'aria-label': 'Primary navigation' });
+        expect(nav.findAll(n => n.type === 'button' && /Ping/.test(n.props['aria-label'] ?? ''))).not.toHaveLength(0);
+        act(() => renderer.unmount());
+    });
+
     it('keeps exactly one h1', async () => {
         const renderer = await renderNotifications();
         expect(renderer.root.findAllByType('h1')).toHaveLength(1);
