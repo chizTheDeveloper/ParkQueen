@@ -1792,6 +1792,246 @@ html, body, #root {
   .pq-ping-card:active, .pq-radius-pill:active { transform: none; }
 }
 
+/* -- Messages -------------------------------------------------------------
+   Inbox rows and the conversation thread. Same family as the Nearby cards and
+   Assistant tool cards: theme variables for both modes, one blue accent,
+   restrained depth. Sits above the @tailwind directives with the rest of the
+   semantic rules.
+   ------------------------------------------------------------------------- */
+.pq-thread {
+  position: relative;
+  background:
+    linear-gradient(180deg, rgba(56, 189, 248, 0.04), rgba(56, 189, 248, 0) 60%),
+    var(--color-card);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 6px 18px rgba(2, 8, 20, 0.22);
+  transition: transform 140ms ease, border-color 140ms ease;
+}
+.pq-thread:active { transform: scale(0.99); }
+.pq-thread--unread { border-color: rgba(56, 189, 248, 0.34); }
+.pq-thread--unread::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 18px;
+  bottom: 18px;
+  width: 3px;
+  border-radius: 9999px;
+  background: #38bdf8;
+}
+.pq-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+  font-weight: 800;
+  color: #dbeafe;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06) inset;
+}
+.pq-unread-dot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 13px;
+  height: 13px;
+  border-radius: 9999px;
+  background: #38bdf8;
+  border: 2.5px solid var(--color-bg);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.55);
+}
+.pq-accent-text { color: #38bdf8; }
+.pq-status-chip--new { color: #38bdf8; background: rgba(56, 189, 248, 0.10); }
+.pq-status-chip--new .pq-live-dot { background: #38bdf8; animation: none; }
+.pq-spot-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #7dd3fc;
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.18);
+}
+.pq-caught-up-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.10);
+  border: 1px solid rgba(52, 211, 153, 0.22);
+}
+
+/* Conversation */
+.pq-chat-header {
+  background: var(--color-glass);
+  border-bottom: 1px solid var(--color-border);
+  -webkit-backdrop-filter: blur(18px);
+          backdrop-filter: blur(18px);
+}
+.pq-icon-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--color-text);
+  transition: background 140ms ease;
+}
+.pq-icon-btn:hover,
+.pq-icon-btn[aria-expanded='true'] { background: var(--color-overlay); }
+.pq-menu {
+  background: #0b1220;
+  border: 1px solid var(--color-border);
+  box-shadow: 0 16px 40px rgba(2, 8, 20, 0.5);
+}
+.pq-menu-item {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+.pq-menu-item:hover { background: var(--color-overlay); }
+.pq-menu-item + .pq-menu-item { border-top: 1px solid var(--color-border); }
+.pq-menu-item--danger { color: #f87171; }
+
+.pq-day-sep {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--color-text-secondary);
+  background: var(--color-overlay);
+  border: 1px solid var(--color-border);
+}
+.pq-bubble {
+  max-width: 78%;
+  padding: 9px 14px;
+  border-radius: 20px;
+  font-size: 15px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.pq-bubble--me {
+  color: #fff;
+  background: linear-gradient(150deg, #1e75ff, #2f8cff);
+  box-shadow: 0 4px 14px rgba(30, 117, 255, 0.24);
+  border-bottom-right-radius: 6px;
+}
+.pq-bubble--me.pq-bubble--joined { border-top-right-radius: 6px; }
+.pq-bubble--them {
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-bottom-left-radius: 6px;
+}
+.pq-bubble--them.pq-bubble--joined { border-top-left-radius: 6px; }
+.pq-msg-time {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary);
+}
+
+.pq-smart-chip {
+  position: relative;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 9999px;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+}
+/* 36px visual, 44px tap target */
+.pq-smart-chip::after { content: ''; position: absolute; inset: -4px 0; }
+
+.pq-composer {
+  background: var(--color-bg);
+  border-top: 1px solid var(--color-border);
+}
+.pq-composer-field {
+  min-height: 52px;
+  border-radius: 26px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+.pq-composer-field:focus-within {
+  border-color: rgba(56, 189, 248, 0.6);
+  box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.14);
+}
+.pq-composer-input::placeholder { color: var(--color-text-secondary); }
+.pq-send {
+  width: 44px;
+  height: 44px;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #fff;
+  background: linear-gradient(150deg, #1e75ff, #38bdf8);
+  box-shadow: 0 4px 14px rgba(30, 117, 255, 0.35);
+  transition: transform 120ms ease, opacity 140ms ease;
+}
+.pq-send:active { transform: scale(0.94); }
+.pq-send:disabled {
+  color: var(--color-text-secondary);
+  background: var(--color-overlay);
+  box-shadow: none;
+}
+.pq-inline-note {
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  color: #34d399;
+}
+.pq-inline-note--error { color: #f87171; }
+
+:root:not(.dark) .pq-thread { box-shadow: 0 1px 2px rgba(15, 32, 60, 0.06), 0 8px 24px rgba(15, 32, 60, 0.07); }
+:root:not(.dark) .pq-bubble--them { background: #ffffff; }
+:root:not(.dark) .pq-thread { background: linear-gradient(180deg, rgba(56, 189, 248, 0.05), rgba(255, 255, 255, 0) 60%), #ffffff; }
+:root:not(.dark) .pq-thread--unread { border-color: rgba(14, 116, 190, 0.35); }
+:root:not(.dark) .pq-thread--unread::before,
+:root:not(.dark) .pq-unread-dot { background: #0e74be; }
+:root:not(.dark) .pq-accent-text,
+:root:not(.dark) .pq-status-chip--new { color: #0b6aa8; }
+:root:not(.dark) .pq-status-chip--new .pq-live-dot { background: #0b6aa8; }
+:root:not(.dark) .pq-spot-chip { color: #0b6aa8; background: rgba(14, 116, 190, 0.08); border-color: rgba(14, 116, 190, 0.22); }
+:root:not(.dark) .pq-caught-up-icon { color: #0f8a63; background: rgba(16, 163, 116, 0.10); border-color: rgba(16, 163, 116, 0.24); }
+:root:not(.dark) .pq-menu { background: #ffffff; box-shadow: 0 12px 32px rgba(15, 32, 60, 0.16); }
+:root:not(.dark) .pq-menu-item--danger { color: #c0392b; }
+:root:not(.dark) .pq-smart-chip { background: rgba(14, 116, 190, 0.07); border-color: rgba(14, 116, 190, 0.28); }
+:root:not(.dark) .pq-composer-field { background: #ffffff; }
+:root:not(.dark) .pq-inline-note { color: #0f8a63; }
+:root:not(.dark) .pq-inline-note--error { color: #c0392b; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pq-thread, .pq-send, .pq-composer-field { transition: none; }
+  .pq-thread:active, .pq-send:active { transform: none; }
+}
+
 /* ─────────────────────────────────────────────────────────────────────────────
    TAILWIND MUST STAY LAST IN THIS FILE. DO NOT MOVE IT ABOVE THE RULES ABOVE.
 

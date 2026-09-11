@@ -111,7 +111,7 @@ vi.mock('firebase/firestore', () => ({
 const { reportCriticalActionFailure } = vi.hoisted(() => ({ reportCriticalActionFailure: vi.fn() }));
 vi.mock('../utils/errorReporting', () => ({ reportCriticalActionFailure }));
 
-import { MessagesView } from './MessagesView';
+import { MessagesView, formatThreadTime, formatDayLabel, groupThread } from './MessagesView';
 import { t } from '../i18n';
 
 const T0 = Date.parse('2026-08-27T12:00:00.000Z');
@@ -203,7 +203,7 @@ function added(docs: any[]) { return docs.map(doc => ({ type: 'added' as const, 
 
 function messageBubbleTexts(renderer: TestRenderer.ReactTestRenderer): string[] {
     return renderer.root.findAll(
-        n => n.type === 'p' && n.props.className === 'text-sm',
+        n => n.type === 'p' && n.props.className === 'pq-bubble-text',
     ).map(n => String(n.props.children));
 }
 
@@ -219,7 +219,7 @@ function clickLoadEarlier(renderer: TestRenderer.ReactTestRenderer) {
 
 function conversationNames(renderer: TestRenderer.ReactTestRenderer): string[] {
     return renderer.root.findAll(
-        n => n.type === 'span' && typeof n.props.className === 'string' && n.props.className.includes('truncate pr-2') && n.props.className.includes('text-sm'),
+        n => n.type === 'span' && typeof n.props.className === 'string' && n.props.className.includes('pq-thread-name'),
     ).map(n => String(n.props.children));
 }
 
@@ -239,7 +239,7 @@ function clickButtonWithAriaLabel(renderer: TestRenderer.ReactTestRenderer, labe
 
 function conversationRowButtons(renderer: TestRenderer.ReactTestRenderer) {
     return renderer.root.findAll(
-        n => n.type === 'button' && typeof n.props.className === 'string' && n.props.className.includes('rounded-2xl') && n.props.className.includes('p-3.5'),
+        n => n.type === 'button' && n.props['data-thread'] !== undefined,
     );
 }
 function openFirstConversation(renderer: TestRenderer.ReactTestRenderer) {
@@ -1091,6 +1091,136 @@ describe('MessagesView — critical-action failure reporting', () => {
         // Unlike the success path (which clears inputText), a failure must not
         // discard what the user typed — this is pre-existing behavior, unchanged.
         expect(getMessageInput(renderer).props.value).toBe('hello');
+        act(() => renderer.unmount());
+    });
+});
+
+describe('MessagesView — presentation helpers', () => {
+    const now = new Date(2026, 8, 10, 15, 0); // local time, Thu Sep 10 2026
+
+    it('formatThreadTime: time today, "Yesterday", weekday this week, date beyond', () => {
+        expect(formatThreadTime(new Date(2026, 8, 10, 9, 5), now, 'en-US', 'Yesterday')).toMatch(/9:05/);
+        expect(formatThreadTime(new Date(2026, 8, 9, 23, 50), now, 'en-US', 'Yesterday')).toBe('Yesterday');
+        const threeDays = new Date(2026, 8, 7, 12, 0);
+        expect(formatThreadTime(threeDays, now, 'en-US', 'Yesterday')).toBe(threeDays.toLocaleDateString('en-US', { weekday: 'short' }));
+        expect(formatThreadTime(new Date(2026, 7, 21, 12, 0), now, 'en-US', 'Yesterday')).toBe('Aug 21');
+    });
+
+    it('formatDayLabel: Today / Yesterday, and a year only when it differs', () => {
+        expect(formatDayLabel(new Date(2026, 8, 10, 1, 0), now, 'en-US', 'Today', 'Yesterday')).toBe('Today');
+        expect(formatDayLabel(new Date(2026, 8, 9, 1, 0), now, 'en-US', 'Today', 'Yesterday')).toBe('Yesterday');
+        expect(formatDayLabel(new Date(2025, 11, 30, 1, 0), now, 'en-US', 'Today', 'Yesterday')).toMatch(/2025/);
+    });
+
+    it('groupThread: same side within 5 min on one day is one burst; a side change, gap or new day starts another', () => {
+        const at = (h: number, m: number, d = 10) => new Date(2026, 8, d, h, m);
+        const g = groupThread([
+            { isMe: false, timestamp: at(9, 0) },
+            { isMe: false, timestamp: at(9, 3) },
+            { isMe: true, timestamp: at(9, 4) },
+            { isMe: true, timestamp: at(9, 20) },
+            { isMe: true, timestamp: at(9, 21, 11) },
+        ]);
+        expect(g.map(x => [x.startsGroup, x.endsGroup])).toEqual([
+            [true, false], [false, true], [true, true], [true, true], [true, true],
+        ]);
+        expect(g.map(x => x.newDay)).toEqual([true, false, false, false, true]);
+    });
+});
+
+describe('MessagesView — refined presentation', () => {
+    beforeEach(() => {
+        localStorage.clear();
+        userDocCalls = [];
+        chatsOnNext = null;
+        callableCalls = [];
+        callableImpl = null;
+        messagesSnapshotCalls = [];
+        olderPageCalls = [];
+        olderPageAutoDocs = [];
+        resetScrollMock();
+    });
+
+    const textOf = (n: any): string => typeof n === 'string' ? n : (n?.children ?? []).map(textOf).join('');
+
+    async function inbox(docs: any[]) {
+        const renderer = await renderMessages();
+        emitChats(docs);
+        await act(async () => { await flush(); });
+        return renderer;
+    }
+
+    it('the inbox has exactly one h1', async () => {
+        const renderer = await inbox([chatDoc('me_alice', ['me', 'alice'])]);
+        const h1s = renderer.root.findAllByType('h1');
+        expect(h1s).toHaveLength(1);
+        expect(textOf(h1s[0])).toBe(t('messages.title'));
+        act(() => renderer.unmount());
+    });
+
+    it('an unread thread is marked without a made-up message count', async () => {
+        const renderer = await inbox([chatDoc('me_alice', ['me', 'alice'])]);
+        const row = conversationRowButtons(renderer)[0];
+        expect(row.props.className).toContain('pq-thread--unread');
+        expect(textOf(row)).toContain(t('messages.unread_sr'));
+        // The old badge always read "1", whatever the real count was.
+        expect(row.findAll(n => n.type === 'span' && n.props.children === 1 || n.props.children === '1')).toHaveLength(0);
+        act(() => renderer.unmount());
+    });
+
+    it('only claims "all caught up" when nothing is unread', async () => {
+        const unread = await inbox([chatDoc('me_alice', ['me', 'alice'])]);
+        expect(textOf(unread.toJSON())).not.toContain(t('messages.all_caught_up'));
+        act(() => unread.unmount());
+
+        localStorage.setItem('lastReadChat_me_alice', String(T0 + 1));
+        const read = await inbox([chatDoc('me_alice', ['me', 'alice'])]);
+        expect(textOf(read.toJSON())).toContain(t('messages.all_caught_up'));
+        act(() => read.unmount());
+    });
+
+    it('prefixes the preview with "You:" when the last message was mine', async () => {
+        const renderer = await inbox([chatDoc('me_alice', ['me', 'alice'], { lastMessage: 'On my way', lastSenderId: 'me' })]);
+        expect(textOf(conversationRowButtons(renderer)[0])).toContain(t('messages.you_prefix') + 'On my way');
+        act(() => renderer.unmount());
+    });
+
+    it('the conversation has one h1, a labelled Send control, and a loading state until the first snapshot', async () => {
+        const renderer = await inbox([chatDoc('me_alice', ['me', 'alice'])]);
+        openFirstConversation(renderer);
+        expect(renderer.root.findAllByType('h1')).toHaveLength(1);
+        expect(getSendButton(renderer).props['aria-label']).toBe(t('messages.send_aria'));
+        expect(textOf(renderer.toJSON())).toContain(t('messages.loading'));
+
+        emitMessages(0, [], []);
+        const text = textOf(renderer.toJSON());
+        expect(text).not.toContain(t('messages.loading'));
+        expect(text).toContain(t('messages.thread_empty_title'));
+        act(() => renderer.unmount());
+    });
+
+    it('a failed send reads as an error, not a success', async () => {
+        callableImpl = async () => { throw Object.assign(new Error('internal'), { code: 'internal' }); };
+        const renderer = await inbox([chatDoc('me_alice', ['me', 'alice'])]);
+        openFirstConversation(renderer);
+        await typeAndSend(renderer, 'hello');
+        const toast = renderer.root.find(n => n.type === 'p' && n.props.children === t('messages.toast_send_failed'));
+        expect(toast.props.className).toContain('pq-inline-note--error');
+        act(() => renderer.unmount());
+    });
+
+    it('a burst of messages shows one timestamp, at its end', async () => {
+        const renderer = await inbox([chatDoc('me_alice', ['me', 'alice'])]);
+        openFirstConversation(renderer);
+        const docs = [
+            messageDoc('a1', { senderId: 'alice', text: 'one', ms: T0 }),
+            messageDoc('a2', { senderId: 'alice', text: 'two', ms: T0 + 60_000 }),
+            messageDoc('m1', { senderId: 'me', text: 'three', ms: T0 + 120_000 }),
+        ];
+        emitMessages(0, docs.slice().reverse(), added(docs));
+        expect(messageBubbleTexts(renderer)).toEqual(['one', 'two', 'three']);
+        expect(renderer.root.findAllByType('time')).toHaveLength(2);
+        expect(textOf(renderer.toJSON())).not.toContain(t('messages.thread_empty_title'));
         act(() => renderer.unmount());
     });
 });
