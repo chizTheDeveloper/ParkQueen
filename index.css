@@ -2176,6 +2176,142 @@ html, body, #root {
   .pq-skeleton { animation: none; }
 }
 
+/* -- Settings -------------------------------------------------------------
+   Same family as Profile (icon buttons, radii, theme tokens) but tuned for
+   configuration: Account and Preferences sit in grouped surfaces, Help and
+   Legal are open lists, account actions are set apart at the bottom.
+   ------------------------------------------------------------------------- */
+.pq-group-label {
+  padding: 0 4px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-text-secondary);
+}
+.pq-group {
+  border-radius: 20px;
+  overflow: hidden;
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+}
+.pq-settings-row {
+  position: relative;
+  min-height: 56px;
+  transition: background 120ms ease;
+}
+button.pq-settings-row:hover,
+a.pq-settings-row:hover { background: var(--color-overlay); }
+/* Hairlines inset past the icon, so a group reads as one surface. */
+.pq-group > .pq-settings-row + .pq-settings-row::before,
+.pq-plain-list > .pq-settings-row + .pq-settings-row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 66px;
+  height: 1px;
+  background: var(--color-border);
+}
+.pq-plain-list > .pq-settings-row { min-height: 52px; }
+.pq-plain-list > .pq-settings-row + .pq-settings-row::before { left: 50px; }
+.pq-row-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+}
+.pq-row-icon--quiet {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  color: var(--color-text-secondary);
+  background: var(--color-overlay);
+}
+/* Legal: the lightest group — bare icons, tighter rows. */
+.pq-row-icon--bare {
+  width: 24px;
+  height: 24px;
+  color: var(--color-text-secondary);
+  background: none;
+}
+.pq-plain-list--legal > .pq-settings-row { min-height: 48px; }
+.pq-plain-list--legal > .pq-settings-row + .pq-settings-row::before { left: 42px; }
+.pq-row-chevron { color: var(--color-text-secondary); }
+.pq-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+.pq-badge--ok   { color: #34d399; background: rgba(52, 211, 153, 0.12); }
+.pq-badge--warn { color: #fbbf24; background: rgba(251, 191, 36, 0.12); }
+.pq-switch {
+  position: relative;
+  width: 46px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.16);
+  transition: background 160ms ease;
+}
+.pq-switch--on { background: linear-gradient(150deg, #1e75ff, #38bdf8); }
+.pq-switch-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 9999px;
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(2, 8, 20, 0.35);
+  transition: transform 160ms ease;
+}
+.pq-switch--on .pq-switch-thumb { transform: translateX(18px); }
+.pq-settings-input {
+  border-radius: 12px;
+  color: var(--color-text);
+  background: var(--color-overlay);
+  border: 1px solid var(--color-border);
+  outline: none;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+.pq-settings-input:focus { border-color: rgba(56, 189, 248, 0.6); box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.14); }
+.pq-settings-input::placeholder { color: var(--color-text-secondary); }
+.pq-settings-primary { background: linear-gradient(150deg, #1e75ff, #38bdf8); box-shadow: 0 6px 18px rgba(30, 117, 255, 0.28); }
+.pq-signout {
+  color: var(--color-text);
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  transition: background 120ms ease;
+}
+.pq-signout:hover { background: var(--color-overlay); }
+.pq-danger-link { color: #f87171; }
+
+:root:not(.dark) .pq-group,
+:root:not(.dark) .pq-signout { background: #ffffff; box-shadow: 0 1px 2px rgba(15, 32, 60, 0.05), 0 6px 18px rgba(15, 32, 60, 0.05); }
+:root:not(.dark) .pq-row-icon { color: #0b6aa8; background: rgba(14, 116, 190, 0.10); }
+:root:not(.dark) .pq-row-icon--quiet { color: rgba(12, 34, 56, 0.66); background: rgba(15, 32, 60, 0.05); }
+:root:not(.dark) .pq-row-icon--bare { color: rgba(12, 34, 56, 0.66); background: none; }
+:root:not(.dark) .pq-badge--ok   { color: #0f7a57; background: rgba(16, 163, 116, 0.12); }
+:root:not(.dark) .pq-badge--warn { color: #92400e; background: rgba(245, 158, 11, 0.14); }
+:root:not(.dark) .pq-switch { background: rgba(15, 32, 60, 0.18); }
+:root:not(.dark) .pq-settings-input { background: #ffffff; }
+:root:not(.dark) .pq-danger-link { color: #c0392b; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pq-switch, .pq-switch-thumb, .pq-settings-row, .pq-signout { transition: none; }
+}
+
 /* ─────────────────────────────────────────────────────────────────────────────
    TAILWIND MUST STAY LAST IN THIS FILE. DO NOT MOVE IT ABOVE THE RULES ABOVE.
 
