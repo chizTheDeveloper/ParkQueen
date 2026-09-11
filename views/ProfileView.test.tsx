@@ -22,7 +22,7 @@ vi.mock('firebase/storage', () => ({
 
 let spotsDocs: Array<{ id: string; data: () => any }> = [];
 let feedbackDocs: Array<{ id: string; data: () => any }> = [];
-let spotsFoundCount: number | 'reject' = 0;
+let spotsFoundCount: number | 'reject' | 'hang' = 0;
 const getDocsCalls: string[] = [];
 const queryLog: Array<{ name: string; constraints: any[] }> = [];
 const countQueryLog: Array<{ name: string; constraints: any[] }> = [];
@@ -45,11 +45,13 @@ vi.mock('firebase/firestore', () => ({
     getCountFromServer: async (q: any) => {
         countQueryLog.push({ name: q.__name, constraints: q.__constraints ?? [] });
         if (spotsFoundCount === 'reject') throw new Error('aggregation failed');
+        if (spotsFoundCount === 'hang') return new Promise(() => { });
         return { data: () => ({ count: spotsFoundCount }) };
     },
 }));
 
-import { ProfileView } from './ProfileView';
+import { ProfileView, describeJourney } from './ProfileView';
+import { AppView } from '../types';
 
 function spotDoc(id: string, ts: number, overrides: any = {}) {
     return { id, data: () => ({ finderId: 'me', status: 'available', address: `spot-${id}`, reportedAt: { toMillis: () => ts }, ...overrides }) };
@@ -70,20 +72,20 @@ async function renderProfile(user: any, navCounts: { unreadMessagesCount?: numbe
 
 function impactNumbers(renderer: TestRenderer.ReactTestRenderer): string[] {
     return renderer.root.findAll(
-        node => node.type === 'span' && typeof node.props.className === 'string' && node.props.className.includes('text-[22px]'),
+        node => node.type === 'span' && node.props.className === 'pq-stat-value',
     ).map(n => String(n.props.children));
 }
 
 function pingsSharedQualifier(renderer: TestRenderer.ReactTestRenderer): string | undefined {
     const nodes = renderer.root.findAll(
-        node => node.type === 'span' && typeof node.props.className === 'string' && node.props.className.includes('text-[9px]'),
+        node => node.type === 'span' && typeof node.props.className === 'string' && node.props.className.includes('pq-stat-since'),
     );
     return nodes[0] ? String(nodes[0].props.children) : undefined;
 }
 
 function activityAddresses(renderer: TestRenderer.ReactTestRenderer): string[] {
     return renderer.root.findAll(
-        node => node.type === 'span' && typeof node.props.className === 'string' && node.props.className.includes('font-normal'),
+        node => node.type === 'span' && typeof node.props.className === 'string' && node.props.className.includes('pq-activity-address'),
     )
         .map(n => (Array.isArray(n.props.children) ? n.props.children.join('') : String(n.props.children)))
         .filter(s => s.includes('spot-') || s.includes('fb-'));
@@ -257,7 +259,7 @@ describe('ProfileView — RecentActivity bounded queries', () => {
         const now = Date.now();
         feedbackDocs = [feedbackDoc('x', now - 1000, 'failed')];
         const renderer = await renderProfile({ id: 'me' });
-        expect(activityAddresses(renderer)).toEqual([' · fb-x']);
+        expect(activityAddresses(renderer)).toEqual(['fb-x']);
         act(() => renderer.unmount());
     });
 
@@ -278,7 +280,7 @@ describe('ProfileView — RecentActivity bounded queries', () => {
         spotsDocs = [spotDoc('a', now - 1000), spotDoc('b', now - 2000)];
         feedbackDocs = [feedbackDoc('x', now - 3000), feedbackDoc('y', now - 4000)];
         const renderer = await renderProfile({ id: 'me' });
-        expect(activityAddresses(renderer)).toEqual([' · spot-a', ' · spot-b', ' · fb-x']);
+        expect(activityAddresses(renderer)).toEqual(['spot-a', 'spot-b', 'fb-x']);
         act(() => renderer.unmount());
     });
 
@@ -287,7 +289,7 @@ describe('ProfileView — RecentActivity bounded queries', () => {
         spotsDocs = [spotDoc('a', now - 2000)];
         feedbackDocs = [feedbackDoc('x', now - 1000), feedbackDoc('y', now - 3000)];
         const renderer = await renderProfile({ id: 'me' });
-        expect(activityAddresses(renderer)).toEqual([' · fb-x', ' · spot-a', ' · fb-y']);
+        expect(activityAddresses(renderer)).toEqual(['fb-x', 'spot-a', 'fb-y']);
         act(() => renderer.unmount());
     });
 
@@ -296,7 +298,7 @@ describe('ProfileView — RecentActivity bounded queries', () => {
         spotsDocs = [spotDoc('a', now)];
         feedbackDocs = [feedbackDoc('x', now)];
         const renderer = await renderProfile({ id: 'me' });
-        expect(activityAddresses(renderer)).toEqual([' · spot-a', ' · fb-x']);
+        expect(activityAddresses(renderer)).toEqual(['spot-a', 'fb-x']);
         act(() => renderer.unmount());
     });
 
@@ -304,7 +306,7 @@ describe('ProfileView — RecentActivity bounded queries', () => {
         const now = Date.now();
         feedbackDocs = [feedbackDoc('x', now - 1000)];
         const renderer = await renderProfile({ id: 'me' });
-        expect(activityAddresses(renderer)).toEqual([' · fb-x']);
+        expect(activityAddresses(renderer)).toEqual(['fb-x']);
         act(() => renderer.unmount());
     });
 
@@ -312,7 +314,7 @@ describe('ProfileView — RecentActivity bounded queries', () => {
         const now = Date.now();
         spotsDocs = [spotDoc('a', now - 1000)];
         const renderer = await renderProfile({ id: 'me' });
-        expect(activityAddresses(renderer)).toEqual([' · spot-a']);
+        expect(activityAddresses(renderer)).toEqual(['spot-a']);
         act(() => renderer.unmount());
     });
 
@@ -325,5 +327,204 @@ describe('ProfileView — RecentActivity bounded queries', () => {
         // correct or not) never renders at all.
         expect(impactNumbers(renderer)).toEqual([]);
         act(() => renderer.unmount());
+    });
+});
+
+describe('ProfileView — journey math', () => {
+    it('describeJourney: the band, target and percentage come from the existing thresholds', () => {
+        expect(describeJourney(0)).toMatchObject({ tier: 0, from: 0, to: 10, pct: 0 });
+        expect(describeJourney(1)).toMatchObject({ tier: 0, from: 0, to: 10, pct: 10 });
+        expect(describeJourney(1).next).toMatchObject({ title: 'Trusted Driver', crownsNeeded: 9 });
+        expect(describeJourney(10)).toMatchObject({ tier: 1, from: 10, to: 50, pct: 0 });
+        expect(describeJourney(30)).toMatchObject({ tier: 1, from: 10, to: 50, pct: 50 });
+    });
+
+    it('describeJourney: at the highest title there is no next step and the bar is full', () => {
+        for (const crowns of [3000, 9999]) {
+            const j = describeJourney(crowns);
+            expect(j.next).toBeNull();
+            expect(j.tier).toBe(7);
+            expect(j.pct).toBe(100);
+        }
+    });
+});
+
+describe('ProfileView — revamped screen', () => {
+    beforeEach(() => {
+        getDocsCalls.length = 0;
+        queryLog.length = 0;
+        countQueryLog.length = 0;
+        spotsDocs = [];
+        feedbackDocs = [];
+        spotsFoundCount = 0;
+    });
+
+    const textOf = (n: any): string => typeof n === 'string' ? n : (n?.children ?? []).map(textOf).join('');
+    const buttonNamed = (r: TestRenderer.ReactTestRenderer, label: string) =>
+        r.root.findAll(n => n.type === 'button' && (n.props['aria-label'] === label || textOf(n).includes(label)))[0];
+    const baseUser = { id: 'me', username: 'MainProfileTest', crowns: 1, title: 'Newcomer', impactStats: { pingsShared: 11 } };
+
+    it('has exactly one h1, and it names the screen', async () => {
+        const r = await renderProfile(baseUser);
+        const h1s = r.root.findAllByType('h1');
+        expect(h1s).toHaveLength(1);
+        expect(textOf(h1s[0])).toBe('Profile');
+        act(() => r.unmount());
+    });
+
+    it('Back is hidden on phones (bottom-nav tab) and kept for md+ where the nav is hidden', async () => {
+        const r = await renderProfile(baseUser);
+        const back = r.root.findByProps({ 'aria-label': 'Back' });
+        expect(back.props.className).toMatch(/(^|\s)hidden(\s|$)/);
+        expect(back.props.className).toContain('md:flex');
+        act(() => r.unmount());
+    });
+
+    it('Settings is labelled and still navigates to Settings', async () => {
+        const setView = vi.fn();
+        const r = await renderProfile(baseUser, { setView } as any);
+        act(() => r.root.findByProps({ 'aria-label': 'Settings' }).props.onClick());
+        expect(setView).toHaveBeenCalledWith(AppView.SETTINGS);
+        act(() => r.unmount());
+    });
+
+    it('the identity line carries the title and a correctly pluralised crown count', async () => {
+        const one = await renderProfile(baseUser);
+        expect(textOf(one.toJSON())).toContain('Newcomer·1 Crown');
+        act(() => one.unmount());
+        const many = await renderProfile({ ...baseUser, crowns: 12, title: 'Trusted Driver' });
+        expect(textOf(many.toJSON())).toContain('Trusted Driver·12 Crowns');
+        act(() => many.unmount());
+    });
+
+    it('the progress bar exposes the real band and "N to go"', async () => {
+        const r = await renderProfile(baseUser);
+        const bar = r.root.findByProps({ role: 'progressbar' });
+        expect(bar.props['aria-valuemin']).toBe(0);
+        expect(bar.props['aria-valuemax']).toBe(10);
+        expect(bar.props['aria-valuenow']).toBe(1);
+        expect(bar.props['aria-valuetext']).toBe('1 of 10 crowns toward Trusted Driver');
+        expect(textOf(r.toJSON())).toContain('9 crowns to go');
+        act(() => r.unmount());
+    });
+
+    it('one crown short reads "1 crown to go"', async () => {
+        const r = await renderProfile({ ...baseUser, crowns: 9 });
+        expect(textOf(r.toJSON())).toContain('1 crown to go');
+        act(() => r.unmount());
+    });
+
+    it('the highest title renders a completed state instead of "to go"', async () => {
+        const r = await renderProfile({ ...baseUser, crowns: 3200, title: 'Urban Legend' });
+        const text = textOf(r.toJSON());
+        expect(text).toContain('Urban Legend — max rank achieved');
+        expect(text).not.toMatch(/to go/);
+        expect(r.root.findByProps({ role: 'progressbar' }).props['aria-valuenow']).toBe(100);
+        act(() => r.unmount());
+    });
+
+    it('all-zero impact still renders three intentional zeros', async () => {
+        const r = await renderProfile({ id: 'me', crowns: 0 });
+        expect(impactNumbers(r)).toEqual(['0', '0', '0']);
+        act(() => r.unmount());
+    });
+
+    it('a count of one uses the singular label', async () => {
+        spotsFoundCount = 1;
+        const r = await renderProfile({ id: 'me', impactStats: { pingsShared: 1 }, trustStats: { handoffsCompleted: 1 } });
+        const text = textOf(r.toJSON());
+        expect(text).toContain('Ping shared');
+        expect(text).toContain('Successful handoff');
+        expect(text).toContain('Spot found');
+        expect(text).not.toContain('Spots found');
+        act(() => r.unmount());
+    });
+
+    it('while counts load, no number and no empty state is shown', async () => {
+        spotsFoundCount = 'hang';
+        const r = await renderProfile(baseUser);
+        expect(impactNumbers(r)).toEqual([]);
+        expect(textOf(r.toJSON())).not.toContain('No recent activity yet');
+        act(() => r.unmount());
+    });
+
+    it('a failed load says so instead of claiming there is no activity', async () => {
+        spotsFoundCount = 'reject';
+        const r = await renderProfile(baseUser);
+        const text = textOf(r.toJSON());
+        expect(text).toContain('Could not load activity counts');
+        expect(text).toContain('Couldn’t load recent activity.');
+        expect(text).not.toContain('No recent activity yet');
+        act(() => r.unmount());
+    });
+
+    it('an existing vehicle reads colour + make over type, and opens the vehicle editor', async () => {
+        const setView = vi.fn();
+        const r = await renderProfile({ ...baseUser, vehicleBrand: 'Alfa Romeo', vehicleColor: 'Yellow', vehicleType: 'Compact' }, { setView } as any);
+        const row = buttonNamed(r, 'Yellow Alfa Romeo');
+        expect(textOf(row)).toContain('Compact');
+        act(() => row.props.onClick());
+        expect(setView).toHaveBeenCalledWith(AppView.EDIT_VEHICLE);
+        act(() => r.unmount());
+    });
+
+    it('no vehicle renders the add state, still through the vehicle editor', async () => {
+        const setView = vi.fn();
+        const r = await renderProfile(baseUser, { setView } as any);
+        const row = buttonNamed(r, 'No vehicle added');
+        expect(row).toBeDefined();
+        act(() => row.props.onClick());
+        expect(setView).toHaveBeenCalledWith(AppView.EDIT_VEHICLE);
+        act(() => r.unmount());
+    });
+
+    it('a type-only vehicle shows the type and keeps the incomplete-setup prompt', async () => {
+        const r = await renderProfile({ ...baseUser, vehicleType: 'SUV' });
+        expect(buttonNamed(r, 'SUV')).toBeDefined();
+        expect(buttonNamed(r, 'Complete your vehicle setup')).toBeDefined();
+        act(() => r.unmount());
+    });
+
+    it('recent activity lists real events with their reward, and View all opens the full list', async () => {
+        const setView = vi.fn();
+        const now = Date.now();
+        feedbackDocs = [feedbackDoc('x', now - 38 * 86_400_000)];
+        const r = await renderProfile(baseUser, { setView } as any);
+        const text = textOf(r.toJSON());
+        expect(text).toContain('Parked');
+        expect(text).toContain('38d ago');
+        expect(r.root.findAll(n => n.props['aria-label'] === '+1 Crown')).toHaveLength(1);
+        act(() => buttonNamed(r, 'View all activity').props.onClick());
+        expect(setView).toHaveBeenCalledWith(AppView.PARKING_SPACE);
+        act(() => r.unmount());
+    });
+
+    it('empty recent activity shows the small empty state', async () => {
+        const r = await renderProfile(baseUser);
+        expect(textOf(r.toJSON())).toContain('No recent activity yet');
+        act(() => r.unmount());
+    });
+
+    it('a long username is truncated on one line with the full name available', async () => {
+        const long = 'averyveryverylongusername_thatkeepsgoing_andgoing';
+        const r = await renderProfile({ ...baseUser, username: long });
+        const name = r.root.find(n => typeof n.props.className === 'string' && n.props.className.includes('pq-profile-name'));
+        expect(name.props.className).toContain('truncate');
+        expect(name.props.title).toBe(long);
+        act(() => r.unmount());
+    });
+
+    it('keeps the labelled avatar and crowns-info controls', async () => {
+        const r = await renderProfile(baseUser);
+        expect(r.root.findAllByProps({ 'aria-label': 'Change profile photo' })).toHaveLength(1);
+        expect(r.root.findAllByProps({ 'aria-label': 'What are crowns?' })).toHaveLength(1);
+        act(() => r.unmount());
+    });
+
+    it('uses the themed section classes (light mode is designed in CSS, not inverted)', async () => {
+        const r = await renderProfile(baseUser);
+        const classes = r.root.findAll(n => typeof n.props.className === 'string').map(n => n.props.className).join(' ');
+        for (const c of ['pq-journey', 'pq-progress-track', 'pq-util-card', 'pq-avatar-ring']) expect(classes).toContain(c);
+        act(() => r.unmount());
     });
 });
