@@ -368,13 +368,13 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                             {locationCTA.label}
                         </button>
 
-                        <p className="text-[12px] leading-snug max-w-[240px]" style={{ color: 'rgba(255,255,255,0.40)' }}>
+                        <p className="text-[12px] leading-snug max-w-[240px] text-[var(--color-text-secondary)]">
                             {t('nearby_activity.enable_reassurance')}
                         </p>
 
                         {/* Concise browser guidance for permanently_blocked on web */}
                         {blockedAction === 'recheck' && renderState === 'permanently_blocked' && (
-                            <p className="text-[11px] leading-snug max-w-[240px] text-center" style={{ color: 'rgba(255,255,255,0.30)' }}>
+                            <p className="text-[11px] leading-snug max-w-[240px] text-center text-[var(--color-text-secondary)]">
                                 {t('nearby_activity.blocked_web_hint')}
                             </p>
                         )}
