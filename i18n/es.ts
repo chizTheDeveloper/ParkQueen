@@ -935,6 +935,18 @@ const es: Record<string, string> = {
     'messages.load_earlier': 'Cargar mensajes anteriores',
     'messages.loading_earlier': 'Cargando...',
     'messages.toast_load_earlier_failed': 'No se pudieron cargar los mensajes anteriores.',
+    'messages.today': 'Hoy',
+    'messages.yesterday': 'Ayer',
+    'messages.you_prefix': 'Tú: ',
+    'messages.unread_sr': 'No leído',
+    'messages.count_one': '1 conversación',
+    'messages.count_many': '{count} conversaciones',
+    'messages.unread_count': '{count} sin leer',
+    'messages.send_aria': 'Enviar mensaje',
+    'messages.loading': 'Cargando conversación…',
+    'messages.thread_empty_title': 'Inicia la conversación',
+    'messages.thread_empty_body': 'Saluda para coordinar la entrega.',
+    'messages.smart_replies_aria': 'Respuestas sugeridas',
 
     // Street Intelligence — tarjeta + hoja de sesión
     'street_intel.info_available': 'Información de estacionamiento disponible',

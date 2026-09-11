@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { AccessibleModal } from '../components/AccessibleModal';
-import { Send, ChevronLeft, MoreVertical, Sparkles, ArrowLeft, MapPin, MessageSquare } from 'lucide-react';
+import { Send, ChevronLeft, MoreVertical, Sparkles, ArrowLeft, MapPin, MessageSquare, CheckCheck } from 'lucide-react';
 import { generateSmartReplies, createSmartReplyRequestKey } from '../services/geminiService';
 import { collection, query, where, onSnapshot, addDoc, doc, setDoc, orderBy, serverTimestamp, getDoc, getDocs, limit, startAfter, updateDoc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
@@ -37,10 +37,72 @@ export function computeRestoredScrollTop(prevScrollTop: number, prevScrollHeight
   return prevScrollTop + (newScrollHeight - prevScrollHeight);
 }
 
+// Calendar-day distance, rounded so a DST day (23h/25h) still counts as one.
+function daysBetween(earlier: Date, later: Date): number {
+  const start = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  return Math.round((start(later) - start(earlier)) / 86_400_000);
+}
+
+// Inbox row stamp: a time today, "Yesterday", a weekday this week, else a date.
+// A bare "07:58 PM" on a day-old thread read as today.
+export function formatThreadTime(d: Date, now: Date, locale: string, yesterday: string): string {
+  const days = daysBetween(d, now);
+  if (days <= 0) return d.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' });
+  if (days === 1) return yesterday;
+  if (days < 7) return d.toLocaleDateString(locale, { weekday: 'short' });
+  return d.toLocaleDateString(locale, { month: 'short', day: 'numeric' });
+}
+
+export function formatDayLabel(d: Date, now: Date, locale: string, today: string, yesterday: string): string {
+  const days = daysBetween(d, now);
+  if (days <= 0) return today;
+  if (days === 1) return yesterday;
+  if (days < 7) return d.toLocaleDateString(locale, { weekday: 'long' });
+  return d.toLocaleDateString(locale, d.getFullYear() === now.getFullYear()
+    ? { month: 'short', day: 'numeric' }
+    : { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// Consecutive messages from one side within a few minutes on the same day read
+// as one burst: tighter spacing, one timestamp at the end of the burst.
+const GROUP_GAP_MS = 5 * 60_000;
+export function groupThread<T extends { isMe: boolean; timestamp: Date }>(msgs: T[]) {
+  const joins = (a: T | undefined, b: T | undefined) => !!a && !!b && a.isMe === b.isMe
+    && daysBetween(a.timestamp, b.timestamp) === 0
+    && b.timestamp.getTime() - a.timestamp.getTime() <= GROUP_GAP_MS;
+  return msgs.map((msg, i) => ({
+    msg,
+    newDay: i === 0 || daysBetween(msgs[i - 1].timestamp, msg.timestamp) !== 0,
+    startsGroup: !joins(msgs[i - 1], msg),
+    endsGroup: !joins(msg, msgs[i + 1]),
+  }));
+}
+
+const avatarGradients = [
+  'linear-gradient(135deg,#1e3a5f,#1e40af)',
+  'linear-gradient(135deg,#1a2e1a,#14532d)',
+  'linear-gradient(135deg,#2e1a2e,#581c87)',
+  'linear-gradient(135deg,#3b2a1a,#92400e)',
+];
+
+const Avatar: React.FC<{ name: string; url?: string | null; size: number; radius: number }> = ({ name, url, size, radius }) => {
+  const initial = name.charAt(0).toUpperCase();
+  return (
+    <span
+      className="pq-avatar"
+      style={{ width: size, height: size, borderRadius: radius, fontSize: size * 0.38, background: avatarGradients[initial.charCodeAt(0) % avatarGradients.length] }}
+      aria-hidden="true"
+    >
+      {url ? <img src={url} alt="" className="w-full h-full object-cover" /> : initial}
+    </span>
+  );
+};
+
 export const MessagesView: React.FC<MessagesViewProps> = ({
   user, activeChatContext, onBack, setView, unreadMessagesCount = 0, pendingUpdatesCount = 0,
 }) => {
-  useLang();
+  const lang = useLang();
+  const locale = lang === 'es' ? 'es-US' : 'en-US';
   const [conversations, setConversations] = useState<any[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(
     activeChatContext && user ? [user.id, activeChatContext.userId].sort().join('_') : null
@@ -50,6 +112,9 @@ export const MessagesView: React.FC<MessagesViewProps> = ({
   const [moderationError, setModerationError] = useState('');
   const [sending, setSending] = useState(false);
   const [smartReplies, setSmartReplies] = useState<string[]>([]);
+  // False until the open conversation's first messages snapshot lands, so an
+  // empty thread is never shown as "no messages" while it is still loading.
+  const [messagesReady, setMessagesReady] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastSmartReplyKey = useRef<string | null>(null);
 
@@ -120,7 +185,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({
       // to exclude) — client-side reporting is the only signal for failures
       // that never reach the callable at all (network/App Check).
       reportCriticalActionFailure('chat_delete', e);
-      showToast(t('messages.toast_delete_failed'));
+      showToast(t('messages.toast_delete_failed'), true);
     } finally {
       setDeletingChat(false);
       setShowDeleteConfirm(false);
@@ -129,8 +194,11 @@ export const MessagesView: React.FC<MessagesViewProps> = ({
 
   const [showReportModal, setShowReportModal] = useState(false);
   const [actionToast, setActionToast] = useState('');
+  // Failures and confirmations share one slot; the tone keeps a failure from
+  // reading as a success.
+  const [toastIsError, setToastIsError] = useState(false);
 
-  const showToast = (msg: string) => { setActionToast(msg); setTimeout(() => setActionToast(''), 3000); };
+  const showToast = (msg: string, isError = false) => { setActionToast(msg); setToastIsError(isError); setTimeout(() => setActionToast(''), 3000); };
 
   // Report reasons: value written to Firestore (English stays), label is translated display
   const reportReasons = [
@@ -160,7 +228,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({
       setActiveConversationId(null);
     } catch (e) {
       console.error("Error blocking user:", e);
-      showToast(t('messages.toast_block_failed'));
+      showToast(t('messages.toast_block_failed'), true);
     }
   };
 
@@ -181,7 +249,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({
       setShowReportModal(false);
     } catch (e) {
       console.error("Error reporting user:", e);
-      showToast(t('messages.toast_report_failed'));
+      showToast(t('messages.toast_report_failed'), true);
     }
   };
 
@@ -318,6 +386,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({
     const myGeneration = conversationGenerationRef.current;
     isLoadingOlderRef.current = false;
     setMessages([]);
+    setMessagesReady(false);
     setHasMoreOlder(false);
     setIsLoadingOlder(false);
 
@@ -369,6 +438,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({
           oldestLoadedCursorRef.current = snap.docs[snap.docs.length - 1];
         }
         setHasMoreOlder(snap.docs.length === MESSAGE_PAGE_SIZE);
+        setMessagesReady(true);
       }
 
       setMessages(sortedRetainedMessages());
@@ -435,7 +505,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({
       setMessages(sortedRetainedMessages());
     } catch (e) {
       console.error("Error loading earlier messages:", e);
-      showToast(t('messages.toast_load_earlier_failed'));
+      showToast(t('messages.toast_load_earlier_failed'), true);
       // Already-loaded history, cursor, and hasMoreOlder are left exactly
       // as they were — retry remains possible via the still-visible control.
     } finally {
@@ -551,7 +621,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({
             // App Check, internal) with no guaranteed diagnostic trail.
             console.error("Error sending message", e);
             reportCriticalActionFailure('message_send', e, code ? { errorCode: code } : undefined);
-            showToast(t('messages.toast_send_failed'));
+            showToast(t('messages.toast_send_failed'), true);
         }
     } finally {
         setSending(false);
@@ -562,101 +632,123 @@ export const MessagesView: React.FC<MessagesViewProps> = ({
     const displayName = userProfilesCache[activeConversation.otherUser.id]?.name
       || t('messages.anonymous');
 
+    const otherProfile = userProfilesCache[activeConversation.otherUser.id];
+    const now = new Date();
+
     return (
-      <div className="mobile-safe-top h-full flex flex-col bg-[var(--color-bg)] pt-4 pb-20">
-        {/* Chat Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface)]">
-          <div className="flex items-center gap-3">
-            <button onClick={() => activeChatContext ? onBack() : setActiveConversationId(null)} aria-label={t('messages.back_chat_aria')} className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)]">
-              <ChevronLeft size={24} />
+      <div className="h-full flex flex-col bg-[var(--color-bg)]">
+        {/* Thread header. Carries the safe-area inset itself (mobile-safe-top)
+            so its surface runs up under the status bar. One back control;
+            the bottom nav is hidden inside a conversation. */}
+        <header className="pq-chat-header mobile-safe-top md:pt-3 pb-2.5 px-2 shrink-0 relative z-10">
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => activeChatContext ? onBack() : setActiveConversationId(null)}
+              aria-label={t('messages.back_chat_aria')}
+              className="pq-icon-btn focus-visible:ring-2 focus-visible:ring-[#38bdf8] focus-visible:outline-none"
+            >
+              <ChevronLeft size={24} aria-hidden="true" />
             </button>
-            <div className="w-10 h-10 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-center text-gray-500 overflow-hidden shrink-0">
-               {userProfilesCache[activeConversation.otherUser.id]?.avatarUrl ? (
-                 <img src={userProfilesCache[activeConversation.otherUser.id].avatarUrl!} alt="Avatar" className="w-full h-full object-cover" />
-               ) : (
-                 <i className="fa-solid fa-user text-xl"></i>
-               )}
-            </div>
-            <div>
-              <h3 className="font-bold text-[var(--color-text)]">{displayName}</h3>
+            <Avatar name={displayName} url={otherProfile?.avatarUrl} size={40} radius={14} />
+            <div className="flex-1 min-w-0 pl-1.5">
+              <h1 className="text-[16px] font-extrabold text-[var(--color-text)] leading-tight tracking-tight truncate">{displayName}</h1>
               {activeConversation.relatedSpotTitle && (
-                <p className="text-xs text-queen-400">{activeConversation.relatedSpotTitle}</p>
+                <p className="pq-accent-text flex items-center gap-1 text-[12px] font-semibold mt-0.5 min-w-0">
+                  <MapPin size={11} aria-hidden="true" className="shrink-0" />
+                  <span className="truncate">{activeConversation.relatedSpotTitle}</span>
+                </p>
+              )}
+            </div>
+            <div className="relative">
+              <button
+                ref={menuTriggerRef}
+                onClick={() => setIsMenuOpen(!isMenuOpen)}
+                aria-label={t('messages.menu_aria')}
+                aria-haspopup="true"
+                aria-expanded={isMenuOpen}
+                className="pq-icon-btn text-[var(--color-text-secondary)] focus-visible:ring-2 focus-visible:ring-[#38bdf8] focus-visible:outline-none"
+              >
+                <MoreVertical size={20} aria-hidden="true" />
+              </button>
+              {isMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setIsMenuOpen(false)} />
+                  <div className="pq-menu absolute right-1 mt-1 w-52 rounded-2xl z-50 overflow-hidden">
+                    <button onClick={() => { setIsMenuOpen(false); setShowReportModal(true); }} className="pq-menu-item">
+                      {t('messages.report_user')}
+                    </button>
+                    <button onClick={() => { setIsMenuOpen(false); handleBlockUser(); }} className="pq-menu-item">
+                      {t('messages.block_user')}
+                    </button>
+                    <button onClick={() => { setIsMenuOpen(false); setShowDeleteConfirm(true); }} className="pq-menu-item pq-menu-item--danger">
+                      {t('messages.delete_chat')}
+                    </button>
+                  </div>
+                </>
               )}
             </div>
           </div>
-          <div className="relative">
-            <button ref={menuTriggerRef} onClick={() => setIsMenuOpen(!isMenuOpen)} aria-label={t('messages.menu_aria')} className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)] p-2 hover:bg-white/5 rounded-full transition-colors">
-              <MoreVertical size={20} />
-            </button>
-            {isMenuOpen && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setIsMenuOpen(false)} />
-                <div className="absolute right-0 mt-2 w-48 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl shadow-xl z-50 overflow-hidden py-1">
-                  <button
-                    onClick={() => { setIsMenuOpen(false); setShowDeleteConfirm(true); }}
-                    className="w-full text-left px-4 py-3 text-sm text-red-500 hover:bg-white/5 flex items-center gap-2 transition-colors font-medium"
-                  >
-                    {t('messages.delete_chat')}
-                  </button>
-                  <button
-                    onClick={() => { setIsMenuOpen(false); handleBlockUser(); }}
-                    className="w-full text-left px-4 py-3 text-sm text-[var(--color-text)] hover:bg-white/5 flex items-center gap-2 transition-colors font-medium"
-                  >
-                    {t('messages.block_user')}
-                  </button>
-                  <button
-                    onClick={() => { setIsMenuOpen(false); setShowReportModal(true); }}
-                    className="w-full text-left px-4 py-3 text-sm text-[var(--color-text)] hover:bg-white/5 flex items-center gap-2 transition-colors font-medium"
-                  >
-                    {t('messages.report_user')}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+        </header>
 
         {/* Messages Area */}
-        <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
+        <div ref={messagesContainerRef} className="flex-1 overflow-y-auto no-scrollbar px-4 pt-3 pb-4 flex flex-col">
           {hasMoreOlder && (
             <button
               onClick={loadOlderMessages}
               disabled={isLoadingOlder}
               aria-label={t('messages.load_earlier')}
-              className="w-full text-center text-xs text-[var(--color-text-secondary)] py-2 disabled:opacity-50"
+              className="self-center pq-day-sep h-9 px-4 mb-2 disabled:opacity-50"
             >
               {isLoadingOlder ? t('messages.loading_earlier') : t('messages.load_earlier')}
             </button>
           )}
-          {messages.map((msg) => (
-            <div key={msg.id} className={`flex ${msg.isMe ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[75%] rounded-2xl px-4 py-3 ${
-                msg.isMe
-                  ? 'bg-queen-600 text-white rounded-br-none'
-                  : 'bg-[var(--color-surface)] text-[var(--color-text)] border border-[var(--color-border)] rounded-bl-none'
-              }`}>
-                <p className="text-sm">{msg.text}</p>
-                <p className="text-[10px] opacity-50 mt-1 text-right">
-                  {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </p>
-              </div>
+
+          {!messagesReady && (
+            <div role="status" aria-live="polite" className="flex-1 flex flex-col items-center justify-center gap-3 text-[var(--color-text-secondary)]">
+              <span className="w-6 h-6 rounded-full border-2 border-[#38bdf8] border-t-transparent animate-spin" aria-hidden="true" />
+              <p className="text-[13px] font-semibold">{t('messages.loading')}</p>
             </div>
+          )}
+
+          {messagesReady && messages.length === 0 && (
+            <div className="flex-1 flex flex-col items-center justify-center text-center px-8 pb-10">
+              <Avatar name={displayName} url={otherProfile?.avatarUrl} size={64} radius={22} />
+              <p className="text-[17px] font-extrabold text-[var(--color-text)] mt-4">{t('messages.thread_empty_title')}</p>
+              <p className="text-[13px] text-[var(--color-text-secondary)] mt-1.5 max-w-[28ch] leading-relaxed">{t('messages.thread_empty_body')}</p>
+            </div>
+          )}
+
+          {/* Short threads sit just above the composer, where the eye is.
+              An auto margin collapses to nothing once the thread overflows. */}
+          {messages.length > 0 && <div className="mt-auto" aria-hidden="true" />}
+          {groupThread(messages).map(({ msg, newDay, startsGroup, endsGroup }) => (
+            <React.Fragment key={msg.id}>
+              {newDay && (
+                <div className="flex justify-center my-3">
+                  <span className="pq-day-sep">{formatDayLabel(msg.timestamp, now, locale, t('messages.today'), t('messages.yesterday'))}</span>
+                </div>
+              )}
+              <div className={`flex flex-col ${msg.isMe ? 'items-end' : 'items-start'} ${startsGroup ? 'mt-3' : 'mt-1'}`}>
+                <div className={`pq-bubble ${msg.isMe ? 'pq-bubble--me' : 'pq-bubble--them'}${startsGroup ? '' : ' pq-bubble--joined'}`}>
+                  <p className="pq-bubble-text">{msg.text}</p>
+                </div>
+                {endsGroup && (
+                  <time className="pq-msg-time mt-1 px-1" dateTime={msg.timestamp.toISOString()}>
+                    {msg.timestamp.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' })}
+                  </time>
+                )}
+              </div>
+            </React.Fragment>
           ))}
           <div ref={messagesEndRef} />
         </div>
 
         {/* Smart Replies */}
         {smartReplies.length > 0 && (
-          <div className="px-4 py-2 flex gap-2 overflow-x-auto no-scrollbar">
-            <div className="flex items-center text-queen-400 mr-1">
-                <Sparkles size={16} />
-            </div>
+          <div role="group" aria-label={t('messages.smart_replies_aria')} className="shrink-0 px-4 pt-1 pb-2.5 flex items-center gap-2 overflow-x-auto no-scrollbar">
+            <Sparkles size={15} aria-hidden="true" className="pq-accent-text shrink-0" />
             {smartReplies.map((reply, idx) => (
-              <button
-                key={idx}
-                onClick={() => handleSend(reply)}
-                className="whitespace-nowrap bg-[var(--color-surface)] border border-queen-500/30 text-queen-100 text-xs px-3 py-1.5 rounded-full hover:bg-queen-900/40 transition-colors"
-              >
+              <button key={idx} onClick={() => handleSend(reply)} className="pq-smart-chip shrink-0">
                 {reply}
               </button>
             ))}
@@ -664,8 +756,8 @@ export const MessagesView: React.FC<MessagesViewProps> = ({
         )}
 
         {actionToast && (
-          <div className="px-4 py-2 bg-[var(--color-surface)] border-t border-[var(--color-border)]">
-            <p className="text-emerald-400 text-xs text-center font-semibold">{actionToast}</p>
+          <div role={toastIsError ? 'alert' : 'status'} className="shrink-0 px-4 pb-2">
+            <p className={`pq-inline-note${toastIsError ? ' pq-inline-note--error' : ''}`}>{actionToast}</p>
           </div>
         )}
 
@@ -718,28 +810,36 @@ export const MessagesView: React.FC<MessagesViewProps> = ({
         )}
 
         {moderationError && (
-          <div className="px-4 py-2 bg-red-500/10 border-t border-red-500/20">
-            <p className="text-red-400 text-xs text-center">{moderationError}</p>
+          <div role="alert" className="shrink-0 px-4 pb-2">
+            <p className="pq-inline-note pq-inline-note--error">{moderationError}</p>
           </div>
         )}
 
-        {/* Input Area */}
-        <div className="p-4 border-t border-[var(--color-border)] bg-[var(--color-bg)]">
-          <div className="flex items-center gap-2 bg-[var(--color-surface)] rounded-full px-4 py-2 border border-[var(--color-border)] focus-within:border-queen-500 transition-colors">
+        {/* Composer. Bottom padding follows the home-indicator inset; there is
+            no bottom nav inside a conversation to clear. */}
+        <div className="pq-composer shrink-0 px-3 pt-2.5" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 10px)' }}>
+          <div className="pq-composer-field flex items-center gap-2 pl-4 pr-1">
             <input
               type="text"
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               placeholder={t('messages.type_placeholder')}
-              className="flex-1 bg-transparent border-none outline-none text-[var(--color-text)] text-sm"
-              onKeyDown={(e) => e.key === 'Enter' && handleSend(inputText)}
+              aria-label={t('messages.type_placeholder')}
+              enterKeyHint="send"
+              // 16px: anything smaller makes iOS Safari zoom the page on focus.
+              className="pq-composer-input flex-1 min-w-0 h-11 bg-transparent border-none outline-none text-[var(--color-text)] text-[16px]"
+              // Enter while an IME is composing confirms the candidate, not a send.
+              onKeyDown={(e) => e.key === 'Enter' && !(e.nativeEvent as KeyboardEvent)?.isComposing && handleSend(inputText)}
             />
             <button
               onClick={() => handleSend(inputText)}
               disabled={!inputText.trim() || sending}
-              className="p-2 bg-queen-600 rounded-full text-white disabled:opacity-50 disabled:bg-[var(--color-surface)]"
+              aria-label={t('messages.send_aria')}
+              className="pq-send focus-visible:ring-2 focus-visible:ring-[#38bdf8] focus-visible:outline-none"
             >
-              <Send size={16} />
+              {sending
+                ? <span className="w-4 h-4 rounded-full border-2 border-current border-t-transparent animate-spin" aria-hidden="true" />
+                : <Send size={18} aria-hidden="true" className="-ml-0.5" />}
             </button>
           </div>
         </div>
@@ -747,108 +847,116 @@ export const MessagesView: React.FC<MessagesViewProps> = ({
     );
   }
 
-  const avatarGradients = [
-    'linear-gradient(135deg,#1e3a5f,#1e40af)',
-    'linear-gradient(135deg,#1a2e1a,#14532d)',
-    'linear-gradient(135deg,#2e1a2e,#581c87)',
-    'linear-gradient(135deg,#3b2a1a,#92400e)',
-  ];
+  const unreadThreads = conversations.filter(conv => {
+    const lastRead = parseInt(localStorage.getItem(`lastReadChat_${conv.id}`) || '0', 10);
+    return conv.lastMessageTimestamp.getTime() > lastRead && conv.lastSenderId !== user.id;
+  });
+  const now = new Date();
 
   return (
-    <div className="mobile-primary-screen mobile-safe-top h-full flex flex-col bg-[var(--color-bg)] pt-4 pb-20 max-w-md mx-auto">
-      {/* Header */}
-      <div className="flex items-center gap-3 px-4 mb-6">
-        {onBack && (
-          <button onClick={onBack} aria-label={t('messages.back_aria')} className="w-9 h-9 rounded-full flex items-center justify-center bg-white/5 border border-[var(--color-border)] text-[var(--color-text)] hover:bg-white/10 transition-all shrink-0">
-            <ArrowLeft size={18} />
-          </button>
+    <div className="mobile-primary-screen mobile-safe-top md:pt-4 md:pb-6 h-full flex flex-col bg-[var(--color-bg)] max-w-md mx-auto w-full">
+      {/* Header — centred like Nearby Activity. No Back control on phones:
+          Messages is a bottom-nav destination. The nav is md:hidden, so on
+          wider screens Back is the only way out of this full-screen overlay
+          and stays. */}
+      <header className="relative px-5 pt-1.5 pb-3 shrink-0 text-center">
+        <button
+          onClick={onBack}
+          aria-label={t('messages.back_aria')}
+          className="pq-icon-btn hidden md:flex absolute left-3 top-0 bg-[var(--color-overlay)] border border-[var(--color-border)]"
+        >
+          <ArrowLeft size={18} aria-hidden="true" />
+        </button>
+        <h1 className="text-[22px] font-extrabold text-[var(--color-text)] leading-tight tracking-tight">{t('messages.title')}</h1>
+        <p className="text-[13px] text-[var(--color-text-secondary)] mt-1">{t('messages.subtitle')}</p>
+        {conversations.length > 0 && (
+          <div className="flex items-center justify-center gap-2 mt-3.5">
+            {unreadThreads.length > 0 && (
+              <span className="pq-status-chip pq-status-chip--new">
+                <span className="pq-live-dot" aria-hidden="true" />
+                {t('messages.unread_count', { count: String(unreadThreads.length) })}
+              </span>
+            )}
+            <span className="pq-status-chip">
+              <MessageSquare size={12} aria-hidden="true" />
+              {conversations.length === 1
+                ? t('messages.count_one')
+                : t('messages.count_many', { count: String(conversations.length) })}
+            </span>
+          </div>
         )}
-        <div>
-          <h2 className="text-xl font-bold text-[var(--color-text)]">{t('messages.title')}</h2>
-          <p className="text-xs text-[var(--color-text-secondary)] mt-0.5">{t('messages.subtitle')}</p>
-        </div>
-      </div>
+      </header>
 
       {/* Conversation List */}
-      <div className="flex-1 overflow-y-auto px-3 no-scrollbar">
+      <div className="flex-1 overflow-y-auto no-scrollbar px-4 pt-2 flex flex-col">
         {conversations.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
-            <div className="w-14 h-14 rounded-full bg-[#1e75ff]/10 border border-[#1e75ff]/15 flex items-center justify-center text-[#1e75ff] mb-4">
-              <MessageSquare size={24} />
-            </div>
-            <h3 className="text-[var(--color-text-secondary)] font-bold text-sm mb-1.5">{t('messages.empty')}</h3>
-            <p className="text-[11px] text-[var(--color-text-secondary)] leading-relaxed opacity-60">{t('messages.empty_hint')}</p>
+          <div className="flex-1 flex flex-col items-center justify-center px-8 pb-14 text-center">
+            <span className="pq-tool-icon" aria-hidden="true" style={{ width: 60, height: 60, borderRadius: 20 }}>
+              <MessageSquare size={26} />
+            </span>
+            <h2 className="text-[19px] font-extrabold text-[var(--color-text)] tracking-tight mt-6">{t('messages.empty')}</h2>
+            <p className="text-[14px] text-[var(--color-text-secondary)] mt-2 max-w-[30ch] leading-relaxed">{t('messages.empty_hint')}</p>
           </div>
         ) : (
-          <div className="space-y-2">
-            {conversations.map(conv => {
-              const lastReadStr = localStorage.getItem(`lastReadChat_${conv.id}`);
-              const lastReadTime = lastReadStr ? parseInt(lastReadStr, 10) : 0;
-              const hasUnread = conv.lastMessageTimestamp.getTime() > lastReadTime && conv.lastSenderId !== user.id;
-              const convDisplayName = userProfilesCache[conv.otherUser.id]?.name
-                || t('messages.anonymous');
-              const initial = convDisplayName.charAt(0).toUpperCase();
-              const avatarBg = avatarGradients[initial.charCodeAt(0) % avatarGradients.length];
+          <>
+            <ul className="space-y-2.5" role="list">
+              {conversations.map(conv => {
+                const hasUnread = unreadThreads.includes(conv);
+                const convDisplayName = userProfilesCache[conv.otherUser.id]?.name || t('messages.anonymous');
+                const fromMe = conv.lastSenderId === user.id;
 
-              return (
-                <button
-                  key={conv.id}
-                  onClick={() => setActiveConversationId(conv.id)}
-                  className={`w-full border rounded-2xl p-3.5 flex items-center gap-3 text-left transition-all active:scale-[0.99] ${hasUnread ? 'bg-[#0d1f35] border-[#1e75ff]/20' : 'bg-[var(--color-card)] border-[var(--color-border)] hover:bg-white/[0.03]'}`}
-                >
-                  {/* Avatar */}
-                  <div className="relative shrink-0">
-                    {userProfilesCache[conv.otherUser.id]?.avatarUrl ? (
-                      <img src={userProfilesCache[conv.otherUser.id].avatarUrl!} alt={convDisplayName} className="w-11 h-11 rounded-2xl object-cover" />
-                    ) : (
-                      <div className="w-11 h-11 rounded-2xl flex items-center justify-center text-[#93c5fd] font-bold text-base" style={{ background: avatarBg }}>
-                        {initial}
-                      </div>
-                    )}
-                    {hasUnread && (
-                      <span className="absolute -top-1 -right-1 w-3 h-3 bg-[#1e75ff] border-2 border-[var(--color-bg)] rounded-full" />
-                    )}
-                  </div>
-
-                  {/* Body */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex justify-between items-baseline mb-0.5">
-                      <span className={`text-sm truncate pr-2 ${hasUnread ? 'font-extrabold text-[var(--color-text)]' : 'font-semibold text-[var(--color-text-secondary)]'}`}>
-                        {convDisplayName}
+                return (
+                  <li key={conv.id}>
+                    <button
+                      data-thread=""
+                      onClick={() => setActiveConversationId(conv.id)}
+                      className={`pq-thread${hasUnread ? ' pq-thread--unread' : ''} w-full text-left rounded-[22px] p-4 flex items-center gap-3.5 focus-visible:ring-2 focus-visible:ring-[#38bdf8] focus-visible:outline-none`}
+                    >
+                      <span className="relative shrink-0">
+                        <Avatar name={convDisplayName} url={userProfilesCache[conv.otherUser.id]?.avatarUrl} size={48} radius={16} />
+                        {hasUnread && <span className="pq-unread-dot" aria-hidden="true" />}
                       </span>
-                      <span className="text-[11px] text-gray-500 shrink-0">
-                        {conv.lastMessageTimestamp instanceof Date
-                          ? conv.lastMessageTimestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                          : t('messages.just_now')}
-                      </span>
-                    </div>
 
-                    <div className="flex justify-between items-center mb-2">
-                      <p className={`text-xs truncate pr-2 ${hasUnread ? 'text-[var(--color-text)] font-medium' : 'text-[var(--color-text-secondary)] opacity-60'}`}>
-                        {conv.lastMessage}
-                      </p>
-                      {hasUnread && (
-                        <span className="flex items-center justify-center bg-[#1e75ff] text-white text-[9px] font-bold rounded-full shrink-0" style={{ width: 18, height: 18 }}>
-                          1
+                      <span className="block flex-1 min-w-0">
+                        <span className="flex items-baseline gap-2">
+                          <span className={`pq-thread-name flex-1 truncate text-[15px] text-[var(--color-text)] ${hasUnread ? 'font-extrabold' : 'font-bold'}`}>
+                            {convDisplayName}
+                          </span>
+                          <span className={`shrink-0 text-[11.5px] tabular-nums ${hasUnread ? 'pq-accent-text font-bold' : 'text-[var(--color-text-secondary)]'}`}>
+                            {formatThreadTime(conv.lastMessageTimestamp, now, locale, t('messages.yesterday'))}
+                          </span>
                         </span>
-                      )}
-                    </div>
+                        {hasUnread && <span className="sr-only">{t('messages.unread_sr')}</span>}
+                        <span className={`block truncate text-[13px] mt-0.5 ${hasUnread ? 'text-[var(--color-text)] font-semibold' : 'text-[var(--color-text-secondary)]'}`}>
+                          {fromMe && conv.lastMessage && <span className="text-[var(--color-text-secondary)] font-medium">{t('messages.you_prefix')}</span>}
+                          {conv.lastMessage}
+                        </span>
+                        {conv.relatedSpotTitle && (
+                          <span className="pq-spot-chip mt-2">
+                            <MapPin size={10} aria-hidden="true" className="shrink-0" />
+                            <span className="truncate">{conv.relatedSpotTitle}</span>
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
 
-                    {conv.relatedSpotTitle && (
-                      <div className="inline-flex items-center gap-1 text-[10px] text-[#38bdf8] bg-[#1e75ff]/10 border border-[#38bdf8]/15 px-2 py-0.5 rounded-full">
-                        <MapPin size={9} className="text-[#38bdf8] shrink-0" />
-                        <span className="truncate max-w-[160px]">{conv.relatedSpotTitle}</span>
-                      </div>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
-
-            <div className="py-4 text-center">
-              <p className="text-[11px] text-[#334155]">{t('messages.all_caught_up')}</p>
-            </div>
-          </div>
+            {/* Fills the space under a short list with a calm end-of-list
+                marker instead of a stray caption. "Caught up" is only claimed
+                when nothing is unread. */}
+            {unreadThreads.length === 0 && (
+              <div className="flex-1 min-h-[160px] flex flex-col items-center justify-center text-center pt-6 pb-10">
+                <span className="pq-caught-up-icon mb-3" aria-hidden="true">
+                  <CheckCheck size={20} />
+                </span>
+                <p className="text-[14px] font-bold text-[var(--color-text)]">{t('messages.all_caught_up')}</p>
+                <p className="text-[12.5px] text-[var(--color-text-secondary)] mt-1">{t('messages.all_caught_up_hint')}</p>
+              </div>
+            )}
+          </>
         )}
       </div>
       {setView && (
