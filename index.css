@@ -1690,6 +1690,14 @@ html, body, #root {
   align-items: center;
   justify-content: center;
 }
+/* 11–12px helper lines under the location CTA. --color-text-secondary is only
+   3.7:1 on the light ground; 66% of the theme text colour is 5.2:1 light and
+   8.6:1 dark, yet still quieter than full-strength text. The first line is the
+   fallback for browsers without color-mix. */
+.pq-helper-text {
+  color: var(--color-text);
+  color: color-mix(in srgb, var(--color-text) 66%, transparent);
+}
 .pq-empty-alert {
   display: inline-flex;
   align-items: center;
