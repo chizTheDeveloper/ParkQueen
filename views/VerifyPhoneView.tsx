@@ -150,7 +150,7 @@ export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({
             <div className={prefersReduced ? '' : 'auth-fade-in'}>
 
                 {/* Eyebrow */}
-                <p className="text-[11px] font-bold tracking-[0.13em] text-blue-400 uppercase mb-3 mt-2">
+                <p className="text-[11px] font-bold tracking-[0.13em] text-[var(--color-accent)] uppercase mb-3 mt-2">
                     {t('verify_phone.eyebrow')}
                 </p>
 
@@ -166,7 +166,7 @@ export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({
                 <button
                     type="button"
                     onClick={onEditNumber}
-                    className="text-blue-400 font-semibold text-[15px] min-h-[44px] flex items-center mb-6"
+                    className="text-[var(--color-accent)] font-semibold text-[15px] min-h-[44px] flex items-center mb-6"
                 >
                     {t('verify_phone.edit')}
                 </button>
@@ -225,7 +225,7 @@ export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({
                 {/* Stable error area — reserved height prevents layout shift */}
                 <div className="mt-3 min-h-[20px] flex items-center justify-center">
                     {error && (
-                        <p role="alert" aria-live="assertive" className="text-red-400 text-[13px] text-center">
+                        <p role="alert" aria-live="assertive" className="text-[var(--color-danger)] text-[13px] text-center">
                             {error}
                         </p>
                     )}
@@ -240,7 +240,7 @@ export const VerifyPhoneView: React.FC<VerifyPhoneViewProps> = ({
                         <button
                             type="button"
                             onClick={handleResend}
-                            className="text-blue-400 font-semibold"
+                            className="text-[var(--color-accent)] font-semibold"
                         >
                             {t('verify_phone.resend')}
                         </button>

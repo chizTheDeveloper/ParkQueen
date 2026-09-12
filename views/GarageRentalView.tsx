@@ -213,18 +213,18 @@ const LocationPicker = ({ onConfirm, onBack }) => {
             </div>
             <div ref={mapContainerRef} className="flex-1 bg-[var(--color-surface)] z-0" />
             <div className="bg-[var(--color-glass)] border-t border-[var(--color-border)] text-[var(--color-text)] backdrop-blur-lg rounded-t-3xl p-6 pb-8 shadow-2xl animate-in slide-in-from-bottom-10 z-10 relative">
-                 <button className="w-full mb-6 py-3 border border-[var(--color-border)] bg-white/5 rounded-xl flex items-center justify-center gap-2 text-[#38bdf8] font-bold hover:bg-white/10 transition-colors">
+                 <button className="w-full mb-6 py-3 border border-[var(--color-border)] bg-white/5 rounded-xl flex items-center justify-center gap-2 text-[var(--color-info)] font-bold hover:bg-white/10 transition-colors">
                      <Navigation size={18} />
                      Use Current Location
                  </button>
                  <div className="flex items-start gap-3 mb-6">
-                     <MapPin className="text-[#38bdf8] shrink-0 mt-1" size={24} fill="currentColor" fillOpacity={0.2} />
+                     <MapPin className="text-[var(--color-info)] shrink-0 mt-1" size={24} fill="currentColor" fillOpacity={0.2} />
                      <div>
                           <h3 className="font-bold text-lg text-[var(--color-text)]">{address}</h3>
                           <p className="text-[var(--color-text-secondary)] text-sm">{subAddress}</p>
                      </div>
                  </div>
-                 <button onClick={() => onConfirm(`${address}, ${subAddress}`)} className="w-full bg-[#1e75ff] hover:bg-blue-600 text-white font-bold py-4 rounded-2xl shadow-md shadow-blue-500/20 active:scale-[0.98] transition-all">
+                 <button onClick={() => onConfirm(`${address}, ${subAddress}`)} className="w-full bg-[var(--color-brand)] hover:bg-blue-600 text-white font-bold py-4 rounded-2xl shadow-md shadow-blue-500/20 active:scale-[0.98] transition-all">
                      Save Location
                  </button>
                  <div className="w-32 h-1 bg-white/10 rounded-full mx-auto mt-4" />
@@ -261,7 +261,7 @@ export const GarageRentalView = () => {
           </div>
           <div className="p-5 space-y-8 pb-32">
               <section>
-                  <h3 className="text-[var(--color-text-secondary)] text-sm mb-3">Upload Space Photo <span className="text-xs opacity-50 block">Max 2 Mb File Upload</span></h3>
+                  <h3 className="text-[var(--color-text-secondary)] text-sm mb-3">Upload Space Photo <span className="text-xs block">Max 2 Mb File Upload</span></h3>
                   <div className="flex gap-4 overflow-x-auto no-scrollbar pb-2">
                       <button className="w-24 h-24 shrink-0 rounded-2xl border-2 border-dashed border-queen-500/50 bg-queen-500/10 flex items-center justify-center text-queen-500 hover:bg-queen-500/20 transition-colors">
                           <Camera size={24} />
@@ -401,7 +401,7 @@ export const GarageRentalView = () => {
                     <div className="relative h-48 overflow-hidden">
                     <img src={listing.image} alt={listing.title} className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500" />
                     <div className="absolute top-3 right-3 bg-black/60 backdrop-blur-md px-2 py-1 rounded-lg flex items-center gap-1">
-                        <Star size={12} className="text-yellow-400 fill-current" />
+                        <Star size={12} className="text-[var(--color-warning)] fill-current" />
                         <span className="text-xs font-bold">{listing.rating}</span>
                     </div>
                     </div>
@@ -447,12 +447,12 @@ export const GarageRentalView = () => {
                         <div className="flex-1 py-1">
                             <div className="flex justify-between items-start">
                                 <h3 className="font-bold text-[var(--color-text)]">{item.title}</h3>
-                                <div className="px-2 py-0.5 bg-green-900/30 text-green-400 text-[10px] font-bold rounded uppercase border border-green-500/20">Active</div>
+                                <div className="px-2 py-0.5 bg-green-900/30 text-[var(--color-success)] text-[10px] font-bold rounded uppercase border border-green-500/20">Active</div>
                             </div>
                             <p className="text-[var(--color-text-secondary)] text-xs mt-1">{item.description}</p>
                             <div className="mt-3 flex items-center gap-3">
                                 <div className="flex items-center gap-1 text-xs text-gray-300">
-                                    <Star size={12} className="text-yellow-400 fill-current" />
+                                    <Star size={12} className="text-[var(--color-warning)] fill-current" />
                                     <span>5.0</span>
                                 </div>
                                 <div className="flex items-center gap-1 text-xs text-gray-300">

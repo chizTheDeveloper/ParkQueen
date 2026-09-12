@@ -24,7 +24,7 @@ const Toggle = ({ checked, onChange, disabled }: { checked: boolean; onChange: (
         role="switch"
         aria-label={t('settings.notifications')}
         aria-checked={checked}
-        className={`relative shrink-0 w-11 h-6 rounded-full transition-colors disabled:opacity-40 ${checked ? 'bg-[#1e75ff]' : 'bg-[var(--color-border)]'}`}
+        className={`relative shrink-0 w-11 h-6 rounded-full transition-colors disabled:opacity-40 ${checked ? 'bg-[var(--color-brand)]' : 'bg-[var(--color-border)]'}`}
     >
         <div className={`absolute top-0.5 left-[2px] w-5 h-5 rounded-full shadow transition-transform ${checked ? 'translate-x-5 bg-white' : 'bg-white dark:bg-gray-300'}`} />
     </button>
@@ -111,9 +111,9 @@ export const NotificationsSettingsView: React.FC<NotificationsSettingsViewProps>
                             {/* Enable toggle */}
                             <div className="p-4 flex items-center justify-between gap-3">
                                 <div className="flex items-center gap-3.5 min-w-0">
-                                    <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><Bell size={18} /></div>
+                                    <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[var(--color-info)] shrink-0"><Bell size={18} /></div>
                                     <div className="min-w-0">
-                                        <h4 className="font-bold text-[var(--color-text)] text-sm">{t('settings.notifications')}</h4>
+                                        <h3 className="font-bold text-[var(--color-text)] text-sm">{t('settings.notifications')}</h3>
                                         <p className="text-xs text-[var(--color-text-secondary)] mt-0.5 leading-snug">{t('settings.notif_description')}</p>
                                     </div>
                                 </div>
@@ -130,7 +130,7 @@ export const NotificationsSettingsView: React.FC<NotificationsSettingsViewProps>
                                                 key={r}
                                                 onClick={() => handleRadius(r)}
                                                 disabled={saving}
-                                                className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-all active:scale-95 disabled:opacity-40 ${radius === r ? 'bg-[#1e75ff] text-white' : 'bg-white/5 border border-[var(--color-border)] text-[var(--color-text-secondary)]'}`}
+                                                className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-all active:scale-95 disabled:opacity-40 ${radius === r ? 'bg-[var(--color-brand)] text-white' : 'bg-white/5 border border-[var(--color-border)] text-[var(--color-text-secondary)]'}`}
                                             >
                                                 {r} mi
                                             </button>
@@ -141,7 +141,7 @@ export const NotificationsSettingsView: React.FC<NotificationsSettingsViewProps>
                         </div>
                     </div>
 
-                    {error && <p className="text-red-400 text-xs px-1">{error}</p>}
+                    {error && <p className="text-[var(--color-danger)] text-xs px-1">{error}</p>}
                 </div>
             </div>
         </div>

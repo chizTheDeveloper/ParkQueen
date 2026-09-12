@@ -1572,11 +1572,11 @@ export const MapView: React.FC<MapViewProps> = ({
                         {/* Header */}
                         <div className="flex items-center gap-3 mb-5 pb-4 border-b border-[var(--color-border)]">
                             <div className="w-12 h-12 rounded-[14px] flex items-center justify-center shrink-0"
-                                style={{ background: 'linear-gradient(135deg,#1e75ff,#0ea5e9)' }}>
+                                style={{ background: 'linear-gradient(135deg, var(--color-brand), var(--color-brand-2))' }}>
                                 <VehicleIcon type={user?.vehicleType} color={user?.vehicleColor} size={22} />
                             </div>
                             <div className="flex-1 min-w-0">
-                                <p className="text-[10px] font-bold text-[#38bdf8] uppercase tracking-widest mb-0.5">{t('common.my_car')}</p>
+                                <p className="text-[10px] font-bold text-[var(--color-info)] uppercase tracking-widest mb-0.5">{t('common.my_car')}</p>
                                 {savedSpot.address && (
                                     <p className="text-[15px] font-bold text-[var(--color-text)] leading-tight truncate">{savedSpot.address}</p>
                                 )}
@@ -1592,7 +1592,7 @@ export const MapView: React.FC<MapViewProps> = ({
                                     setShowSessionSheet(false);
                                 }}
                                 aria-label="Navigate to my car"
-                                className="flex items-center gap-1.5 px-3 py-2 rounded-full shrink-0 border border-[#1e75ff]/40 bg-[#1e75ff]/15 text-[#38bdf8] active:scale-95 transition-all"
+                                className="flex items-center gap-1.5 px-3 py-2 rounded-full shrink-0 border border-[#1e75ff]/40 bg-[#1e75ff]/15 text-[var(--color-info)] active:scale-95 transition-all"
                             >
                                 <Navigation size={14} />
                                 <span className="text-[11px] font-bold">Navigate</span>
@@ -1637,7 +1637,7 @@ export const MapView: React.FC<MapViewProps> = ({
                                 <button
                                     onClick={handleRetryStreetIntel}
                                     disabled={retryingStreetIntel}
-                                    className="mt-2 text-xs font-semibold text-blue-400 disabled:opacity-50"
+                                    className="mt-2 text-xs font-semibold text-[var(--color-accent)] disabled:opacity-50"
                                 >
                                     {retryingStreetIntel
                                         ? t('street_intel.trying')
@@ -1669,7 +1669,7 @@ export const MapView: React.FC<MapViewProps> = ({
                                         : 'border-[var(--color-border)] bg-white/5'
                                 }`}
                             >
-                                <Bell size={18} className={reminderEnabled ? 'text-[#38bdf8]' : 'text-[var(--color-text-secondary)]'} />
+                                <Bell size={18} className={reminderEnabled ? 'text-[var(--color-info)]' : 'text-[var(--color-text-secondary)]'} />
                                 <span className={`text-[10px] font-bold leading-tight text-center ${reminderEnabled ? 'text-white' : 'text-[var(--color-text-secondary)]'}`}>Cleaning<br/>alert</span>
                             </button>
                             <button
@@ -1681,7 +1681,7 @@ export const MapView: React.FC<MapViewProps> = ({
                                         : 'border-[var(--color-border)] bg-white/5'
                                 }`}
                             >
-                                <Clock size={18} className={parkingTimer.timer || showRemindPanel ? 'text-[#38bdf8]' : 'text-[var(--color-text-secondary)]'} />
+                                <Clock size={18} className={parkingTimer.timer || showRemindPanel ? 'text-[var(--color-info)]' : 'text-[var(--color-text-secondary)]'} />
                                 <span className={`text-[10px] font-bold leading-tight text-center ${parkingTimer.timer || showRemindPanel ? 'text-white' : 'text-[var(--color-text-secondary)]'}`}>
                                     {parkingTimer.timer ? <>{parkingTimer.minutesRemaining}m left</> : <>Move<br/>reminder</>}
                                 </span>
@@ -1691,7 +1691,7 @@ export const MapView: React.FC<MapViewProps> = ({
                         {/* Cleaning alert info strip */}
                         {reminderEnabled && (
                             <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-[#1e75ff]/10 border border-[#1e75ff]/25 mb-3">
-                                <Bell size={13} className="text-[#38bdf8] shrink-0" />
+                                <Bell size={13} className="text-[var(--color-info)] shrink-0" />
                                 <p className="text-[11px] text-[var(--color-text-secondary)] leading-snug">
                                     We'll remind you <span className="text-white font-semibold">1 hour before</span> cleaning, and again at <span className="text-white font-semibold">30 minutes before</span> street cleaning starts
                                 </p>
@@ -1703,8 +1703,8 @@ export const MapView: React.FC<MapViewProps> = ({
                             <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] overflow-hidden mb-4">
                                 {parkingTimer.timer ? (
                                     <div className="flex items-center gap-2.5 px-4 py-3">
-                                        <Clock size={14} className="text-[#38bdf8] shrink-0" />
-                                        <p className="text-xs font-semibold text-[#38bdf8] flex-1">{t('my_car.min_remaining', { min: parkingTimer.minutesRemaining })}</p>
+                                        <Clock size={14} className="text-[var(--color-info)] shrink-0" />
+                                        <p className="text-xs font-semibold text-[var(--color-info)] flex-1">{t('my_car.min_remaining', { min: parkingTimer.minutesRemaining })}</p>
                                         <button onClick={parkingTimer.clearTimer} className="text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors">
                                             <X size={13} />
                                         </button>
@@ -1773,7 +1773,7 @@ export const MapView: React.FC<MapViewProps> = ({
                                                                 onClick={() => setReminderAmPm(period)}
                                                                 className={`px-2.5 py-1 text-xs font-bold transition-colors ${
                                                                     reminderAmPm === period
-                                                                        ? 'bg-[#1e75ff] text-white'
+                                                                        ? 'bg-[var(--color-brand)] text-white'
                                                                         : 'bg-transparent text-[var(--color-text-secondary)] hover:text-[var(--color-text)]'
                                                                 }`}>
                                                                 {period}
@@ -1805,7 +1805,7 @@ export const MapView: React.FC<MapViewProps> = ({
                                                         setShowRemindPanel(false);
                                                     }
                                                 }}
-                                                className="flex-1 py-3 text-xs font-bold text-[#38bdf8] hover:text-[#1e75ff] transition-colors">
+                                                className="flex-1 py-3 text-xs font-bold text-[var(--color-info)] hover:text-[var(--color-accent)] transition-colors">
                                                 {t('my_car.set_reminder')}
                                             </button>
                                         </div>
@@ -1871,12 +1871,12 @@ export const MapView: React.FC<MapViewProps> = ({
                                         </button>
                                         <button
                                             onClick={cancelLinkedPing}
-                                            className="flex-1 py-2 rounded-xl text-xs font-bold border border-red-500/25 bg-red-500/8 hover:bg-red-500/15 text-red-400 transition-all active:scale-95">
+                                            className="flex-1 py-2 rounded-xl text-xs font-bold border border-red-500/25 bg-red-500/8 hover:bg-red-500/15 text-[var(--color-danger)] transition-all active:scale-95">
                                             {t('my_car.stop_sharing')}
                                         </button>
                                     </div>
                                     {linkedPingError && (
-                                        <p className="mt-2 text-xs text-red-400 font-semibold text-center">{linkedPingError}</p>
+                                        <p className="mt-2 text-xs text-[var(--color-danger)] font-semibold text-center">{linkedPingError}</p>
                                     )}
                                 </div>
                             );
@@ -1889,7 +1889,7 @@ export const MapView: React.FC<MapViewProps> = ({
                                         setShowSessionSheet(false);
                                         setShowDepartureSheet(true);
                                     }}
-                                    className="w-full mb-1.5 py-3 rounded-2xl text-sm font-bold border border-[#1e75ff]/40 bg-[#1e75ff]/12 hover:bg-[#1e75ff]/20 transition-all active:scale-95 text-[#38bdf8] flex items-center justify-center gap-2">
+                                    className="w-full mb-1.5 py-3 rounded-2xl text-sm font-bold border border-[#1e75ff]/40 bg-[#1e75ff]/12 hover:bg-[#1e75ff]/20 transition-all active:scale-95 text-[var(--color-info)] flex items-center justify-center gap-2">
                                     <Clock size={14} />
                                     {t('my_car.ping_when_leaving')}
                                 </button>
@@ -1902,13 +1902,13 @@ export const MapView: React.FC<MapViewProps> = ({
                             {!showRemoveCarConfirm ? (
                                 <button
                                     onClick={() => setShowRemoveCarConfirm(true)}
-                                    className="w-full py-2.5 text-sm font-semibold text-red-400 hover:text-red-300 transition-colors">
+                                    className="w-full py-2.5 text-sm font-semibold text-[var(--color-danger)] hover:text-[var(--color-danger)] transition-colors">
                                     {t('my_car.remove_saved_car')}
                                 </button>
                             ) : savedSpot?.linkedPingId ? (
                                 <div className="space-y-2">
                                     <p className="text-xs text-[var(--color-text-secondary)] text-center leading-snug">{t('my_car.remove_with_ping')}</p>
-                                    {linkedPingError && <p className="text-xs text-red-400 text-center font-semibold">{linkedPingError}</p>}
+                                    {linkedPingError && <p className="text-xs text-[var(--color-danger)] text-center font-semibold">{linkedPingError}</p>}
                                     <div className="flex gap-2">
                                         <button
                                             onClick={() => { setShowRemoveCarConfirm(false); setLinkedPingError(null); }}
@@ -1918,7 +1918,7 @@ export const MapView: React.FC<MapViewProps> = ({
                                         <button
                                             onClick={handleRemoveCar}
                                             disabled={removeCarLoading}
-                                            className="flex-1 py-2 rounded-xl text-xs font-bold border border-red-500/25 bg-red-500/8 hover:bg-red-500/15 text-red-400 transition-all active:scale-95 disabled:opacity-50">
+                                            className="flex-1 py-2 rounded-xl text-xs font-bold border border-red-500/25 bg-red-500/8 hover:bg-red-500/15 text-[var(--color-danger)] transition-all active:scale-95 disabled:opacity-50">
                                             {removeCarLoading ? t('my_car.removing') : t('my_car.cancel_and_remove')}
                                         </button>
                                     </div>
@@ -1934,7 +1934,7 @@ export const MapView: React.FC<MapViewProps> = ({
                                         </button>
                                         <button
                                             onClick={endSession}
-                                            className="flex-1 py-2 rounded-xl text-xs font-bold border border-red-500/25 bg-red-500/8 hover:bg-red-500/15 text-red-400 transition-all active:scale-95">
+                                            className="flex-1 py-2 rounded-xl text-xs font-bold border border-red-500/25 bg-red-500/8 hover:bg-red-500/15 text-[var(--color-danger)] transition-all active:scale-95">
                                             {t('my_car.remove')}
                                         </button>
                                     </div>
@@ -1950,7 +1950,7 @@ export const MapView: React.FC<MapViewProps> = ({
                 {savedSpot && (
                     <div className="text-center">
                         <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
-                            style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}>
+                            style={{ background: 'linear-gradient(90deg, var(--color-brand), var(--color-brand-2))' }}>
                             <Car size={26} className="text-white" />
                         </div>
                         <p className="text-xl font-extrabold text-[var(--color-text)] mb-1">{t('my_car.car_saved')}</p>
@@ -1965,7 +1965,7 @@ export const MapView: React.FC<MapViewProps> = ({
                                 setShowDepartureSheet(true);
                             }}
                             className="w-full py-3.5 rounded-full text-white font-bold text-sm flex items-center justify-center gap-2 active:scale-95 transition-transform mb-2"
-                            style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}>
+                            style={{ background: 'linear-gradient(90deg, var(--color-brand), var(--color-brand-2))' }}>
                             <Clock size={16} />
                             {t('my_car.share_when_leaving')}
                         </button>
@@ -1986,7 +1986,7 @@ export const MapView: React.FC<MapViewProps> = ({
                         {myCarPingSuccess && (
                             <div className="flex flex-col items-center py-6">
                                 <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4"
-                                    style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}>
+                                    style={{ background: 'linear-gradient(90deg, var(--color-brand), var(--color-brand-2))' }}>
                                     <CheckCircle2 size={30} className="text-white" />
                                 </div>
                                 <p className="text-xl font-extrabold text-[var(--color-text)] mb-1">
@@ -2015,21 +2015,21 @@ export const MapView: React.FC<MapViewProps> = ({
                         {!myCarPingSuccess && myCarDepartureView === 'prompt' && (
                             <div className="text-center">
                                 <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"
-                                    style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}>
+                                    style={{ background: 'linear-gradient(90deg, var(--color-brand), var(--color-brand-2))' }}>
                                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#facc15" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m2 4 3 12h14l3-12-6 5-4-5-4 5-6-5zm3 16h14"/></svg>
                                 </div>
                                 <p className="text-xl font-extrabold text-[var(--color-text)] mb-1">{t('my_car.leaving_this_spot')}</p>
                                 <p className="text-sm text-[var(--color-text-secondary)] mb-6">{t('my_car.share_with_drivers')}</p>
 
                                 {myCarDepartureError && (
-                                    <p className="text-sm text-red-400 font-semibold text-center mb-4">{myCarDepartureError}</p>
+                                    <p className="text-sm text-[var(--color-danger)] font-semibold text-center mb-4">{myCarDepartureError}</p>
                                 )}
 
                                 <button
                                     onClick={() => handleMyCarPing(null)}
                                     disabled={myCarDepartureLoading}
                                     className="w-full py-3.5 rounded-full text-white font-bold text-sm flex items-center justify-center gap-2 active:scale-95 transition-transform mb-2 disabled:opacity-50"
-                                    style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}>
+                                    style={{ background: 'linear-gradient(90deg, var(--color-brand), var(--color-brand-2))' }}>
                                     <MapPin size={16} />
                                     {myCarDepartureLoading ? t('my_car.sharing') : t('ping_modal.leaving_now')}
                                 </button>
@@ -2093,7 +2093,7 @@ export const MapView: React.FC<MapViewProps> = ({
                                 />
 
                                 {myCarDepartureError && (
-                                    <p className="mt-3 text-sm text-red-400 font-semibold text-center">{myCarDepartureError}</p>
+                                    <p className="mt-3 text-sm text-[var(--color-danger)] font-semibold text-center">{myCarDepartureError}</p>
                                 )}
 
                                 <button
@@ -2107,7 +2107,7 @@ export const MapView: React.FC<MapViewProps> = ({
                                     }}
                                     disabled={myCarDepartureLoading}
                                     className="w-full mt-4 font-bold py-3.5 rounded-full flex items-center justify-center gap-2 text-white active:scale-95 transition-transform disabled:opacity-50"
-                                    style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}>
+                                    style={{ background: 'linear-gradient(90deg, var(--color-brand), var(--color-brand-2))' }}>
                                     <MapPin size={18} />
                                     {myCarDepartureLoading ? t('my_car.scheduling') : t('my_car.schedule_spot')}
                                 </button>
@@ -2270,11 +2270,11 @@ export const MapView: React.FC<MapViewProps> = ({
                     >
                         <div className="px-4 py-3.5 flex items-center gap-3">
                             <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-white font-bold text-sm"
-                                style={{ background: 'linear-gradient(135deg, #1e75ff, #0ea5e9)' }}>
+                                style={{ background: 'linear-gradient(135deg, var(--color-brand), var(--color-brand-2))' }}>
                                 {initial}
                             </div>
                             <div className="flex-1 min-w-0">
-                                <p className="text-[11px] font-semibold text-[#38bdf8] uppercase tracking-wider mb-0.5">
+                                <p className="text-[11px] font-semibold text-[var(--color-info)] uppercase tracking-wider mb-0.5">
                                     {interestedSpot.claimState === 'committed' ? t('scheduled_claim.owner_eyebrow') : t('en_route.heading')}
                                 </p>
                                 <p className="text-sm font-bold text-white truncate">{name}</p>
@@ -2325,7 +2325,7 @@ export const MapView: React.FC<MapViewProps> = ({
                             <button ref={deletePingCancelRef} onClick={() => setShowDeleteConfirm(false)} className="flex-1 py-3 rounded-2xl border border-[var(--color-border)] text-[var(--color-text)] font-semibold text-sm">
                                 {t('map.delete_cancel')}
                             </button>
-                            <button onClick={doDeletePing} className="flex-1 py-3 rounded-2xl bg-red-500/20 border border-red-500/40 text-red-400 font-bold text-sm">
+                            <button onClick={doDeletePing} className="flex-1 py-3 rounded-2xl bg-red-500/20 border border-red-500/40 text-[var(--color-danger)] font-bold text-sm">
                                 {t('map.delete_confirm_btn')}
                             </button>
                         </div>
@@ -2365,11 +2365,11 @@ export const MapView: React.FC<MapViewProps> = ({
                     >
                         <div className={`mt-0.5 shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${interestFlow.finderToastVariant === 'success' ? 'bg-emerald-500/20' : 'bg-blue-500/20'}`}>
                             {interestFlow.finderToastVariant === 'success'
-                                ? <CheckCircle2 size={16} className="text-emerald-400" />
-                                : <Bell size={16} className="text-blue-400" />}
+                                ? <CheckCircle2 size={16} className="text-[var(--color-success)]" />
+                                : <Bell size={16} className="text-[var(--color-accent)]" />}
                         </div>
                         <div className="flex-1 min-w-0">
-                            <p className={`text-sm font-semibold leading-snug ${interestFlow.finderToastVariant === 'success' ? 'text-emerald-300' : 'text-blue-300'}`}>
+                            <p className={`text-sm font-semibold leading-snug ${interestFlow.finderToastVariant === 'success' ? 'text-[var(--color-success)]' : 'text-[var(--color-accent)]'}`}>
                                 {interestFlow.finderToastTitle}
                             </p>
                             <p className="text-xs text-white/55 mt-0.5 leading-snug">{interestFlow.finderToast}</p>
@@ -2397,16 +2397,16 @@ export const MapView: React.FC<MapViewProps> = ({
                             : 'bg-blue-500/20'
                         }`}>
                             {interestFlow.driverNotifVariant === 'success'
-                                ? <CheckCircle2 size={16} className="text-emerald-400" />
+                                ? <CheckCircle2 size={16} className="text-[var(--color-success)]" />
                                 : interestFlow.driverNotifVariant === 'warning'
-                                ? <Clock size={16} className="text-amber-400" />
-                                : <Bell size={16} className="text-blue-400" />}
+                                ? <Clock size={16} className="text-[var(--color-warning)]" />
+                                : <Bell size={16} className="text-[var(--color-accent)]" />}
                         </div>
                         <div className="flex-1 min-w-0">
                             <p className={`text-sm font-semibold leading-snug ${
-                                interestFlow.driverNotifVariant === 'success' ? 'text-emerald-300'
-                                : interestFlow.driverNotifVariant === 'warning' ? 'text-amber-300'
-                                : 'text-blue-300'
+                                interestFlow.driverNotifVariant === 'success' ? 'text-[var(--color-success)]'
+                                : interestFlow.driverNotifVariant === 'warning' ? 'text-[var(--color-warning)]'
+                                : 'text-[var(--color-accent)]'
                             }`}>{interestFlow.driverNotifTitle}</p>
                             <p className="text-xs text-white/55 mt-0.5 leading-snug">{interestFlow.driverNotification}</p>
                         </div>
@@ -2482,7 +2482,7 @@ export const MapView: React.FC<MapViewProps> = ({
                                         : ''
                                 }`}
                             >
-                                <Car size={21} className={savedSpot ? 'text-white' : 'text-[#1e75ff]'} />
+                                <Car size={21} className={savedSpot ? 'text-white' : 'text-[var(--color-accent)]'} />
                             </button>
                         )}
                         <button
@@ -2490,7 +2490,7 @@ export const MapView: React.FC<MapViewProps> = ({
                             className="map-control-button flex items-center justify-center transition-all active:scale-90"
                             title="Locate Me"
                         >
-                            <Locate size={22} className="text-[#1e75ff]" />
+                            <Locate size={22} className="text-[var(--color-accent)]" />
                         </button>
                     </div>
 
@@ -2500,8 +2500,8 @@ export const MapView: React.FC<MapViewProps> = ({
                             <button
                                 onClick={() => setShowSessionSheet(true)}
                                 className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-full bg-[var(--color-card)] backdrop-blur-xl border border-[#1e75ff]/20 shadow-md">
-                                <Clock size={11} className="text-[#38bdf8]" />
-                                <p className="text-[11px] font-semibold text-[#38bdf8]">{t('my_car.timer_chip', { min: parkingTimer.minutesRemaining })}</p>
+                                <Clock size={11} className="text-[var(--color-info)]" />
+                                <p className="text-[11px] font-semibold text-[var(--color-info)]">{t('my_car.timer_chip', { min: parkingTimer.minutesRemaining })}</p>
                             </button>
                         </div>
                     )}
@@ -2531,7 +2531,7 @@ export const MapView: React.FC<MapViewProps> = ({
                                                 </p>
                                             )}
                                             {myCarDistanceLabel === "You're here" && (
-                                                <p className="text-[10px] font-semibold text-emerald-300 whitespace-nowrap leading-tight">
+                                                <p className="text-[10px] font-semibold text-[var(--color-success)] whitespace-nowrap leading-tight">
                                                     {t('my_car.youve_arrived')}
                                                 </p>
                                             )}
@@ -2564,7 +2564,7 @@ export const MapView: React.FC<MapViewProps> = ({
                             onClick={() => setDebugPanelOpen(o => !o)}
                             style={{ flex: 1, padding: '4px 10px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', userSelect: 'none' }}
                         >
-                            <span style={{ color: '#1e75ff', fontWeight: 700 }}>🛠 StreetIntelDebug {debugLines.length ? `(${debugLines.length})` : ''}</span>
+                            <span style={{ color: 'var(--color-brand)', fontWeight: 700 }}>🛠 StreetIntelDebug {debugLines.length ? `(${debugLines.length})` : ''}</span>
                             <span style={{ color: '#888' }}>{debugPanelOpen ? '▼' : '▲'}</span>
                         </div>
                         {isDebugAdmin && (

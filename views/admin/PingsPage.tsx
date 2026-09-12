@@ -147,7 +147,7 @@ function PingCard({ ping, userMap, onRemoved }: { ping: Ping; userMap: Record<st
             {!isExpired && (
               <span className="text-xs text-gray-400">{timeUntil(ping.expiresAt)}</span>
             )}
-            {isExpired && <span className="text-xs text-red-400 font-medium">Expired</span>}
+            {isExpired && <span className="text-xs text-[var(--color-danger)] font-medium">Expired</span>}
             <span className="text-xs text-gray-400 ml-auto shrink-0">{fmtDate(ping.reportedAt)}</span>
           </div>
           <p className="text-sm font-medium text-gray-800 truncate">{ping.address || `${ping.lat.toFixed(5)}, ${ping.lng.toFixed(5)}`}</p>

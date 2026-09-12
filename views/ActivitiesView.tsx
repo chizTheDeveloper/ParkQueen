@@ -28,9 +28,9 @@ function formatStatusKey(role: string, spotStatus: string, outcome?: string): { 
 }
 
 const STATUS_STYLES: Record<string, string> = {
-  success: 'bg-green-500/10 text-green-400 border-green-500/20',
-  failed: 'bg-red-500/10 text-red-400 border-red-500/20',
-  active: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+  success: 'bg-green-500/10 text-[var(--color-success)] border-green-500/20',
+  failed: 'bg-red-500/10 text-[var(--color-danger)] border-red-500/20',
+  active: 'bg-blue-500/10 text-[var(--color-accent)] border-blue-500/20',
   completed: 'bg-gray-500/10 text-[var(--color-text-secondary)] border-[var(--color-border)]',
   expired: 'bg-gray-500/10 text-[var(--color-text-secondary)] border-[var(--color-border)]',
 };
@@ -130,11 +130,11 @@ export const ActivitiesView = ({ user, onBack }: { user: any; onBack: () => void
             const displayAddress = item.rawAddress || t(item.role === 'finder' ? 'activity.address_fallback_finder' : 'activity.address_fallback_driver');
             return (
               <div key={item.id} className="bg-[var(--color-card)] border border-[var(--color-border)] backdrop-blur-md rounded-2xl p-3.5 flex items-center gap-3.5">
-                <div className={`p-2 rounded-xl shrink-0 ${item.role === 'finder' ? 'bg-yellow-400/15 text-yellow-400' : 'bg-green-500/10 text-green-400'}`}>
+                <div className={`p-2 rounded-xl shrink-0 ${item.role === 'finder' ? 'bg-yellow-400/15 text-[var(--color-warning)]' : 'bg-green-500/10 text-[var(--color-success)]'}`}>
                   {item.role === 'finder' ? <Handshake size={18} /> : <ParkingSquare size={18} />}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-sm text-[var(--color-text)] truncate">{displayAddress}</h3>
+                  <h2 data-activity-address className="font-semibold text-sm text-[var(--color-text)] truncate">{displayAddress}</h2>
                   <p className="text-[10px] text-[var(--color-text-secondary)] flex items-center gap-1.5 mt-0.5">
                     <Clock size={11} className="shrink-0" />
                     <span>{displayDate}</span>

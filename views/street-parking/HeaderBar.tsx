@@ -81,7 +81,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                         aria-expanded={searchOpen && (loading || results.length > 0)}
                         aria-haspopup="listbox"
                         placeholder={t('common.search_placeholder')}
-                        className="map-search-input bg-transparent border-none outline-none text-[15px] md:text-[14px] w-full font-medium"
+                        className="map-search-input bg-transparent border-none outline-none text-[16px] md:text-[14px] w-full font-medium"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         onFocus={() => setSearchOpen(true)}
@@ -113,7 +113,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                         <div className="relative">
                             <MessageSquare size={17} />
                             {unreadMessagesCount > 0 && (
-                                <span className="absolute -top-0.5 -right-0.5 bg-[#1e75ff] w-1.5 h-1.5 rounded-full animate-pulse motion-reduce:animate-none shadow-md" />
+                                <span className="absolute -top-0.5 -right-0.5 bg-[var(--color-brand)] w-1.5 h-1.5 rounded-full animate-pulse motion-reduce:animate-none shadow-md" />
                             )}
                         </div>
                     </button>
@@ -134,7 +134,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                         <div className="relative">
                             <Bell size={17} />
                             {pendingUpdatesCount > 0 && (
-                                <span className="absolute -top-0.5 -right-0.5 bg-[#1e75ff] w-1.5 h-1.5 rounded-full animate-pulse motion-reduce:animate-none shadow-md" />
+                                <span className="absolute -top-0.5 -right-0.5 bg-[var(--color-brand)] w-1.5 h-1.5 rounded-full animate-pulse motion-reduce:animate-none shadow-md" />
                             )}
                         </div>
                     </button>
@@ -161,7 +161,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 
             {searchOpen && (
                 <div className="w-full max-w-[380px] mx-auto flex justify-end">
-                    <button onClick={handleCancelSearch} className="text-[#38bdf8] font-bold text-[10px] bg-white/5 border border-[var(--color-border)] rounded-full py-1 px-3 mt-1">
+                    <button onClick={handleCancelSearch} className="text-[var(--color-info)] font-bold text-[10px] bg-white/5 border border-[var(--color-border)] rounded-full py-1 px-3 mt-1">
                         {t('common.cancel_search')}
                     </button>
                 </div>

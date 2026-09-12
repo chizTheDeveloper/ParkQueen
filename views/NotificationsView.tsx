@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useFocusOnMount } from '../hooks/useFocusOnMount';
 import { t, useLang } from '../i18n';
+import { useModalAccessibility } from '../hooks/useModalAccessibility';
 import { MapPin, Bell, BellOff, LocateFixed, WifiOff, ChevronRight, Check, Clock, Zap } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, where, onSnapshot, orderBy, Timestamp } from 'firebase/firestore';
@@ -106,6 +107,8 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
     const locale = lang === 'es' ? 'es-US' : 'en-US';
     const radiusMiles = normalizeRadius(user?.notificationRadius);
     const [radiusSheetOpen, setRadiusSheetOpen] = useState(false);
+    const radiusDialogRef = useRef<HTMLDivElement>(null);
+    useModalAccessibility({ isOpen: radiusSheetOpen, dialogRef: radiusDialogRef, onEscape: () => setRadiusSheetOpen(false) });
     const [radiusSaving, setRadiusSaving] = useState(false);
 
     const setRadius = useCallback(async (miles: number) => {
@@ -339,7 +342,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                         <div className="relative mb-2">
                             <div className="w-24 h-24 rounded-full bg-[#1e75ff]/10 border border-[#1e75ff]/20 flex items-center justify-center">
                                 <div className="w-16 h-16 rounded-full bg-[#1e75ff]/15 border border-[#1e75ff]/30 flex items-center justify-center">
-                                    <MapPin size={28} className="text-[#38bdf8]" />
+                                    <MapPin size={28} className="text-[var(--color-info)]" />
                                 </div>
                             </div>
                             <div
@@ -363,7 +366,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                             onClick={locationCTA.action}
                             disabled={requesting && renderState !== 'permanently_blocked' && renderState !== 'services_disabled'}
                             className="w-full max-w-[280px] h-[54px] rounded-full font-semibold text-[16px] text-white active:scale-[0.985] transition-transform disabled:opacity-70 mt-2"
-                            style={{ background: 'linear-gradient(90deg,#1e75ff,#0ea5e9)' }}
+                            style={{ background: 'linear-gradient(90deg, var(--color-brand), var(--color-brand-2))' }}
                         >
                             {locationCTA.label}
                         </button>
@@ -398,7 +401,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                 {renderState === 'location_error' && (
                     <div className="flex flex-col items-center justify-center px-6 py-12 text-center gap-4">
                         <div className="w-16 h-16 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mb-1">
-                            <LocateFixed size={24} className="text-amber-400" />
+                            <LocateFixed size={24} className="text-[var(--color-warning)]" />
                         </div>
                         <p className="text-[17px] font-bold text-[var(--color-text)]">
                             {t('nearby_activity.error_headline')}
@@ -469,7 +472,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                 {renderState === 'query_error' && (
                     <div className="flex flex-col items-center justify-center px-6 py-12 text-center">
                         <div className="w-16 h-16 rounded-full bg-rose-500/10 border border-rose-500/25 flex items-center justify-center">
-                            <WifiOff size={24} className="text-rose-400" aria-hidden="true" />
+                            <WifiOff size={24} className="text-[var(--color-danger)]" aria-hidden="true" />
                         </div>
                         <h2 className="text-[18px] font-extrabold text-[var(--color-text)] mt-5">
                             {t('nearby_activity.query_error_headline')}
@@ -491,9 +494,9 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                     <div className="px-4 pt-3 flex flex-col gap-2.5 pb-10">
                         {showNoLocationBanner && (
                             <div className="flex items-start gap-3 px-4 py-3 rounded-2xl bg-amber-500/10 border border-amber-500/25 mb-1">
-                                <MapPin size={16} className="text-amber-400 shrink-0 mt-0.5" />
+                                <MapPin size={16} className="text-[var(--color-warning)] shrink-0 mt-0.5" />
                                 <div>
-                                    <p className="text-[13px] font-bold text-amber-400">{t('common.location_off')}</p>
+                                    <p className="text-[13px] font-bold text-[var(--color-warning)]">{t('common.location_off')}</p>
                                     <p className="text-[12px] text-[var(--color-text-secondary)] leading-snug mt-0.5">
                                         {t('common.location_off_body')}
                                     </p>
@@ -504,7 +507,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                         {/* Activity summary — the count and the radius are the
                             same values the filter used, so it cannot overstate. */}
                         <div className="px-1 pb-0.5" aria-live="polite" aria-atomic="true">
-                            <p className="text-[10px] font-bold text-[#38bdf8] tracking-[0.16em] uppercase">
+                            <p className="text-[10px] font-bold text-[var(--color-info)] tracking-[0.16em] uppercase">
                                 {t('nearby_activity.live_nearby')}
                             </p>
                             <p className="text-[15px] font-extrabold text-[var(--color-text)] mt-0.5">
@@ -612,10 +615,8 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
             </div>
             {radiusSheetOpen && (
                 <div
+                    data-modal-root=""
                     className="pq-sheet-overlay fixed inset-0 flex items-end justify-center"
-                    role="dialog"
-                    aria-modal="true"
-                    aria-label={t('nearby_activity.radius_sheet_title')}
                 >
                     <button
                         type="button"
@@ -623,10 +624,16 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                         onClick={() => setRadiusSheetOpen(false)}
                         className="absolute inset-0 bg-black/60"
                     />
-                    <div className="pq-sheet relative w-full max-w-md rounded-t-[26px] p-5"
+                    <div
+                        ref={radiusDialogRef}
+                        className="pq-sheet relative w-full max-w-md rounded-t-[26px] p-5"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label={t('nearby_activity.radius_sheet_title')}
                         // Clears the fixed bottom nav; inline so it beats
                         // the Tailwind padding utility emitted after our CSS.
-                        style={{ paddingBottom: 'calc(var(--mobile-primary-nav-space, 104px) + 8px)' }}>
+                        style={{ paddingBottom: 'calc(var(--mobile-primary-nav-space, 104px) + 8px)' }}
+                    >
                         <h2 className="text-[17px] font-extrabold text-[var(--color-text)]">
                             {t('nearby_activity.radius_sheet_title')}
                         </h2>

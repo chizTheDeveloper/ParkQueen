@@ -18,22 +18,22 @@ export const ContactUsView = ({ onBack }: { onBack: () => void }) => {
         </p>
         
         <div className="flex items-center gap-4">
-          <div className="bg-[#1e75ff]/10 p-3 rounded-2xl text-[#38bdf8] shrink-0">
+          <div className="bg-[#1e75ff]/10 p-3 rounded-2xl text-[var(--color-info)] shrink-0">
             <Mail size={22} />
           </div>
           <div>
             <p className="text-xs text-[var(--color-text-secondary)]">Email us</p>
-            <a href="mailto:hello@parqueen.app" className="font-bold text-[var(--color-text)] hover:text-[#38bdf8] transition-colors">hello@parqueen.app</a>
+            <a href="mailto:hello@parqueen.app" className="font-bold text-[var(--color-text)] hover:text-[var(--color-info)] transition-colors">hello@parqueen.app</a>
           </div>
         </div>
 
         <div className="flex items-center gap-4">
-          <div className="bg-[#1e75ff]/10 p-3 rounded-2xl text-[#38bdf8] shrink-0">
+          <div className="bg-[#1e75ff]/10 p-3 rounded-2xl text-[var(--color-info)] shrink-0">
             <Globe size={22} />
           </div>
           <div>
             <p className="text-xs text-[var(--color-text-secondary)]">Visit our website</p>
-            <a href="https://parqueen.app/" target="_blank" rel="noopener noreferrer" className="font-bold text-[var(--color-text)] hover:text-[#38bdf8] transition-colors">parqueen.app</a>
+            <a href="https://parqueen.app/" target="_blank" rel="noopener noreferrer" className="font-bold text-[var(--color-text)] hover:text-[var(--color-info)] transition-colors">parqueen.app</a>
           </div>
         </div>
       </div>

@@ -17,7 +17,7 @@ export const MapLegend: React.FC<MapLegendProps> = ({ searchOpen, showLegend, sh
             <div className="flex flex-col gap-2.5">
                 <label className="flex items-center justify-between cursor-pointer group select-none">
                     <div className="flex items-center gap-2">
-                        <div className="w-5 h-5 rounded-full bg-[#1e75ff]/10 flex items-center justify-center text-[#1e75ff] border border-[#1e75ff]/20">
+                        <div className="w-5 h-5 rounded-full bg-[#1e75ff]/10 flex items-center justify-center text-[var(--color-accent)] border border-[#1e75ff]/20">
                             <MapPin size={11} fill="currentColor" fillOpacity={0.2} />
                         </div>
                         <div className="text-left">
@@ -29,7 +29,7 @@ export const MapLegend: React.FC<MapLegendProps> = ({ searchOpen, showLegend, sh
                         type="checkbox"
                         checked={showFree}
                         onChange={() => setShowFree(!showFree)}
-                        className="w-3.5 h-3.5 rounded border-white/20 text-[#1e75ff] focus:ring-0 bg-white/5 cursor-pointer accent-[#1e75ff]"
+                        className="w-3.5 h-3.5 rounded border-white/20 text-[var(--color-accent)] focus:ring-0 bg-white/5 cursor-pointer accent-[#1e75ff]"
                     />
                 </label>
             </div>

@@ -300,12 +300,12 @@ function SegmentRow({ seg, onDeleted }: { seg: SegmentDoc; onDeleted: () => void
              'ParQueen Verified'}
           </span>
           {seg.status === 'active' && (
-            <button onClick={markNeedsReview} className="p-1 text-amber-400 hover:text-amber-600" title="Flag for review">
+            <button onClick={markNeedsReview} className="p-1 text-[var(--color-warning)] hover:text-amber-600" title="Flag for review">
               <Flag size={15} />
             </button>
           )}
           {(seg.status === 'needs_review' || seg.status === 'archived') && (
-            <button onClick={markActive} className="p-1 text-green-400 hover:text-green-600" title="Restore as active">
+            <button onClick={markActive} className="p-1 text-[var(--color-success)] hover:text-green-600" title="Restore as active">
               <RotateCcw size={15} />
             </button>
           )}
@@ -313,7 +313,7 @@ function SegmentRow({ seg, onDeleted }: { seg: SegmentDoc; onDeleted: () => void
             {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
           </button>
           {seg.status !== 'archived' && (
-            <button onClick={archiveSegment} disabled={deleting} className="p-1 text-red-400 hover:text-red-600 disabled:opacity-50" title="Archive segment (keeps history)">
+            <button onClick={archiveSegment} disabled={deleting} className="p-1 text-[var(--color-danger)] hover:text-red-600 disabled:opacity-50" title="Archive segment (keeps history)">
               <Trash2 size={16} />
             </button>
           )}
@@ -335,7 +335,7 @@ function SegmentRow({ seg, onDeleted }: { seg: SegmentDoc; onDeleted: () => void
                     <span className="font-semibold text-gray-700">Side {sched.side}</span>
                     <span className="text-gray-500">{sched.days.join(' & ')}</span>
                     <span className="text-gray-500">{sched.startTime}–{sched.endTime}</span>
-                    <button onClick={() => supersedRule(rule.id)} className="text-red-400 hover:text-red-600" title="Remove rule (supersedes, keeps history)">
+                    <button onClick={() => supersedRule(rule.id)} className="text-[var(--color-danger)] hover:text-red-600" title="Remove rule (supersedes, keeps history)">
                       <Trash2 size={12} />
                     </button>
                   </div>
@@ -439,7 +439,7 @@ function SuspensionsPanel() {
               <p className="text-sm font-semibold text-gray-800">{s.label}</p>
               <p className="text-xs text-gray-500">{s.date} · {s.type}</p>
             </div>
-            <button onClick={() => handleArchive(s.id)} className="text-red-400 hover:text-red-600" title="Remove suspension (archived, not deleted)">
+            <button onClick={() => handleArchive(s.id)} className="text-[var(--color-danger)] hover:text-red-600" title="Remove suspension (archived, not deleted)">
               <Trash2 size={16} />
             </button>
           </div>

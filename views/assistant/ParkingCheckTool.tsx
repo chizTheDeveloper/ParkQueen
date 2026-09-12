@@ -287,12 +287,12 @@ const CheckRow = ({
 }) => {
   // Shape and words carry the meaning; colour only reinforces it.
   const Mark = status === 'good' ? CheckCircle2 : status === 'bad' ? AlertTriangle : HelpCircle;
-  const markClass = status === 'good' ? 'text-emerald-400'
-    : status === 'bad' ? 'text-red-400' : 'text-yellow-400';
+  const markClass = status === 'good' ? 'text-[var(--color-success)]'
+    : status === 'bad' ? 'text-[var(--color-danger)]' : 'text-[var(--color-warning)]';
   return (
     <section className="rounded-[22px] p-4 bg-[var(--color-card)] border border-[var(--color-border)]">
       <h3 className="flex items-center gap-2 text-[10px] font-bold tracking-[0.16em] text-[var(--color-text-secondary)] mb-2">
-        <span className="text-[#38bdf8]" aria-hidden="true">{icon}</span>{label}
+        <span className="text-[var(--color-info)]" aria-hidden="true">{icon}</span>{label}
       </h3>
       <p className="flex items-start gap-2">
         <Mark size={16} className={`${markClass} shrink-0 mt-0.5`} aria-hidden="true" />

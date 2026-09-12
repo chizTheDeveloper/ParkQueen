@@ -214,7 +214,7 @@ export const AppTour: React.FC<AppTourProps> = ({ onDone }) => {
                         <button
                             onClick={startTour}
                             className="flex-1 py-3 rounded-full text-[13px] font-bold text-white active:scale-[0.98] transition-all min-h-[44px]"
-                            style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}
+                            style={{ background: 'linear-gradient(90deg, var(--color-brand), var(--color-brand-2))' }}
                         >
                             {t('tour.start')}
                         </button>
@@ -292,7 +292,7 @@ export const AppTour: React.FC<AppTourProps> = ({ onDone }) => {
                     transition: prefersReducedMotion ? 'none' : 'opacity 200ms ease, transform 200ms ease',
                 }}
             >
-                <p className="text-[10px] font-bold tracking-[0.15em] text-[#38bdf8] uppercase mb-2">
+                <p className="text-[10px] font-bold tracking-[0.15em] text-[var(--color-info)] uppercase mb-2">
                     {t('tour.step_counter', { current: stepIndex + 1, total: steps.length })}
                 </p>
                 <h3 className="text-[16px] font-bold text-[var(--color-text)] mb-1 leading-tight">{step.title}</h3>
@@ -308,7 +308,7 @@ export const AppTour: React.FC<AppTourProps> = ({ onDone }) => {
                     <button
                         onClick={advance}
                         className="flex-1 py-2.5 rounded-full text-[12px] font-bold text-white active:scale-[0.98] transition-all min-h-[44px]"
-                        style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}
+                        style={{ background: 'linear-gradient(90deg, var(--color-brand), var(--color-brand-2))' }}
                     >
                         {stepIndex === steps.length - 1 ? t('tour.done') : t('tour.next')}
                     </button>

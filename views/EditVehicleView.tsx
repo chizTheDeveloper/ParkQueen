@@ -287,7 +287,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
         </button>
         <button
           onClick={() => setShowSkip(false)}
-          className="text-sm font-semibold text-[#38bdf8] active:opacity-70 transition-opacity"
+          className="text-sm font-semibold text-[var(--color-info)] active:opacity-70 transition-opacity"
         >
           {t('vehicle.skip_back')}
         </button>
@@ -301,7 +301,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
     return (
       <div className="min-h-full bg-[var(--color-bg)] text-[var(--color-text)] flex flex-col items-center justify-center px-6 py-12 gap-6 text-center">
         <div className="w-20 h-20 rounded-[22px] flex items-center justify-center shrink-0"
-          style={{ background: 'linear-gradient(135deg,#1e75ff,#0ea5e9)' }}>
+          style={{ background: 'linear-gradient(135deg, var(--color-brand), var(--color-brand-2))' }}>
           <VehicleIcon type={vehicleType} color={vehicleColor} size={36} />
         </div>
         <div>
@@ -314,7 +314,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
         </div>
         <button
           onClick={onBack}
-          className="w-full max-w-xs py-3.5 rounded-xl bg-[#1e75ff] text-white font-bold text-sm active:scale-[0.98] transition-all"
+          className="w-full max-w-xs py-3.5 rounded-xl bg-[var(--color-brand)] text-white font-bold text-sm active:scale-[0.98] transition-all"
         >
           {t('vehicle.continue')}
         </button>
@@ -348,7 +348,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
           <span className="text-[9px] font-bold tracking-[0.1em] uppercase text-[var(--color-text-secondary)] whitespace-nowrap">
             {t('vehicle.eyebrow')}
           </span>
-          <span className="text-[9px] text-white/20 mx-0.5">·</span>
+          <span className="text-[9px] text-[var(--color-text-secondary)] mx-0.5" aria-hidden="true">·</span>
           <span className="text-[9px] font-semibold text-[var(--color-text-secondary)] whitespace-nowrap">
             {counts[step]}
           </span>
@@ -356,10 +356,13 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
         <div className="flex items-center gap-1">
           {stages.map((stage, i) => (
             <React.Fragment key={i}>
-              {i > 0 && <span className="text-[8px] text-white/20">·</span>}
-              <span className={`text-[10px] font-semibold transition-colors duration-200 ${
-                i === step ? 'text-white' : 'text-white/25'
-              }`}>
+              {i > 0 && <span className="text-[8px] text-[var(--color-text-secondary)]" aria-hidden="true">·</span>}
+              <span
+                aria-current={i === step ? 'step' : undefined}
+                className={`text-[10px] transition-colors duration-200 ${
+                  i === step ? 'font-bold text-[var(--color-text)]' : 'font-semibold text-[var(--color-text-secondary)]'
+                }`}
+              >
                 {stage}
               </span>
             </React.Fragment>
@@ -425,7 +428,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
 
             {/* Text block */}
             <div className={prefersReduced ? '' : 'auth-fade-in'}>
-              <p className="text-[11px] font-bold tracking-[0.13em] text-blue-400 uppercase mb-3 mt-2">
+              <p className="text-[11px] font-bold tracking-[0.13em] text-[var(--color-accent)] uppercase mb-3 mt-2">
                 {t('vehicle.eyebrow')}
               </p>
               <h2
@@ -457,14 +460,14 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
                     className={`relative flex flex-col items-center gap-2 py-4 px-2 rounded-2xl border transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
                       active
                         ? 'bg-[#0f2044] border-[#1e75ff] shadow-[0_0_0_1px_rgba(30,117,255,0.10)]'
-                        : 'bg-[#0d1829] border-[#1e2d42]'
+                        : 'pq-choice-tile'
                     } ${prefersReduced ? '' : 'auth-fade-in'}`}
                     style={prefersReduced ? {} : { animationDelay: `${50 + i * 25}ms` }}
                   >
                     {/* Checkmark badge — top-right, not color-only selection indicator */}
                     {active && (
                       <div
-                        className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-[#1e75ff] flex items-center justify-center pointer-events-none"
+                        className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-[var(--color-brand)] flex items-center justify-center pointer-events-none"
                         aria-hidden="true"
                       >
                         <Check size={9} className="text-white" strokeWidth={3} />
@@ -501,7 +504,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
                   : 'bg-[#111827] text-white/30'
               }`}
               style={vehicleType && !saving
-                ? { background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }
+                ? { background: 'linear-gradient(90deg, var(--color-brand), var(--color-brand-2))' }
                 : {}}
             >
               {saving
@@ -514,7 +517,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
             {!isOnboarding && (user?.vehicleType || user?.vehicleBrand) && (
               <button
                 onClick={handleClearVehicle}
-                className="mt-3 w-full py-3 flex items-center justify-center gap-2 text-sm font-semibold text-red-400 active:opacity-70 transition-opacity"
+                className="mt-3 w-full py-3 flex items-center justify-center gap-2 text-sm font-semibold text-[var(--color-danger)] active:opacity-70 transition-opacity"
               >
                 <Trash2 size={14} /> {t('vehicle.remove')}
               </button>
@@ -554,7 +557,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
 
           {/* Text block */}
           <div className={`shrink-0 ${prefersReduced ? '' : 'auth-fade-in'}`}>
-            <p className="text-[11px] font-bold tracking-[0.13em] text-blue-400 uppercase mb-3 mt-2">
+            <p className="text-[11px] font-bold tracking-[0.13em] text-[var(--color-accent)] uppercase mb-3 mt-2">
               {t('vehicle.eyebrow')}
             </p>
             <h2
@@ -634,7 +637,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
                       <span className="text-[14px] font-semibold flex-1 min-w-0 text-white">
                         {vehicleBrand}
                       </span>
-                      <Check size={14} className="text-[#1e75ff] shrink-0" aria-hidden="true" />
+                      <Check size={14} className="text-[var(--color-accent)] shrink-0" aria-hidden="true" />
                     </button>
                     {filteredBrands.length > 0 && (
                       <div className="px-4 pt-2 pb-1 text-[10px] font-bold tracking-[0.1em] uppercase text-[var(--color-text-secondary)]">
@@ -665,7 +668,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
                             {b}
                           </span>
                           {active && (
-                            <Check size={14} className="text-[#1e75ff] shrink-0" aria-hidden="true" />
+                            <Check size={14} className="text-[var(--color-accent)] shrink-0" aria-hidden="true" />
                           )}
                         </button>
                       );
@@ -706,7 +709,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
                     {t('vehicle.brand_not_listed')}
                   </span>
                   {vehicleBrand === CUSTOM_BRAND_KEY && (
-                    <Check size={14} className="text-[#1e75ff] shrink-0" aria-hidden="true" />
+                    <Check size={14} className="text-[var(--color-accent)] shrink-0" aria-hidden="true" />
                   )}
                 </button>
               </div>
@@ -738,7 +741,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
                     </p>
                     <button
                       onClick={() => { setVehicleBrand(canonicalMatch); setCustomBrandText(''); }}
-                      className="text-[12px] text-[#1e75ff] font-semibold active:opacity-60 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded px-1"
+                      className="text-[12px] text-[var(--color-accent)] font-semibold active:opacity-60 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded px-1"
                     >
                       Select
                     </button>
@@ -766,7 +769,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
                   : 'bg-[#111827] text-white/30'
               }`}
               style={brandValid && !saving
-                ? { background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }
+                ? { background: 'linear-gradient(90deg, var(--color-brand), var(--color-brand-2))' }
                 : {}}
             >
               {saving
@@ -850,7 +853,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
               <p className="text-xs font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
                 {t('vehicle.color_label')}
                 {colorDisplayLabel && (
-                  <span className="ml-1.5 text-[#38bdf8] normal-case font-semibold tracking-normal">
+                  <span className="ml-1.5 text-[var(--color-info)] normal-case font-semibold tracking-normal">
                     — {colorDisplayLabel}
                   </span>
                 )}
@@ -924,7 +927,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
                     <button
                       type="button"
                       onClick={() => { setVehicleColor(canonicalColorMatch); setColorTouched(true); setColorCleared(false); }}
-                      className="text-xs font-semibold text-[#38bdf8] active:opacity-70 transition-opacity"
+                      className="text-xs font-semibold text-[var(--color-info)] active:opacity-70 transition-opacity"
                     >
                       {clabels[canonicalColorMatch] ?? canonicalColorMatch}
                     </button>
@@ -961,7 +964,7 @@ export const EditVehicleView = ({ user, onBack, isOnboarding, onSkip }: Props) =
           <button
             onClick={handleSaveWithColor}
             disabled={saving || !colorValid}
-            className="w-full py-3.5 rounded-xl bg-[#1e75ff] text-white font-bold text-sm active:scale-[0.98] transition-all disabled:opacity-40"
+            className="w-full py-3.5 rounded-xl bg-[var(--color-brand)] text-white font-bold text-sm active:scale-[0.98] transition-all disabled:opacity-40"
           >
             {saving ? t('vehicle.saving') : t('vehicle.save_vehicle')}
           </button>

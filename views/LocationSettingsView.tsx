@@ -12,11 +12,14 @@ interface LocationSettingsViewProps {
     callbacks: LocationCallbacks;
 }
 
-const Toggle = ({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) => (
+const Toggle = ({ checked, onChange, disabled, label }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; label: string }) => (
     <button
         onClick={() => !disabled && onChange(!checked)}
         disabled={disabled}
-        className={`relative shrink-0 w-11 h-6 rounded-full transition-colors disabled:opacity-40 ${checked ? 'bg-[#1e75ff]' : 'bg-[var(--color-border)]'}`}
+        role="switch"
+        aria-label={label}
+        aria-checked={checked}
+        className={`relative shrink-0 w-11 h-6 rounded-full transition-colors disabled:opacity-40 ${checked ? 'bg-[var(--color-brand)]' : 'bg-[var(--color-border)]'}`}
     >
         <div className={`absolute top-0.5 left-[2px] w-5 h-5 rounded-full shadow transition-transform ${checked ? 'translate-x-5 bg-white' : 'bg-white dark:bg-gray-300'}`} />
     </button>
@@ -93,14 +96,14 @@ export const LocationSettingsView: React.FC<LocationSettingsViewProps> = ({ user
                         </div>
                         <div className="p-4 flex items-center justify-between gap-3">
                             <div className="flex items-center gap-3.5 min-w-0">
-                                <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><MapPin size={18} /></div>
+                                <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[var(--color-info)] shrink-0"><MapPin size={18} /></div>
                                 <div className="min-w-0">
-                                    <h4 className="font-bold text-[var(--color-text)] text-sm">{t('settings.location')}</h4>
-                                    <p className={`text-xs mt-0.5 ${isGranted ? 'text-emerald-400' : 'text-amber-400'}`}>{permissionStatusLabel(permissionState)}</p>
+                                    <h3 className="font-bold text-[var(--color-text)] text-sm">{t('settings.location')}</h3>
+                                    <p className={`text-xs mt-0.5 ${isGranted ? 'text-[var(--color-success)]' : 'text-[var(--color-warning)]'}`}>{permissionStatusLabel(permissionState)}</p>
                                 </div>
                             </div>
                             {cta && (
-                                <button onClick={cta.action} className="shrink-0 text-xs font-bold text-[#38bdf8] hover:text-[#60caff] transition-colors active:scale-95">
+                                <button onClick={cta.action} className="shrink-0 text-xs font-bold text-[var(--color-info)] hover:text-[#60caff] transition-colors active:scale-95">
                                     {cta.label}
                                 </button>
                             )}
@@ -115,16 +118,16 @@ export const LocationSettingsView: React.FC<LocationSettingsViewProps> = ({ user
                         <div className="p-4">
                             <div className="flex items-center justify-between gap-3 mb-3">
                                 <div className="flex items-center gap-3.5 min-w-0">
-                                    <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[#38bdf8] shrink-0"><Navigation size={18} /></div>
-                                    <h4 className="font-bold text-[var(--color-text)] text-sm">{t('settings.precise_location')}</h4>
+                                    <div className="bg-[#1e75ff]/10 p-2.5 rounded-xl text-[var(--color-info)] shrink-0"><Navigation size={18} /></div>
+                                    <h3 className="font-bold text-[var(--color-text)] text-sm">{t('settings.precise_location')}</h3>
                                 </div>
-                                <Toggle checked={precise} onChange={handlePrecise} disabled={saving} />
+                                <Toggle checked={precise} onChange={handlePrecise} disabled={saving} label={t('settings.precise_location')} />
                             </div>
                             <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed">{t('settings.location_precise_description')}</p>
                         </div>
                     </div>
 
-                    {error && <p className="text-red-400 text-xs px-1">{error}</p>}
+                    {error && <p className="text-[var(--color-danger)] text-xs px-1">{error}</p>}
                 </div>
             </div>
         </div>

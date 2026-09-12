@@ -61,11 +61,11 @@ export const NotificationEnableCard: React.FC<NotificationEnableCardProps> = ({
   return (
     <section className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] p-4" aria-live="polite">
       <div className="flex items-start gap-3">
-        <div className="rounded-xl bg-[#1e75ff]/10 p-2.5 text-[#38bdf8] shrink-0">
+        <div className="rounded-xl bg-[#1e75ff]/10 p-2.5 text-[var(--color-info)] shrink-0">
           <Icon size={18} aria-hidden="true" />
         </div>
         <div className="min-w-0 flex-1">
-          <h3 className="text-sm font-bold text-[var(--color-text)]">{copy.title}</h3>
+          <h2 className="text-sm font-bold text-[var(--color-text)]">{copy.title}</h2>
           <p className="mt-1 text-xs leading-relaxed text-[var(--color-text-secondary)]">{copy.body}</p>
           {presentation.kind === 'ios_install_required' && (
             <p className="mt-2 text-xs font-semibold text-[var(--color-text)]">
@@ -78,7 +78,7 @@ export const NotificationEnableCard: React.FC<NotificationEnableCardProps> = ({
               data-notification-action={presentation.action}
               onClick={action.handler}
               disabled={busy}
-              className="mt-3 rounded-xl bg-[#1e75ff] px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+              className="mt-3 rounded-xl bg-[var(--color-brand)] px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
             >
               {busy ? t('notifications.setup_working') : action.label}
             </button>

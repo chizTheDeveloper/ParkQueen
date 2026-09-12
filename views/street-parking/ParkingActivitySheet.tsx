@@ -111,7 +111,7 @@ export const ParkingActivitySheet: React.FC<ParkingActivitySheetProps> = ({
         <BottomSheet isOpen={true} onClose={onDismiss} ariaLabel={t('parking_activity.sheet_label')}>
             <div className="text-center">
                 <div className="flex items-center justify-center gap-2 mb-1">
-                    <MapPin size={16} className="text-[#38bdf8]" />
+                    <MapPin size={16} className="text-[var(--color-info)]" />
                     <h3 className="font-bold text-base text-[var(--color-text)]">{destination.name}</h3>
                 </div>
                 <p className="text-[10px] text-[var(--color-text-secondary)] mb-4 truncate px-4">{destination.fullName}</p>
@@ -122,11 +122,11 @@ export const ParkingActivitySheet: React.FC<ParkingActivitySheetProps> = ({
                     <div className="space-y-2.5 mb-4">
                         <div className="flex justify-between items-center px-3 py-2 bg-white/5 rounded-xl border border-[var(--color-border)]">
                             <span className="text-xs text-[var(--color-text-secondary)]">{t('parking_activity.active_pings')}</span>
-                            <span className="text-sm font-bold text-green-400">{stats!.activePings}</span>
+                            <span className="text-sm font-bold text-[var(--color-success)]">{stats!.activePings}</span>
                         </div>
                         <div className="flex justify-between items-center px-3 py-2 bg-white/5 rounded-xl border border-[var(--color-border)]">
                             <span className="text-xs text-[var(--color-text-secondary)]">{t('parking_activity.leaving_later')}</span>
-                            <span className="text-sm font-bold text-yellow-400">{stats!.leavingLaterPings}</span>
+                            <span className="text-sm font-bold text-[var(--color-warning)]">{stats!.leavingLaterPings}</span>
                         </div>
                         {stats!.mostRecentAgo && (
                             <div className="flex justify-between items-center px-3 py-2 bg-white/5 rounded-xl border border-[var(--color-border)]">
@@ -144,7 +144,7 @@ export const ParkingActivitySheet: React.FC<ParkingActivitySheetProps> = ({
                 <button
                     onClick={onExplore}
                     className="w-full py-3 rounded-xl text-sm font-bold transition-all active:scale-95 text-white"
-                    style={{ background: 'linear-gradient(90deg, #378ADD, #1D9E75)' }}
+                    style={{ background: 'linear-gradient(90deg, #2275c8, #188361)' }}
                 >
                     {t('parking_activity.explore_area', { name: destination.name })}
                 </button>

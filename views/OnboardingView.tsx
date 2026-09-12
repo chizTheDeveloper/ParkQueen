@@ -115,6 +115,9 @@ export const OnboardingView = ({ onComplete, initialSlide = 0 }: { onComplete: (
                     key={i}
                     className="absolute inset-0 flex flex-col"
                     aria-hidden={i !== current}
+                    // Slides sit off-screen via transform, so without this a keyboard user
+                    // tabs into the invisible ones. React 18 has no typed `inert`.
+                    {...(i !== current ? ({ inert: '' } as Record<string, string>) : {})}
                     style={{
                         transform: i === current
                             ? 'translateX(0)'
@@ -125,7 +128,7 @@ export const OnboardingView = ({ onComplete, initialSlide = 0 }: { onComplete: (
                     }}
                 >
                     {'isHero' in slide ? (
-                        <div className="flex-1 relative flex flex-col">
+                        <div className="flex-1 relative flex flex-col pq-hero-midnight">
                             {/* ── Background: quiet midnight-city atmosphere ── */}
                             <div className="absolute inset-0 pointer-events-none overflow-hidden">
                                 {/* Outer atmosphere — large, very low opacity */}
@@ -209,7 +212,7 @@ export const OnboardingView = ({ onComplete, initialSlide = 0 }: { onComplete: (
                                     <div
                                         className="text-[52px] font-black leading-[0.95] tracking-tight"
                                         style={{
-                                            background: 'linear-gradient(90deg, #1d4ed8 0%, #3b82f6 20%, #93c5fd 38%, #e0f2fe 50%, #93c5fd 62%, #3b82f6 80%, #1d4ed8 100%)',
+                                            background: 'linear-gradient(90deg, #2563eb 0%, #3b82f6 20%, #93c5fd 38%, #e0f2fe 50%, #93c5fd 62%, #3b82f6 80%, #2563eb 100%)',
                                             backgroundSize: '200% auto',
                                             backgroundRepeat: 'repeat',
                                             WebkitBackgroundClip: 'text',
@@ -440,11 +443,17 @@ export const OnboardingView = ({ onComplete, initialSlide = 0 }: { onComplete: (
                                             aria-selected={si === current}
                                             aria-label={`Slide ${si + 1} of ${SLIDE_COUNT}`}
                                             onClick={() => goTo(si)}
-                                            className={`rounded-full transition-all duration-300${si === current ? ' h-[8px] w-8' : ' h-[6px] w-[6px]'}`}
-                                            style={si === current
-                                                ? { background: '#3b82f6', boxShadow: '0 0 7px rgba(59,130,246,0.55)' }
-                                                : { background: 'rgba(255,255,255,0.28)' }}
-                                        />
+                                            className="h-6 min-w-[24px] flex items-center justify-center"
+                                        >
+                                            {/* 24x24 hit area (WCAG 2.5.8); the dot itself is unchanged. */}
+                                            <span
+                                                aria-hidden="true"
+                                                className={`block rounded-full transition-all duration-300${si === current ? ' h-[8px] w-8' : ' h-[6px] w-[6px]'}`}
+                                                style={si === current
+                                                    ? { background: '#3b82f6', boxShadow: '0 0 7px rgba(59,130,246,0.55)' }
+                                                    : { background: 'rgba(255,255,255,0.28)' }}
+                                            />
+                                        </button>
                                     ))}
                                 </div>
 
@@ -720,11 +729,17 @@ export const OnboardingView = ({ onComplete, initialSlide = 0 }: { onComplete: (
                                             aria-selected={si === current}
                                             aria-label={`Slide ${si + 1} of ${SLIDE_COUNT}`}
                                             onClick={() => goTo(si)}
-                                            className={`rounded-full transition-all duration-300${si === current ? ' h-[8px] w-8' : ' h-[6px] w-[6px]'}`}
-                                            style={si === current
-                                                ? { background: '#3b82f6', boxShadow: '0 0 7px rgba(59,130,246,0.55)' }
-                                                : { background: 'rgba(255,255,255,0.28)' }}
-                                        />
+                                            className="h-6 min-w-[24px] flex items-center justify-center"
+                                        >
+                                            {/* 24x24 hit area (WCAG 2.5.8); the dot itself is unchanged. */}
+                                            <span
+                                                aria-hidden="true"
+                                                className={`block rounded-full transition-all duration-300${si === current ? ' h-[8px] w-8' : ' h-[6px] w-[6px]'}`}
+                                                style={si === current
+                                                    ? { background: '#3b82f6', boxShadow: '0 0 7px rgba(59,130,246,0.55)' }
+                                                    : { background: 'rgba(255,255,255,0.28)' }}
+                                            />
+                                        </button>
                                     ))}
                                 </div>
 

@@ -789,7 +789,7 @@ export default function App() {
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-[var(--color-glass)] backdrop-blur-xl border border-yellow-500/30 rounded-2xl px-6 py-4 shadow-2xl text-center pointer-events-none">
           <div className="text-3xl mb-1">👑</div>
           <p className="text-sm font-bold text-[var(--color-text)]">New Title Unlocked!</p>
-          <p className="text-base font-extrabold text-yellow-400 mt-0.5">{titleUnlock}</p>
+          <p className="text-base font-extrabold text-[var(--color-warning)] mt-0.5">{titleUnlock}</p>
         </div>
       )}
 
@@ -849,7 +849,7 @@ export default function App() {
               <>
                 <h2 className="text-lg font-bold text-[var(--color-text)] mb-1">{t('settings.delete_reauth_title')}</h2>
                 <p className="text-sm text-[var(--color-text-secondary)] mb-4">{t('settings.delete_reauth_phone_hint')}</p>
-                {reauthError && <p role="alert" className="text-sm text-red-400 mb-4">{reauthError}</p>}
+                {reauthError && <p role="alert" className="text-sm text-[var(--color-danger)] mb-4">{reauthError}</p>}
                 <p
                   aria-live="assertive"
                   className="w-full mb-4 px-4 py-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] text-center tracking-widest select-none"
@@ -873,7 +873,7 @@ export default function App() {
               <>
                 <h2 className="text-lg font-bold text-[var(--color-text)] mb-1">{t('settings.delete_reauth_title')}</h2>
                 <p className="text-sm text-[var(--color-text-secondary)] mb-4">{t('settings.delete_reauth_otp_hint')}</p>
-                {reauthError && <p role="alert" className="text-sm text-red-400 mb-4">{reauthError}</p>}
+                {reauthError && <p role="alert" className="text-sm text-[var(--color-danger)] mb-4">{reauthError}</p>}
                 <input
                   type="text"
                   inputMode="numeric"

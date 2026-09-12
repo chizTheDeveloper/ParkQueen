@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useFocusOnMount } from '../hooks/useFocusOnMount';
+import { useModalAccessibility } from '../hooks/useModalAccessibility';
 import { getStorage, ref, uploadBytes } from 'firebase/storage';
 import { doc, setDoc, serverTimestamp, onSnapshot, collection, query, where, orderBy, limit, getDocs, getCountFromServer } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -45,6 +46,8 @@ export const ProfileView = ({ user, onBack, setView, unreadMessagesCount = 0, pe
   const [impactState, setImpactState] = useState<'loading' | 'loaded' | 'error'>('loading');
   const [impactCounts, setImpactCounts] = useState({ pingsShared: 0, successfulHandoffs: 0, spotsFound: 0 });
   const [showCrownsInfo, setShowCrownsInfo] = useState(false);
+  const crownsDialogRef = useRef<HTMLDivElement>(null);
+  useModalAccessibility({ isOpen: showCrownsInfo, dialogRef: crownsDialogRef, onEscape: () => setShowCrownsInfo(false) });
   useFocusOnMount(headingRef);
 
   const fmt = (ms: number) => {
@@ -446,7 +449,7 @@ export const ProfileView = ({ user, onBack, setView, unreadMessagesCount = 0, pe
                     <dt className="order-2 mt-1.5 text-[11.5px] leading-snug text-[var(--color-text-secondary)]">
                       {t(s.value === 1 ? s.one : s.many)}
                       {s.since && (
-                        <span className="pq-stat-since block text-[10px] opacity-80">
+                        <span className="pq-stat-since block text-[10px]">
                           {t('profile.pings_shared_since', { date: PINGS_SHARED_TRACKING_SINCE.toLocaleDateString(locale, { month: 'short', year: 'numeric' }) })}
                         </span>
                       )}
@@ -568,18 +571,20 @@ export const ProfileView = ({ user, onBack, setView, unreadMessagesCount = 0, pe
       {/* Crowns info modal */}
       {showCrownsInfo && (
         <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="crowns-modal-title"
+          data-modal-root=""
           className="fixed inset-0 z-50 flex items-end justify-center p-4 bg-black/60 backdrop-blur-sm"
           onClick={() => setShowCrownsInfo(false)}
         >
           <div
+            ref={crownsDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="crowns-modal-title"
             className="w-full max-w-md bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl p-5 space-y-3"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center gap-2">
-              <Crown size={18} className="text-yellow-400 shrink-0" aria-hidden="true" />
+              <Crown size={18} className="text-[var(--color-warning)] shrink-0" aria-hidden="true" />
               <h3 id="crowns-modal-title" className="text-base font-extrabold text-[var(--color-text)]">
                 {t('profile.crowns_modal_title')}
               </h3>
