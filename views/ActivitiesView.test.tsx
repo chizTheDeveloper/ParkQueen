@@ -68,7 +68,9 @@ function tapLoadMore(renderer: TestRenderer.ReactTestRenderer) {
 }
 
 function itemAddresses(renderer: TestRenderer.ReactTestRenderer): string[] {
-    return renderer.root.findAll(node => node.type === 'h3').map(n => n.props.children);
+    // Hooked on the semantic marker, not the heading level: the level is an
+    // accessibility decision that may change without changing this list.
+    return renderer.root.findAll(node => node.props?.['data-activity-address'] !== undefined).map(n => n.props.children);
 }
 
 describe('ActivitiesView — avoids redundant re-fetch on Load More', () => {

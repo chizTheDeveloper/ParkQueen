@@ -11,14 +11,14 @@ export const TITLE_THRESHOLDS = [
 
 // Per-tier visual config: fill, glow, text color
 export const TIER_VISUALS = [
-    { fill: 'none',    stroke: '#6b7280', glow: null,                        textColor: '#9ca3af' }, // Newcomer — outline
-    { fill: '#cd7f32', stroke: 'none',    glow: null,                        textColor: '#cd7f32' }, // Trusted Driver — bronze
-    { fill: '#94a3b8', stroke: 'none',    glow: null,                        textColor: '#94a3b8' }, // Street Scout — silver
-    { fill: '#f59e0b', stroke: 'none',    glow: 'rgba(245,158,11,0.55)',     textColor: '#f59e0b' }, // Neighborhood Guide — gold
-    { fill: '#1e75ff', stroke: 'none',    glow: 'rgba(30,117,255,0.55)',     textColor: '#1e75ff' }, // Parking Expert — brand blue
-    { fill: '#a855f7', stroke: 'none',    glow: 'rgba(168,85,247,0.55)',     textColor: '#a855f7' }, // Block Captain — purple
-    { fill: '#e2e8f0', stroke: 'none',    glow: 'rgba(226,232,240,0.65)',    textColor: '#e2e8f0' }, // Parking Veteran — platinum
-    { fill: 'gradient',stroke: 'none',    glow: 'rgba(56,189,248,0.65)',     textColor: '#38bdf8' }, // Urban Legend — diamond
+    { fill: 'none',    stroke: '#6b7280', glow: null,                        textColor: 'var(--crown-0-text)' }, // Newcomer — outline
+    { fill: '#cd7f32', stroke: 'none',    glow: null,                        textColor: 'var(--crown-1-text)' }, // Trusted Driver — bronze
+    { fill: '#94a3b8', stroke: 'none',    glow: null,                        textColor: 'var(--crown-2-text)' }, // Street Scout — silver
+    { fill: '#f59e0b', stroke: 'none',    glow: 'rgba(245,158,11,0.55)',     textColor: 'var(--crown-3-text)' }, // Neighborhood Guide — gold
+    { fill: '#1e75ff', stroke: 'none',    glow: 'rgba(30,117,255,0.55)',     textColor: 'var(--crown-4-text)' }, // Parking Expert — brand blue
+    { fill: '#a855f7', stroke: 'none',    glow: 'rgba(168,85,247,0.55)',     textColor: 'var(--crown-5-text)' }, // Block Captain — purple
+    { fill: '#e2e8f0', stroke: 'none',    glow: 'rgba(226,232,240,0.65)',    textColor: 'var(--crown-6-text)' }, // Parking Veteran — platinum
+    { fill: 'gradient',stroke: 'none',    glow: 'rgba(56,189,248,0.65)',     textColor: 'var(--crown-7-text)' }, // Urban Legend — diamond
 ];
 
 export function getTierForCrowns(crowns: number): number {

@@ -202,7 +202,7 @@ export const LocationPromptView: React.FC<LocationPromptViewProps> = ({ onComple
                 style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 20px)' }}
             >
                 {/* Eyebrow */}
-                <p className="text-[11px] font-bold tracking-[0.14em] text-blue-400 uppercase mb-2">
+                <p className="text-[11px] font-bold tracking-[0.14em] text-[#60a5fa] uppercase mb-2">
                     {t('location_prompt.eyebrow')}
                 </p>
 
@@ -222,7 +222,7 @@ export const LocationPromptView: React.FC<LocationPromptViewProps> = ({ onComple
                     onClick={handleEnable}
                     disabled={requesting}
                     className="w-full h-[58px] rounded-full font-semibold text-[16px] text-white active:scale-[0.985] transition-transform disabled:opacity-70 mb-2"
-                    style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}
+                    style={{ background: 'linear-gradient(90deg, var(--color-brand), var(--color-brand-2))' }}
                 >
                     {requesting ? t('location_prompt.requesting') : t('location_prompt.enable')}
                 </button>
@@ -239,7 +239,7 @@ export const LocationPromptView: React.FC<LocationPromptViewProps> = ({ onComple
                 </button>
 
                 {/* Reassurance */}
-                <p className="text-[13px] text-center leading-snug" style={{ color: 'rgba(255,255,255,0.40)' }}>
+                <p className="text-[13px] text-center leading-snug" style={{ color: 'rgba(255,255,255,0.72)' }}>
                     {t('location_prompt.reassurance')}
                 </p>
             </div>

@@ -138,7 +138,7 @@ export const CreateAccountView: React.FC<CreateAccountViewProps> = ({ onContinue
             <div className={prefersReduced ? '' : 'auth-fade-in'}>
 
                 {/* Eyebrow */}
-                <p className="text-[11px] font-bold tracking-[0.13em] text-blue-400 uppercase mb-3 mt-2">
+                <p className="text-[11px] font-bold tracking-[0.13em] text-[var(--color-accent)] uppercase mb-3 mt-2">
                     {t('create_account.eyebrow')}
                 </p>
 
@@ -185,13 +185,13 @@ export const CreateAccountView: React.FC<CreateAccountViewProps> = ({ onContinue
                         onChange={handleChange}
                         onPaste={handlePaste}
                         placeholder={placeholder}
-                        className="flex-1 bg-transparent px-4 h-full text-[var(--color-text)] font-semibold outline-none placeholder-[var(--color-text-secondary)]/50 text-[16px]"
+                        className="flex-1 bg-transparent px-4 h-full text-[var(--color-text)] font-semibold outline-none placeholder-[var(--color-text-secondary)] text-[16px]"
                     />
                 </div>
 
                 {/* Error or trust note */}
                 {error ? (
-                    <p id="phone-error" role="alert" className="text-red-400 text-[13px] mt-2 font-medium">
+                    <p id="phone-error" role="alert" className="text-[var(--color-danger)] text-[13px] mt-2 font-medium">
                         {error}
                     </p>
                 ) : (
@@ -232,11 +232,11 @@ export const CreateAccountView: React.FC<CreateAccountViewProps> = ({ onContinue
                 </button>
                 <p className="mt-3 text-center text-[11px] leading-relaxed text-[var(--color-text-secondary)]">
                     {t('legal.signup_prefix')}{' '}
-                    <a href={LEGAL_PATHS.terms} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#38bdf8] hover:underline">
+                    <a href={LEGAL_PATHS.terms} target="_blank" rel="noopener noreferrer" className="font-semibold text-[var(--color-info)] hover:underline">
                         {t('legal.terms')}
                     </a>{' '}
                     {t('legal.signup_between')}{' '}
-                    <a href={LEGAL_PATHS.privacy} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#38bdf8] hover:underline">
+                    <a href={LEGAL_PATHS.privacy} target="_blank" rel="noopener noreferrer" className="font-semibold text-[var(--color-info)] hover:underline">
                         {t('legal.privacy')}
                     </a>.
                 </p>

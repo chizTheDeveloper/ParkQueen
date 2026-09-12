@@ -62,13 +62,13 @@ export const LanguageSettingsView: React.FC<LanguageSettingsViewProps> = ({ user
                                     className="w-full p-4 flex items-center justify-between text-left hover:bg-white/5 active:bg-white/10 transition-colors disabled:opacity-40"
                                 >
                                     <span className="font-semibold text-[var(--color-text)] text-sm">{t(labelKey as any)}</span>
-                                    {current === code && <Check size={18} className="text-[#1e75ff] shrink-0" />}
+                                    {current === code && <Check size={18} className="text-[var(--color-accent)] shrink-0" />}
                                 </button>
                             ))}
                         </div>
                     </div>
 
-                    {error && <p className="text-red-400 text-xs px-1">{error}</p>}
+                    {error && <p className="text-[var(--color-danger)] text-xs px-1">{error}</p>}
                 </div>
             </div>
         </div>

@@ -776,7 +776,7 @@ export const MessagesView: React.FC<MessagesViewProps> = ({
                 <button ref={deleteCancelRef} onClick={closeDeleteConfirm} className="flex-1 py-3 rounded-2xl border border-[var(--color-border)] text-[var(--color-text)] font-semibold text-sm">
                   {t('messages.cancel')}
                 </button>
-                <button onClick={doDeleteChat} disabled={deletingChat} className="flex-1 py-3 rounded-2xl bg-red-500/20 border border-red-500/40 text-red-400 font-bold text-sm disabled:opacity-50">
+                <button onClick={doDeleteChat} disabled={deletingChat} className="flex-1 py-3 rounded-2xl bg-red-500/20 border border-red-500/40 text-[var(--color-danger)] font-bold text-sm disabled:opacity-50">
                   {t('messages.delete')}
                 </button>
               </div>

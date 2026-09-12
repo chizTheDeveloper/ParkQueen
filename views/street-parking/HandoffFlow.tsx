@@ -80,7 +80,7 @@ export const HandoffFlow: React.FC<HandoffFlowProps> = ({
                 <div className="flex justify-center mb-5">
                     <div className="w-20 h-20 rounded-3xl flex items-center justify-center"
                         style={{ background: 'linear-gradient(135deg, #1e75ff22, #0ea5e922)', border: '1.5px solid #1e75ff44' }}>
-                        <Car size={38} className="text-[#38bdf8]" />
+                        <Car size={38} className="text-[var(--color-info)]" />
                     </div>
                 </div>
                 <h3 className="font-extrabold text-xl text-[var(--color-text)] mb-1">Did you get the spot?</h3>
@@ -90,7 +90,7 @@ export const HandoffFlow: React.FC<HandoffFlowProps> = ({
                         onClick={() => { if (!submitted) { setSubmitted(true); onOutcome('success'); } }}
                         disabled={submitted}
                         className="flex-1 py-3.5 rounded-2xl text-sm font-bold text-white flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50"
-                        style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}
+                        style={{ background: 'linear-gradient(90deg, var(--color-brand), var(--color-brand-2))' }}
                     >
                         <CheckCircle2 size={16} />
                         Yes, I'm in!
@@ -100,7 +100,7 @@ export const HandoffFlow: React.FC<HandoffFlowProps> = ({
                         disabled={submitted}
                         className="flex-1 py-3.5 rounded-2xl text-sm font-bold border border-[var(--color-border)] bg-white/5 hover:bg-white/10 transition-all active:scale-95 text-[var(--color-text)] flex items-center justify-center gap-2 disabled:opacity-50"
                     >
-                        <XCircle size={16} className="text-red-400" />
+                        <XCircle size={16} className="text-[var(--color-danger)]" />
                         No luck
                     </button>
                 </div>
@@ -117,7 +117,7 @@ export const HandoffFlow: React.FC<HandoffFlowProps> = ({
                 </div>
                 <div className="flex justify-center mb-3 relative">
                     <div className="w-20 h-20 rounded-3xl flex items-center justify-center"
-                        style={{ background: 'linear-gradient(135deg, #1e75ff, #0ea5e9)' }}>
+                        style={{ background: 'linear-gradient(135deg, var(--color-brand), var(--color-brand-2))' }}>
                         <Car size={36} className="text-white" />
                     </div>
                 </div>
@@ -128,13 +128,13 @@ export const HandoffFlow: React.FC<HandoffFlowProps> = ({
                         : t('handoff.finder_helped_anon')}
                 </p>
                 <div className="flex items-center justify-center gap-1.5 mt-2 mb-3">
-                    <Crown size={13} className="text-yellow-400" />
-                    <p className="text-[11px] font-bold text-yellow-400">{t('handoff.crown_earned')}</p>
+                    <Crown size={13} className="text-[var(--color-warning)]" />
+                    <p className="text-[11px] font-bold text-[var(--color-warning)]">{t('handoff.crown_earned')}</p>
                 </div>
                 <div className="pt-3 border-t border-white/10">
                     <div className="flex items-center justify-center gap-1.5 mb-0.5">
-                        <Car size={11} className="text-[#38bdf8]" />
-                        <p className="text-[11px] font-bold text-[#38bdf8] uppercase tracking-widest">{t('handoff.saved_to_my_car')}</p>
+                        <Car size={11} className="text-[var(--color-info)]" />
+                        <p className="text-[11px] font-bold text-[var(--color-info)] uppercase tracking-widest">{t('handoff.saved_to_my_car')}</p>
                     </div>
                     <p className="text-[11px] text-[var(--color-text-secondary)] leading-relaxed">{t('handoff.saved_to_my_car_body')}</p>
                 </div>
@@ -148,8 +148,8 @@ export const HandoffFlow: React.FC<HandoffFlowProps> = ({
                     {hero}
                     <div className="rounded-2xl bg-emerald-500/10 border border-emerald-500/20 p-4 mb-4">
                         <div className="flex items-center gap-2 mb-1">
-                            <CheckCircle2 size={14} className="text-emerald-400" />
-                            <p className="text-sm font-bold text-emerald-400">{t('handoff.reminder_set')}</p>
+                            <CheckCircle2 size={14} className="text-[var(--color-success)]" />
+                            <p className="text-sm font-bold text-[var(--color-success)]">{t('handoff.reminder_set')}</p>
                         </div>
                         <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed">{t('handoff.reminder_set_body')}</p>
                     </div>
@@ -170,7 +170,7 @@ export const HandoffFlow: React.FC<HandoffFlowProps> = ({
                     <button
                         onClick={handleSetCustomTimer}
                         className="w-full mt-5 py-3.5 rounded-2xl text-sm font-bold text-white transition-all active:scale-95"
-                        style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}
+                        style={{ background: 'linear-gradient(90deg, var(--color-brand), var(--color-brand-2))' }}
                     >
                         {t('handoff.reminder_set_button')}
                     </button>
@@ -229,7 +229,7 @@ export const HandoffFlow: React.FC<HandoffFlowProps> = ({
                 <div className="flex justify-center mb-4">
                     <div className="w-16 h-16 rounded-2xl flex items-center justify-center"
                         style={{ background: 'rgba(239,68,68,0.12)', border: '1.5px solid rgba(239,68,68,0.25)' }}>
-                        <XCircle size={30} className="text-red-400" />
+                        <XCircle size={30} className="text-[var(--color-danger)]" />
                     </div>
                 </div>
                 <h3 className="font-extrabold text-xl text-[var(--color-text)] mb-1 text-center">What happened?</h3>
@@ -243,7 +243,7 @@ export const HandoffFlow: React.FC<HandoffFlowProps> = ({
                         >
                             <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
                                 style={{ background: 'rgba(30,117,255,0.12)', border: '1px solid rgba(30,117,255,0.2)' }}>
-                                <Icon size={15} className="text-[#38bdf8]" />
+                                <Icon size={15} className="text-[var(--color-info)]" />
                             </div>
                             {label}
                         </button>

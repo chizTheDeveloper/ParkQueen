@@ -9,6 +9,29 @@
   --color-card: rgba(255, 255, 255, 0.85);
   --color-glass: rgba(255, 255, 255, 0.75);
   --color-glass-border: rgba(12, 34, 56, 0.1);
+  /* Accent roles. One value per meaning, so a colour used as text never has to
+     be re-picked per screen. Light values are darkened until 4.5:1 on
+     --color-bg, on white and on their own 8-12% tint; .dark restores the
+     original bright shades, which already clear 6:1 on the dark surfaces.
+     --color-brand/-2 are fills that carry white text, so they do NOT change
+     per theme -- white on the old #1e75ff was only 4.16:1. */
+  --color-brand: #0b63e6;
+  --color-brand-2: #0a75a6;
+  --color-accent: #0b63d6;
+  --color-info: #0b6aa8;
+  --color-success: #046b4e;
+  --color-danger: #bf2424;
+  --color-warning: #9a4d05;
+  /* Crown tier label colours (the crown glyph itself keeps its metal fill). */
+  --crown-0-text: #6b7280;
+  --crown-1-text: #8a5524;
+  --crown-2-text: #5b6b7f;
+  --crown-3-text: #8a5a00;
+  --crown-4-text: #0b63d6;
+  --crown-5-text: #7c2fd4;
+  --crown-6-text: #5a6472;
+  --crown-7-text: #0b6aa8;
+
   --color-overlay: rgba(255, 255, 255, 0.04);
   --mobile-primary-nav-space: calc(104px + env(safe-area-inset-bottom, 0px));
   --mobile-map-header-width: min(86vw, 372px);
@@ -27,6 +50,19 @@
   --mobile-ping-cradle-border: rgba(151, 201, 255, 0.32);
 }
 .dark {
+  --color-accent: #60a5fa;
+  --color-info: #38bdf8;
+  --color-success: #34d399;
+  --color-danger: #f87171;
+  --color-warning: #fbbf24;
+  --crown-0-text: #9ca3af;
+  --crown-1-text: #cd7f32;
+  --crown-2-text: #94a3b8;
+  --crown-3-text: #f59e0b;
+  --crown-4-text: #60a5fa;
+  --crown-5-text: #a855f7;
+  --crown-6-text: #e2e8f0;
+  --crown-7-text: #38bdf8;
   --color-bg: #050d1c;
   --color-surface: #091728;
   --color-text: #ffffff;
@@ -764,7 +800,7 @@ html, body, #root {
     height: 52px;
     padding: 0 56px;
     border: 0;
-    background: linear-gradient(90deg, #1e75ff, #0ea5e9);
+    background: linear-gradient(90deg, var(--color-brand), var(--color-brand-2));
     box-shadow: none;
     animation: ping-glow 2s ease-in-out infinite;
   }
@@ -1361,9 +1397,11 @@ html, body, #root {
 }
 .pq-scan-orb-lg { width: 92px; height: 92px; }
 
+.pq-hero-midnight { background: #050d1c; color: #ffffff; }
+
 /* Shared primary CTA fill. */
 .pq-cta {
-  background: linear-gradient(90deg, #1e75ff, #0ea5e9);
+  background: linear-gradient(90deg, var(--color-brand), var(--color-brand-2));
   box-shadow: 0 8px 22px -12px rgba(30, 117, 255, 0.95);
   transition: transform 140ms ease, filter 140ms ease;
 }
@@ -1773,16 +1811,16 @@ html, body, #root {
 :root:not(.dark) .pq-ping-card {
   background: linear-gradient(180deg, rgba(56, 189, 248, 0.06), rgba(255, 255, 255, 0) 60%), #ffffff;
 }
-:root:not(.dark) .pq-live-chip { background: rgba(16, 163, 116, 0.10); color: #0f8a63; }
-:root:not(.dark) .pq-live-dot { background: #0f8a63; }
+:root:not(.dark) .pq-live-chip { background: rgba(16, 163, 116, 0.10); color: var(--color-success); }
+:root:not(.dark) .pq-live-dot { background: var(--color-success); }
 :root:not(.dark) .pq-status-chip { background: rgba(15, 32, 60, 0.05); }
 :root:not(.dark) .pq-status-chip--ok,
-:root:not(.dark) .pq-empty-alert { color: #0f8a63; }
+:root:not(.dark) .pq-empty-alert { color: var(--color-success); }
 :root:not(.dark) .pq-radius-pill { border-color: rgba(14, 116, 190, 0.40); }
-:root:not(.dark) .pq-ping-status--available    { color: #0f8a63; background: rgba(16, 163, 116, 0.10); border-color: rgba(16, 163, 116, 0.28); }
+:root:not(.dark) .pq-ping-status--available    { color: var(--color-success); background: rgba(16, 163, 116, 0.10); border-color: rgba(16, 163, 116, 0.28); }
 :root:not(.dark) .pq-ping-status--leaving_later { color: #a86a05; background: rgba(245, 185, 66, 0.14); border-color: rgba(168, 106, 5, 0.28); }
 :root:not(.dark) .pq-ping-status--urgent        { color: #c0392b; background: rgba(192, 57, 43, 0.10); border-color: rgba(192, 57, 43, 0.26); }
-:root:not(.dark) .pq-ping-card--available::before    { background: #0f8a63; }
+:root:not(.dark) .pq-ping-card--available::before    { background: var(--color-success); }
 :root:not(.dark) .pq-ping-card--leaving_later::before { background: #d99413; }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1935,7 +1973,7 @@ html, body, #root {
 }
 .pq-bubble--me {
   color: #fff;
-  background: linear-gradient(150deg, #1e75ff, #2f8cff);
+  background: linear-gradient(150deg, var(--color-brand), #0a68ff);
   box-shadow: 0 4px 14px rgba(30, 117, 255, 0.24);
   border-bottom-right-radius: 6px;
 }
@@ -2021,12 +2059,12 @@ html, body, #root {
 :root:not(.dark) .pq-status-chip--new { color: #0b6aa8; }
 :root:not(.dark) .pq-status-chip--new .pq-live-dot { background: #0b6aa8; }
 :root:not(.dark) .pq-spot-chip { color: #0b6aa8; background: rgba(14, 116, 190, 0.08); border-color: rgba(14, 116, 190, 0.22); }
-:root:not(.dark) .pq-caught-up-icon { color: #0f8a63; background: rgba(16, 163, 116, 0.10); border-color: rgba(16, 163, 116, 0.24); }
+:root:not(.dark) .pq-caught-up-icon { color: var(--color-success); background: rgba(16, 163, 116, 0.10); border-color: rgba(16, 163, 116, 0.24); }
 :root:not(.dark) .pq-menu { background: #ffffff; box-shadow: 0 12px 32px rgba(15, 32, 60, 0.16); }
 :root:not(.dark) .pq-menu-item--danger { color: #c0392b; }
 :root:not(.dark) .pq-smart-chip { background: rgba(14, 116, 190, 0.07); border-color: rgba(14, 116, 190, 0.28); }
 :root:not(.dark) .pq-composer-field { background: #ffffff; }
-:root:not(.dark) .pq-inline-note { color: #0f8a63; }
+:root:not(.dark) .pq-inline-note { color: var(--color-success); }
 :root:not(.dark) .pq-inline-note--error { color: #c0392b; }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2167,7 +2205,7 @@ html, body, #root {
 :root:not(.dark) .pq-vehicle-tile { background: rgba(15, 32, 60, 0.04); }
 :root:not(.dark) .pq-warn-banner { color: #92400e; background: rgba(245, 158, 11, 0.12); border-color: rgba(180, 83, 9, 0.28); }
 :root:not(.dark) .pq-activity-icon--handshake { color: #a16207; background: rgba(202, 138, 4, 0.12); }
-:root:not(.dark) .pq-activity-icon--parking   { color: #0f8a63; background: rgba(16, 163, 116, 0.12); }
+:root:not(.dark) .pq-activity-icon--parking   { color: var(--color-success); background: rgba(16, 163, 116, 0.12); }
 :root:not(.dark) .pq-activity-icon--pin       { color: #0b6aa8; background: rgba(14, 116, 190, 0.10); }
 :root:not(.dark) .pq-activity-icon--clock     { color: #c2410c; background: rgba(234, 88, 12, 0.10); }
 :root:not(.dark) .pq-reward { color: #a16207; }
@@ -2328,6 +2366,15 @@ a.pq-settings-row:hover { background: var(--color-overlay); }
 :root:not(.dark) .pq-own-ping-divider { border-color: var(--color-border); }
 :root:not(.dark) .pq-own-ping-edit { background: #ffffff; border-color: var(--color-border); }
 :root:not(.dark) .pq-own-ping-edit:hover { background: rgba(15, 32, 60, 0.04); }
+
+/* Everything else that moves. Grouped rather than one media block per feature,
+   so a new animation is covered by adding its class here. */
+@media (prefers-reduced-motion: reduce) {
+  .map-pin-pulse, .nearest-spot-chip, .notif-slide-down, .ping-celebration,
+  .ping-glow, .ping-logo-drop, .ping-ring, .ping-text-fade, .wordmark-glimmer {
+    animation: none !important;
+  }
+}
 
 /* ─────────────────────────────────────────────────────────────────────────────
    TAILWIND MUST STAY LAST IN THIS FILE. DO NOT MOVE IT ABOVE THE RULES ABOVE.

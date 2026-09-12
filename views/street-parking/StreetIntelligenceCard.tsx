@@ -200,7 +200,7 @@ export const StreetIntelligenceCard = ({
 
   const debugBlock = isDebugMode && debugLines.length > 0 ? (
     <div style={{ marginTop: 8, padding: '6px 8px', background: 'rgba(0,0,0,0.85)', borderRadius: 8, border: '1px solid #1e75ff55' }}>
-      <p style={{ color: '#1e75ff', fontWeight: 700, fontSize: 10, margin: '0 0 4px', fontFamily: 'monospace' }}>StreetIntelCardDebug</p>
+      <p style={{ color: 'var(--color-brand)', fontWeight: 700, fontSize: 10, margin: '0 0 4px', fontFamily: 'monospace' }}>StreetIntelCardDebug</p>
       {debugLines.map((l, i) => {
         const isWarn = l.includes('null') || l.includes('no-schedule') || l.includes('side-mismatch') || l.includes('error');
         return <p key={i} style={{ margin: '1px 0', fontSize: 10, color: isWarn ? '#f87171' : '#a3e635', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{l}</p>;
@@ -243,8 +243,8 @@ export const StreetIntelligenceCard = ({
     return (
       <div className="rounded-2xl border border-amber-500/25 bg-amber-950/20 px-4 py-4 mb-4">
         <div className="flex items-center gap-2 mb-2">
-          <AlertTriangle size={14} className="text-amber-400 shrink-0" />
-          <p className="text-[11px] font-bold text-amber-300/70 uppercase tracking-widest">
+          <AlertTriangle size={14} className="text-[var(--color-warning)] shrink-0" />
+          <p className="text-[11px] font-bold text-[var(--color-warning)]/70 uppercase tracking-widest">
             {presentation.state === 'caution'
               ? t('street_intel.needs_review')
               : t('street_intel.info_available')}
@@ -318,8 +318,8 @@ export const StreetIntelligenceCard = ({
       {presentation.state === 'caution' && (
         <div className="rounded-xl border border-yellow-500/25 bg-yellow-500/10 px-3 py-2 mb-3">
           <div className="flex items-center gap-2 mb-1">
-            <AlertTriangle size={16} className="text-yellow-400 shrink-0" />
-            <p className="text-sm font-bold text-yellow-300">{t('street_intel.needs_review')}</p>
+            <AlertTriangle size={16} className="text-[var(--color-warning)] shrink-0" />
+            <p className="text-sm font-bold text-[var(--color-warning)]">{t('street_intel.needs_review')}</p>
           </div>
           <p className="text-xs text-[var(--color-text-secondary)]">
             {t('street_intel.needs_review_body')}
@@ -329,9 +329,9 @@ export const StreetIntelligenceCard = ({
 
       {result.activeNow ? (
         <div className="flex items-center gap-2 mb-2">
-          <AlertTriangle size={18} className="text-red-400 shrink-0" />
+          <AlertTriangle size={18} className="text-[var(--color-danger)] shrink-0" />
           <div>
-            <p className="text-base font-extrabold text-red-400 leading-tight">
+            <p className="text-base font-extrabold text-[var(--color-danger)] leading-tight">
               {presentation.state === 'caution'
                 ? t('street_intel.may_be_active_now')
                 : t('street_intel.active_now')}
@@ -346,8 +346,8 @@ export const StreetIntelligenceCard = ({
       ) : result.nextDay ? (
         <div className="flex items-center gap-2 mb-2">
           {presentation.state === 'caution'
-            ? <AlertTriangle size={18} className="text-yellow-400 shrink-0" />
-            : <CheckCircle size={18} className="text-green-400 shrink-0" />}
+            ? <AlertTriangle size={18} className="text-[var(--color-warning)] shrink-0" />
+            : <CheckCircle size={18} className="text-[var(--color-success)] shrink-0" />}
           <div>
             <p className="text-[11px] font-bold text-[var(--color-text-secondary)] uppercase tracking-widest leading-none mb-0.5">
               {presentation.state === 'caution'
@@ -362,8 +362,8 @@ export const StreetIntelligenceCard = ({
       ) : (
         <div className="flex items-center gap-2 mb-2">
           {presentation.state === 'caution'
-            ? <AlertTriangle size={18} className="text-yellow-400 shrink-0" />
-            : <CheckCircle size={18} className="text-green-400 shrink-0" />}
+            ? <AlertTriangle size={18} className="text-[var(--color-warning)] shrink-0" />
+            : <CheckCircle size={18} className="text-[var(--color-success)] shrink-0" />}
           <p className="text-sm text-[var(--color-text-secondary)]">{t('street_intel.no_upcoming')}</p>
         </div>
       )}
@@ -379,16 +379,16 @@ export const StreetIntelligenceCard = ({
             : t('street_intel.schedules_count', { count: String(scheduleCount) })}
         </span>
         {presentation.state === 'caution' ? (
-          <span className="text-[10px] font-semibold text-yellow-400 bg-yellow-500/10 px-2 py-0.5 rounded-full border border-yellow-500/20">
+          <span className="text-[10px] font-semibold text-[var(--color-warning)] bg-yellow-500/10 px-2 py-0.5 rounded-full border border-yellow-500/20">
             {t('street_intel.needs_review')}
           </span>
         ) : (
-          <span className="text-[10px] font-semibold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full border border-blue-500/20">
+          <span className="text-[10px] font-semibold text-[var(--color-accent)] bg-blue-500/10 px-2 py-0.5 rounded-full border border-blue-500/20">
             {t('street_intel.info_available')}
           </span>
         )}
         {confirmedParkingSide && (
-          <span className="text-[10px] font-semibold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+          <span className="text-[10px] font-semibold text-[var(--color-warning)] bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
             {t('street_intel.you_confirmed')}
           </span>
         )}

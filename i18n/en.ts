@@ -126,6 +126,7 @@ const en: Record<string, string> = {
     'time_picker.selected': 'Selected time {time}',
 
     // Spot details card
+    'spot_details.message_finder': 'Message the finder',
     'spot_details.badge_en_route': 'En Route',
     'spot_details.badge_soon': 'Soon',
     'spot_details.badge_free': 'Free',
@@ -469,6 +470,7 @@ const en: Record<string, string> = {
     'name_entry.error_cooldown': 'You can change your username again in {days} days.',
 
     // Setup Profile
+    'setup_profile.change_photo': 'Change profile photo',
     'setup_profile.title': 'Setup Profile',
     'setup_profile.full_name': 'Full Name',
     'setup_profile.email': 'Email',

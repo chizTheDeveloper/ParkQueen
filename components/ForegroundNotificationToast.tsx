@@ -30,7 +30,7 @@ export const ForegroundNotificationToast: React.FC<ForegroundNotificationToastPr
         type="button"
         data-foreground-notification-action="open"
         onClick={onOpen}
-        className="shrink-0 rounded-lg bg-[#1e75ff] px-3 py-1.5 text-xs font-bold text-white"
+        className="shrink-0 rounded-lg bg-[var(--color-brand)] px-3 py-1.5 text-xs font-bold text-white"
       >
         {openLabel}
       </button>

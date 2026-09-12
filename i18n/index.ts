@@ -21,9 +21,15 @@ export function getLang(): Lang {
     return currentLang;
 }
 
+/** Keep <html lang> in step, or a screen reader narrates Spanish with an English voice. */
+function syncDocumentLang(lang: Lang): void {
+    if (typeof document !== 'undefined' && document.documentElement) document.documentElement.lang = lang;
+}
+
 export function setLang(lang: Lang): void {
     if (lang !== 'en' && lang !== 'es') return;
     currentLang = lang;
+    syncDocumentLang(lang);
     localStorage.setItem(LANG_KEY, lang);
     subscribers.forEach(fn => fn());
 }
@@ -48,3 +54,5 @@ export function useLang(): Lang {
     }, []);
     return lang;
 }
+
+syncDocumentLang(currentLang);

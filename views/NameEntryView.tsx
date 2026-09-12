@@ -172,9 +172,9 @@ export const NameEntryView: React.FC<NameEntryViewProps> = ({ onComplete }) => {
 
     const statusColor =
         availability === 'available'
-            ? 'text-emerald-400'
+            ? 'text-[var(--color-success)]'
             : (availability === 'taken' || availability === 'invalid' || availability === 'network')
-                ? 'text-red-400'
+                ? 'text-[var(--color-danger)]'
                 : 'text-[var(--color-text-secondary)]';
 
     const canSubmit = availability === 'available' && !submitting;
@@ -197,7 +197,7 @@ export const NameEntryView: React.FC<NameEntryViewProps> = ({ onComplete }) => {
             <div className={prefersReduced ? '' : 'auth-fade-in'}>
 
                 {/* Eyebrow */}
-                <p className="text-[11px] font-bold tracking-[0.13em] text-blue-400 uppercase mb-3 mt-2">
+                <p className="text-[11px] font-bold tracking-[0.13em] text-[var(--color-accent)] uppercase mb-3 mt-2">
                     {t('name_entry.eyebrow')}
                 </p>
 
@@ -261,10 +261,10 @@ export const NameEntryView: React.FC<NameEntryViewProps> = ({ onComplete }) => {
                             <Loader2 size={18} className="text-[var(--color-text-secondary)] animate-spin" />
                         )}
                         {availability === 'available' && (
-                            <Check size={18} className="text-emerald-400" />
+                            <Check size={18} className="text-[var(--color-success)]" />
                         )}
                         {(availability === 'taken' || availability === 'invalid') && (
-                            <X size={18} className="text-red-400" />
+                            <X size={18} className="text-[var(--color-danger)]" />
                         )}
                     </div>
                 </div>
@@ -275,7 +275,7 @@ export const NameEntryView: React.FC<NameEntryViewProps> = ({ onComplete }) => {
                         <p className={`text-[13px] ${statusColor}`}>{displayStatus}</p>
                     )}
                     {claimError && (
-                        <p className="text-[13px] text-red-400 mt-1">{claimError}</p>
+                        <p className="text-[13px] text-[var(--color-danger)] mt-1">{claimError}</p>
                     )}
                 </div>
 
@@ -286,7 +286,7 @@ export const NameEntryView: React.FC<NameEntryViewProps> = ({ onComplete }) => {
                         onClick={handleSubmit}
                         disabled={!canSubmit}
                         className="w-full h-[58px] rounded-full font-semibold text-[16px] text-white active:scale-[0.985] transition-transform disabled:opacity-40"
-                        style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}
+                        style={{ background: 'linear-gradient(90deg, var(--color-brand), var(--color-brand-2))' }}
                     >
                         {submitting ? t('name_entry.cta_loading') : t('name_entry.cta')}
                     </button>

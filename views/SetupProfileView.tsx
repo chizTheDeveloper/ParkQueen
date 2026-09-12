@@ -11,7 +11,8 @@ interface SetupProfileViewProps {
 
 const InputField = ({ icon, label, value, onChange, placeholder, type = 'text', onClick = null, autoComplete = 'off' }) => {
     const commonProps = {
-        className: "w-full bg-transparent text-[var(--color-text)] font-semibold outline-none placeholder-[var(--color-text-secondary)] text-sm",
+        className: "w-full bg-transparent text-[var(--color-text)] font-semibold outline-none placeholder-[var(--color-text-secondary)] text-[16px] min-h-[24px]",
+        "aria-label": label,
     };
 
     return (
@@ -71,7 +72,7 @@ const SelectField = ({ icon, label, value, onChange, options, isOpen, setIsOpen 
                         <div
                             key={opt.value}
                             onClick={() => handleSelect(opt)}
-                            className={`p-3.5 cursor-pointer text-sm font-medium border-b border-[var(--color-border)] last:border-0 hover:bg-white/5 transition-colors ${value === opt.value ? 'bg-[#1e75ff] text-white font-semibold hover:bg-blue-600' : 'text-gray-200'}`}
+                            className={`p-3.5 cursor-pointer text-sm font-medium border-b border-[var(--color-border)] last:border-0 hover:bg-white/5 transition-colors ${value === opt.value ? 'bg-[var(--color-brand)] text-white font-semibold hover:bg-blue-600' : 'text-gray-200'}`}
                         >
                             {opt.label}
                         </div>
@@ -143,7 +144,7 @@ export const SetupProfileView: React.FC<SetupProfileViewProps> = ({ phone, onSav
                   <i className="fa-solid fa-user text-4xl text-[var(--color-text-secondary)]"></i>
                 )}
             </div>
-            <button onClick={triggerUpload} className="absolute bottom-1 right-1 bg-[#1e75ff] hover:bg-blue-600 text-white rounded-full p-2.5 shadow-md active:scale-95 transition-all">
+            <button onClick={triggerUpload} aria-label={t('setup_profile.change_photo')} className="absolute bottom-1 right-1 bg-[var(--color-brand)] hover:bg-blue-600 text-white rounded-full p-2.5 shadow-md active:scale-95 transition-all">
                 <Camera size={18} />
             </button>
             <input
@@ -185,7 +186,7 @@ export const SetupProfileView: React.FC<SetupProfileViewProps> = ({ phone, onSav
         </div>
 
         <div className="mt-8 mb-4 space-y-3">
-            <button onClick={handleSave} className="w-full bg-[#1e75ff] hover:bg-blue-600 active:scale-95 text-white font-bold py-4 rounded-2xl shadow-md shadow-blue-500/20 transition-all">
+            <button onClick={handleSave} className="w-full bg-[var(--color-brand)] hover:bg-blue-600 active:scale-95 text-white font-bold py-4 rounded-2xl shadow-md shadow-blue-500/20 transition-all">
                 {t('setup_profile.save')}
             </button>
             {onSkip && (

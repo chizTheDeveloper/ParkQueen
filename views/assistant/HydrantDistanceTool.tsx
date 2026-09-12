@@ -186,7 +186,7 @@ export const HydrantDistanceTool = ({ onOpenMyCar }: { onOpenMyCar?: () => void 
       <div className="rounded-[22px] p-5 bg-[var(--color-card)] border border-[var(--color-border)]" role="status" aria-live="polite">
         <div className="flex items-start gap-3 mb-2">
           <AlertTriangle size={20} className="text-yellow-500 shrink-0 mt-0.5" aria-hidden="true" />
-          <p className="font-extrabold text-yellow-400">{copy.title}</p>
+          <p className="font-extrabold text-[var(--color-warning)]">{copy.title}</p>
         </div>
         <p className="text-sm text-[var(--color-text-secondary)] leading-relaxed mb-4">{copy.body}</p>
         <button

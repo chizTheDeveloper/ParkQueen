@@ -712,7 +712,7 @@ export const UsersPage = () => {
       {actionError && (
         <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-start gap-2">
           <span className="font-semibold">Error:</span> {actionError}
-          <button onClick={() => setActionError(null)} className="ml-auto text-red-400 hover:text-red-600">
+          <button onClick={() => setActionError(null)} className="ml-auto text-[var(--color-danger)] hover:text-red-600">
             <X size={16} />
           </button>
         </div>

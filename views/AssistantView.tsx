@@ -205,7 +205,7 @@ export const AssistantView = ({ onBack, onOpenMyCar }: AssistantViewProps = {}) 
             >
               <span className="pq-tool-icon shrink-0" aria-hidden="true">{tool.icon}</span>
               <span className="block flex-1 min-w-0">
-                <span className="block text-[9.5px] font-bold tracking-[0.16em] text-[#38bdf8] mb-1">
+                <span className="block text-[9.5px] font-bold tracking-[0.16em] text-[var(--color-info)] mb-1">
                   {tool.tag}
                 </span>
                 <span className="block font-extrabold text-[15px] text-[var(--color-text)] leading-tight">
@@ -221,9 +221,9 @@ export const AssistantView = ({ onBack, onOpenMyCar }: AssistantViewProps = {}) 
 
           {/* Recent scans — real local history only */}
           <section className="rounded-3xl p-5 bg-[var(--color-card)] border border-[var(--color-border)]">
-            <h3 className="text-[10px] font-bold tracking-[0.18em] text-[var(--color-text-secondary)] mb-3">
+            <h2 className="text-[10px] font-bold tracking-[0.18em] text-[var(--color-text-secondary)] mb-3">
               {t('assistant.recent_title')}
-            </h3>
+            </h2>
             {recent.length === 0 ? (
               <p className="text-sm text-[var(--color-text-secondary)] py-2">{t('assistant.recent_empty')}</p>
             ) : (
@@ -232,10 +232,10 @@ export const AssistantView = ({ onBack, onOpenMyCar }: AssistantViewProps = {}) 
                   <li key={scan.id} className="flex items-start gap-3">
                     <span className="pq-recent-dot shrink-0" aria-hidden="true">
                       {scan.status === 'NO'
-                        ? <AlertCircle size={15} className="text-red-400" />
+                        ? <AlertCircle size={15} className="text-[var(--color-danger)]" />
                         : scan.status === 'YES'
-                          ? <CheckCircle2 size={15} className="text-green-400" />
-                          : <Clock size={15} className="text-yellow-400" />}
+                          ? <CheckCircle2 size={15} className="text-[var(--color-success)]" />
+                          : <Clock size={15} className="text-[var(--color-warning)]" />}
                     </span>
                     <span className="block min-w-0 flex-1">
                       <span className="block text-sm font-semibold text-[var(--color-text)] leading-snug">{scan.title}</span>
@@ -360,7 +360,7 @@ export const AssistantView = ({ onBack, onOpenMyCar }: AssistantViewProps = {}) 
                 {scanState === 'analyzing' && (
                   <div className="rounded-3xl p-6 bg-[var(--color-surface)] border border-[var(--color-border)] flex flex-col items-center">
                     <span className="pq-pulse-ring mb-4" aria-hidden="true">
-                      <ScanLine size={22} className="text-[#38bdf8]" />
+                      <ScanLine size={22} className="text-[var(--color-info)]" />
                     </span>
                     <p className="text-sm font-semibold text-[var(--color-text)]">{t('assistant.reading_sign')}</p>
                     <p className="text-xs text-[var(--color-text-secondary)] mt-1">{t('assistant.checking_rules')}</p>
@@ -372,12 +372,12 @@ export const AssistantView = ({ onBack, onOpenMyCar }: AssistantViewProps = {}) 
                     {(() => {
                       const { headline, body } = splitExplanation(analysis.explanation);
                       const meta = isError
-                        ? { icon: <AlertCircle className="text-yellow-500" size={22} />, label: t('assistant.error_title'), tone: 'text-yellow-400' }
+                        ? { icon: <AlertCircle className="text-yellow-500" size={22} />, label: t('assistant.error_title'), tone: 'text-[var(--color-warning)]' }
                         : analysis.status === 'YES'
-                          ? { icon: <CheckCircle2 className="text-green-500" size={22} />, label: t('assistant.result_yes'), tone: 'text-green-400' }
+                          ? { icon: <CheckCircle2 className="text-green-500" size={22} />, label: t('assistant.result_yes'), tone: 'text-[var(--color-success)]' }
                           : analysis.status === 'NO'
-                            ? { icon: <AlertCircle className="text-red-500" size={22} />, label: t('assistant.result_no'), tone: 'text-red-400' }
-                            : { icon: <AlertCircle className="text-yellow-500" size={22} />, label: t('assistant.result_maybe'), tone: 'text-yellow-400' };
+                            ? { icon: <AlertCircle className="text-red-500" size={22} />, label: t('assistant.result_no'), tone: 'text-[var(--color-danger)]' }
+                            : { icon: <AlertCircle className="text-yellow-500" size={22} />, label: t('assistant.result_maybe'), tone: 'text-[var(--color-warning)]' };
                       return (
                         <>
                           <div className="flex items-start gap-3 mb-3">
@@ -397,14 +397,14 @@ export const AssistantView = ({ onBack, onOpenMyCar }: AssistantViewProps = {}) 
 
                     {analysis.actionableAdvice && (
                       <div className="mt-4 rounded-2xl p-3.5 bg-[#1e75ff]/10 border border-[#1e75ff]/30">
-                        <p className="flex items-center gap-2 text-[#38bdf8] font-bold text-sm mb-1">
+                        <p className="flex items-center gap-2 text-[var(--color-info)] font-bold text-sm mb-1">
                           <Clock size={15} aria-hidden="true" /> {t('assistant.advice_label')}
                         </p>
                         <p className="text-sm text-[var(--color-text-secondary)]">{analysis.actionableAdvice}</p>
                         <button
                           type="button"
                           onClick={setReminder}
-                          className="mt-3 w-full min-h-[44px] bg-[#1e75ff]/20 hover:bg-[#1e75ff]/35 text-[#7dd3fc] rounded-xl inline-flex items-center justify-center gap-2 text-sm font-semibold focus-visible:ring-2 focus-visible:ring-[#38bdf8] focus-visible:outline-none transition-colors"
+                          className="mt-3 w-full min-h-[44px] bg-[#1e75ff]/20 hover:bg-[#1e75ff]/35 text-[var(--color-info)] rounded-xl inline-flex items-center justify-center gap-2 text-sm font-semibold focus-visible:ring-2 focus-visible:ring-[#38bdf8] focus-visible:outline-none transition-colors"
                         >
                           <Bell size={15} aria-hidden="true" /> {reminderSet ? t('assistant.reminder_set') : t('assistant.set_reminder')}
                         </button>

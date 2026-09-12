@@ -114,14 +114,14 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSuccess, onNavigateToCre
             />
           </div>
 
-          {resetError && <p role="alert" className="text-red-400 text-sm mt-3 text-center">{resetError}</p>}
-          {resetMessage && <p className="text-green-400 text-sm mt-3 text-center">{resetMessage}</p>}
+          {resetError && <p role="alert" className="text-[var(--color-danger)] text-sm mt-3 text-center">{resetError}</p>}
+          {resetMessage && <p className="text-[var(--color-success)] text-sm mt-3 text-center">{resetMessage}</p>}
 
           <div className="mt-6">
             <button
               onClick={handleResetPassword}
               disabled={isResetting}
-              className={`w-full bg-[#1e75ff] hover:bg-blue-600 active:scale-95 text-white font-bold py-3.5 rounded-2xl transition-all shadow-md shadow-blue-500/20 ${isResetting ? 'opacity-70 cursor-not-allowed' : ''}`}>
+              className={`w-full bg-[var(--color-brand)] hover:bg-blue-600 active:scale-95 text-white font-bold py-3.5 rounded-2xl transition-all shadow-md shadow-blue-500/20 ${isResetting ? 'opacity-70 cursor-not-allowed' : ''}`}>
               {isResetting ? t('auth.sending') : t('auth.send_reset_link')}
             </button>
           </div>
@@ -133,7 +133,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSuccess, onNavigateToCre
                   setResetMessage('');
                   setResetError('');
                 }}
-                className="font-bold text-[#38bdf8] hover:underline text-sm">
+                className="font-bold text-[var(--color-info)] hover:underline text-sm">
                   {t('auth.back_to_login')}
               </button>
           </div>
@@ -174,7 +174,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSuccess, onNavigateToCre
         </div>
 
         {loginError && (
-          <p role="alert" className="text-red-400 text-sm mt-4 text-center font-medium">
+          <p role="alert" className="text-[var(--color-danger)] text-sm mt-4 text-center font-medium">
             {loginError}
           </p>
         )}
@@ -186,7 +186,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSuccess, onNavigateToCre
                 setLoginError('');
                 setIsForgotPassword(true);
               }}
-              className="text-sm font-semibold text-[#38bdf8] hover:underline">
+              className="text-sm font-semibold text-[var(--color-info)] hover:underline">
               {t('auth.forgot_password')}
             </button>
         </div>
@@ -195,7 +195,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSuccess, onNavigateToCre
           <button
             onClick={handleLogin}
             disabled={isLoading}
-            className="w-full bg-[#1e75ff] hover:bg-blue-600 active:scale-95 text-white font-bold py-3.5 rounded-2xl transition-all shadow-md shadow-blue-500/20 disabled:opacity-70 disabled:cursor-not-allowed disabled:active:scale-100"
+            className="w-full bg-[var(--color-brand)] hover:bg-blue-600 active:scale-95 text-white font-bold py-3.5 rounded-2xl transition-all shadow-md shadow-blue-500/20 disabled:opacity-70 disabled:cursor-not-allowed disabled:active:scale-100"
           >
             {isLoading ? t('auth.signing_in') : t('auth.log_in')}
           </button>
@@ -204,7 +204,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onSuccess, onNavigateToCre
         <div className="text-center mt-6">
             <p className="text-sm text-[var(--color-text-secondary)]">
               {t('auth.no_account')}{' '}
-              <button onClick={onNavigateToCreateAccount} className="font-bold text-[#38bdf8] hover:underline">
+              <button onClick={onNavigateToCreateAccount} className="font-bold text-[var(--color-info)] hover:underline">
                 {t('auth.sign_up')}
               </button>
             </p>

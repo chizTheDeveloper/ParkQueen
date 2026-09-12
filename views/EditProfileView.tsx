@@ -9,6 +9,7 @@ import { ChevronLeft, ChevronRight, Check, X, Loader2 } from 'lucide-react';
 import { moderateUsername, moderateDisplayName } from '../utils/moderation';
 import { useFocusOnMount } from '../hooks/useFocusOnMount';
 import { t, useLang } from '../i18n';
+import { useModalAccessibility } from '../hooks/useModalAccessibility';
 import {
   isDirty,
   resolveGenderFromStored,
@@ -29,7 +30,9 @@ function validateUsername(val: string): string | null {
   return moderateUsername(val);
 }
 
-const fieldClass = 'block w-full px-4 py-3.5 bg-transparent text-[var(--color-text)] outline-none text-sm placeholder:text-[var(--color-text-secondary)]';
+// text-[16px], not text-sm: iOS Safari zooms the page when a focused input is
+// under 16px, and never zooms back out.
+const fieldClass = 'block w-full px-4 py-3.5 bg-transparent text-[var(--color-text)] outline-none text-[16px] placeholder:text-[var(--color-text-secondary)]';
 const rowClass = 'bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl overflow-hidden';
 const sectionLabel = 'text-xs font-bold text-[var(--color-text)] uppercase tracking-wider';
 const microLabel = 'text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-secondary)]';
@@ -64,6 +67,8 @@ export const EditProfileView = ({ onBack }: { onBack: () => void }) => {
   const [saveError, setSaveError] = useState('');
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [showDiscardModal, setShowDiscardModal] = useState(false);
+  const discardDialogRef = useRef<HTMLDivElement>(null);
+  useModalAccessibility({ isOpen: showDiscardModal, dialogRef: discardDialogRef, onEscape: () => setShowDiscardModal(false) });
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -231,7 +236,7 @@ export const EditProfileView = ({ onBack }: { onBack: () => void }) => {
                 <span className={microLabel}>{t('edit_profile.username_label')}</span>
                 <p className="text-sm mt-0.5 text-[var(--color-text)]">{username || '—'}</p>
               </div>
-              <span className="text-xs font-semibold text-blue-400 flex items-center gap-1">
+              <span className="text-xs font-semibold text-[var(--color-accent)] flex items-center gap-1">
                 {t('edit_profile.username_edit')} <ChevronRight size={14} />
               </span>
             </button>
@@ -264,14 +269,14 @@ export const EditProfileView = ({ onBack }: { onBack: () => void }) => {
                 />
                 <div className="absolute right-4 top-1/2 -translate-y-1/2">
                   {usernameAvailability === 'checking' && <Loader2 size={16} className="text-[var(--color-text-secondary)] animate-spin" />}
-                  {usernameAvailability === 'available' && <Check size={16} className="text-emerald-400" />}
-                  {(usernameAvailability === 'taken' || usernameAvailability === 'invalid') && <X size={16} className="text-red-400" />}
+                  {usernameAvailability === 'available' && <Check size={16} className="text-[var(--color-success)]" />}
+                  {(usernameAvailability === 'taken' || usernameAvailability === 'invalid') && <X size={16} className="text-[var(--color-danger)]" />}
                   {usernameAvailability === 'unchanged' && <Check size={16} className="text-[var(--color-text-secondary)]" />}
                 </div>
               </div>
-              {usernameAvailability === 'available' && <p className="text-emerald-400 text-[10px] px-4 pb-2 font-semibold">{t('edit_profile.username_available')}</p>}
-              {usernameAvailability === 'taken' && <p className="text-red-400 text-[10px] px-4 pb-2 font-semibold">{t('edit_profile.username_taken')}</p>}
-              {usernameError && usernameAvailability === 'invalid' && <p className="text-red-400 text-[10px] px-4 pb-2">{usernameError}</p>}
+              {usernameAvailability === 'available' && <p className="text-[var(--color-success)] text-[10px] px-4 pb-2 font-semibold">{t('edit_profile.username_available')}</p>}
+              {usernameAvailability === 'taken' && <p className="text-[var(--color-danger)] text-[10px] px-4 pb-2 font-semibold">{t('edit_profile.username_taken')}</p>}
+              {usernameError && usernameAvailability === 'invalid' && <p className="text-[var(--color-danger)] text-[10px] px-4 pb-2">{usernameError}</p>}
             </div>
           )}
         </div>
@@ -385,8 +390,8 @@ export const EditProfileView = ({ onBack }: { onBack: () => void }) => {
         </div>
 
         {/* Feedback */}
-        {saveError && <p className="text-red-400 text-xs text-center">{saveError}</p>}
-        {saveSuccess && <p className="text-emerald-400 text-xs text-center font-semibold">{t('edit_profile.save_success')}</p>}
+        {saveError && <p className="text-[var(--color-danger)] text-xs text-center">{saveError}</p>}
+        {saveSuccess && <p className="text-[var(--color-success)] text-xs text-center font-semibold">{t('edit_profile.save_success')}</p>}
 
         {/* Save */}
         <button
@@ -395,8 +400,8 @@ export const EditProfileView = ({ onBack }: { onBack: () => void }) => {
           aria-disabled={!canSave}
           className="w-full py-3.5 rounded-2xl text-sm font-bold transition-all disabled:opacity-40 active:scale-95"
           style={{
-            background: canSave ? 'linear-gradient(90deg, #1e75ff, #0ea5e9)' : undefined,
-            backgroundColor: canSave ? undefined : '#1e75ff',
+            background: canSave ? 'linear-gradient(90deg, var(--color-brand), var(--color-brand-2))' : undefined,
+            backgroundColor: canSave ? undefined : 'var(--color-brand)',
             color: '#fff',
             boxShadow: canSave ? '0 4px 20px rgba(30,117,255,0.35)' : 'none',
           }}
@@ -409,6 +414,7 @@ export const EditProfileView = ({ onBack }: { onBack: () => void }) => {
       {/* Discard confirmation */}
       {showDiscardModal && (
         <div
+          ref={discardDialogRef}
           className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm px-4 pb-8 sm:pb-0"
           role="dialog"
           aria-modal="true"
@@ -426,7 +432,7 @@ export const EditProfileView = ({ onBack }: { onBack: () => void }) => {
               </button>
               <button
                 onClick={onBack}
-                className="flex-1 py-3 rounded-xl text-sm font-semibold bg-red-500/20 border border-red-500/30 text-red-400 hover:bg-red-500/30 transition-all"
+                className="flex-1 py-3 rounded-xl text-sm font-semibold bg-red-500/20 border border-red-500/30 text-[var(--color-danger)] hover:bg-red-500/30 transition-all"
               >
                 {t('edit_profile.unsaved_discard')}
               </button>

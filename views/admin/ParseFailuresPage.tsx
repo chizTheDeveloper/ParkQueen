@@ -148,7 +148,7 @@ function FailureRow({ failure, onUpdated }: { failure: ParseFailure; onUpdated: 
         <div className="mt-0.5 shrink-0">
           {isResolved
             ? <CheckCircle size={15} className={isIgnored ? 'text-gray-400' : 'text-green-500'} />
-            : <AlertCircle size={15} className="text-red-400" />}
+            : <AlertCircle size={15} className="text-[var(--color-danger)]" />}
         </div>
 
         <div className="flex-1 min-w-0">
@@ -361,7 +361,7 @@ export function ParseFailuresPage() {
         <p className="text-sm text-gray-400">Loading failures…</p>
       ) : error ? null : sorted.length === 0 ? (
         <div className="text-center py-10 text-gray-400">
-          <CheckCircle size={28} className="mx-auto mb-2 text-green-400" />
+          <CheckCircle size={28} className="mx-auto mb-2 text-[var(--color-success)]" />
           <p className="text-sm font-medium">
             {filter === 'unresolved' ? 'No unresolved parse failures.' : 'Nothing here.'}
           </p>

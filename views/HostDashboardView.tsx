@@ -50,7 +50,7 @@ export const HostDashboardView = () => {
             <span className="text-xs uppercase font-bold tracking-wider">Total Earnings</span>
           </div>
           <div className="text-2xl font-bold text-[var(--color-text)]">$3,210</div>
-          <div className="text-xs text-green-400 mt-1">+12% from last month</div>
+          <div className="text-xs text-[var(--color-success)] mt-1">+12% from last month</div>
         </div>
         <div className="bg-[var(--color-surface)] p-4 rounded-xl border border-[var(--color-border)]">
           <div className="flex items-center gap-2 text-[var(--color-text-secondary)] mb-2">

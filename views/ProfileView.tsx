@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useFocusOnMount } from '../hooks/useFocusOnMount';
+import { useModalAccessibility } from '../hooks/useModalAccessibility';
 import { getStorage, ref, uploadBytes } from 'firebase/storage';
 import { doc, setDoc, serverTimestamp, onSnapshot, collection, query, where, orderBy, limit, getDocs, getCountFromServer } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -45,6 +46,8 @@ export const ProfileView = ({ user, onBack, setView, unreadMessagesCount = 0, pe
   const [impactState, setImpactState] = useState<'loading' | 'loaded' | 'error'>('loading');
   const [impactCounts, setImpactCounts] = useState({ pingsShared: 0, successfulHandoffs: 0, spotsFound: 0 });
   const [showCrownsInfo, setShowCrownsInfo] = useState(false);
+  const crownsDialogRef = useRef<HTMLDivElement>(null);
+  useModalAccessibility({ isOpen: showCrownsInfo, dialogRef: crownsDialogRef, onEscape: () => setShowCrownsInfo(false) });
   useFocusOnMount(headingRef);
 
   const fmt = (ms: number) => {
@@ -568,6 +571,7 @@ export const ProfileView = ({ user, onBack, setView, unreadMessagesCount = 0, pe
       {/* Crowns info modal */}
       {showCrownsInfo && (
         <div
+          ref={crownsDialogRef}
           role="dialog"
           aria-modal="true"
           aria-labelledby="crowns-modal-title"
@@ -579,7 +583,7 @@ export const ProfileView = ({ user, onBack, setView, unreadMessagesCount = 0, pe
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center gap-2">
-              <Crown size={18} className="text-yellow-400 shrink-0" aria-hidden="true" />
+              <Crown size={18} className="text-[var(--color-warning)] shrink-0" aria-hidden="true" />
               <h3 id="crowns-modal-title" className="text-base font-extrabold text-[var(--color-text)]">
                 {t('profile.crowns_modal_title')}
               </h3>

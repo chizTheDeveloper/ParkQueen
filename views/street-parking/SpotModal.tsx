@@ -64,13 +64,13 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
             {view === 'main' ? (
                 <div>
                     <div className="flex flex-col items-center text-center mb-6">
-                        <p className="text-[10px] font-semibold tracking-widest uppercase text-[#38bdf8] mb-1">{t('ping_modal.eyebrow')}</p>
+                        <p className="text-[10px] font-semibold tracking-widest uppercase text-[var(--color-info)] mb-1">{t('ping_modal.eyebrow')}</p>
                         <h2 className="text-lg font-bold text-[var(--color-text)] leading-snug">
                             {isEditing ? t('ping_modal.title_edit') : t('ping_modal.title_new')}
                         </h2>
                         <p className="text-[12px] text-[var(--color-text-secondary)] mt-0.5">{t('ping_modal.subtitle')}</p>
                         <div className="flex items-center gap-1.5 mt-3 px-3 py-1.5 rounded-xl bg-[#1e75ff]/10 border border-[#1e75ff]/20 max-w-full">
-                            <MapPin size={12} className="text-[#38bdf8] shrink-0" />
+                            <MapPin size={12} className="text-[var(--color-info)] shrink-0" />
                             <p className="text-[12px] font-semibold text-[var(--color-text)] truncate">{spotAddress || t('ping_modal.locating')}</p>
                         </div>
                     </div>
@@ -85,7 +85,7 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                             }`}
                         >
                             <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                                pingType === 'now' ? 'bg-blue-500/20 text-blue-400' : 'bg-[var(--color-overlay)] text-[var(--color-text-secondary)]'
+                                pingType === 'now' ? 'bg-blue-500/20 text-[var(--color-accent)]' : 'bg-[var(--color-overlay)] text-[var(--color-text-secondary)]'
                             }`}>
                                 <Zap size={18} />
                             </div>
@@ -109,7 +109,7 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                             }`}
                         >
                             <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                                pingType === 'later' ? 'bg-blue-500/20 text-blue-400' : 'bg-[var(--color-overlay)] text-[var(--color-text-secondary)]'
+                                pingType === 'later' ? 'bg-blue-500/20 text-[var(--color-accent)]' : 'bg-[var(--color-overlay)] text-[var(--color-text-secondary)]'
                             }`}>
                                 <Clock size={18} />
                             </div>
@@ -135,12 +135,12 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                     </div>
 
                     {timeError && (
-                        <p className="mt-4 text-sm text-red-400 font-semibold text-center">{t('ping_modal.future_time_error')}</p>
+                        <p className="mt-4 text-sm text-[var(--color-danger)] font-semibold text-center">{t('ping_modal.future_time_error')}</p>
                     )}
                     <button
                         onClick={handleSetTime}
                         className="w-full mt-4 font-bold py-3.5 rounded-full flex items-center justify-center gap-2 text-white active:scale-95 transition-transform"
-                        style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}
+                        style={{ background: 'linear-gradient(90deg, var(--color-brand), var(--color-brand-2))' }}
                     >
                         <MapPin size={18} />
                         <span>{isEditing ? t('ping_modal.update') : pingType === 'later' ? t('ping_modal.schedule_ping') : t('ping_modal.ping_now')}</span>
@@ -158,7 +158,7 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                             <ChevronLeft size={18} className="text-[var(--color-text-secondary)]" />
                         </button>
                         <div>
-                            <p className="text-[10px] font-semibold tracking-widest uppercase text-[#38bdf8] mb-0.5">{t('ping_modal.schedule_eyebrow')}</p>
+                            <p className="text-[10px] font-semibold tracking-widest uppercase text-[var(--color-info)] mb-0.5">{t('ping_modal.schedule_eyebrow')}</p>
                             <p className="text-[16px] font-semibold text-[var(--color-text)] leading-tight">{t('ping_modal.schedule_title')}</p>
                             <p className="text-[12px] text-[var(--color-text-secondary)] mt-0.5">{t('ping_modal.schedule_subtitle')}</p>
                         </div>
@@ -177,7 +177,7 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                             className="w-full flex items-center gap-3 bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl px-4 py-3.5 text-left"
                         >
                             <div className="w-8 h-8 rounded-xl bg-blue-500/15 border border-blue-400/20 flex items-center justify-center shrink-0">
-                                <Calendar size={15} className="text-[#38bdf8]" />
+                                <Calendar size={15} className="text-[var(--color-info)]" />
                             </div>
                             <div className="flex-1 min-w-0">
                                 <p className="text-[11px] text-[var(--color-text-secondary)]">{scheduledDayLabel}</p>
@@ -207,7 +207,7 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                     <p className="text-[11px] text-[var(--color-text-secondary)] text-center mb-5 px-2 leading-relaxed">{t('ping_modal.schedule_helper')}</p>
 
                     {timeError && (
-                        <p className="mb-3 text-sm text-red-400 font-semibold text-center">{t('ping_modal.future_time_error')}</p>
+                        <p className="mb-3 text-sm text-[var(--color-danger)] font-semibold text-center">{t('ping_modal.future_time_error')}</p>
                     )}
                     <button
                         onClick={() => {
@@ -219,7 +219,7 @@ export const SpotModal: React.FC<SpotModalProps> = ({ isOpen, onClose, onSave, s
                             onSave(combined);
                         }}
                         className="w-full font-bold py-3.5 rounded-full flex items-center justify-center gap-2 text-white active:scale-95 transition-transform"
-                        style={{ background: 'linear-gradient(90deg, #1e75ff, #0ea5e9)' }}
+                        style={{ background: 'linear-gradient(90deg, var(--color-brand), var(--color-brand-2))' }}
                     >
                         <MapPin size={18} />
                         {isEditing ? t('ping_modal.update') : t('ping_modal.schedule_ping')}
