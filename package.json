@@ -13,9 +13,16 @@
     "test:storage:rules": "firebase emulators:exec --only storage \"npm run test:storage:rules:unit\"",
     "install:functions": "npm install --prefix functions",
     "test:functions": "firebase emulators:exec --only functions,firestore,auth,storage \"vitest run --config vite.functions.config.ts\"",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "cap:sync": "npm run build && npx cap sync",
+    "cap:copy": "npm run build && npx cap copy",
+    "cap:open:android": "npx cap open android",
+    "cap:open:ios": "npx cap open ios"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/ios": "^8.5.2",
     "@sentry/react": "^10.72.0",
     "firebase": "^10.8.0",
     "firebase-admin": "^13.6.1",
@@ -30,6 +37,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
+    "@capacitor/cli": "^8.5.2",
     "@firebase/rules-unit-testing": "^3.0.4",
     "@sentry/vite-plugin": "^5.4.0",
     "@types/mapbox-gl": "^3.4.1",
