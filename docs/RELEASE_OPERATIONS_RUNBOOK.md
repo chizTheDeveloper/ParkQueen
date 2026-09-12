@@ -49,6 +49,139 @@ In addition, confirm:
 
 ---
 
+## Release provenance
+
+Every production deploy must leave a **GitHub Release evidence card** that binds **git commit SHA ↔ Firebase live resource IDs**. Chat, agent memory, and screenshots are not the audit trail.
+
+### Required fields (every card)
+
+| Field | Requirement |
+|---|---|
+| `git_sha` | Full 40-character commit SHA on `main` that was authorized and deployed |
+| `tag` | Immutable Git tag / GitHub Release name (see tag rules) |
+| `utc_time` | Deploy time in ISO-8601 UTC (`…Z`). See multi-target timestamps |
+| `firebase_project` | `parkqueen-46475363-ccf36` (until a second project exists) |
+| `targets` | Exact subset deployed this action: `Hosting`, `Functions`, `Firestore Rules`, `Storage Rules`, `indexes` |
+| `initiator` | Person or agent who ran the deploy |
+| `approver` | Who gave go/no-go (normally Juan) |
+| `ci` | Link(s) to green CI runs on **this** `git_sha` for required gates |
+| `review` | PR numbers merged into the SHA, or explicit “already on main” note |
+| Live IDs | Hosting version ID and/or Ruleset IDs and/or Function `name→revision` (and hash if available) and/or indexes note — **only for targets in scope**; others `n/a` |
+| `rollback` | Prior Hosting version / prior ruleset ID / prior Functions SHA / indexes note |
+| `verified_by` / `verified_at` / `method` | Who confirmed live IDs match this card, when (UTC), how |
+
+A card with SHA/targets but **empty live IDs is incomplete** and must not be used to claim VERIFIED.
+
+### Tag rules (immutable)
+
+- **Product / multi-target cut:** `vX.Y.Z`
+- **Narrow single-target (or partial) cut:** `deploy/YYYYMMDD-<targets>-<shortsha>`  
+  Example: `deploy/20260912-firestore-rules-5d11695`
+- Tags are **immutable**:
+  - **Do not move** a production tag to a different commit.
+  - **Do not reuse** a tag name for a later deploy.
+  - **Do not delete** a production tag to “fix” history; publish a new tag/Release instead.
+- The tag must point at the exact authorized `git_sha` before or when the Release is published.
+- Prefer creating/publishing the GitHub Release **after** deploy succeeds, when live IDs are known (a draft Release pre-deploy is OK; publish only when the card is complete).
+
+### Multi-target timestamps
+
+- **One deploy action** = one evidence card.
+- If multiple Firebase targets are deployed in **one approved action** (same SHA, same approver, sequential `firebase deploy --only …` in one session):
+  - Set `utc_time` to the **session start** (first deploy command) in UTC.
+  - Also record **per-target live timestamps** under Live IDs (Hosting `releaseTime`, Rules `updateTime`, Functions `updateTime` for changed functions).
+- If targets are deployed in **separate** approvals or sessions, use **separate** tags/Releases — do not overload one card.
+- Never claim undeployed targets were updated by this card.
+
+### Evidence card template (GitHub Release body)
+
+```text
+# ParQueen production deploy
+
+- git_sha: <40-char SHA>
+- tag: <vX.Y.Z | deploy/…>
+- utc_time: <ISO-8601 Z>   # session start if multi-target same action
+- firebase_project: parkqueen-46475363-ccf36
+- targets: [Hosting | Functions | Firestore Rules | Storage Rules | indexes]
+- initiator: <person or agent>
+- approver: <Juan | …>
+- ci: <Actions run URL(s) on this SHA>
+- review: <PR #s or “on main” note>
+
+## Live resource IDs (fill after deploy)
+- hosting_version: <…/versions/… or n/a>
+- hosting_release_time: <Z or n/a>
+- firestore_ruleset: <…/rulesets/… or n/a>
+- firestore_rules_update_time: <Z or n/a>
+- storage_ruleset: <…/rulesets/… or n/a>
+- storage_rules_update_time: <Z or n/a>
+- functions: <name→revision→firebase-functions-hash for changed set, or n/a / unchanged>
+- indexes: <“composites match firestore.indexes.json @ SHA” + count, or n/a>
+
+## Rollback reference
+- hosting: prior version <id> / `firebase hosting:rollback`
+- firestore_rules: prior ruleset <id> or tree at <prior_sha>
+- storage_rules: prior ruleset <id> or tree at <prior_sha>
+- functions: redeploy from <prior_sha>
+- indexes: <rarely rolled back — note explicitly>
+
+## Verification
+- verified_by: <Release agent / person>
+- verified_at: <Z>
+- method: live API IDs match this card (+ rules content compare if Rules in targets)
+```
+
+### Canonical evidence location
+
+| Layer | Role |
+|---|---|
+| **GitHub Release** (canonical) | Evidence card + immutable `tag → git_sha` |
+| **Firebase live IDs** | What is actually running; re-read via ADC/REST |
+| **This runbook** | Process + template only — not the history log |
+
+Do not treat chat, agent memory, or console screenshots as the system of record.
+
+### Operator sequence
+
+1. Approver go/no-go on **SHA + exact target list**.
+2. Confirm CI green on that SHA; paste run URLs into the card.
+3. Deploy **only** the approved narrow `firebase deploy --only …` targets.
+4. Same session: capture live IDs (Hosting live version, Rules releases/rulesets, Functions revisions for changed names, indexes if targeted).
+5. Publish GitHub Release with the completed card.
+6. Release classifies each in-scope target VERIFIED or UNKNOWN per rules below.
+
+Optional (Hosting only): label the Hosting version with `git_sha` and `release_tag` via Hosting API. Helpful, not required if the Release card records `hosting_version`.
+
+### VERIFIED / UNKNOWN / INFERRED (Release classification)
+
+**Timing correlation alone never makes a SHA claim VERIFIED.**
+
+For claimed SHA `S` and target `T`:
+
+| Label | Meaning |
+|---|---|
+| **VERIFIED** | Live Firebase API resource for `T` matches the evidence card for `S` (see per-target rules). |
+| **UNKNOWN** | No complete card, missing live IDs, live ID ≠ card, or only headers / Last-Modified / merge-time proximity. |
+| **INFERRED** | Narrative footnote only (e.g. timing). **Must not** upgrade a SHA claim to VERIFIED. |
+
+**Per-target VERIFIED rules**
+
+| Target | VERIFIED iff |
+|---|---|
+| Hosting | Live `live` channel version ID **equals** `hosting_version` on the card for `S` |
+| Firestore Rules | Live `cloud.firestore` ruleset ID **equals** card, **or** live rules content is comment-stripped identical to `firestore.rules` at `S` |
+| Storage Rules | Same pattern for the Storage rules release/ruleset |
+| Functions | Each in-scope function’s live `revision` (and hash when recorded) **equals** the card for `S` |
+| indexes | Live composite index set structurally matches `firestore.indexes.json` at `S`; field overrides called out separately if not measured |
+
+**READY** (narrow cut): all **intended** targets on the card are VERIFIED. Other targets may remain UNKNOWN without blocking a rules-only READY.
+
+### Explicit non-goals
+
+- No custom provenance service, spreadsheet, or Firestore “releases” collection required.
+- No backfill of historical Hosting/Functions → git SHA unless a specific incident needs it.
+- Incomplete cards must not be published as production truth.
+
 ## Deployment steps
 
 ### Step 1: Prepare the release branch
@@ -289,7 +422,7 @@ Historical proposal:
 - Do not deploy directly from feature branches.
 - `audit/app-store-readiness-2026` findings must be cherry-picked to `main` after individual code review, not merged wholesale.
 - Never force-push `main`.
-- Tag each production deployment: `git tag -a v<major>.<minor>.<patch> -m "Release message"`.
+- Tag each production deployment per **Release provenance** (`vX.Y.Z` or `deploy/…`). Production release tags must **never** be moved or reused after publication; publish a new tag/Release instead.
 
 ---
 
