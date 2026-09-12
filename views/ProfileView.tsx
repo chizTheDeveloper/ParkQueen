@@ -571,14 +571,15 @@ export const ProfileView = ({ user, onBack, setView, unreadMessagesCount = 0, pe
       {/* Crowns info modal */}
       {showCrownsInfo && (
         <div
-          ref={crownsDialogRef}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="crowns-modal-title"
+          data-modal-root=""
           className="fixed inset-0 z-50 flex items-end justify-center p-4 bg-black/60 backdrop-blur-sm"
           onClick={() => setShowCrownsInfo(false)}
         >
           <div
+            ref={crownsDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="crowns-modal-title"
             className="w-full max-w-md bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl p-5 space-y-3"
             onClick={e => e.stopPropagation()}
           >
