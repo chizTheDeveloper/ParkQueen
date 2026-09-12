@@ -106,7 +106,12 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({
                     className="mobile-primary-nav-ping"
                 >
                     <span className="mobile-primary-nav-ping-orbit" aria-hidden="true">
-                        <span className="mobile-primary-nav-ping-core">
+                        {/* Spotlight anchor. The button box also covers the "Ping" label and
+                            this stack is absolutely positioned above that box, so measuring the
+                            button gives an oval sitting ~24px below the circle the user sees.
+                            Anchored on the core (the blue disc), not the cradle halo around it,
+                            so the ring stays clear of the neighbouring nav items. Decorative. */}
+                        <span data-tour-spotlight="share-spot" className="mobile-primary-nav-ping-core">
                             <img
                                 src={parqueenMark}
                                 alt=""

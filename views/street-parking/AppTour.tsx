@@ -21,11 +21,29 @@ const STEP_TARGETS = [
     { target: 'ai',         key: 'ai' },
 ] as const;
 
-function getTargetRect(target: string): DOMRect | null {
-    const matches = document.querySelectorAll<HTMLElement>(`[data-tour="${target}"]`);
-    for (const element of matches) {
+const SPOTLIGHT_SELECTOR = (target: string) => `[data-tour-spotlight="${target}"]`;
+
+/** True when the step's visible affordance is a separate element from its tour anchor. */
+function hasSpotlightAnchor(target: string): boolean {
+    for (const element of document.querySelectorAll<HTMLElement>(SPOTLIGHT_SELECTOR(target))) {
         const rect = element.getBoundingClientRect();
-        if (rect.width > 0 || rect.height > 0) return rect;
+        if (rect.width > 0 || rect.height > 0) return true;
+    }
+    return false;
+}
+
+function getTargetRect(target: string): DOMRect | null {
+    // A control whose layout box is not what the user sees can opt in a precise
+    // element. The nav Ping button is the case: its box includes the "Ping"
+    // label, and its round face is absolutely positioned 25px above that box, so
+    // measuring the button gives an oval sitting well below the actual circle.
+    // Falls back to the tour anchor, which is what steps 2-7 use.
+    const selectors = [SPOTLIGHT_SELECTOR(target), `[data-tour="${target}"]`];
+    for (const selector of selectors) {
+        for (const element of document.querySelectorAll<HTMLElement>(selector)) {
+            const rect = element.getBoundingClientRect();
+            if (rect.width > 0 || rect.height > 0) return rect;
+        }
     }
     return null;
 }
@@ -51,6 +69,13 @@ export const AppTour: React.FC<AppTourProps> = ({ onDone }) => {
     const [steps, setSteps] = useState<CoachStep[]>([]);
     const [stepIndex, setStepIndex] = useState(0);
     const [rect, setRect] = useState<DOMRect | null>(null);
+    // Card placement is expressed from the viewport bottom, so a stale height
+    // moves the card: mobile browsers change innerHeight when the URL bar
+    // collapses, and rotation changes both. Track it with the target rect.
+    const [viewport, setViewport] = useState(() => ({
+        w: typeof window === 'undefined' ? 0 : window.innerWidth,
+        h: typeof window === 'undefined' ? 0 : window.innerHeight,
+    }));
     const [visible, setVisible] = useState(false);
     const dismissedRef = useRef(false);
     const welcomeRef = useRef<HTMLDivElement>(null);
@@ -92,6 +117,9 @@ export const AppTour: React.FC<AppTourProps> = ({ onDone }) => {
     }, [dismiss]);
 
     const updateRect = useCallback(() => {
+        setViewport(v => (v.w === window.innerWidth && v.h === window.innerHeight
+            ? v
+            : { w: window.innerWidth, h: window.innerHeight }));
         if (phase !== 'coach' || steps.length === 0) return;
         const step = steps[stepIndex];
         if (step) setRect(getTargetRect(step.target));
@@ -229,15 +257,26 @@ export const AppTour: React.FC<AppTourProps> = ({ onDone }) => {
     const step = steps[stepIndex];
     if (!step || !rect) return null;
 
-    const PAD = 10;
+    // `precise` steps hug a round control: modest padding and a forced circle.
+    // Everything else keeps the original padding and free aspect ratio.
+    const precise = hasSpotlightAnchor(step.target);
+    const PAD = precise ? 8 : 10;
     const MIN = 44;
-    const ringW = Math.max(rect.width + PAD * 2, MIN);
-    const ringH = Math.max(rect.height + PAD * 2, MIN);
+    let ringW = Math.max(rect.width + PAD * 2, MIN);
+    let ringH = Math.max(rect.height + PAD * 2, MIN);
+    if (precise) {
+        const diameter = Math.max(ringW, ringH);
+        ringW = diameter;
+        ringH = diameter;
+    }
     const ringTop = rect.top + rect.height / 2 - ringH / 2;
     const ringLeft = rect.left + rect.width / 2 - ringW / 2;
+    // A control pinned to the bottom nav needs a touch more breathing room so the
+    // card never reads as sitting on top of the nav bar.
+    const GAP = precise ? 18 : 14;
 
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
+    const vw = viewport.w || window.innerWidth;
+    const vh = viewport.h || window.innerHeight;
     const tooltipW = Math.min(300, vw - 32);
     const tooltipLeft = Math.max(16, Math.min(vw - tooltipW - 16, vw / 2 - tooltipW / 2));
     const belowTarget = (rect.top + rect.height / 2) < vh / 2;
@@ -282,8 +321,8 @@ export const AppTour: React.FC<AppTourProps> = ({ onDone }) => {
                 style={{
                     position: 'fixed',
                     ...(belowTarget
-                        ? { top: ringTop + ringH + 14 }
-                        : { bottom: vh - ringTop + 14 }),
+                        ? { top: ringTop + ringH + GAP }
+                        : { bottom: vh - ringTop + GAP }),
                     left: tooltipLeft,
                     width: tooltipW,
                     zIndex: 42,
