@@ -615,11 +615,8 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
             </div>
             {radiusSheetOpen && (
                 <div
-                    ref={radiusDialogRef}
+                    data-modal-root=""
                     className="pq-sheet-overlay fixed inset-0 flex items-end justify-center"
-                    role="dialog"
-                    aria-modal="true"
-                    aria-label={t('nearby_activity.radius_sheet_title')}
                 >
                     <button
                         type="button"
@@ -627,10 +624,16 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                         onClick={() => setRadiusSheetOpen(false)}
                         className="absolute inset-0 bg-black/60"
                     />
-                    <div className="pq-sheet relative w-full max-w-md rounded-t-[26px] p-5"
+                    <div
+                        ref={radiusDialogRef}
+                        className="pq-sheet relative w-full max-w-md rounded-t-[26px] p-5"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label={t('nearby_activity.radius_sheet_title')}
                         // Clears the fixed bottom nav; inline so it beats
                         // the Tailwind padding utility emitted after our CSS.
-                        style={{ paddingBottom: 'calc(var(--mobile-primary-nav-space, 104px) + 8px)' }}>
+                        style={{ paddingBottom: 'calc(var(--mobile-primary-nav-space, 104px) + 8px)' }}
+                    >
                         <h2 className="text-[17px] font-extrabold text-[var(--color-text)]">
                             {t('nearby_activity.radius_sheet_title')}
                         </h2>

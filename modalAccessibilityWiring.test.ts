@@ -48,4 +48,51 @@ describe('shared modal accessibility wiring', () => {
     expect(streetParking).toMatch(/initialFocusRef=\{deletePingCancelRef\}/);
     expect(streetParking).toMatch(/ref=\{deletePingCancelRef\}/);
   });
+
+  it('wires discard/crowns/radius dialogs with data-modal-root and dialog role on the inner panel', () => {
+    const cases = [
+      {
+        file: 'views/EditProfileView.tsx',
+        modalRootMarker: 'data-modal-root=""',
+        dialogRef: 'ref={discardDialogRef}',
+        labelledBy: 'aria-labelledby="discard-title"',
+      },
+      {
+        file: 'views/ProfileView.tsx',
+        modalRootMarker: 'data-modal-root=""',
+        dialogRef: 'ref={crownsDialogRef}',
+        labelledBy: 'aria-labelledby="crowns-modal-title"',
+      },
+      {
+        file: 'views/NotificationsView.tsx',
+        modalRootMarker: 'data-modal-root=""',
+        dialogRef: 'ref={radiusDialogRef}',
+        labelledBy: "aria-label={t('nearby_activity.radius_sheet_title')}",
+      },
+    ] as const;
+
+    for (const { file, modalRootMarker, dialogRef, labelledBy } of cases) {
+      const source = read(file);
+      expect(source, `${file} must declare data-modal-root`).toContain(modalRootMarker);
+      expect(source, `${file} must keep dialogRef on the panel`).toContain(dialogRef);
+      expect(source, `${file} must keep accessible name`).toContain(labelledBy);
+
+      // dialogRef / role=dialog / aria-modal must not sit on the same element as data-modal-root
+      const rootIdx = source.indexOf(modalRootMarker);
+      expect(rootIdx, `${file} missing data-modal-root`).toBeGreaterThan(-1);
+      const afterRoot = source.slice(rootIdx);
+      // Find the opening tag that contains data-modal-root
+      const openEnd = afterRoot.indexOf('>');
+      const rootOpenTag = afterRoot.slice(0, openEnd + 1);
+      expect(rootOpenTag, `${file} overlay must not carry role=dialog`).not.toMatch(/role=["']dialog["']/);
+      expect(rootOpenTag, `${file} overlay must not carry dialogRef`).not.toContain(dialogRef);
+
+      // Inner panel after the modal root should carry role=dialog + aria-modal + the dialogRef
+      const panelRegion = afterRoot.slice(0, 1200);
+      expect(panelRegion, `${file} inner panel needs role=dialog`).toMatch(/role=["']dialog["']/);
+      expect(panelRegion, `${file} inner panel needs aria-modal`).toMatch(/aria-modal=["']true["']/);
+      expect(panelRegion, `${file} dialogRef should be near the dialog role`).toContain(dialogRef);
+    }
+  });
+
 });

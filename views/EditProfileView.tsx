@@ -414,13 +414,16 @@ export const EditProfileView = ({ onBack }: { onBack: () => void }) => {
       {/* Discard confirmation */}
       {showDiscardModal && (
         <div
-          ref={discardDialogRef}
+          data-modal-root=""
           className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm px-4 pb-8 sm:pb-0"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="discard-title"
         >
-          <div className="w-full max-w-sm bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl p-6 flex flex-col gap-4">
+          <div
+            ref={discardDialogRef}
+            className="w-full max-w-sm bg-[var(--color-card)] border border-[var(--color-border)] rounded-2xl p-6 flex flex-col gap-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="discard-title"
+          >
             <h2 id="discard-title" className="text-base font-bold">{t('edit_profile.unsaved_title')}</h2>
             <p className="text-sm text-[var(--color-text-secondary)]">{t('edit_profile.unsaved_body')}</p>
             <div className="flex gap-3">
