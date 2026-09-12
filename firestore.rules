@@ -119,7 +119,11 @@ service cloud.firestore {
       // goes through the requireCurrentAdmin-gated adminReadView callable
       // instead, which is a genuine hardening improvement over the previous
       // any-signed-in-user-capable direct query.
-      allow read: if signedIn();
+      // Phase A: stop client directory enumeration. Keep signed-in get-by-id
+      // (MessagesView). Deny list/query. Admin bulk reads use Admin SDK.
+      // Approach B (narrow peer projection) is a separate follow-up.
+      allow get: if signedIn();
+      allow list: if false;
       // Direct client CREATE disabled — claimUsername (functions/index.js) is
       // now the sole authoritative writer of the initial users/{uid} doc
       // (including its private/social and private/preferences siblings),
