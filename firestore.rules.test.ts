@@ -2877,6 +2877,44 @@ describe('§4 — users/{uid} vehicle and avatar allowlists', () => {
     });
 });
 
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// USERS DIRECTORY — Phase A: deny client list/query, keep signed-in get-by-id.
+// Closes P2 bulk enumeration. Approach B (narrow peer projection) is follow-up.
+// ═══════════════════════════════════════════════════════════════════════════════
+describe('users/{uid} directory — Phase A list deny / get-by-id', () => {
+    beforeEach(async () => {
+        await seed('users', OWNER_UID, { fullName: 'Alice', username: 'alice', avatarUrl: null });
+        await seed('users', OTHER_UID, { fullName: 'Bob', username: 'bob', avatarUrl: null });
+    });
+
+    it('UD-01: signed-in owner can get their own user doc', async () => {
+        await assertSucceeds(getDoc(doc(ownerDb(), 'users', OWNER_UID)));
+    });
+
+    it('UD-02: signed-in unrelated user can still get a known UID (interim Phase A design)', async () => {
+        await assertSucceeds(getDoc(doc(otherDb(), 'users', OWNER_UID)));
+    });
+
+    it('UD-03: signed-in client cannot list/query users (getDocs collection)', async () => {
+        await assertFails(getDocs(collection(ownerDb(), 'users')));
+        await assertFails(getDocs(collection(otherDb(), 'users')));
+    });
+
+    it('UD-04: signed-in client cannot query users with a filter', async () => {
+        const q = query(collection(ownerDb(), 'users'), where('username', '==', 'alice'));
+        await assertFails(getDocs(q));
+    });
+
+    it('UD-05: unauthenticated get of a user doc remains denied', async () => {
+        await assertFails(getDoc(doc(anonDb(), 'users', OWNER_UID)));
+    });
+
+    it('UD-06: unauthenticated list of users remains denied', async () => {
+        await assertFails(getDocs(collection(anonDb(), 'users')));
+    });
+});
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // PROFILE IDENTITY HARDENING — username/fullName authoritative write paths.
 // claimUsername/updateDisplayName (Admin SDK) are now the sole writers of
